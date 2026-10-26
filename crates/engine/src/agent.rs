@@ -138,19 +138,24 @@ impl Claude {
 }
 
 /// A return's top-level fields as a schema gives them, each with only its type: an agent's forms are under one field
-/// as an anyOf of objects, so it is an object.
+/// as an anyOf of objects, so it is an object, which says that the other fields sit beside it.
 fn envelope(schema: &Value) -> Value {
-    let props: serde_json::Map<String, Value> = schema["properties"]
-        .as_object()
-        .map(|ps| {
-            ps.iter()
-                .map(|(k, v)| {
-                    let t = v.get("type").cloned().unwrap_or_else(|| json!("object"));
-                    (k.clone(), json!({ "type": t }))
-                })
-                .collect()
+    let empty = serde_json::Map::new();
+    let ps = schema["properties"].as_object().unwrap_or(&empty);
+    let props: serde_json::Map<String, Value> = ps
+        .iter()
+        .map(|(k, v)| match v.get("type") {
+            Some(t) => (k.clone(), json!({ "type": t })),
+            None => {
+                let beside: Vec<&str> = ps.keys().filter(|x| *x != k).map(String::as_str).collect();
+                let desc = format!(
+                    "Exactly one of the forms the prompt's schema lists under {k}; {} sit beside it, not inside it",
+                    beside.join(" and ")
+                );
+                (k.clone(), json!({ "type": "object", "description": desc }))
+            }
         })
-        .unwrap_or_default();
+        .collect();
     json!({
         "type": "object",
         "properties": props,
@@ -274,7 +279,13 @@ mod tests {
             .collect();
         assert!(shapes.len() > 10);
         assert!(shapes.iter().all(|s| *s == shapes[0]));
-        assert_eq!(shapes[0]["properties"][&g.within], json!({ "type": "object" }));
+        assert_eq!(shapes[0]["properties"][&g.within]["type"], "object");
+        assert!(
+            shapes[0]["properties"][&g.within]["description"]
+                .as_str()
+                .unwrap()
+                .contains("side_reports")
+        );
     }
 
     #[test]
