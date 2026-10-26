@@ -41,10 +41,7 @@ pub enum Refused {
 impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Refused::Held {
-                path,
-                holder: Some(h),
-            } => write!(
+            Refused::Held { path, holder: Some(h) } => write!(
                 f,
                 "engine already running: process {} holds {}, taken {} seconds ago",
                 h.pid,

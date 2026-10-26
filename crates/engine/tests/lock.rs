@@ -49,10 +49,8 @@ fn a_second_lock_on_a_directory_is_refused_naming_the_holder_until_the_first_is_
         other => panic!("{other:?}"),
     }
     let said = refused.to_string();
-    assert!(
-        said.starts_with(&format!("engine already running: process {} holds ", std::process::id())),
-        "{said}"
-    );
+    let expected = format!("engine already running: process {} holds ", std::process::id());
+    assert!(said.starts_with(&expected), "{said}");
     drop(first);
     Lock::acquire(&d).unwrap();
     let _ = std::fs::remove_dir_all(&d);
