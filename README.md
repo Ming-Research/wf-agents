@@ -14,6 +14,7 @@ configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds
   repository.
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
+- `design/`: the design tree, the key decisions this project rests on, written as the flow's design tree rules say.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs.
 
 ## Checks
