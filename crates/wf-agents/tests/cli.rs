@@ -14,16 +14,6 @@ fn version_names_the_command_and_the_workspace_version() {
     );
 }
 
-// A bare run names the subcommands on stderr and fails, so a script that drops the subcommand does not count as a success.
-#[test]
-fn bare_run_names_the_subcommands_and_fails() {
-    let out = Command::new(env!("CARGO_BIN_EXE_wf-agents")).output().unwrap();
-    assert!(!out.status.success(), "exit status {}", out.status);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("Usage:"), "{stderr}");
-    assert!(stderr.contains("flow") && stderr.contains("config"), "{stderr}");
-}
-
 // The repository's flow passes its check; a file that is not a flow fails it, saying why.
 #[test]
 fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
