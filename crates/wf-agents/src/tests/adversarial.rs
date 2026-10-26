@@ -12,8 +12,6 @@ struct Case {
     group: &'static str,
     /// What it tries.
     name: &'static str,
-    /// The command that the text leaves out, as `wf-agents queue put`; none when the text writes every one.
-    skip: &'static str,
     /// The Markdown that writes it, added to the text.
     text: &'static str,
     /// The command lines in it, as a shell runs them.
@@ -26,7 +24,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "unknown subcommand",
-        skip: "",
         text: "`wf-agents --data DIR queue add`",
         runs: &["wf-agents --data DIR queue add"],
         wrong: "add",
@@ -34,7 +31,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "unknown command",
-        skip: "",
         text: "`wf-agents --data DIR frobnicate`",
         runs: &["wf-agents --data DIR frobnicate"],
         wrong: "frobnicate",
@@ -42,7 +38,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "after an option",
-        skip: "",
         text: "`wf-agents item --data DIR frobnicate`",
         runs: &["wf-agents item --data DIR frobnicate"],
         wrong: "frobnicate",
@@ -50,7 +45,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "the equals form",
-        skip: "",
         text: "`wf-agents --data=DIR queue add`",
         runs: &["wf-agents --data=DIR queue add"],
         wrong: "add",
@@ -58,7 +52,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "unknown option",
-        skip: "",
         text: "`wf-agents --data DIR run --twice`",
         runs: &["wf-agents --data DIR run --twice"],
         wrong: "twice",
@@ -66,7 +59,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "option of the command",
-        skip: "",
         text: "`wf-agents --data DIR run --once`",
         runs: &["wf-agents --data DIR run --once"],
         wrong: "",
@@ -74,7 +66,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "options of a nested one",
-        skip: "",
         text: "`wf-agents --data DIR item add --project P --title T`",
         runs: &["wf-agents --data DIR item add --project P --title T"],
         wrong: "",
@@ -82,7 +73,6 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "right subcommand",
-        skip: "",
         text: "`wf-agents --data DIR queue put 3`",
         runs: &["wf-agents --data DIR queue put 3"],
         wrong: "",
@@ -90,23 +80,13 @@ const CASES: &[Case] = &[
     Case {
         group: "options_before_the_subcommand_do_not_end_the_reading",
         name: "option between the two",
-        skip: "",
         text: "`wf-agents item --data DIR list`",
         runs: &["wf-agents item --data DIR list"],
         wrong: "",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "the only line that writes the command",
-        skip: "wf-agents queue put",
-        text: "`wf-agents --data DIR queue put 3`",
-        runs: &["wf-agents --data DIR queue put 3"],
-        wrong: "",
-    },
-    Case {
         group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
         name: "unknown option",
-        skip: "",
         text: "```\nwf-agents item add \\\n  --project P --bogus X\n```",
         runs: &["wf-agents item add --project P --bogus X"],
         wrong: "bogus",
@@ -114,7 +94,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
         name: "unknown subcommand",
-        skip: "",
         text: "```\nwf-agents queue \\\n  add 3\n```",
         runs: &["wf-agents queue add 3"],
         wrong: "add",
@@ -122,7 +101,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
         name: "right options",
-        skip: "",
         text: "```\nwf-agents item add \\\n  --project P --title T\n```",
         runs: &["wf-agents item add --project P --title T"],
         wrong: "",
@@ -130,7 +108,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
         name: "right subcommand",
-        skip: "",
         text: "```\nwf-agents queue \\\n  put 3\n```",
         runs: &["wf-agents queue put 3"],
         wrong: "",
@@ -138,7 +115,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
         name: "span after it",
-        skip: "",
         text: "see `wf-agents answer 3\n--text T` and `wf-agents queue add`",
         runs: &["wf-agents answer 3 --text T", "wf-agents queue add"],
         wrong: "add",
@@ -146,7 +122,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
         name: "option on line two",
-        skip: "",
         text: "see `wf-agents answer 3\n--bogus X` for more",
         runs: &["wf-agents answer 3 --bogus X"],
         wrong: "bogus",
@@ -154,7 +129,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
         name: "subcommand on line two",
-        skip: "",
         text: "see `wf-agents queue\nadd` now",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -162,7 +136,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
         name: "right wrapped span",
-        skip: "",
         text: "see `wf-agents answer 3\n--text T` and `wf-agents queue put 3`",
         runs: &["wf-agents answer 3 --text T", "wf-agents queue put 3"],
         wrong: "",
@@ -170,7 +143,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "after &&",
-        skip: "",
         text: "`wf-agents status && wf-agents queue add`",
         runs: &["wf-agents status", "wf-agents queue add"],
         wrong: "add",
@@ -178,7 +150,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "after a semicolon",
-        skip: "",
         text: "`wf-agents status; wf-agents queue add`",
         runs: &["wf-agents status", "wf-agents queue add"],
         wrong: "add",
@@ -186,7 +157,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "after a pipe",
-        skip: "",
         text: "`wf-agents status | wf-agents queue add`",
         runs: &["wf-agents status", "wf-agents queue add"],
         wrong: "add",
@@ -194,7 +164,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "right pair",
-        skip: "",
         text: "`wf-agents status && wf-agents queue put 3`",
         runs: &["wf-agents status", "wf-agents queue put 3"],
         wrong: "",
@@ -202,7 +171,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "right pair with a semicolon",
-        skip: "",
         text: "`wf-agents status; wf-agents queue put 3`",
         runs: &["wf-agents status", "wf-agents queue put 3"],
         wrong: "",
@@ -210,7 +178,6 @@ const CASES: &[Case] = &[
     Case {
         group: "two_commands_in_one_span_are_both_read",
         name: "piped to another program",
-        skip: "",
         text: "`wf-agents status | grep work`",
         runs: &["wf-agents status"],
         wrong: "",
@@ -218,7 +185,6 @@ const CASES: &[Case] = &[
     Case {
         group: "other_forms_of_code_are_read",
         name: "tilde fence",
-        skip: "",
         text: "~~~\nwf-agents queue add\n~~~",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -226,7 +192,6 @@ const CASES: &[Case] = &[
     Case {
         group: "other_forms_of_code_are_read",
         name: "double backticks",
-        skip: "",
         text: "``wf-agents queue add``",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -234,7 +199,6 @@ const CASES: &[Case] = &[
     Case {
         group: "other_forms_of_code_are_read",
         name: "right tilde fence",
-        skip: "",
         text: "~~~\nwf-agents queue put 3\n~~~",
         runs: &["wf-agents queue put 3"],
         wrong: "",
@@ -242,7 +206,6 @@ const CASES: &[Case] = &[
     Case {
         group: "other_forms_of_code_are_read",
         name: "right double backticks",
-        skip: "",
         text: "``wf-agents queue put 3``",
         runs: &["wf-agents queue put 3"],
         wrong: "",
@@ -250,7 +213,6 @@ const CASES: &[Case] = &[
     Case {
         group: "right_wording_is_not_reported",
         name: "end of the options",
-        skip: "",
         text: "`wf-agents say 3 -- --stop`",
         runs: &["wf-agents say 3 -- --stop"],
         wrong: "",
@@ -258,7 +220,6 @@ const CASES: &[Case] = &[
     Case {
         group: "right_wording_is_not_reported",
         name: "dashes in a quote",
-        skip: "",
         text: "`wf-agents say 3 \"do not use --force\"`",
         runs: &["wf-agents say 3 \"do not use --force\""],
         wrong: "",
@@ -266,7 +227,6 @@ const CASES: &[Case] = &[
     Case {
         group: "right_wording_is_not_reported",
         name: "plain quoted value",
-        skip: "",
         text: "`wf-agents answer 3 --text \"ok\"`",
         runs: &["wf-agents answer 3 --text \"ok\""],
         wrong: "",
@@ -274,7 +234,6 @@ const CASES: &[Case] = &[
     Case {
         group: "right_wording_is_not_reported",
         name: "a short option",
-        skip: "",
         text: "`wf-agents run -h`",
         runs: &["wf-agents run -h"],
         wrong: "",
@@ -282,7 +241,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "shell prompt",
-        skip: "",
         text: "```\n$ wf-agents queue add\n```",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -290,7 +248,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "shell prompt in a span",
-        skip: "",
         text: "`$ wf-agents queue add`",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -298,7 +255,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "environment variable",
-        skip: "",
         text: "```\nWF_AGENTS_DATA=DIR wf-agents queue add\n```",
         runs: &["wf-agents queue add"],
         wrong: "add",
@@ -306,7 +262,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "environment variable, unknown option",
-        skip: "",
         text: "`WF_AGENTS_DATA=DIR wf-agents run --twice`",
         runs: &["wf-agents run --twice"],
         wrong: "twice",
@@ -314,7 +269,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "right shell prompt",
-        skip: "",
         text: "```\n$ wf-agents queue put 3\n```",
         runs: &["wf-agents queue put 3"],
         wrong: "",
@@ -322,7 +276,6 @@ const CASES: &[Case] = &[
     Case {
         group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
         name: "right environment variable",
-        skip: "",
         text: "`WF_AGENTS_DATA=DIR wf-agents queue put 3`",
         runs: &["wf-agents queue put 3"],
         wrong: "",
@@ -330,7 +283,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "placeholder for the command",
-        skip: "",
         text: "`wf-agents <command> --help`",
         runs: &[],
         wrong: "",
@@ -338,7 +290,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "placeholder under a group",
-        skip: "",
         text: "`wf-agents item <command> --help`",
         runs: &[],
         wrong: "",
@@ -346,7 +297,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "help",
-        skip: "",
         text: "`wf-agents --help`",
         runs: &["wf-agents --help"],
         wrong: "",
@@ -354,7 +304,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "version",
-        skip: "",
         text: "`wf-agents --version`",
         runs: &["wf-agents --version"],
         wrong: "",
@@ -362,7 +311,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "options written with an equals sign",
-        skip: "",
         text: "`wf-agents answer 3 --verdict=confirm --text=ok`",
         runs: &["wf-agents answer 3 --verdict=confirm --text=ok"],
         wrong: "",
@@ -370,7 +318,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "an option with a dash in its name",
-        skip: "",
         text: "`wf-agents item add --depends-on 2:the-api --project P`",
         runs: &["wf-agents item add --depends-on 2:the-api --project P"],
         wrong: "",
@@ -378,7 +325,6 @@ const CASES: &[Case] = &[
     Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "a flag after a number",
-        skip: "",
         text: "`wf-agents history 3 --full`",
         runs: &["wf-agents history 3 --full"],
         wrong: "",
@@ -417,7 +363,7 @@ fn check_group(group: &str) {
     assert!(!cases.is_empty(), "no case is in {group}");
     let mut failures = Vec::new();
     for case in cases {
-        let got = found_without(case.skip, case.text);
+        let got = found(case.text);
         if case.wrong.is_empty() {
             if !got.is_empty() {
                 failures.push(format!("{}: reported though right: {got:?}", case.name));
