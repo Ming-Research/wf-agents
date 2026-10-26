@@ -84,9 +84,12 @@ fn a_lock_held_by_a_process_that_wrote_nothing_is_refused_without_naming_one() {
     let _held = hold(&d, b"");
     let refused = Lock::acquire(&d).unwrap_err();
     assert!(matches!(refused, Refused::Held { holder: None, .. }), "{refused:?}");
-    let said = refused.to_string();
-    assert!(said.contains("has not recorded who it is"), "{said}");
-    assert!(!said.contains("process "), "{said}");
+    // The message names the file and says nothing of a process number.
+    let expected = format!(
+        "another process holds {} and has not recorded who it is",
+        config::engine_lock(&d).display()
+    );
+    assert_eq!(refused.to_string(), expected);
     let _ = std::fs::remove_dir_all(&d);
 }
 
