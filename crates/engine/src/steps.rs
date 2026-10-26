@@ -2,6 +2,7 @@
 
 use db::Actor;
 use db::rusqlite::params;
+use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
 
@@ -589,9 +590,11 @@ fn ask(
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None);
     }
     let gathered = inputs::gather(e, w, g, cell, item)?;
+    // The card holds what the cells handed in: the question, how far the cell got, what failed. The history and the
+    // other tables the cell reads are in the database for the owner to look at.
     let asked: Vec<Value> = gathered
         .iter()
-        .filter(|x| x.value.is_some())
+        .filter(|x| x.value.is_some() && x.input.from.iter().all(|s| matches!(s, Src::Place(..))))
         .map(|x| json!({ "what": x.input.what, "value": x.value }))
         .collect();
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
