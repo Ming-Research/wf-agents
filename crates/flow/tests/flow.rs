@@ -27,10 +27,17 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
         (want("cells"), want("rows"), want("states"), want("places"))
     );
     let g = c.graph("engineer").unwrap();
+    // The reference holds an input with nothing to give, one read from the database or the repository, as held; the
+    // compiled flow says a session holds only inputs read from returns.
     for (k, v) in r["held"].as_object().unwrap() {
         let (cell, i) = k.split_once('.').unwrap();
-        let held = g.cell(cell).unwrap().inputs[i.parse::<usize>().unwrap()].held;
-        assert_eq!(held == Some(flow::Held::Session), v.as_bool().unwrap(), "input {k}");
+        let x = &g.cell(cell).unwrap().inputs[i.parse::<usize>().unwrap()];
+        let returns = x.from.iter().all(|s| matches!(s, flow::format::Src::Place(..)));
+        assert_eq!(
+            x.held == Some(flow::Held::Session),
+            returns && v.as_bool().unwrap(),
+            "input {k}"
+        );
     }
     for (k, v) in r["rules"].as_object().unwrap() {
         let (cell, rule) = k.split_once('.').unwrap();
