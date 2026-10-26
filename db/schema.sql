@@ -17,8 +17,9 @@
 -- - Times are UTC milliseconds since the Unix epoch.
 -- - JSON columns hold text that passes json_valid.
 -- - Cell, line and transition names are the ones in the flow version of the work they belong to.
--- - Project, machine, level and CLI names are the ones in the configuration. The configuration is not versioned: a
---   change applies from the next round on, and each round keeps the input it was actually given.
+-- - Project, machine, level and CLI names are the ones in the configuration. The configuration is not pinned to a
+--   work: a committed change applies from the next round on. Each round keeps the input it was actually given and
+--   the configuration commit it ran with.
 
 CREATE TABLE items (
   -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
@@ -197,6 +198,10 @@ CREATE TABLE rounds (
   -- Why the engine sent the return back or the run failed, JSON: a check it failed, a wrong format, an error, a
   -- timeout. NULL when the return was accepted. Read by: the history; the anomalies view.
   rejected TEXT CHECK (rejected IS NULL OR json_valid(rejected)),
+  -- The commit of the configuration the round ran with. The engine reads only committed configuration, so this
+  -- names every setting behind the round, including those that shaped the engine's own decisions and never reached
+  -- an agent's input. Read by: people and agents tracing why a round went the way it did.
+  config_commit TEXT NOT NULL,
   -- The model the round ran on; NULL when no model ran. Recorded each round because the configuration can change.
   model TEXT,
   -- Tokens and cost as the CLI reported them, JSON. Read by: the views of cost.
