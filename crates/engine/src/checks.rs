@@ -904,6 +904,17 @@ fn ruled_ids(c: &Ctx<'_>) -> Result<BTreeSet<String>, String> {
     Ok(out)
 }
 
+/// Whether a log says a test failed: a line names it with a word of failure besides its name. A red run's log lists
+/// the tests that passed too.
+fn names_failing(log: &str, name: &str) -> bool {
+    const FAILED: [&str; 6] = ["FAIL", "fail", "panicked", "----", "\u{2715}", "\u{2717}"];
+    !name.is_empty()
+        && log.lines().filter(|l| l.contains(name)).any(|l| {
+            let rest = l.replace(name, "");
+            FAILED.iter().any(|w| rest.contains(w))
+        })
+}
+
 /// A test said to be green on the head while every run on the head was red names it, or said to be red while every
 /// check on the head was green, does not match the runs; the same for the code before the change.
 fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String> {
@@ -918,7 +929,7 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
     let names_red = |checks: Option<&Value>, name: &str| {
         items(checks)
             .iter()
-            .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| l.contains(name)))
+            .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| names_failing(l, name)))
     };
     for t in items(v) {
         let name = t["name"].as_str().unwrap_or_default();
@@ -961,6 +972,16 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
+        let log = "test a::passes ... ok\ntest a::breaks ... FAILED\n---- a::panics stdout ----\ntest a::fails_cleanly ... ok";
+        assert!(!names_failing(log, "passes"));
+        assert!(!names_failing(log, "fails_cleanly"));
+        assert!(names_failing(log, "breaks"));
+        assert!(names_failing(log, "panics"));
+        assert!(!names_failing(log, ""));
+    }
 
     #[test]
     fn cited_paths_are_found_in_text() {
