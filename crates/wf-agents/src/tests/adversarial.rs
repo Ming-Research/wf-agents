@@ -479,14 +479,12 @@ fn the_cases_agree_with_clap() {
 // A global option before the subcommand does not end the reading of the command line: the subcommand after it is
 // looked up, and the options that follow are the options of that command.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn options_before_the_subcommand_do_not_end_the_reading() {
     check_group("options_before_the_subcommand_do_not_end_the_reading");
 }
 
 // A command line wrapped with a backslash is one command line: the words on its next line are read too.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn a_command_line_wrapped_with_a_backslash_is_read_whole() {
     check_group("a_command_line_wrapped_with_a_backslash_is_read_whole");
 }
@@ -494,14 +492,12 @@ fn a_command_line_wrapped_with_a_backslash_is_read_whole() {
 // A code span that wraps onto the next line is one span: what stands on its second line is read, and the spans after
 // it on that line are still found.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn a_code_span_that_wraps_does_not_hide_the_spans_after_it() {
     check_group("a_code_span_that_wraps_does_not_hide_the_spans_after_it");
 }
 
 // Two commands in one code span are both read: the one after `&&`, `;` or `|` is a command line of its own.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn two_commands_in_one_span_are_both_read() {
     check_group("two_commands_in_one_span_are_both_read");
 }
@@ -509,7 +505,6 @@ fn two_commands_in_one_span_are_both_read() {
 // Command lines in the other forms Markdown has for code are read: a block fenced with tildes, and a span in double
 // backticks.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn other_forms_of_code_are_read() {
     check_group("other_forms_of_code_are_read");
 }
@@ -517,7 +512,6 @@ fn other_forms_of_code_are_read() {
 // Right wording is not reported: the end of the options, a quoted value that holds a word with dashes, and a short
 // option.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn right_wording_is_not_reported() {
     check_group("right_wording_is_not_reported");
 }
@@ -525,7 +519,6 @@ fn right_wording_is_not_reported() {
 // A shell prompt or an environment variable before the command does not hide it: the README gives the data directory
 // in `WF_AGENTS_DATA`, and a shell session shows the command after its prompt.
 #[test]
-#[ignore = "temporary: the first failing test stops the run of the tests after it"]
 fn a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it() {
     check_group("a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it");
 }
