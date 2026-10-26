@@ -467,7 +467,10 @@ fn the_cases_agree_with_clap() {
                 failures.push(format!("{}: clap turns down a right line: {turned_down:?}", case.name));
             }
         } else if !turned_down.iter().any(|message| message.contains(case.wrong)) {
-            failures.push(format!("{}: clap does not name {}: {turned_down:?}", case.name, case.wrong));
+            failures.push(format!(
+                "{}: clap does not name {}: {turned_down:?}",
+                case.name, case.wrong
+            ));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
