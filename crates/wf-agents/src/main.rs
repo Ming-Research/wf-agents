@@ -484,8 +484,11 @@ mod tests {
             let line = line.trim();
             let marker = line.chars().next().filter(|c| matches!(*c, '`' | '~'));
             let run = marker.map_or(0, |m| line.chars().take_while(|c| *c == m).count());
+            // The info string of a block fenced with backticks has no backtick in it: ```code``` is a code span.
+            let ticks_after = line[run..].contains('`');
+            let opens = run >= 3 && (marker == Some('~') || !ticks_after);
             match fence {
-                None if run >= 3 => {
+                None if opens => {
                     out.extend(spans(&paragraph.join("\n")));
                     paragraph.clear();
                     fence = marker.map(|m| (m, run));
@@ -576,16 +579,30 @@ mod tests {
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
-    /// The words of a command from the program's name on, when it runs `wf-agents`: a shell prompt and the variables
-    /// set before the program are left out.
+    /// The reserved words of a shell that stand before a command in a loop, a condition or a negation.
+    const KEYWORDS: [&str; 9] = ["if", "then", "elif", "else", "do", "while", "until", "!", "{"];
+
+    /// Whether a word stands before a command and is not part of it: a shell prompt, a variable set for the command,
+    /// or a reserved word.
+    fn precedes_command(word: &str) -> bool {
+        word == "$" || is_assignment(word) || KEYWORDS.contains(&word)
+    }
+
+    /// Whether a word names the program: `wf-agents`, or a path that ends in it, such as `./target/release/wf-agents`.
+    fn is_program(word: &str) -> bool {
+        word.rsplit('/').next() == Some("wf-agents")
+    }
+
+    /// The words of a command from the program's name on, when it runs `wf-agents`: what stands before the program is
+    /// left out.
     fn from_program(mut words: Vec<String>) -> Option<Vec<String>> {
         let before = words
             .iter()
             .map(String::as_str)
-            .take_while(|w| *w == "$" || is_assignment(w))
+            .take_while(|w| precedes_command(w))
             .count();
         let words = words.split_off(before);
-        let program = words.first().map(String::as_str) == Some("wf-agents");
+        let program = words.first().is_some_and(|w| is_program(w));
         program.then_some(words)
     }
 
