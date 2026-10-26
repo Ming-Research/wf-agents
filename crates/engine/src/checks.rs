@@ -154,6 +154,25 @@ impl Ctx<'_> {
         Ok(rows.into_iter().map(|r| r["result"].clone()).collect())
     }
 
+    /// Whether a gh command or a query, as an agent writes it, is one this work handed in.
+    fn handed_in(&self, command: &str) -> Result<bool, String> {
+        let plain = |s: &str| s.trim().trim_start_matches("gh ").trim().to_string();
+        let want = plain(command);
+        if want.is_empty() {
+            return Ok(false);
+        }
+        let rows = work::query_json(
+            self.e.db.conn(),
+            "SELECT coalesce(json_extract(t.args, '$.command'), json_extract(t.args, '$.sql')) AS given
+             FROM tool_runs t JOIN rounds r ON r.id = t.round WHERE r.work = ?1 AND t.tool IN ('gh', 'query')",
+            &[&self.w.id],
+            10_000,
+        )?;
+        Ok(rows
+            .iter()
+            .any(|r| r["given"].as_str().is_some_and(|g| plain(g) == want)))
+    }
+
     fn pushed_head(&self) -> Result<Option<String>, String> {
         self.e
             .db
@@ -651,27 +670,21 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             for b in bases.iter().filter(|b| b["kind"] == "fact") {
                 let run = b["run"].as_str().unwrap_or_default();
-                // A run is cited by a link its result holds, or by the number of its tool run.
-                let number: i64 = run
-                    .trim()
-                    .trim_start_matches("tool run")
-                    .trim_start_matches("tool_run")
-                    .trim_start_matches([' ', ':', '#'])
-                    .parse()
-                    .unwrap_or(-1);
-                let n: i64 =
+                let linked: i64 =
                     c.e.db
                         .conn()
                         .query_row(
                             "SELECT count(*) FROM tool_runs t JOIN rounds r ON r.id = t.round
-                         WHERE r.work = ?1 AND (t.id = ?3 OR (?2 <> '' AND instr(t.result, ?2) > 0))",
-                            db::rusqlite::params![c.w.id, run, number],
+                         WHERE r.work = ?1 AND ?2 <> '' AND instr(t.result, ?2) > 0",
+                            db::rusqlite::params![c.w.id, run],
                             |r| r.get(0),
                         )
                         .map_err(|e| e.to_string())?;
-                if n == 0 {
+                // A gh command or a query has no link: it is cited by what was handed in.
+                let check = b["check"].as_str().unwrap_or_default();
+                if linked == 0 && !c.handed_in(check)? {
                     return fail(format!(
-                        "the run {run:?} is not one the engine recorded for this work: give a link from the tool's result, or its tool_run number"
+                        "the run {run:?} is not one the engine recorded for this work: give the link from the tool's result, or, for a gh command or a query, write it in check as you handed it in"
                     ));
                 }
             }
