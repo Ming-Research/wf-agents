@@ -504,6 +504,125 @@ const CASES: &[Case] = &[
         runs: &["wf-agents run --once"],
         wrong: "",
     },
+    Case {
+        group: "a_command_in_a_subshell_or_a_substitution_is_read",
+        name: "a subshell",
+        text: "`(cd DIR && wf-agents status)`",
+        runs: &["wf-agents status"],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_in_a_subshell_or_a_substitution_is_read",
+        name: "a subshell, a right option",
+        text: "`(cd DIR && wf-agents run --once)`",
+        runs: &["wf-agents run --once"],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_in_a_subshell_or_a_substitution_is_read",
+        name: "a subshell, a wrong subcommand",
+        text: "`(cd DIR && wf-agents queue add)`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_in_a_subshell_or_a_substitution_is_read",
+        name: "a command substitution",
+        text: "`wf-agents say 3 $(wf-agents queue add)`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_in_a_subshell_or_a_substitution_is_read",
+        name: "a right command substitution",
+        text: "`wf-agents say 3 $(wf-agents status)`",
+        runs: &["wf-agents status"],
+        wrong: "",
+    },
+    Case {
+        group: "a_block_quote_is_read_without_its_marker",
+        name: "a fence in a block quote",
+        text: "> ```sh\n> wf-agents queue add\n> ```",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_block_quote_is_read_without_its_marker",
+        name: "a right fence in a block quote",
+        text: "> ```sh\n> wf-agents status\n> ```",
+        runs: &["wf-agents status"],
+        wrong: "",
+    },
+    Case {
+        group: "a_block_quote_is_read_without_its_marker",
+        name: "a span that wraps in a block quote",
+        text: "> run `wf-agents queue\n> add 3` now",
+        runs: &["wf-agents queue add 3"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_block_quote_is_read_without_its_marker",
+        name: "a right span that wraps in a block quote",
+        text: "> run `wf-agents queue\n> put 3` now",
+        runs: &["wf-agents queue put 3"],
+        wrong: "",
+    },
+    Case {
+        group: "a_block_quote_is_read_without_its_marker",
+        name: "a right span on one line of a block quote",
+        text: "> run `wf-agents queue put 3` now",
+        runs: &["wf-agents queue put 3"],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_in_an_indented_code_block_is_read",
+        name: "four spaces after a blank line",
+        text: "Run it:\n\n    wf-agents queue add",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_in_an_indented_code_block_is_read",
+        name: "a tab after a blank line",
+        text: "Run it:\n\n\twf-agents queue add",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_in_an_indented_code_block_is_read",
+        name: "a right line in an indented block",
+        text: "Run it:\n\n    wf-agents queue put 3",
+        runs: &["wf-agents queue put 3"],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_in_an_indented_code_block_is_read",
+        name: "an indented line that goes on with a paragraph",
+        text: "Prose that goes on\n    wf-agents belongs to no project",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_in_an_indented_code_block_is_read",
+        name: "a second paragraph of a list item",
+        text: "\n1. Do it first.\n\n    wf-agents runs the flow by steps.",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        group: "an_escaped_backtick_does_not_open_a_code_span",
+        name: "an escaped backtick before a span",
+        text: "type \\` to quote it, then run `wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "an_escaped_backtick_does_not_open_a_code_span",
+        name: "a backslash before the closing backtick of a span",
+        text: "`wf-agents status \\` `wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
 ];
 
 /// What the check finds in the text that writes every command once, except `skip`, followed by `extra`.
@@ -691,6 +810,38 @@ fn a_code_span_does_not_run_over_into_the_next_block() {
 #[test]
 fn a_command_after_a_utility_that_runs_it_is_read() {
     check_group("a_command_after_a_utility_that_runs_it_is_read");
+}
+
+// A command in a subshell or a command substitution is a command line of its own, and `)` ends a word: POSIX shell
+// command language, token recognition (`(` and `)` are operators), command substitution and grouping commands.
+// `(cd DIR && wf-agents status)` is right, and must not be reported for `status)`.
+#[test]
+fn a_command_in_a_subshell_or_a_substitution_is_read() {
+    check_group("a_command_in_a_subshell_or_a_substitution_is_read");
+}
+
+// A block quote is read without its marker: the `>` that begins each line is not part of a fence's code or of a code
+// span that wraps (CommonMark 0.31, section 5.1: block quotes). A fence in a quote, as in a GitHub alert, is code.
+#[test]
+fn a_block_quote_is_read_without_its_marker() {
+    check_group("a_block_quote_is_read_without_its_marker");
+}
+
+// A line indented by four spaces or a tab, after a blank line, is a code block of its own (CommonMark 0.31, section
+// 4.4: indented code blocks); one that goes on with a paragraph, or that is the second paragraph of a list item with
+// less than four spaces beyond the item's text, is not. Judgment: the design says to write command lines in code font
+// or in a fenced block, so the engineer may call this test wrong; A1 asks for every command line written in code.
+#[test]
+fn a_command_in_an_indented_code_block_is_read() {
+    check_group("a_command_in_an_indented_code_block_is_read");
+}
+
+// A backslash before a backtick makes it a backtick in the text, not the start of a code span (CommonMark 0.31,
+// section 2.4: backslash escapes), and a backslash does not escape in a code span (section 6.1), so one before the
+// closing backtick of a span does not hide what comes after it.
+#[test]
+fn an_escaped_backtick_does_not_open_a_code_span() {
+    check_group("an_escaped_backtick_does_not_open_a_code_span");
 }
 
 // Placeholders and the options every command has are not reported, whatever the check does with the words after them.
