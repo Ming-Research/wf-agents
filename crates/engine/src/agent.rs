@@ -74,6 +74,21 @@ impl Claude {
 
 impl Agents for Claude {
     fn run(&self, r: &Request) -> Reply {
+        let reply = Claude::once(r);
+        // A session whose first round was cut off exists, though no round of it ever ended: resume it.
+        let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
+        if r.resume.is_none() && reply.output.is_none() && in_use {
+            return Claude::once(&Request {
+                resume: Some(r.new_session.clone()),
+                ..r.clone()
+            });
+        }
+        reply
+    }
+}
+
+impl Claude {
+    fn once(r: &Request) -> Reply {
         let mut reply = Reply {
             session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
             ..Reply::default()

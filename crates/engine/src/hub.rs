@@ -203,6 +203,18 @@ impl GitHub for Gh {
         title_body: Option<(&str, &str)>,
         existing: Option<i64>,
     ) -> Result<i64, Failure> {
+        // A PR opened before the engine could record it, by a run that stopped, is the work's PR still.
+        let existing = match existing {
+            Some(n) => Some(n),
+            None => {
+                let open = self.json(&[
+                    "pr", "list", "-R", repo, "--head", branch, "--state", "open", "--json", "number",
+                ])?;
+                open.as_array()
+                    .and_then(|ps| ps.first())
+                    .and_then(|p| p["number"].as_i64())
+            }
+        };
         if let Some(n) = existing {
             if let Some((title, body)) = title_body {
                 self.run(&[
