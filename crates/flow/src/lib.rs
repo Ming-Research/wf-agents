@@ -39,6 +39,9 @@ use graph::Graph;
 /// The format `flow.json` is written in.
 pub const FORMAT: &str = "wf-agents flow 1";
 
+/// The flow the engine runs, as this repository's `flow/flow.json` has it.
+pub const FLOW: &str = include_str!("../../../flow/flow.json");
+
 /// What the flow is checked against besides itself.
 #[derive(Debug, Clone, Default)]
 pub struct Context {

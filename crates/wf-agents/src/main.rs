@@ -9,6 +9,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
+    /// The data directory: the configuration, the rules and the database.
+    #[arg(long, global = true, env = "WF_AGENTS_DATA")]
+    data: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -18,6 +21,9 @@ enum Command {
     /// The flow the engine runs.
     #[command(subcommand)]
     Flow(FlowCommand),
+    /// The configuration in the data directory.
+    #[command(subcommand)]
+    Config(ConfigCommand),
 }
 
 #[derive(Subcommand)]
@@ -34,10 +40,19 @@ enum FlowCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Checks the configuration as the data directory's files are now, committed or not, against the flow this
+    /// command runs.
+    Check,
+}
+
 fn main() -> ExitCode {
-    let result = match Cli::parse().command {
+    let cli = Cli::parse();
+    let result = match cli.command {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
+        Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -67,5 +82,31 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
         );
     }
     println!("digest {}", compiled.digest());
+    Ok(())
+}
+
+fn data(dir: Option<&Path>) -> Result<&Path, String> {
+    dir.ok_or_else(|| "no data directory: pass --data or set WF_AGENTS_DATA".to_string())
+}
+
+/// The flow this command runs, compiled against the database it creates.
+fn compiled() -> Result<flow::Compiled, String> {
+    let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
+    flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())
+}
+
+fn config_check(dir: &Path) -> Result<(), String> {
+    let c = config::working(dir).map_err(|e| e.to_string())?;
+    let problems = c.check(&compiled()?);
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
+    println!(
+        "{}: {} projects ({}), {} rules",
+        dir.display(),
+        c.projects.len(),
+        c.projects.keys().cloned().collect::<Vec<_>>().join(", "),
+        c.rules.len()
+    );
     Ok(())
 }
