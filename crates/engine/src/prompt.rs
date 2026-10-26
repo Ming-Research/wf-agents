@@ -8,7 +8,9 @@ use crate::Engine;
 use crate::inputs::Gathered;
 use crate::work::{Item, Work};
 
-/// The columns the table review answers, each with its number, for the review of this round.
+/// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
+/// at disputes only has none; one that looks at what changed has them all, since which columns a change concerns is
+/// not worked out in this version.
 pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &Item) -> Vec<(String, String)> {
     let rule = |name: &str| {
         g.rules
@@ -20,6 +22,13 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
     let mut cols: Vec<String> = Vec::new();
     match cell.id.as_str() {
         "5a" => {
+            let review = crate::inputs::last_return(e, w, g, "18", "plan")
+                .ok()
+                .flatten()
+                .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
+            if review.as_ref().and_then(Value::as_str) == Some("disputes") {
+                return Vec::new();
+            }
             let table = rule("review_table");
             let project = e.config.config.projects.get(&item.project);
             if item.deliver == "report" {
