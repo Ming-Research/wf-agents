@@ -568,6 +568,11 @@ pub fn database(dir: &Path) -> PathBuf {
     dir.join("db").join("wf-agents.sqlite")
 }
 
+/// The file whose lock keeps a second engine off a data directory.
+pub fn engine_lock(dir: &Path) -> PathBuf {
+    dir.join("engine.lock")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

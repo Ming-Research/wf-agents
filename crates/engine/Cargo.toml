@@ -13,5 +13,10 @@ flow = { path = "../flow" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
+# Its own `main`: the test starts a copy of itself as the process that holds the lock.
+[[test]]
+name = "lock_process"
+harness = false
+
 [lints]
 workspace = true

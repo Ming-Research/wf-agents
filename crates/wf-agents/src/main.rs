@@ -353,9 +353,12 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI.
 fn run(d: &Path, once: bool) -> Result<(), String> {
+    // The lock comes first, before anything of the data directory is read or changed: a second engine on it is refused
+    // here, and the engine below, which needs the lock, keeps it until this function returns.
+    let lock = engine::Lock::acquire(d).map_err(|e| e.to_string())?;
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
-    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
+    let mut e = engine::Engine::new(lock, committed, Box::new(engine::agent::Claude), Box::new(github))?;
     e.say = Box::new(|s| eprintln!("{} {s}", db::now() / 1000));
     if once {
         e.tick()?;

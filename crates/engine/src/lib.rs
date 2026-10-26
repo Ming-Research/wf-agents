@@ -10,6 +10,7 @@
 pub mod agent;
 pub mod git;
 pub mod hub;
+pub mod lock;
 
 mod actions;
 mod checks;
@@ -21,7 +22,7 @@ mod values;
 mod work;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use db::rusqlite::params;
 use db::{Actor, Db};
@@ -29,6 +30,7 @@ use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
 pub use checks::CARD_RULING;
+pub use lock::{Holder, Lock, Refused};
 pub use work::{Item, Round, Work, json_col, query_json};
 
 use agent::Agents;
@@ -63,18 +65,21 @@ pub struct Engine {
     pub flow_now: i64,
     /// Where the engine says what it does and what went wrong.
     pub say: Box<dyn Fn(&str)>,
+    // The data directory's lock, held until the engine is dropped. It is the last field so the database closes first.
+    _lock: Lock,
 }
 
 impl Engine {
-    /// An engine on a data directory, with its committed configuration; the flow built into it is stored as a flow
-    /// version if it is new.
+    /// An engine on the data directory the lock is on, with its committed configuration; the flow built into it is
+    /// stored as a flow version if it is new.
     pub fn new(
-        data: &Path,
+        lock: Lock,
         config: config::Committed,
         agents: Box<dyn Agents>,
         github: Box<dyn GitHub>,
     ) -> Result<Engine, String> {
-        let path = config::database(data);
+        let data = lock.dir().to_path_buf();
+        let path = config::database(&data);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
@@ -104,13 +109,14 @@ impl Engine {
         flows.insert(flow_now, compiled);
         Ok(Engine {
             db,
-            data: data.to_path_buf(),
+            data,
             config,
             agents,
             github,
             flows,
             flow_now,
             say: Box::new(|s| eprintln!("{s}")),
+            _lock: lock,
         })
     }
 

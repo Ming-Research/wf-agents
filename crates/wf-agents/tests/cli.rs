@@ -105,3 +105,28 @@ fixes = 5
     assert!(String::from_utf8_lossy(&out.stderr).contains("the flow has no counter nonsense"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// A second `run`, and a second `run --once`, on a data directory whose lock another process holds are refused and name
+// the process that holds it. The directory is empty: the lock is taken before the configuration is read, so a start
+// that is not refused fails for another reason and says another thing. About 50 ms.
+#[test]
+fn a_second_run_and_a_second_once_are_refused_naming_the_holder() {
+    let dir = std::env::temp_dir().join(format!("wf-agents-cli-lock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // This process holds the lock, as an engine would.
+    let _lock = engine::Lock::acquire(&dir).unwrap();
+    for args in [vec!["run"], vec!["run", "--once"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+            .args(&args)
+            .arg("--data")
+            .arg(&dir)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?} was not refused");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let holder = format!("engine already running: process {} holds", std::process::id());
+        assert!(stderr.contains(&holder), "{args:?}: {stderr}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

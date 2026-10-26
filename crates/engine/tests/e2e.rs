@@ -12,7 +12,7 @@ use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine};
+use engine::{Advance, Engine, Lock};
 use serde_json::{Value, json};
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -404,7 +404,8 @@ fn an_item_goes_from_the_queue_to_main() {
         prs: RefCell::new(BTreeMap::new()),
     };
     let committed = config::committed(&s.data).unwrap();
-    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
+    let lock = Lock::acquire(&s.data).unwrap();
+    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(hub)).unwrap();
     let said = Rc::new(RefCell::new(Vec::<String>::new()));
     let log = said.clone();
     e.say = Box::new(move |x| log.borrow_mut().push(x.to_string()));
