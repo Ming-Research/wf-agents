@@ -651,18 +651,28 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             for b in bases.iter().filter(|b| b["kind"] == "fact") {
                 let run = b["run"].as_str().unwrap_or_default();
+                // A run is cited by a link its result holds, or by the number of its tool run.
+                let number: i64 = run
+                    .trim()
+                    .trim_start_matches("tool run")
+                    .trim_start_matches("tool_run")
+                    .trim_start_matches([' ', ':', '#'])
+                    .parse()
+                    .unwrap_or(-1);
                 let n: i64 =
                     c.e.db
                         .conn()
                         .query_row(
                             "SELECT count(*) FROM tool_runs t JOIN rounds r ON r.id = t.round
-                         WHERE r.work = ?1 AND ?2 <> '' AND instr(t.result, ?2) > 0",
-                            db::rusqlite::params![c.w.id, run],
+                         WHERE r.work = ?1 AND (t.id = ?3 OR (?2 <> '' AND instr(t.result, ?2) > 0))",
+                            db::rusqlite::params![c.w.id, run, number],
                             |r| r.get(0),
                         )
                         .map_err(|e| e.to_string())?;
                 if n == 0 {
-                    return fail(format!("the run {run:?} is not one the engine recorded for this work"));
+                    return fail(format!(
+                        "the run {run:?} is not one the engine recorded for this work: give a link from the tool's result, or its tool_run number"
+                    ));
                 }
             }
             Ok(())

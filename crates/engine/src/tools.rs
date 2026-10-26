@@ -45,7 +45,13 @@ fn attempts(
             )
             .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
         let id = e.db.conn().last_insert_rowid();
-        let got = f();
+        // A result carries its row's number, so that an agent can cite a run that has no link, such as a query.
+        let got = f().map(|mut v| {
+            if let Some(o) = v.as_object_mut() {
+                o.insert("tool_run".into(), json!(id));
+            }
+            v
+        });
         let result = match &got {
             Ok(v) => v.clone(),
             Err(x) => json!({ "failed": { "kind": x.kind, "what": x.what } }),
@@ -488,18 +494,16 @@ fn gh(
     if let Some(why) = gh_refusal(&e.config.config.install.gh.allow, &args) {
         return Ok(json!({ "ran": { "verdict": "not_allowed", "why": why } }));
     }
-    let (code, out) = attempts(e, round, "gh", req, || {
+    let v = attempts(e, round, "gh", req, || {
         let dir = w.worktree.as_deref().unwrap_or(&project.checkout);
         let (code, out) = e.github.gh(dir, &args)?;
-        Ok(json!([code, out]))
-    })
-    .map(|v| {
-        (
-            v[0].as_i64().unwrap_or(-1),
-            v[1].as_str().unwrap_or_default().to_string(),
-        )
+        Ok(json!({ "exit": code, "output": out }))
     })?;
-    Ok(json!({ "ran": { "verdict": "ran", "exit": code, "output": inline_or_saved(e, round, n, out) } }))
+    let out = v["output"].as_str().unwrap_or_default().to_string();
+    Ok(json!({
+        "ran": { "verdict": "ran", "exit": v["exit"], "output": inline_or_saved(e, round, n, out) },
+        "tool_run": v["tool_run"],
+    }))
 }
 
 fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
