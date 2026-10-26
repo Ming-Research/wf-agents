@@ -46,13 +46,20 @@ fn need_met(project: &config::Project, need: &str) -> bool {
     project.has(need).unwrap_or(false)
 }
 
-/// The inputs as recorded in a round: what each was, and its value.
+/// The inputs as recorded in a round: what each was, and its value; the history stands for the rounds before.
 fn recorded_inputs(gathered: &[Gathered]) -> Value {
     Value::Array(
         gathered
             .iter()
             .filter(|x| !x.itself())
-            .map(|x| json!({ "what": x.input.what, "value": x.value, "held": x.held() }))
+            .map(|x| {
+                let value = if x.history() {
+                    json!(inputs::EARLIER)
+                } else {
+                    json!(x.value)
+                };
+                json!({ "what": x.input.what, "value": value, "held": x.held() })
+            })
             .collect(),
     )
 }
@@ -67,11 +74,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return not_applicable(e, w, g, cell, need);
     }
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    // A round the engine itself cut off is not a return sent back.
+    // A round the engine itself cut off is not a return sent back, and a work the owner let go on after it paused
+    // counts afresh.
+    let resumed = work::resumed_at(e.db.conn(), w.id)?;
     let rejected: Vec<&Round> = at_cell
         .iter()
         .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
-        .take_while(|r| r.rejected.is_some())
+        .take_while(|r| r.rejected.is_some() && resumed.is_none_or(|t| r.started_at > t))
         .collect();
     let reason = rejected
         .first()
@@ -204,7 +213,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .map_err(sql)?;
     }
     let ended = Ended {
-        usage: Some(reply.usage.clone()).filter(|u| !u.is_null()),
+        usage: Some(round_cost(reply.usage.clone(), &line_rounds)).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         ..Ended::default()
@@ -256,6 +265,23 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after)
+}
+
+/// The CLI reports what its session has cost so far, the rounds it resumed from included; a round's own cost is what
+/// that grew by since the session's last round that reported it.
+fn round_cost(mut usage: Value, line_rounds: &[Round]) -> Value {
+    let Some(total) = usage["session_cost_usd"].as_f64() else {
+        return usage;
+    };
+    let before = line_rounds
+        .iter()
+        .rev()
+        .find_map(|r| r.usage.as_ref().and_then(|u| u["session_cost_usd"].as_f64()));
+    usage["cost_usd"] = json!(match before {
+        Some(b) if b <= total => total - b,
+        _ => total,
+    });
+    usage
 }
 
 fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advance, String> {
@@ -686,4 +712,36 @@ fn choose_checks(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Value, S
         review = "changed";
     }
     Ok(json!({ "plan": { "review": review, "adversarial": adv } }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round(usage: Value) -> Round {
+        Round {
+            id: 1,
+            cell: None,
+            session: Some(1),
+            input: Value::Null,
+            output: None,
+            transition: None,
+            rejected: None,
+            compactions: 0,
+            started_at: 0,
+            ended_at: Some(0),
+            usage: Some(usage),
+        }
+    }
+
+    #[test]
+    fn a_round_costs_what_its_session_grew_by() {
+        let u = |c: f64| json!({ "session_cost_usd": c });
+        assert_eq!(round_cost(u(1.5), &[])["cost_usd"], 1.5);
+        let before = [round(u(1.5)), round(json!({ "started": true }))];
+        assert_eq!(round_cost(u(4.0), &before)["cost_usd"], 2.5);
+        // A session the CLI counted afresh costs what it reports.
+        assert_eq!(round_cost(u(0.5), &before)["cost_usd"], 0.5);
+        assert_eq!(round_cost(json!({ "started": true }), &[]), json!({ "started": true }));
+    }
 }

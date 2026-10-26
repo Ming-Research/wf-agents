@@ -450,6 +450,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .iter()
                 .filter_map(|a| a["id"].as_str().map(str::to_string))
                 .collect();
+            if wanted.is_empty() && !ids.is_empty() {
+                return fail(
+                    "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change",
+                );
+            }
             if let Some(x) = ids.iter().find(|i| !wanted.contains(i)) {
                 return fail(format!("{x} is not an acceptance condition"));
             }

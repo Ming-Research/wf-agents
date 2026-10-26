@@ -193,7 +193,11 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             }
         }
         "lock_new_acceptance" => {
-            let Some(acceptance) = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance")) else {
+            // No conditions at all is not new acceptance: the reply left them as they are.
+            let Some(acceptance) = at_value
+                .or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"))
+                .filter(|a| a.as_array().is_none_or(|xs| !xs.is_empty()))
+            else {
                 return Ok(());
             };
             tx.execute(

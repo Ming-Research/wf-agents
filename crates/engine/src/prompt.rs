@@ -1,6 +1,5 @@
 //! The text an agent's round is given: the interjections waiting for it, the rules and inputs its session does not
-//! hold yet, the cell's question, and what the return must hold. The return's shape is given to the CLI as a JSON
-//! Schema besides.
+//! hold yet, the cell's question, and what the return must hold, as the JSON Schema the engine checks it against.
 
 use flow::{CompiledCell, CompiledGraph, Held};
 use serde_json::{Map, Value};
@@ -228,7 +227,12 @@ pub fn agent(
     if let Some(d) = cell.schema.as_ref().and_then(|s| s["description"].as_str()) {
         push(d);
     }
-    push("Hand in one JSON object that fits the JSON Schema you are given, and nothing else.");
+    push("Hand in one JSON object that fits this JSON Schema, and nothing else:\n");
+    let schema = cell
+        .schema
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({ "type": "object" }));
+    push(&format!("```json\n{schema}\n```"));
     if let Some(r) = rejected {
         push(&format!(
             "\nYour last return was sent back: {r}\nHand it in again, put right."

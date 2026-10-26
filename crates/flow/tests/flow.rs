@@ -99,6 +99,31 @@ fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {
     assert_eq!(g.take("18", &s["json"], &given).unwrap().name, "interjection");
 }
 
+// A return that does not fit says where and how, following the alternative it picks.
+#[test]
+fn a_return_that_does_not_fit_says_where() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let sample = &samples["2b"][0]["json"];
+    let refused = |edit: &dyn Fn(&mut Value)| {
+        let mut x = sample.clone();
+        edit(&mut x);
+        g.take("2b", &x, &Map::new()).unwrap_err()
+    };
+    let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
+    assert!(
+        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "yes", "no""#),
+        "{e}"
+    );
+    let e = refused(&|x| {
+        x["outcome"]["better"].as_object_mut().unwrap().remove("why");
+    });
+    assert!(e.ends_with("outcome.better has no why"), "{e}");
+    let e = refused(&|x| x["outcome"] = Value::String(x["outcome"].to_string()));
+    assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
+}
+
 // An agent's return schema holds its forms one level down, and a field a form leaves out is not required.
 #[test]
 fn an_agent_schema_holds_its_forms_in_outcome() {

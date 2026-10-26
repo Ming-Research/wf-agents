@@ -145,7 +145,7 @@ pub struct CompiledCell {
     pub prompt_by: Option<PromptBy>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forms: Vec<Form>,
-    /// What the cell's return must be, as JSON Schema; for an agent, what `claude -p --json-schema` is given.
+    /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
     pub rows: Vec<CompiledRow>,
@@ -188,9 +188,9 @@ impl CompiledGraph {
     pub fn take(&self, cell: &str, ret: &Value, given: &Map<String, Value>) -> Result<&CompiledRow, String> {
         let c = self.cell(cell).ok_or_else(|| format!("no such cell: {cell}"))?;
         if let Some(s) = &c.schema
-            && !valid(s, ret)
+            && let Some(why) = misfit(s, ret, "")
         {
-            return Err(format!("the return does not fit the schema of {cell}"));
+            return Err(format!("the return does not fit the schema of {cell}: {why}"));
         }
         let x = if c.kind == CellKind::Agent.name() {
             self.unwrap(ret)
@@ -285,6 +285,163 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
         Atom::Has(p) => !values(p).is_empty(),
         Atom::Is(p, vs) | Atom::AnyOf(p, vs) => hit(p, vs),
         Atom::NoneOf(p, vs) => !hit(p, vs),
+    }
+}
+
+/// Where `x` does not fit `s`, and why, in words that say how to put it right; none when it fits. Of alternatives,
+/// the one the value picks by a field whose fixed value tells them apart, or else the only one that has every field
+/// the value has, is followed.
+pub fn misfit(s: &Value, x: &Value, at: &str) -> Option<String> {
+    if valid(s, x) {
+        return None;
+    }
+    let o = s.as_object()?;
+    let here = if at.is_empty() { "the return" } else { at };
+    if let Some(c) = o.get("const") {
+        return Some(format!("{here} is {x}, and must be {c}"));
+    }
+    if let Some(Value::Array(e)) = o.get("enum") {
+        return Some(format!("{here} is {x}, and must be one of {}", joined(e.iter())));
+    }
+    match (o.get("oneOf"), o.get("anyOf")) {
+        (Some(Value::Array(bs)), _) => return Some(alternatives(bs, x, at, here)),
+        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return Some(alternatives(bs, x, at, here)),
+        _ => {}
+    }
+    let kind = kind_of(x);
+    match o.get("type").and_then(Value::as_str).unwrap_or_default() {
+        "array" => {
+            let Some(xs) = x.as_array() else {
+                return Some(format!("{here} must be a list, and is {kind}"));
+            };
+            let min = o.get("minItems").and_then(Value::as_u64).unwrap_or(0);
+            if (xs.len() as u64) < min {
+                return Some(format!("{here} must hold at least {min}, and holds {}", xs.len()));
+            }
+            let it = o.get("items")?;
+            xs.iter()
+                .enumerate()
+                .find_map(|(i, v)| misfit(it, v, &format!("{at}[{i}]")))
+        }
+        "object" => {
+            let Some(xo) = x.as_object() else {
+                return Some(format!("{here} must be an object, and is {kind}"));
+            };
+            let empty = Map::new();
+            let props = o.get("properties").and_then(Value::as_object).unwrap_or(&empty);
+            let required = o.get("required").and_then(Value::as_array).cloned().unwrap_or_default();
+            if let Some(r) = required.iter().filter_map(Value::as_str).find(|r| !xo.contains_key(*r)) {
+                return Some(format!("{here} has no {r}"));
+            }
+            if o.get("additionalProperties") == Some(&Value::Bool(false))
+                && let Some(k) = xo.keys().find(|k| !props.contains_key(*k))
+            {
+                return Some(format!(
+                    "{here} has {k}, which is not one of its fields: {}",
+                    props.keys().cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if let Some(m) = xo
+                .iter()
+                .find_map(|(k, v)| props.get(k).and_then(|p| misfit(p, v, &field(at, k))))
+            {
+                return Some(m);
+            }
+            match o.get("anyOf") {
+                Some(Value::Array(bs)) => Some(alternatives(bs, x, at, here)),
+                _ => Some(format!("{here} does not fit")),
+            }
+        }
+        t => Some(format!("{here} must be {}, and is {kind}", a_kind(t))),
+    }
+}
+
+fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str) -> String {
+    if bs.iter().filter(|b| valid(b, x)).count() > 1 {
+        return format!("{here} fits more than one of its alternatives");
+    }
+    let Some(xo) = x.as_object() else {
+        if bs.iter().all(|b| b["type"] == "object") {
+            return format!("{here} must be an object, and is {}", kind_of(x));
+        }
+        return format!("{here} is {}, and fits none of its alternatives", kind_of(x));
+    };
+    // A field every alternative fixes, which tells them apart.
+    for (k, v) in xo {
+        let fixed: Vec<&Value> = bs
+            .iter()
+            .filter_map(|b| b.get("properties").and_then(|p| p.get(k)).and_then(|p| p.get("const")))
+            .collect();
+        if fixed.len() != bs.len() {
+            continue;
+        }
+        let picked: Vec<&Value> = bs.iter().filter(|b| b["properties"][k]["const"] == *v).collect();
+        match picked.as_slice() {
+            [] => {
+                return format!(
+                    "{} is {v}, and must be one of {}",
+                    field(at, k),
+                    joined(fixed.into_iter())
+                );
+            }
+            [b] => return misfit(b, x, at).unwrap_or_else(|| format!("{here} does not fit")),
+            _ => {}
+        }
+    }
+    let has_all = |b: &&Value| {
+        b.get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|p| !xo.is_empty() && xo.keys().all(|k| p.contains_key(k)))
+    };
+    let named: Vec<&Value> = bs.iter().filter(has_all).collect();
+    if let [b] = named.as_slice()
+        && let Some(m) = misfit(b, x, at)
+    {
+        return m;
+    }
+    let shapes: Vec<String> = bs
+        .iter()
+        .map(|b| match b.get("properties").and_then(Value::as_object) {
+            Some(p) if !p.is_empty() => p.keys().cloned().collect::<Vec<_>>().join(", "),
+            _ => "nothing".to_string(),
+        })
+        .collect();
+    format!(
+        "{here} holds {}, and fits none of its alternatives, which hold: {}",
+        xo.keys().cloned().collect::<Vec<_>>().join(", "),
+        shapes.join("; or ")
+    )
+}
+
+fn field(at: &str, k: &str) -> String {
+    if at.is_empty() {
+        k.to_string()
+    } else {
+        format!("{at}.{k}")
+    }
+}
+
+fn joined<'a>(vs: impl Iterator<Item = &'a Value>) -> String {
+    vs.map(Value::to_string).collect::<Vec<_>>().join(", ")
+}
+
+fn kind_of(x: &Value) -> &'static str {
+    match x {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "a list",
+        Value::Object(_) => "an object",
+    }
+}
+
+fn a_kind(t: &str) -> String {
+    match t {
+        "string" => "a string".into(),
+        "integer" => "an integer".into(),
+        "boolean" => "a boolean".into(),
+        other => format!("of type {other}"),
     }
 }
 
@@ -424,8 +581,8 @@ impl Schemas<'_> {
     }
 
     /// An agent returns exactly one of its forms, inside the field the flow names, with the fields that come every
-    /// time. The forms are an anyOf one level down: `claude -p --json-schema` takes none at the top. A field a form
-    /// leaves out is not required; the engine checks it is there for the other forms.
+    /// time. The forms are an anyOf one level down, in that field. A field a form leaves out is not required; the
+    /// engine checks it is there for the other forms.
     fn cell(&self, g: &Graph, c: &Cell) -> Option<Value> {
         if c.out.is_empty() {
             return None;

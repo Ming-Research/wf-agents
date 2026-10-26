@@ -209,6 +209,18 @@ pub fn rounds(conn: &Connection, work: i64) -> Result<Vec<Round>, String> {
         .map_err(sql)
 }
 
+/// When the owner last let the work go on after it paused, if ever.
+pub fn resumed_at(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
+    conn.query_row(
+        "SELECT max(at) FROM changes
+         WHERE table_name = 'works' AND json_extract(row_key, '$.id') = ?1
+           AND json_extract(old_row, '$.paused') IS NOT NULL AND json_extract(new_row, '$.paused') IS NULL",
+        [work],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
 /// The round of the work still running or waiting, if any.
 pub fn open_round(conn: &Connection, work: i64) -> Result<Option<Round>, String> {
     conn.query_row(
