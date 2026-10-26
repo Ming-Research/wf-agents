@@ -266,8 +266,8 @@ fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advanc
     Ok(Advance::Moved)
 }
 
-/// A gate whose need the project's configuration does not answer is not asked: the engine takes its not-applicable
-/// row, and says why.
+/// A gate whose need the project's configuration does not answer is not asked: the engine answers not applicable
+/// where the gate's answer has that, and no otherwise, and says why.
 fn not_applicable(
     e: &mut Engine,
     w: &Work,
@@ -283,14 +283,21 @@ fn not_applicable(
         .cloned()
         .unwrap_or_default();
     let why = format!("Not asked: this question needs what this project does not have. {desc}");
+    let has_answer = cell
+        .schema
+        .as_ref()
+        .and_then(|s| s.pointer(&format!("/properties/{}/anyOf/0/properties/answer", g.within)))
+        .is_some();
+    let own = if has_answer {
+        json!({ "answer": { "verdict": "not_applicable", "why": why } })
+    } else {
+        json!({})
+    };
     let mut output = Map::new();
-    output.insert(
-        g.within.clone(),
-        json!({ "answer": { "verdict": "not_applicable", "why": why } }),
-    );
+    output.insert(g.within.clone(), own);
     output.insert(
         "progress".into(),
-        json!(format!("The engine answered not applicable: {need}.")),
+        json!(format!("The engine answered not applicable: {why}")),
     );
     output.insert("side_reports".into(), json!([]));
     let output = Value::Object(output);
