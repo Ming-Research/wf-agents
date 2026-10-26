@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 
 use engine::{Holder, Lock, Refused};
 
+/// The text of a lock file, and the process number and time it names as holder; none when it names no one.
+type Case<'a> = (&'a [u8], Option<(u32, i64)>);
+
 /// A new empty directory for one test.
 fn dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("wf-agents-lock-{name}-{}", std::process::id()));
@@ -92,7 +95,7 @@ fn a_lock_held_by_a_process_that_wrote_nothing_is_refused_without_naming_one() {
 #[test]
 fn text_in_a_held_lock_file_that_is_not_a_process_and_a_time_names_no_holder() {
     let long = format!("1 2\n{}", "x".repeat(1000));
-    let texts: [(&[u8], Option<(u32, i64)>); 11] = [
+    let texts: [Case<'_>; 11] = [
         (b"12 345\n", Some((12, 345))),
         (b"12 345", None),
         (b"12 345\n\n", None),
