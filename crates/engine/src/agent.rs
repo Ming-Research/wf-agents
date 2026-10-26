@@ -21,7 +21,7 @@ pub struct Request {
     pub resume: Option<String>,
     pub new_session: String,
     pub prompt: String,
-    /// What the return must be, as JSON Schema.
+    /// What the return must be, as JSON Schema; the prompt gives it too.
     pub schema: Value,
 }
 
@@ -33,7 +33,8 @@ pub struct Reply {
     /// The CLI's session the round ran in.
     pub session: String,
     pub model: Option<String>,
-    /// Tokens and cost as the CLI reported them.
+    /// Tokens and cost as the CLI reported them. The cost and the tokens by model are the session's so far, the
+    /// rounds it resumed from included; the other tokens are this round's.
     pub usage: Value,
     pub compactions: i64,
     /// Why the run failed, when it did.
@@ -59,7 +60,10 @@ impl Claude {
             "--model",
             r.model.as_str(),
         ]);
-        c.arg("--json-schema").arg(r.schema.to_string());
+        // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to
+        // the next would leave nothing of the session's prompt cache: every round is given the same one, any object,
+        // and the cell's own schema is in the prompt. The engine checks the return against it.
+        c.arg("--json-schema").arg(r#"{"type":"object"}"#);
         if let Some(e) = &r.effort {
             c.args(["--effort", e.as_str()]);
         }
@@ -157,7 +161,7 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                 }
                 reply.usage = serde_json::json!({
                     "usage": v["usage"],
-                    "cost_usd": v["total_cost_usd"],
+                    "session_cost_usd": v["total_cost_usd"],
                     "turns": v["num_turns"],
                     "duration_ms": v["duration_ms"],
                     "models": v["modelUsage"],
@@ -229,7 +233,7 @@ mod tests {
         assert_eq!(r.model.as_deref(), Some("claude-opus-5-5"));
         assert_eq!(r.compactions, 1);
         assert_eq!(r.output.unwrap()["progress"], "p");
-        assert_eq!(r.usage["cost_usd"], 0.5);
+        assert_eq!(r.usage["session_cost_usd"], 0.5);
         assert!(r.error.is_none());
     }
 

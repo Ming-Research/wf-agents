@@ -145,7 +145,7 @@ pub struct CompiledCell {
     pub prompt_by: Option<PromptBy>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forms: Vec<Form>,
-    /// What the cell's return must be, as JSON Schema; for an agent, what `claude -p --json-schema` is given.
+    /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
     pub rows: Vec<CompiledRow>,
@@ -424,8 +424,8 @@ impl Schemas<'_> {
     }
 
     /// An agent returns exactly one of its forms, inside the field the flow names, with the fields that come every
-    /// time. The forms are an anyOf one level down: `claude -p --json-schema` takes none at the top. A field a form
-    /// leaves out is not required; the engine checks it is there for the other forms.
+    /// time. The forms are an anyOf one level down, in that field. A field a form leaves out is not required; the
+    /// engine checks it is there for the other forms.
     fn cell(&self, g: &Graph, c: &Cell) -> Option<Value> {
         if c.out.is_empty() {
             return None;
