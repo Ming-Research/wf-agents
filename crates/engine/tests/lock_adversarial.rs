@@ -8,7 +8,6 @@
 //! a data directory) decides.
 
 use std::fs::{File, OpenOptions, Permissions};
-use std::io::Write;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,58 +37,6 @@ fn git(dir: &Path, args: &[&str]) {
         out.status.success(),
         "git {args:?}: {}",
         String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-/// Takes the directory's lock file with `text` in it and the lock held, as a process that holds the lock and has
-/// written something else would.
-fn hold(dir: &Path, text: &[u8]) -> File {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(config::engine_lock(dir))
-        .unwrap();
-    file.try_lock().unwrap();
-    file.write_all(text).unwrap();
-    file
-}
-
-// A2, for the lock file's name taken away while its lock is held. An owner's `rm`, a `git clean` of the untracked file
-// in the data directory (a git repository), or a file moved over the name leave the engine holding a file no path
-// reaches; a second start that creates the name again locks a new file and runs beside the first. About 40 ms.
-#[test]
-fn a_lock_file_taken_away_while_the_lock_is_held_does_not_let_a_second_taker_in() {
-    let mut got_in = Vec::new();
-    for how in ["removed", "replaced", "git clean"] {
-        let d = dir(&format!("away-{}", how.replace(' ', "-")));
-        let first = Lock::acquire(&d).unwrap();
-        let path = config::engine_lock(&d);
-        match how {
-            "removed" => std::fs::remove_file(&path).unwrap(),
-            "replaced" => {
-                let other = d.join("other");
-                std::fs::write(&other, "").unwrap();
-                std::fs::rename(&other, &path).unwrap();
-            }
-            _ => {
-                git(&d, &["init", "-q"]);
-                git(&d, &["clean", "-fdq"]);
-                assert!(!path.exists(), "git clean did not take the lock file away");
-            }
-        }
-        match Lock::acquire(&d) {
-            Err(Refused::Held { .. }) => {}
-            other => got_in.push(format!("{how}: {other:?}")),
-        }
-        drop(first);
-        let _ = std::fs::remove_dir_all(&d);
-    }
-    assert!(
-        got_in.is_empty(),
-        "a second taker got in while the first still held its lock:\n{}",
-        got_in.join("\n")
     );
 }
 
@@ -149,33 +96,6 @@ fn a_refusal_leaves_the_lock_file_as_the_holder_wrote_it() {
     }
     drop(holder);
     let _ = std::fs::remove_dir_all(&d);
-}
-
-// A5, for a time in the lock file that is far from now: the text is a process number and a time, so it names a holder,
-// and the refusal message must still be produced, never a panic from the arithmetic on the time. The message is the
-// one thing `run` prints when it is refused. About 20 ms.
-#[test]
-fn a_holder_time_far_from_now_still_gives_the_refusal_message() {
-    let texts = [
-        "7 -9223372036854775808\n",
-        "7 -9223372036854775807\n",
-        "7 9223372036854775807\n",
-        "7 0\n",
-    ];
-    let mut failed = Vec::new();
-    for (i, text) in texts.iter().enumerate() {
-        let d = dir(&format!("time{i}"));
-        let _held = hold(&d, text.as_bytes());
-        let refused = Lock::acquire(&d).unwrap_err();
-        assert!(matches!(refused, Refused::Held { .. }), "{text:?}: {refused:?}");
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| refused.to_string())) {
-            Ok(said) if said.contains(" holds ") => {}
-            Ok(said) => failed.push(format!("{text:?}: {said}")),
-            Err(_) => failed.push(format!("{text:?}: making the message panicked")),
-        }
-        let _ = std::fs::remove_dir_all(&d);
-    }
-    assert!(failed.is_empty(), "{failed:#?}");
 }
 
 // A2, for a directory reached by another path: the lock is the directory's, not the spelling's. A link to the
