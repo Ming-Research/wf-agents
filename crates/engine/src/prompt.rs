@@ -195,6 +195,12 @@ pub fn agent(
             wt.display()
         ));
     }
+    if let Some(p) = e.config.config.projects.get(&item.project) {
+        push(&format!(
+            "Main, wherever the flow says it, is this project's branch {}: the work branches from it, its PR merges into it, and a diff against main is a diff against it.\n",
+            p.main
+        ));
+    }
     for x in gathered {
         if x.held() && !give_all {
             continue;
