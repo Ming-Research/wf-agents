@@ -1,0 +1,5 @@
+# The one toolchain every build uses, in CI and anywhere else, so results do not depend on what a machine has installed.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

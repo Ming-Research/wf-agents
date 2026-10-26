@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+# Shared by every crate, so the version the command reports and the rules the code is held to are set once.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

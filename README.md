@@ -1,0 +1,17 @@
+# wf-agents
+
+wf-agents runs coding agents through a defined flow. Each piece of work goes through research, design,
+implementation, testing, review and merge, and the flow fixes what every step is given, what it hands back and where
+the work goes next. wf-agents belongs to no project: everything about a project lives in that project's
+configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds the values its decisions come from.
+
+## Layout
+
+- `crates/wf-agents`: the `wf-agents` command.
+- `db/schema.sql`: the only definition of the database's tables and views.
+- `.github/workflows/ci.yml`: the checks every pushed commit runs.
+
+## Checks
+
+Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as errors, and the tests, on the toolchain
+`rust-toolchain.toml` pins.
