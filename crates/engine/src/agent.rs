@@ -196,11 +196,19 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                     "models": v["modelUsage"],
                 });
                 if v["is_error"] == true || v["subtype"] != "success" {
-                    reply.error = Some(format!(
-                        "{}: {}",
-                        v["subtype"].as_str().unwrap_or("error"),
-                        v["result"].as_str().unwrap_or_default()
-                    ));
+                    // A result that failed on the CLI's side, such as running out of retries, has no text: what went
+                    // wrong is in its errors.
+                    let errors: Vec<&str> = v["errors"]
+                        .as_array()
+                        .map(|xs| xs.iter().filter_map(Value::as_str).collect())
+                        .unwrap_or_default();
+                    let why = v["result"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .or_else(|| (!errors.is_empty()).then(|| errors.join("; ")))
+                        .unwrap_or_else(|| "the CLI gave no reason".to_string());
+                    reply.error = Some(format!("{}: {why}", v["subtype"].as_str().unwrap_or("error")));
                 }
                 let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
                 reply.output = structured.or_else(|| v["result"].as_str().and_then(json_in));
@@ -285,6 +293,28 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("side_reports")
+        );
+    }
+
+    #[test]
+    fn a_failed_result_says_why_from_its_errors() {
+        let mut r = Reply::default();
+        read_stream(
+            r#"{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"errors":["Failed to provide valid structured output after 5 attempts"]}"#,
+            &mut r,
+        );
+        assert_eq!(
+            r.error.as_deref(),
+            Some("error_max_structured_output_retries: Failed to provide valid structured output after 5 attempts")
+        );
+        let mut r = Reply::default();
+        read_stream(
+            r#"{"type":"result","subtype":"error_during_execution","is_error":true}"#,
+            &mut r,
+        );
+        assert_eq!(
+            r.error.as_deref(),
+            Some("error_during_execution: the CLI gave no reason")
         );
     }
 
