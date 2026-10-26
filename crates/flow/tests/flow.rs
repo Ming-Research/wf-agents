@@ -113,3 +113,47 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
         .collect();
     assert_eq!(required, ["outcome", "side_reports"]);
 }
+
+// A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,
+// through choosing the way on, back to where it stopped.
+#[test]
+fn a_work_moves_by_its_rows() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let take = |p: &flow::Position, name: &str| {
+        let row = g.cell(&p.at).unwrap().rows.iter().find(|r| r.name == name).unwrap();
+        g.step(p, row).unwrap()
+    };
+    let p = g.start_position();
+    assert_eq!(p.at, "0");
+    let p = take(&p, "started");
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("1", "research"));
+    let p = take(&p, "tools");
+    assert_eq!(
+        (p.at.as_str(), p.callers.as_slice()),
+        ("13", ["1".to_string()].as_slice())
+    );
+    let p = take(&p, "ran");
+    assert_eq!(
+        (p.at.as_str(), p.from.as_deref(), p.callers.len()),
+        ("1", Some("13"), 0)
+    );
+    let p = take(&p, "ask_advisor");
+    assert_eq!(
+        (p.at.as_str(), p.stopped.as_deref(), p.pointer("@caller")),
+        ("12", Some("1"), Some("1"))
+    );
+    let p = take(&p, "answered");
+    assert_eq!(
+        (p.at.as_str(), p.stopped.as_deref(), p.from.as_deref()),
+        ("11", Some("1"), Some("12"))
+    );
+    let p = take(&p, "carry_on");
+    assert_eq!(p.at, "11a");
+    let p = take(&p, "back");
+    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("1", None));
+    let p = take(&p, "done");
+    assert_eq!((p.at.as_str(), p.recorded["rethought"].as_str()), ("1a", "no"));
+    let wrong = g.cell("11a").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
+    assert!(g.step(&p, wrong).is_err());
+}

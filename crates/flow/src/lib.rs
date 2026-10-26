@@ -22,6 +22,7 @@ pub mod format;
 mod graph;
 mod reads;
 mod returns;
+mod run;
 mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,6 +32,7 @@ pub use compiled::{
     COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, Held, RuleUse,
     Stats, ToolUse, found_at, valid,
 };
+pub use run::Position;
 
 use check::Analysis;
 use format::{Do, Source, Src};
