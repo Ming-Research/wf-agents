@@ -2,6 +2,7 @@
 
 use db::Actor;
 use db::rusqlite::params;
+use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
 
@@ -24,7 +25,7 @@ fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> 
         return Ok(Some(r));
     }
     let ended = Ended {
-        rejected: Some(json!({ "error": "the engine stopped before this round ended; it runs again" })),
+        rejected: Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" })),
         ..Ended::default()
     };
     e.db.write(Actor::Engine, |tx| {
@@ -45,13 +46,20 @@ fn need_met(project: &config::Project, need: &str) -> bool {
     project.has(need).unwrap_or(false)
 }
 
-/// The inputs as recorded in a round: what each was, and its value.
+/// The inputs as recorded in a round: what each was, and its value; the history stands for the rounds before.
 fn recorded_inputs(gathered: &[Gathered]) -> Value {
     Value::Array(
         gathered
             .iter()
             .filter(|x| !x.itself())
-            .map(|x| json!({ "what": x.input.what, "value": x.value, "held": x.held() }))
+            .map(|x| {
+                let value = if x.history() {
+                    json!(inputs::EARLIER)
+                } else {
+                    json!(x.value)
+                };
+                json!({ "what": x.input.what, "value": value, "held": x.held() })
+            })
             .collect(),
     )
 }
@@ -66,7 +74,14 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return not_applicable(e, w, g, cell, need);
     }
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    let rejected: Vec<&Round> = at_cell.iter().take_while(|r| r.rejected.is_some()).collect();
+    // A round the engine itself cut off is not a return sent back, and a work the owner let go on after it paused
+    // counts afresh.
+    let resumed = work::resumed_at(e.db.conn(), w.id)?;
+    let rejected: Vec<&Round> = at_cell
+        .iter()
+        .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
+        .take_while(|r| r.rejected.is_some() && resumed.is_none_or(|t| r.started_at > t))
+        .collect();
     let reason = rejected
         .first()
         .map(|r| r.rejected.clone().unwrap_or_default().to_string());
@@ -198,7 +213,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .map_err(sql)?;
     }
     let ended = Ended {
-        usage: Some(reply.usage.clone()).filter(|u| !u.is_null()),
+        usage: Some(round_cost(reply.usage.clone(), &line_rounds)).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         ..Ended::default()
@@ -250,6 +265,23 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after)
+}
+
+/// The CLI reports what its session has cost so far, the rounds it resumed from included; a round's own cost is what
+/// that grew by since the session's last round that reported it.
+fn round_cost(mut usage: Value, line_rounds: &[Round]) -> Value {
+    let Some(total) = usage["session_cost_usd"].as_f64() else {
+        return usage;
+    };
+    let before = line_rounds
+        .iter()
+        .rev()
+        .find_map(|r| r.usage.as_ref().and_then(|u| u["session_cost_usd"].as_f64()));
+    usage["cost_usd"] = json!(match before {
+        Some(b) if b <= total => total - b,
+        _ => total,
+    });
+    usage
 }
 
 fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advance, String> {
@@ -589,9 +621,11 @@ fn ask(
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None);
     }
     let gathered = inputs::gather(e, w, g, cell, item)?;
+    // The card holds what the cells handed in: the question, how far the cell got, what failed. The history and the
+    // other tables the cell reads are in the database for the owner to look at.
     let asked: Vec<Value> = gathered
         .iter()
-        .filter(|x| x.value.is_some())
+        .filter(|x| x.value.is_some() && x.input.from.iter().all(|s| matches!(s, Src::Place(..))))
         .map(|x| json!({ "what": x.input.what, "value": x.value }))
         .collect();
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
@@ -619,18 +653,11 @@ fn ask(
 
 /// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since
 /// each side last looked, and what the fix answered.
-fn choose_checks(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
+fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let conn = e.db.conn();
-    let accepted = |c: &str| -> Result<Vec<Round>, String> {
-        Ok(work::rounds_at(conn, w.id, c)?
-            .into_iter()
-            .filter(|r| r.transition.is_some())
-            .collect())
-    };
-    let reviews = accepted("5a")?;
-    let adversarial = accepted("6")?;
-    let fixes = accepted("8")?;
+    let reviews = inputs::answered(e, w, g, "5a")?;
+    let adversarial = inputs::answered(e, w, g, "6")?;
+    let fixes = inputs::answered(e, w, g, "8")?;
     let chose = inputs::last_return(e, w, g, "3f", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "yes");
@@ -678,4 +705,36 @@ fn choose_checks(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Value, S
         review = "changed";
     }
     Ok(json!({ "plan": { "review": review, "adversarial": adv } }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round(usage: Value) -> Round {
+        Round {
+            id: 1,
+            cell: None,
+            session: Some(1),
+            input: Value::Null,
+            output: None,
+            transition: None,
+            rejected: None,
+            compactions: 0,
+            started_at: 0,
+            ended_at: Some(0),
+            usage: Some(usage),
+        }
+    }
+
+    #[test]
+    fn a_round_costs_what_its_session_grew_by() {
+        let u = |c: f64| json!({ "session_cost_usd": c });
+        assert_eq!(round_cost(u(1.5), &[])["cost_usd"], 1.5);
+        let before = [round(u(1.5)), round(json!({ "started": true }))];
+        assert_eq!(round_cost(u(4.0), &before)["cost_usd"], 2.5);
+        // A session the CLI counted afresh costs what it reports.
+        assert_eq!(round_cost(u(0.5), &before)["cost_usd"], 0.5);
+        assert_eq!(round_cost(json!({ "started": true }), &[]), json!({ "started": true }));
+    }
 }

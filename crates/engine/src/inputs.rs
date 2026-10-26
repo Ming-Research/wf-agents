@@ -1,6 +1,7 @@
 //! What a cell is given: each input gathered from its sources, the returns of earlier cells, the database, the
 //! configuration, what the engine computes and what rows recorded.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use db::rusqlite::ToSql;
@@ -13,6 +14,14 @@ use crate::{Engine, form_of, git};
 
 /// The most rows an input read from the database gives.
 const ROWS: usize = 200;
+
+/// The view of the work's rounds. A round's input does not hold it again, and the history gives each round without
+/// the history it was given: those are the rounds before it, there already, and holding them would give every
+/// earlier round once more with each round.
+pub const HISTORY: &str = "work_history";
+
+/// What stands for the history in a round's input.
+pub const EARLIER: &str = "The rounds before this one";
 
 /// One input as gathered.
 #[derive(Debug, Clone)]
@@ -30,6 +39,33 @@ impl Gathered {
 
     pub fn held(&self) -> bool {
         self.input.held == Some(Held::Session)
+    }
+
+    /// Whether it is the work's history.
+    pub fn history(&self) -> bool {
+        is_history(&self.input)
+    }
+}
+
+fn is_history(x: &CompiledInput) -> bool {
+    x.from
+        .iter()
+        .any(|s| matches!(s, Src::Db { relation, .. } if relation == HISTORY))
+}
+
+/// A round as the history gives it: what the engine gave, without the prompt it wrote that into and without the
+/// history the round was given.
+fn compact(row: &mut Value, history: &BTreeSet<&str>) {
+    let Some(input) = row.get_mut("input").and_then(Value::as_object_mut) else {
+        return;
+    };
+    input.remove("prompt");
+    if let Some(Value::Array(xs)) = input.get_mut("inputs") {
+        for x in xs {
+            if x["what"].as_str().is_some_and(|w| history.contains(w)) {
+                x["value"] = json!(EARLIER);
+            }
+        }
     }
 }
 
@@ -111,6 +147,20 @@ pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &s
     Ok(None)
 }
 
+/// The rounds of a cell of the work that handed in the cell's own answer, newest first. A round that asked for
+/// tools, asked someone or paused took a row too, but answered nothing.
+pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Vec<work::Round>, String> {
+    let c = g.cell(cell);
+    Ok(work::rounds_at(e.db.conn(), w.id, cell)?
+        .into_iter()
+        .filter(|r| r.transition.is_some())
+        .filter(|r| match (c, &r.output) {
+            (Some(c), Some(o)) => form_of(g, c, o).is_none(),
+            _ => true,
+        })
+        .collect())
+}
+
 /// Gathers every input of a cell.
 pub fn gather(
     e: &Engine,
@@ -174,7 +224,19 @@ fn source(
             .get(n)
             .map(|v| (format!("recorded {n}"), Value::String(v.clone()))),
         Src::Db { relation, by } => {
-            let rows = db_rows(e, w, item, relation, by.as_deref())?;
+            let mut rows = db_rows(e, w, item, relation, by.as_deref())?;
+            if relation == HISTORY {
+                let history: BTreeSet<&str> = g
+                    .cells
+                    .iter()
+                    .flat_map(|c| &c.inputs)
+                    .filter(|x| is_history(x))
+                    .map(|x| x.what.as_str())
+                    .collect();
+                for r in &mut rows {
+                    compact(r, &history);
+                }
+            }
             // The interjections an agent is given are those for its own line.
             let rows: Vec<Value> = match (relation.as_str(), &cell.line) {
                 ("waiting_interjections", Some(line)) => {
@@ -188,7 +250,7 @@ fn source(
                 Some((format!("database {relation}"), Value::Array(rows)))
             }
         }
-        Src::Engine(n) => engine_input(e, w, item, n)?.map(|v| (format!("engine {n}"), v)),
+        Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| (format!("engine {n}"), v)),
     })
 }
 
@@ -224,7 +286,7 @@ fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
 }
 
 /// What the engine computes for an input; none when there is nothing.
-pub fn engine_input(e: &Engine, w: &Work, item: &Item, name: &str) -> Result<Option<Value>, String> {
+pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -> Result<Option<Value>, String> {
     let wt = w.worktree.as_deref();
     let main = e
         .config
@@ -252,7 +314,7 @@ pub fn engine_input(e: &Engine, w: &Work, item: &Item, name: &str) -> Result<Opt
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::reviewed_head(e, w)?
+                    crate::values::reviewed_head(e, w, g)?
                 } else {
                     None
                 };
@@ -361,5 +423,19 @@ mod tests {
             Some(json!([{ "change": "added", "test": "t" }]))
         );
         assert_eq!(at_path(&x, "nothing"), None);
+    }
+
+    #[test]
+    fn the_history_gives_a_round_without_its_prompt_or_its_history() {
+        let what = "This work's history";
+        let mut row = json!({ "round": 3, "input": { "prompt": "p", "inputs": [
+            { "what": what, "value": [{ "round": 1 }] },
+            { "what": "The plan", "value": "x" },
+        ] } });
+        compact(&mut row, &BTreeSet::from([what]));
+        assert_eq!(
+            row["input"],
+            json!({ "inputs": [{ "what": what, "value": EARLIER }, { "what": "The plan", "value": "x" }] })
+        );
     }
 }

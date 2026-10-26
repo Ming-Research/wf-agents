@@ -12,7 +12,7 @@ use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine};
+use engine::{Advance, Engine, MAX_REJECTED};
 use serde_json::{Value, json};
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -125,7 +125,6 @@ type Script = Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>,
 struct Scripted {
     scripts: BTreeMap<&'static str, Script>,
     rounds: RefCell<BTreeMap<String, usize>>,
-    seen: Rc<RefCell<Vec<String>>>,
 }
 
 impl Agents for Scripted {
@@ -136,7 +135,6 @@ impl Agents for Scripted {
             *n += 1;
             *n
         };
-        self.seen.borrow_mut().push(format!("{}#{n}", r.cell));
         let (pick, set) = match self.scripts.get(r.cell.as_str()) {
             Some(f) => f(r, n),
             None => (Vec::new(), Vec::new()),
@@ -222,7 +220,7 @@ impl GitHub for FakeHub {
         Ok(())
     }
 
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure> {
+    fn gh(&self, _dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         Ok((0, args.join(" ")))
     }
 }
@@ -389,14 +387,11 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     s
 }
 
-#[test]
-fn an_item_goes_from_the_queue_to_main() {
-    let s = setup("main");
-    let seen = Rc::new(RefCell::new(Vec::new()));
+/// The engine over a setup, with what it says kept, and one item in the queue.
+fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefCell<Vec<String>>>, i64) {
     let agents = Scripted {
-        scripts: scripts(),
+        scripts,
         rounds: RefCell::new(BTreeMap::new()),
-        seen: seen.clone(),
     };
     let hub = FakeHub {
         origin: s.origin.clone(),
@@ -420,16 +415,25 @@ fn an_item_goes_from_the_queue_to_main() {
             Ok(id)
         })
         .unwrap();
+    (e, said, item)
+}
+
+fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
+    e.db.conn()
+        .query_row("SELECT id, at, paused FROM works WHERE item = ?1", [item], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .ok()
+}
+
+#[test]
+fn an_item_goes_from_the_queue_to_main() {
+    let s = setup("main");
+    let (mut e, said, item) = start(&s, scripts());
     let mut done = false;
     for _ in 0..200 {
         e.tick().unwrap();
-        let w: Option<(i64, String, Option<String>)> =
-            e.db.conn()
-                .query_row("SELECT id, at, paused FROM works WHERE item = ?1", [item], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })
-                .ok();
-        if let Some((id, _, paused)) = &w {
+        if let Some((id, _, paused)) = &state(&e, item) {
             assert!(
                 paused.is_none(),
                 "the work paused: {paused:?}\n{}",
@@ -491,5 +495,45 @@ fn an_item_goes_from_the_queue_to_main() {
             })
             .unwrap();
     assert_eq!(rejected, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Three returns of a cell sent back in a row pause the work; once the owner lets it go on, it counts afresh.
+#[test]
+fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
+    let s = setup("resume");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1",
+        Box::new(|_: &Request, n: usize| {
+            let bad = vec![("outcome", json!("the JSON text of an object"))];
+            (Vec::new(), if n <= MAX_REJECTED { bad } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let mut paused = None;
+    for _ in 0..20 {
+        e.tick().unwrap();
+        if let Some((id, _, Some(why))) = state(&e, item) {
+            paused = Some((id, why));
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
+    assert!(why.starts_with("3 returns of cell 1 in a row were sent back"), "{why}");
+    assert!(why.contains("outcome must be an object, and is a string"), "{why}");
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [id])?;
+        Ok(())
+    })
+    .unwrap();
+    for _ in 0..3 {
+        e.tick().unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

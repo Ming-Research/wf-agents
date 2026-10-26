@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// What the engine asks of one round.
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub struct Request {
     pub resume: Option<String>,
     pub new_session: String,
     pub prompt: String,
-    /// What the return must be, as JSON Schema.
+    /// What the return must be, as JSON Schema; the prompt gives it too.
     pub schema: Value,
 }
 
@@ -33,7 +33,8 @@ pub struct Reply {
     /// The CLI's session the round ran in.
     pub session: String,
     pub model: Option<String>,
-    /// Tokens and cost as the CLI reported them.
+    /// Tokens and cost as the CLI reported them. The cost and the tokens by model are the session's so far, the
+    /// rounds it resumed from included; the other tokens are this round's.
     pub usage: Value,
     pub compactions: i64,
     /// Why the run failed, when it did.
@@ -59,7 +60,12 @@ impl Claude {
             "--model",
             r.model.as_str(),
         ]);
-        c.arg("--json-schema").arg(r.schema.to_string());
+        // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to
+        // the next would leave nothing of the session's prompt cache. The CLI is given only the fields every return
+        // of the graph has, with their types, which is the same for every cell; the cell's own schema is in the
+        // prompt, and the engine checks the return against it. Without the types the model hands in each field as
+        // the JSON text of its value.
+        c.arg("--json-schema").arg(envelope(&r.schema).to_string());
         if let Some(e) = &r.effort {
             c.args(["--effort", e.as_str()]);
         }
@@ -74,6 +80,21 @@ impl Claude {
 
 impl Agents for Claude {
     fn run(&self, r: &Request) -> Reply {
+        let reply = Claude::once(r);
+        // A session whose first round was cut off exists, though no round of it ever ended: resume it.
+        let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
+        if r.resume.is_none() && reply.output.is_none() && in_use {
+            return Claude::once(&Request {
+                resume: Some(r.new_session.clone()),
+                ..r.clone()
+            });
+        }
+        reply
+    }
+}
+
+impl Claude {
+    fn once(r: &Request) -> Reply {
         let mut reply = Reply {
             session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
             ..Reply::default()
@@ -116,6 +137,28 @@ impl Agents for Claude {
     }
 }
 
+/// A return's top-level fields as a schema gives them, each with only its type: an agent's forms are under one field
+/// as an anyOf of objects, so it is an object.
+fn envelope(schema: &Value) -> Value {
+    let props: serde_json::Map<String, Value> = schema["properties"]
+        .as_object()
+        .map(|ps| {
+            ps.iter()
+                .map(|(k, v)| {
+                    let t = v.get("type").cloned().unwrap_or_else(|| json!("object"));
+                    (k.clone(), json!({ "type": t }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    json!({
+        "type": "object",
+        "properties": props,
+        "required": schema.get("required").cloned().unwrap_or_else(|| json!([])),
+        "additionalProperties": false,
+    })
+}
+
 /// Reads what `claude -p --output-format stream-json` printed: the compactions on the way, and the result at the end.
 pub fn read_stream(text: &str, reply: &mut Reply) {
     for line in text.lines() {
@@ -127,7 +170,7 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
             Some("system") if v["subtype"] == "init" => {
                 // The session exists from here on, whatever the round comes to.
                 if reply.usage.is_null() {
-                    reply.usage = serde_json::json!({ "started": true });
+                    reply.usage = json!({ "started": true });
                 }
                 if let Some(m) = v["model"].as_str() {
                     reply.model = Some(m.to_string());
@@ -140,9 +183,9 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                 if let Some(s) = v["session_id"].as_str() {
                     reply.session = s.to_string();
                 }
-                reply.usage = serde_json::json!({
+                reply.usage = json!({
                     "usage": v["usage"],
-                    "cost_usd": v["total_cost_usd"],
+                    "session_cost_usd": v["total_cost_usd"],
                     "turns": v["num_turns"],
                     "duration_ms": v["duration_ms"],
                     "models": v["modelUsage"],
@@ -214,8 +257,24 @@ mod tests {
         assert_eq!(r.model.as_deref(), Some("claude-opus-5-5"));
         assert_eq!(r.compactions, 1);
         assert_eq!(r.output.unwrap()["progress"], "p");
-        assert_eq!(r.usage["cost_usd"], 0.5);
+        assert_eq!(r.usage["session_cost_usd"], 0.5);
         assert!(r.error.is_none());
+    }
+
+    #[test]
+    fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let g = f.graph(crate::ENGINEER).unwrap();
+        let shapes: Vec<Value> = g
+            .cells
+            .iter()
+            .filter(|c| c.kind == "agent")
+            .filter_map(|c| c.schema.as_ref().map(envelope))
+            .collect();
+        assert!(shapes.len() > 10);
+        assert!(shapes.iter().all(|s| *s == shapes[0]));
+        assert_eq!(shapes[0]["properties"][&g.within], json!({ "type": "object" }));
     }
 
     #[test]

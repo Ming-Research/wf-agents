@@ -305,7 +305,7 @@ pub fn run_tools(e: &mut Engine, w: &Work, item: &Item, round: i64, gathered: &[
                 "verdict": "refused",
                 "why": "This version of the engine has no measurement workflow; measure does not run"
             } })),
-            "gh" => gh(e, round, n, req),
+            "gh" => gh(e, w, &project, round, n, req),
             "query" => query(e, round, n, req),
             other => Ok(json!({ "error": format!("no such tool: {other}") })),
         };
@@ -465,7 +465,14 @@ fn ci_before(
     })
 }
 
-fn gh(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
+fn gh(
+    e: &Engine,
+    w: &Work,
+    project: &config::Project,
+    round: i64,
+    n: usize,
+    req: &Value,
+) -> Result<Value, (Failure, String)> {
     let line = req["command"].as_str().unwrap_or_default();
     let mut args = match words(line) {
         Ok(a) => a,
@@ -482,7 +489,8 @@ fn gh(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failure, 
         return Ok(json!({ "ran": { "verdict": "not_allowed", "why": why } }));
     }
     let (code, out) = attempts(e, round, "gh", req, || {
-        let (code, out) = e.github.gh(&args)?;
+        let dir = w.worktree.as_deref().unwrap_or(&project.checkout);
+        let (code, out) = e.github.gh(dir, &args)?;
         Ok(json!([code, out]))
     })
     .map(|v| {

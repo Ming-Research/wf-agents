@@ -4,8 +4,8 @@
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
-use crate::inputs::{Gathered, at_path, last_return};
-use crate::work::{self, Item, Work};
+use crate::inputs::{Gathered, answered, at_path, last_return};
+use crate::work::{Item, Work};
 use crate::{Engine, git};
 
 /// What the rows of a cell are given: the values rows recorded, the engine's values the cell names, and each input
@@ -53,19 +53,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -
             }
         }
         "review_round" => {
-            let reviewed = ["5", "5a"]
-                .iter()
-                .map(|c| work::rounds_at(e.db.conn(), w.id, c))
-                .collect::<Result<Vec<_>, _>>()?
-                .iter()
-                .flatten()
-                .any(|r| r.transition.is_some());
+            let reviewed = !answered(e, w, g, "5")?.is_empty() || !answered(e, w, g, "5a")?.is_empty();
             s(if reviewed { "table" } else { "blind" })
         }
         "tree" => {
             let project = e.project_of(w)?;
             let Some(wt) = &w.worktree else { return s("unchanged") };
-            let base = match reviewed_head(e, w)? {
+            let base = match reviewed_head(e, w, g)? {
                 Some(h) => h,
                 None => git::fork_point(wt, &project.main)?,
             };
@@ -255,10 +249,8 @@ fn gates_clear(e: &Engine, w: &Work, item: &Item) -> Result<bool, String> {
 }
 
 /// The head the last review started from; none before the first review.
-pub fn reviewed_head(e: &Engine, w: &Work) -> Result<Option<String>, String> {
-    let mut rs = work::rounds_at(e.db.conn(), w.id, "5a")?;
-    rs.retain(|r| r.transition.is_some());
-    Ok(rs
+pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
+    Ok(answered(e, w, g, "5a")?
         .first()
         .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
 }

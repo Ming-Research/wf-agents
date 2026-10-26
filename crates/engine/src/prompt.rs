@@ -1,6 +1,5 @@
 //! The text an agent's round is given: the interjections waiting for it, the rules and inputs its session does not
-//! hold yet, the cell's question, and what the return must hold. The return's shape is given to the CLI as a JSON
-//! Schema besides.
+//! hold yet, the cell's question, and what the return must hold, as the JSON Schema the engine checks it against.
 
 use flow::{CompiledCell, CompiledGraph, Held};
 use serde_json::{Map, Value};
@@ -9,7 +8,9 @@ use crate::Engine;
 use crate::inputs::Gathered;
 use crate::work::{Item, Work};
 
-/// The columns the table review answers, each with its number, for the review of this round.
+/// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
+/// at disputes only has none; one that looks at what changed has them all, since which columns a change concerns is
+/// not worked out in this version.
 pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &Item) -> Vec<(String, String)> {
     let rule = |name: &str| {
         g.rules
@@ -21,6 +22,13 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
     let mut cols: Vec<String> = Vec::new();
     match cell.id.as_str() {
         "5a" => {
+            let review = crate::inputs::last_return(e, w, g, "18", "plan")
+                .ok()
+                .flatten()
+                .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
+            if review.as_ref().and_then(Value::as_str) == Some("disputes") {
+                return Vec::new();
+            }
             let table = rule("review_table");
             let project = e.config.config.projects.get(&item.project);
             if item.deliver == "report" {
@@ -228,7 +236,12 @@ pub fn agent(
     if let Some(d) = cell.schema.as_ref().and_then(|s| s["description"].as_str()) {
         push(d);
     }
-    push("Hand in one JSON object that fits the JSON Schema you are given, and nothing else.");
+    push("Hand in one JSON object that fits this JSON Schema, and nothing else:\n");
+    let schema = cell
+        .schema
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({ "type": "object" }));
+    push(&format!("```json\n{schema}\n```"));
     if let Some(r) = rejected {
         push(&format!(
             "\nYour last return was sent back: {r}\nHand it in again, put right."

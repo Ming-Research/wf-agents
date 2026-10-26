@@ -65,8 +65,9 @@ pub trait GitHub {
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Closes a pull request with a comment.
     fn close(&self, repo: &str, pr: i64, comment: &str) -> Result<(), Failure>;
-    /// Runs a gh command, as agents hand it in, with the engine's credentials; gives its exit code and output.
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure>;
+    /// Runs a gh command, as agents hand it in, with the engine's credentials, in the work's worktree so that it is
+    /// about the project's repository; gives its exit code and output.
+    fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure>;
 }
 
 /// GitHub through the gh CLI.
@@ -203,6 +204,18 @@ impl GitHub for Gh {
         title_body: Option<(&str, &str)>,
         existing: Option<i64>,
     ) -> Result<i64, Failure> {
+        // A PR opened before the engine could record it, by a run that stopped, is the work's PR still.
+        let existing = match existing {
+            Some(n) => Some(n),
+            None => {
+                let open = self.json(&[
+                    "pr", "list", "-R", repo, "--head", branch, "--state", "open", "--json", "number",
+                ])?;
+                open.as_array()
+                    .and_then(|ps| ps.first())
+                    .and_then(|p| p["number"].as_i64())
+            }
+        };
         if let Some(n) = existing {
             if let Some((title, body)) = title_body {
                 self.run(&[
@@ -260,9 +273,10 @@ impl GitHub for Gh {
             .map(|_| ())
     }
 
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure> {
+    fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         let out = Command::new("gh")
             .args(args)
+            .current_dir(dir)
             .output()
             .map_err(|e| Failure::other(format!("gh: {e}")))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
