@@ -325,7 +325,8 @@ fn hidden(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
 /// Opens the database at `path` the way agents query it: read-only, and with no value of a table hidden from agents
 /// readable, through a view either.
 pub fn open_for_agents(path: &Path) -> Result<Connection> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    let mut conn =
+        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
     conn.busy_timeout(Duration::from_secs(10))?;
     conn.pragma_update(None, "query_only", true)?;
     let hidden = hidden(&conn)?;
@@ -358,7 +359,7 @@ pub fn relations(schema: &str) -> rusqlite::Result<BTreeMap<String, BTreeSet<Str
         "SELECT name FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'",
     )? {
         let mut cols = db.prepare("SELECT name FROM pragma_table_info(?1)")?;
-        let cols: BTreeSet<String> = cols.query_map([&n], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let cols: BTreeSet<String> = cols.query_map([&n], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         out.insert(n, cols);
     }
     Ok(out)
