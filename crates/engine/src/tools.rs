@@ -80,7 +80,7 @@ fn inline_or_saved(e: &Engine, round: i64, n: usize, text: String) -> String {
     }
     let dir = e.data.join("tool-output");
     let path = dir.join(format!("round-{round}-{n}.txt"));
-    match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, &text)) {
+    match std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&path, &text)) {
         Ok(()) => format!(
             "Too long to give here ({} bytes); saved to {}",
             text.len(),
@@ -549,7 +549,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Valu
                 &repo(&project),
                 &branch,
                 &project.main,
-                Some((&item.title, &body)),
+                Some((item.title.as_str(), body.as_str())),
                 None,
             )?));
         }

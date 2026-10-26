@@ -184,8 +184,6 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 /// A design card of a work, with the head of the round that handed it in, when the design paths matched it.
 #[derive(Debug, Clone)]
 pub struct Card {
-    pub id: i64,
-    pub body: Value,
     pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
@@ -194,17 +192,15 @@ pub struct Card {
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<Card>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.id, c.body, c.status, c.rulings, json_extract(r.input, '$.engine.head_after')
+        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after')
          FROM cards c JOIN rounds r ON r.id = c.round
          WHERE r.work = ?1 AND c.kind = 'design' AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(Card {
-                id: r.get(0)?,
-                body: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
-                status: r.get(2)?,
-                rulings: serde_json::from_str(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
-                head: r.get(4)?,
+                status: r.get(0)?,
+                rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
+                head: r.get(2)?,
             })
         },
     );

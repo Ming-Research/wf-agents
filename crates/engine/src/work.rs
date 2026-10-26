@@ -278,7 +278,7 @@ pub fn query_json(
     limit: usize,
 ) -> Result<Vec<Value>, String> {
     let mut st = conn.prepare(sql_text).map_err(sql)?;
-    let names: Vec<String> = st.column_names().iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = st.column_names().map(str::to_string).collect();
     let mut rows = st.query(args).map_err(sql)?;
     let mut out = Vec::new();
     while let Some(r) = rows.next().map_err(sql)? {

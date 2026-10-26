@@ -34,7 +34,6 @@ pub struct Ctx<'a> {
     pub project: &'a config::Project,
     pub output: &'a Value,
     pub unwrapped: Value,
-    pub round: i64,
     /// The worktree's HEAD when the round started.
     pub head_start: Option<String>,
     pub columns: &'a [(String, String)],

@@ -234,7 +234,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         project: &project,
         output: &output,
         unwrapped: g.unwrap(&output),
-        round,
         head_start: head.clone(),
         columns: &columns,
         interjections: &interjections,
