@@ -74,11 +74,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return not_applicable(e, w, g, cell, need);
     }
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    // A round the engine itself cut off is not a return sent back.
+    // A round the engine itself cut off is not a return sent back, and a work the owner let go on after it paused
+    // counts afresh.
+    let resumed = work::resumed_at(e.db.conn(), w.id)?;
     let rejected: Vec<&Round> = at_cell
         .iter()
         .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
-        .take_while(|r| r.rejected.is_some())
+        .take_while(|r| r.rejected.is_some() && resumed.is_none_or(|t| r.started_at > t))
         .collect();
     let reason = rejected
         .first()
