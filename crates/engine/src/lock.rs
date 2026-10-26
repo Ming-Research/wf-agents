@@ -104,7 +104,7 @@ impl Lock {
 /// The holder a lock file names: exactly a process number and a time, on one line.
 fn holder(file: &mut File) -> Option<Holder> {
     let mut text = Vec::new();
-    file.by_ref().take(READ_LIMIT).read_to_end(&mut text).ok()?;
+    Read::take(file, READ_LIMIT).read_to_end(&mut text).ok()?;
     let text = std::str::from_utf8(&text).ok()?;
     let mut words = text.strip_suffix('\n')?.split(' ');
     let pid = words.next()?.parse().ok()?;
