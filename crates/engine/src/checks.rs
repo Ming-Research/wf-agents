@@ -190,21 +190,13 @@ fn owner_only() -> &'static BTreeSet<String> {
     })
 }
 
-/// File paths a text cites: words with a slash or a file extension, without line numbers.
+/// File paths a text cites: each run of the characters a path is written with that has a slash in it, cut before
+/// a line number, whatever language the text around it is in.
 fn cited_paths(text: &str) -> Vec<String> {
-    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '`' | '"' | '\''))
-        .map(|w| w.trim_end_matches(['.', ':']))
-        .filter(|w| !w.contains("://") && w.contains('/') && !w.starts_with('/'))
-        .map(|w| {
-            w.split(':')
-                .next()
-                .unwrap_or_default()
-                .split('#')
-                .next()
-                .unwrap_or_default()
-                .to_string()
-        })
-        .filter(|w| !w.is_empty())
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '*')))
+        .map(|w| w.trim_end_matches('.'))
+        .filter(|w| w.contains('/') && !w.starts_with('/'))
+        .map(str::to_string)
         .collect()
 }
 
@@ -706,8 +698,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let wt = c.wt()?;
             for ev in items(v) {
                 for f in strs(ev.get("files")) {
-                    let p = f.split([':', ' ', '#']).next().unwrap_or_default();
-                    let looks = (p.contains('/') || p.contains('.')) && !p.starts_with('/') && !p.contains("://");
+                    let p = f
+                        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/')))
+                        .next()
+                        .unwrap_or_default()
+                        .trim_end_matches('.');
+                    let looks = (p.contains('/') || p.contains('.')) && !p.starts_with('/');
                     if looks && !wt.join(p).exists() {
                         return fail(format!("{p} is not in the worktree"));
                     }
@@ -949,5 +945,9 @@ mod tests {
         );
         assert!(cited_paths("https://github.com/a/b/actions/runs/1").is_empty());
         assert!(cited_paths("/etc/passwd").is_empty());
+        assert_eq!(
+            cited_paths("见 crates/wf-agents/src/main.rs：第 12 行"),
+            ["crates/wf-agents/src/main.rs"]
+        );
     }
 }
