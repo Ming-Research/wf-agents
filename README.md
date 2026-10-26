@@ -8,6 +8,9 @@ configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds
 ## Layout
 
 - `crates/wf-agents`: the `wf-agents` command.
+- `crates/flow`: the flow's compiler; `wf-agents flow check` runs it.
+- `crates/db`: the database's schema, as the code reads it.
+- `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs.
 

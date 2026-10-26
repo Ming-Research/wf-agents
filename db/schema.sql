@@ -105,7 +105,8 @@ CREATE TABLE cards (
   rulings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rulings)),
   -- The card that replaced this one. Read by: people following a decision to its latest card.
   replaced_by INTEGER REFERENCES cards(id),
-  CHECK ((status = 'replaced') = (replaced_by IS NOT NULL))
+  -- A replaced card names its successor, unless its work ended without one.
+  CHECK (replaced_by IS NULL OR status = 'replaced')
 ) STRICT;
 
 CREATE TABLE flow_versions (
@@ -327,3 +328,220 @@ CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round
 CREATE INDEX changes_by_row ON changes (table_name, row_key);
 -- The next action due.
 CREATE INDEX outbox_by_run_after ON outbox (run_after);
+
+-- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
+-- work or project at hand has a column of that name; the engine filters on it. Cell numbers are those of the
+-- engineer's graph.
+
+CREATE VIEW ready_items AS
+  -- Items waiting to start, in the order they start: queued, not cancelled, and never worked on.
+  -- Read by: cell 0.
+  SELECT i.id AS item, i.project, i.title, i.level, q.position
+  FROM dispatch_queue q JOIN items i ON i.id = q.item
+  WHERE i.cancelled IS NULL AND NOT EXISTS (SELECT 1 FROM works w WHERE w.item = i.id)
+  ORDER BY q.position;
+
+CREATE VIEW item_body AS
+  -- The item as its creator wrote it. Read by: cells 1 and 5a.
+  SELECT id AS item, project, title, problem, why, approach, deliver FROM items;
+
+CREATE VIEW item_problem AS
+  -- The item's problem: the engineer's understanding once cell 1 has run, as written before.
+  -- Read by: cell 5, which is given the problem and the acceptance only.
+  SELECT i.id AS item, coalesce((
+    SELECT json_extract(r.output, '$.outcome.understanding.problem')
+    FROM rounds r JOIN works w ON w.id = r.work
+    WHERE w.item = i.id AND r.cell = '1' AND r.transition IS NOT NULL
+      AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
+    ORDER BY r.id DESC LIMIT 1), i.problem) AS problem
+  FROM items i;
+
+CREATE VIEW item_acceptance AS
+  -- The item's locked acceptance, and the round that locked it; NULL until a first design passes its checks.
+  -- Read by: cells 2a, 4, 5, 5a and 6.
+  SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_round FROM items;
+
+CREATE VIEW item_cards AS
+  -- Every card of the item's works, with its rulings. Read by: cells 1, 2, 2a, 15 and 19.
+  SELECT w.item, r.work, c.id AS card, c.round, c.kind, c.body, c.status, c.rulings, c.replaced_by
+  FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work;
+
+CREATE VIEW parent_design_cards AS
+  -- The design cards of the items that depend on this one, not yet replaced: what a split-off item's parent
+  -- decided. Read by: cell 2a.
+  SELECT l.depends_on AS item, l.item AS parent, c.id AS card, c.body, c.status, c.rulings
+  FROM item_links l
+  JOIN works w ON w.item = l.item
+  JOIN rounds r ON r.work = w.id
+  JOIN cards c ON c.round = r.id
+  WHERE c.kind = 'design' AND c.status <> 'replaced';
+
+CREATE VIEW item_dependencies AS
+  -- What the item depends on, with what it needs of each and how far each is: the cell its latest work is at, or
+  -- why it was cancelled. Read by: cells 3e and 19.
+  SELECT l.item, l.depends_on, l.needs, d.title, d.cancelled,
+    (SELECT w.at FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS at,
+    (SELECT w.pr FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS pr
+  FROM item_links l JOIN items d ON d.id = l.depends_on;
+
+CREATE VIEW item_context AS
+  -- Where the item sits in the whole: the items above it (those that depend on it, up to the root), beside it
+  -- (the other items its parents depend on) and below it (those it depends on), each with its problem and why.
+  -- Read by: cell 1.
+  WITH RECURSIVE up(item, other, depth) AS (
+    SELECT depends_on, item, 1 FROM item_links
+    UNION
+    SELECT up.item, l.item, up.depth + 1 FROM up JOIN item_links l ON l.depends_on = up.other
+  )
+  SELECT up.item, 'above' AS relation, up.depth, o.id AS other, o.title, o.problem, o.why, o.cancelled
+  FROM up JOIN items o ON o.id = up.other
+  UNION ALL
+  SELECT a.depends_on, 'beside', 1, o.id, o.title, o.problem, o.why, o.cancelled
+  FROM item_links a JOIN item_links b ON b.item = a.item AND b.depends_on <> a.depends_on
+  JOIN items o ON o.id = b.depends_on
+  UNION ALL
+  SELECT l.item, 'below', 1, o.id, o.title, o.problem, o.why, o.cancelled
+  FROM item_links l JOIN items o ON o.id = l.depends_on;
+
+CREATE VIEW work_state AS
+  -- Where each work stands, as the engine keeps it. Read by: cells 7, 9, 11, 11a, 13, 18 and 20.
+  SELECT id AS work, item, graph, at, resume_at, waiting, recorded, machine, worktree, branch, pr, pushed_head,
+    paused, ended
+  FROM works;
+
+CREATE VIEW work_history AS
+  -- Every round of each work in order: the cell, what the engine gave, the return, the row taken or why the
+  -- return was sent back, and the tools it ran. Read by: cells 5a, 6, 12 and 15.
+  SELECT r.work, r.id AS round, r.cell, r.input, r.output, r.transition, r.rejected, r.started_at, r.ended_at,
+    (SELECT json_group_array(json_object('tool', t.tool, 'attempt', t.attempt, 'result', json(t.result)))
+     FROM tool_runs t WHERE t.round = r.id) AS tools
+  FROM rounds r;
+
+CREATE VIEW work_counters AS
+  -- How many times each work took the rows that count each counter, by the compiled flow it runs on.
+  -- Read by: cells 11 and 12; the owner's interface.
+  SELECT r.work, json_extract(row.value, '$.counts') AS counter, count(*) AS times
+  FROM rounds r
+  JOIN works w ON w.id = r.work
+  JOIN flow_versions v ON v.id = w.flow_version
+  JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+  JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = r.cell
+  JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = r.transition
+  WHERE json_extract(row.value, '$.counts') IS NOT NULL
+  GROUP BY r.work, counter;
+
+CREATE VIEW answered_points AS
+  -- The points the advisor answered for each work, by round. Read by: cells 11 and 12.
+  SELECT r.work, r.id AS round, p.value AS point
+  FROM rounds r, json_each(r.output, '$.outcome.points') p
+  WHERE r.cell = '12' AND r.transition IS NOT NULL;
+
+CREATE VIEW work_measurements AS
+  -- Every run of the measure tool for each work, with its result and the files kept. Read by: cells 5 and 6.
+  SELECT r.work, t.round, t.attempt, t.args, t.result, t.files
+  FROM tool_runs t JOIN rounds r ON r.id = t.round
+  WHERE t.tool = 'measure';
+
+CREATE VIEW work_review_record AS
+  -- What decides what runs next after a review: the values rows recorded, and the last return of the table review
+  -- and of adversarial testing. Read by: cell 18.
+  SELECT w.id AS work, w.recorded,
+    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell = '5a' AND r.transition IS NOT NULL
+     ORDER BY r.id DESC LIMIT 1) AS last_review,
+    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell = '6' AND r.transition IS NOT NULL
+     ORDER BY r.id DESC LIMIT 1) AS last_adversarial
+  FROM works w;
+
+CREATE VIEW waited_items AS
+  -- The items each work's item depends on, with what it needs of each, how far each is and, once merged, the
+  -- last return of its merge. Read by: cells 11 and 11b.
+  SELECT w.id AS work, d.id AS item, l.needs, d.title, d.cancelled,
+    (SELECT x.at FROM works x WHERE x.item = d.id ORDER BY x.id DESC LIMIT 1) AS at,
+    (SELECT r.output FROM rounds r JOIN works x ON x.id = r.work
+     WHERE x.item = d.id AND r.cell = '9' AND r.transition = 'merged' ORDER BY r.id DESC LIMIT 1) AS merged
+  FROM works w JOIN item_links l ON l.item = w.item JOIN items d ON d.id = l.depends_on;
+
+CREATE VIEW waiting_interjections AS
+  -- Interjections not yet handed in, in the order they came. Read by: every agent cell; cells 18, 19 and 20.
+  SELECT work, id AS interjection, line, speaker, text FROM interjections WHERE delivered_round IS NULL;
+
+CREATE VIEW merge_queue AS
+  -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell 9.
+  SELECT i.project, w.id AS work, w.pr, w.pushed_head
+  FROM works w JOIN items i ON i.id = w.item
+  WHERE w.at = '9' AND w.ended IS NULL
+  ORDER BY w.id;
+
+CREATE VIEW side_reports AS
+  -- Every side report a round handed in. Read by: cell 15; the owner's interface.
+  SELECT r.work, r.id AS round, r.cell, s.value AS report
+  FROM rounds r, json_each(r.output, '$.side_reports') s
+  WHERE r.output IS NOT NULL;
+
+CREATE VIEW work_followups AS
+  -- What to do next, as each report or fix handed in. Read by: cell 20; the owner's interface.
+  SELECT w.item, r.work, r.id AS round, json_extract(r.output, '$.outcome.end.followup') AS followup
+  FROM rounds r JOIN works w ON w.id = r.work
+  WHERE r.cell IN ('4', '8') AND json_extract(r.output, '$.outcome.end.followup') IS NOT NULL;
+
+CREATE VIEW work_progress AS
+  -- What each round said it did, paused for or redirected to. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.progress') AS progress,
+    json_extract(r.output, '$.outcome.pause') AS pause, json_extract(r.output, '$.outcome.redirect') AS redirect,
+    r.ended_at
+  FROM rounds r
+  WHERE r.output IS NOT NULL;
+
+CREATE VIEW item_research AS
+  -- The research and design each work wrote for its item: every accepted own answer of the research, design and
+  -- implementation cells. Read by: the owner's interface; the architect.
+  SELECT w.item, r.work, r.id AS round, r.cell, json_extract(r.output, '$.outcome') AS outcome
+  FROM rounds r JOIN works w ON w.id = r.work
+  WHERE r.cell IN ('1', '2', '2a', '3c', '4', '8') AND r.transition IS NOT NULL;
+
+CREATE VIEW adversarial_directions AS
+  -- The directions each adversarial round tried. Read by: the owner's interface, to see what kinds of work it
+  -- finds problems in.
+  SELECT w.item, r.work, r.id AS round, d.value AS direction
+  FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.directions') d
+  WHERE r.cell = '6';
+
+CREATE VIEW not_applicable_columns AS
+  -- Review columns answered not applicable, with the reasons. Read by: the owner's interface, to see which
+  -- columns do not fit the work.
+  SELECT r.work, r.id AS round, r.cell, json_extract(c.value, '$.id') AS col,
+    json_extract(c.value, '$.reason') AS reason
+  FROM rounds r, json_each(r.output, '$.outcome.columns') c
+  WHERE r.cell IN ('5a', '5b') AND json_extract(c.value, '$.verdict') = 'not_applicable';
+
+CREATE VIEW withdrawn_findings AS
+  -- Blind review findings the table review withdrew, with the reasons. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, json_extract(x.value, '$.fid') AS finding, json_extract(x.value, '$.reason') AS reason
+  FROM rounds r, json_each(r.output, '$.outcome.withdrawn') x
+  WHERE r.cell = '5a';
+
+CREATE VIEW advisor_rulings AS
+  -- Disputes the fix took to the advisor, and the ruling it carried out. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, json_extract(x.value, '$.id') AS finding, json_extract(x.value, '$.ruling') AS ruling
+  FROM rounds r, json_each(r.output, '$.outcome.rows') x
+  WHERE r.cell = '8' AND json_extract(x.value, '$.answer') = 'advisor_ruled';
+
+CREATE VIEW not_applicable_answers AS
+  -- Gate questions answered not applicable, with why. Read by: the owner's interface, to see which questions do
+  -- not fit the work.
+  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.outcome.answer.why') AS why
+  FROM rounds r
+  WHERE json_extract(r.output, '$.outcome.answer.verdict') = 'not_applicable';
+
+CREATE VIEW flaky_reds AS
+  -- Checks that were red on main and green again on the same commit. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, json_extract(r.output, '$.main.checks') AS checks
+  FROM rounds r
+  WHERE r.cell = '10' AND json_extract(r.output, '$.main.kind') = 'flaky';
+
+CREATE VIEW known_red_counts AS
+  -- How often main was red only on known red checks, by project. Read by: the owner's interface.
+  SELECT i.project, count(*) AS times
+  FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+  WHERE r.cell = '10' AND json_extract(r.output, '$.main.kind') = 'known_red'
+  GROUP BY i.project;

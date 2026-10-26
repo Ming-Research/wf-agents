@@ -11,3 +11,5 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
 - `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
   the same pull request.
+- `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
+  passes `wf-agents flow check`; the flow crate's tests run the same check.

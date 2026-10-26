@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
+db = { path = "../db" }
+flow = { path = "../flow" }
 
 [lints]
 workspace = true

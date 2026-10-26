@@ -1,0 +1,13 @@
+[package]
+name = "db"
+description = "The wf-agents database: its definition, and opening it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+
+[lints]
+workspace = true
