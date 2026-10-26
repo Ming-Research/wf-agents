@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wf-agents flow</title>
+<style>
+/* The page is the diagram, in a pan-and-zoom viewport that fills the window; a cell's details, and the list of what
+   changed, open in a panel on the right. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde5; --accent: #2f5fb3;
+  --btn: #eef1f6; --changed: #c25e00; --changed-bg: #fff1e3; --added: #2f7a4f; --removed: #a33a3a;
+  --shadow: rgba(20, 30, 50, 0.18);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --panel: #1c2028; --fg: #e4e7ee; --muted: #9aa3b5; --line: #2e3440; --accent: #8fb2f0;
+    --btn: #262b35; --changed: #f0a35a; --changed-bg: #3a2a1a; --added: #7fd1a1; --removed: #f08a8a;
+    --shadow: rgba(0, 0, 0, 0.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --panel: #1c2028; --fg: #e4e7ee; --muted: #9aa3b5; --line: #2e3440; --accent: #8fb2f0;
+  --btn: #262b35; --changed: #f0a35a; --changed-bg: #3a2a1a; --added: #7fd1a1; --removed: #f08a8a;
+  --shadow: rgba(0, 0, 0, 0.5); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.6 var(--font-body); overflow: hidden; }
+header { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 10; }
+header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; white-space: nowrap; }
+header .sp { flex: 1; }
+button { font: inherit; color: var(--fg); background: var(--btn); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--accent); }
+button.changes { color: var(--changed); border-color: var(--changed); font-weight: 600; }
+.viewport { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; cursor: grab; touch-action: none; }
+.viewport.dragging { cursor: grabbing; }
+.stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.stage svg { display: block; max-width: none !important; }
+.stage g.node { cursor: pointer; }
+.stage g.node.changed rect, .stage g.node.changed polygon, .stage g.node.changed path, .stage g.node.changed circle {
+  stroke: var(--changed) !important; stroke-width: 4px !important; }
+.stage g.node.focus rect, .stage g.node.focus polygon, .stage g.node.focus path { stroke: var(--accent) !important;
+  stroke-width: 4px !important; }
+.error { padding: 60px 16px; color: var(--muted); }
+aside { position: fixed; top: 44px; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--panel);
+  border-left: 1px solid var(--line); box-shadow: -4px 0 16px var(--shadow); overflow-y: auto; padding: 12px 16px 40px;
+  z-index: 9; display: none; }
+aside.open { display: block; }
+aside .close { float: right; }
+aside h2 { font-size: 17px; margin: 4px 0 2px; }
+aside h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 6px;
+  border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+aside .meta { color: var(--muted); font-size: 13px; }
+aside p { margin: 4px 0; }
+aside table { border-collapse: collapse; width: 100%; font-size: 13px; }
+aside td, aside th { border-top: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
+aside th { color: var(--muted); font-weight: 600; }
+code, .mono { font-family: var(--font-mono); font-size: 12px; }
+a.cell { color: var(--accent); cursor: pointer; text-decoration: none; font-family: var(--font-mono); font-size: 12px; }
+a.cell:hover { text-decoration: underline; }
+.tag { display: inline-block; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px;
+  color: var(--muted); margin-left: 4px; }
+.tag.main { color: var(--added); border-color: var(--added); }
+.chg { background: var(--changed-bg); border-left: 3px solid var(--changed); }
+.chg-note { color: var(--changed); font-size: 12px; font-weight: 600; }
+.before { color: var(--removed); text-decoration: line-through; }
+.added { color: var(--added); }
+.removed { color: var(--removed); text-decoration: line-through; }
+details { margin: 2px 0; }
+details > summary { cursor: pointer; }
+.field { margin-left: 14px; border-left: 1px dotted var(--line); padding-left: 8px; }
+.fname { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.ftype { color: var(--muted); font-size: 12px; }
+.fdesc { color: var(--fg); font-size: 13px; }
+ul.plain { margin: 4px 0; padding-left: 18px; }
+ul.plain li { margin: 3px 0; }
+.legend { position: fixed; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; box-shadow: 0 2px 8px var(--shadow); z-index: 8; max-width: 300px; }
+.legend summary { cursor: pointer; }
+.legend ul { list-style: none; margin: 6px 0; padding: 0; }
+.legend li { margin: 3px 0; }
+.legend .sw { display: inline-block; width: 22px; height: 12px; border: 2px solid; margin-right: 6px; vertical-align: -2px; }
+.change-item { padding: 6px 8px; margin: 4px 0; border-radius: 4px; }
+.change-item .where { font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>wf-agents flow</h1>
+  <span id="summary" class="meta"></span>
+  <span class="sp"></span>
+  <button id="changes" class="changes" hidden></button>
+  <button id="fit" title="Show the whole diagram (space)">Whole</button>
+  <button id="zin" title="Zoom in">+</button>
+  <button id="zout" title="Zoom out">&minus;</button>
+</header>
+<div class="viewport" id="vp"><div class="stage" id="stage"></div></div>
+<details class="legend" id="legend"><summary>Legend</summary><ul id="legend-list"></ul></details>
+<aside id="panel"></aside>
+<script type="application/json" id="flow">{{flow}}</script>
+<script type="application/json" id="against">{{against}}</script>
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.esm.min.mjs";
+
+const FLOW = JSON.parse(document.getElementById('flow').textContent);
+const BASE = JSON.parse(document.getElementById('against').textContent);
+const G = FLOW.graphs[0];
+const B = BASE ? BASE.graphs.find(g => g.name === G.name) || null : null;
+const CELL = Object.fromEntries(G.cells.map(c => [c.id, c]));
+
+// What each kind of cell, and each agent's line, looks like: the shape in the diagram and the colours.
+const LOOK = {
+  engine: { open: '("', close: '")', fill: '#efe7fb', stroke: '#7a4fc9', dash: true, name: 'The engine\'s own step (no model)' },
+  tool: { open: '[["', close: '"]]', fill: '#eceef2', stroke: '#6b7280', dash: true, name: 'A tool the engine runs' },
+  owner: { open: '(["', close: '"])', fill: '#fdebd8', stroke: '#c46a12', dash: false, name: 'The owner' },
+  engineer: { fill: '#e3f4e8', stroke: '#2f8a52', name: 'Agent round: engineer' },
+  review: { fill: '#e0f3f6', stroke: '#1f8a9a', name: 'Agent round: review' },
+  adversarial: { fill: '#fbe4e4', stroke: '#c03b3b', name: 'Agent round: adversarial tester' },
+  advisor: { fill: '#f8e3f1', stroke: '#b03b8a', name: 'Agent round: advisor' },
+  architect: { fill: '#eef5d8', stroke: '#7a9a1f', name: 'Agent round: architect' },
+  fresh: { fill: '#ffffff', stroke: '#6b7280', dash: true, name: 'Agent round in a fresh session' },
+  rounds: { fill: '#fff1e3', stroke: '#c25e00', dash: false, name: 'What happens to an agent round that does not end in a return the cell takes' },
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+// Text inside a diagram label: the diagram library reads a double quote as the end of the label.
+function lab(s) { return String(s).replace(/"/g, '#quot;'); }
+function nid(id) { return 'n' + String(id).replace(/[^A-Za-z0-9_]/g, '_'); }
+function look(c) {
+  if (c.kind === 'agent') return LOOK[c.line] || LOOK.fresh;
+  return LOOK[c.kind] || LOOK.engine;
+}
+const isTarget = to => !!CELL[to];
+
+// ---------------------------------------------------------------- what changed
+// Each change names where it is (a cell, or the graph), says what changed, and may carry the text before and after.
+const CHANGES = [];
+const CHANGED_CELLS = new Set();
+const ROW_CHANGE = {}, INPUT_CHANGE = {}, CELL_NOTES = {};
+function change(where, what, before, after) {
+  CHANGES.push({ where, what, before, after });
+  if (where !== 'graph' && where !== 'rounds' && where !== 'engine') CHANGED_CELLS.add(where);
+  (CELL_NOTES[where] = CELL_NOTES[where] || []).push({ what, before, after });
+}
+const J = x => JSON.stringify(x === undefined ? null : x);
+function diffList(where, label, before, after, key, show) {
+  const b = new Map((before || []).map(x => [key(x), x])), a = new Map((after || []).map(x => [key(x), x]));
+  for (const [k, x] of a) if (!b.has(k)) change(where, label + ' added: ' + show(x));
+  for (const [k, x] of b) if (!a.has(k)) change(where, label + ' removed: ' + show(x));
+}
+function diff() {
+  if (!B) return;
+  const bc = Object.fromEntries(B.cells.map(c => [c.id, c]));
+  for (const c of G.cells) {
+    const o = bc[c.id];
+    if (!o) { change(c.id, 'Cell added'); continue; }
+    for (const f of ['title', 'kind', 'line', 'stage', 'step', 'needs', 'gate']) {
+      if (J(o[f]) !== J(c[f])) change(c.id, f + ' changed', o[f], c[f]);
+    }
+    // Inputs are matched by where they come from, so a reworded input shows as changed rather than replaced.
+    const src = x => J(x.from) + '|' + (x.id || '');
+    const bi = new Map(o.inputs.map(x => [src(x), x]));
+    const ai = new Map(c.inputs.map(x => [src(x), x]));
+    for (const [k, x] of ai) {
+      const y = bi.get(k);
+      if (!y) { change(c.id, 'Input added: ' + x.what); INPUT_CHANGE[c.id + k] = 'added'; continue; }
+      if (y.what !== x.what) { change(c.id, 'Input reworded', y.what, x.what); INPUT_CHANGE[c.id + k] = y.what; }
+      else if (J(y) !== J(x)) { change(c.id, 'Input changed (how it is given or whether it may be missing): ' + x.what, J(y), J(x)); INPUT_CHANGE[c.id + k] = 'changed'; }
+    }
+    for (const [k, y] of bi) if (!ai.has(k)) change(c.id, 'Input removed: ' + y.what);
+    const br = new Map(o.rows.map(r => [r.name, r])), ar = new Map(c.rows.map(r => [r.name, r]));
+    for (const [n, r] of ar) {
+      const y = br.get(n);
+      if (!y) { change(c.id, 'Row added: ' + n + ' → ' + r.to); ROW_CHANGE[c.id + '|' + n] = 'added'; }
+      else if (J(y) !== J(r)) { change(c.id, 'Row changed: ' + n, J(y), J(r)); ROW_CHANGE[c.id + '|' + n] = 'changed'; }
+    }
+    for (const [n, y] of br) if (!ar.has(n)) change(c.id, 'Row removed: ' + n + ' → ' + y.to);
+    if (J(o.prompt) !== J(c.prompt) || J(o.prompt_by) !== J(c.prompt_by)) change(c.id, 'Prompt changed', (o.prompt || []).join('\n\n'), (c.prompt || []).join('\n\n'));
+    diffList(c.id, 'Check', o.checks, c.checks, x => J(x), x => x.check + (x.at ? ' at ' + x.at : ''));
+    diffList(c.id, 'Done every time', o.always, c.always, x => J(x), x => (x.do || x.view) + (x.at ? ' at ' + x.at : ''));
+    diffList(c.id, 'Rule', o.rules, c.rules, x => x.name, x => x.name);
+    if (J(o.schema) !== J(c.schema)) change(c.id, 'Return format changed');
+  }
+  for (const o of B.cells) if (!CELL[o.id]) change(o.id, 'Cell removed: ' + o.title);
+  if (J(B.rounds) !== J(G.rounds)) {
+    if (!B.rounds) change('rounds', 'Added: what the engine does with an agent round that does not end in a return the cell takes');
+    else if (!G.rounds) change('rounds', 'Removed: what the engine does with rounds that do not end in a return');
+    else change('rounds', 'Changed: what the engine does with rounds that do not end in a return', J(B.rounds), J(G.rounds));
+  }
+  if (J(B.counters) !== J(G.counters)) change('graph', 'Counters changed', J(B.counters), J(G.counters));
+  if (J(B.rules) !== J(G.rules)) change('graph', 'Rule texts changed', J(B.rules), J(G.rules));
+  if (J(B.interject) !== J(G.interject)) change('graph', 'Interjection changed', J(B.interject), J(G.interject));
+  for (const part of ['steps', 'actions', 'checks', 'inputs', 'values', 'needs']) {
+    const b = BASE.engine[part] || {}, a = FLOW.engine[part] || {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (J(a[k]) !== J(b[k])) change('engine', 'Engine ' + part.replace(/s$/, '') + ' ' + k + (k in b ? (k in a ? ' changed' : ' removed') : ' added'), b[k], a[k]);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- the diagram
+function diagram() {
+  const L = ['flowchart TD'];
+  const groups = [];
+  const at = {};
+  for (const c of G.cells) {
+    const g = G.asking.includes(c.id) ? 'Asking someone, and the answer back' : (c.stage ? 'Stage: ' + c.stage.replace(/_/g, ' ') : 'No stage');
+    if (!(g in at)) { at[g] = []; groups.push(g); }
+    at[g].push(c);
+  }
+  groups.forEach((g, i) => {
+    L.push('  subgraph s' + i + '["' + lab(g) + '"]');
+    for (const c of at[g]) {
+      const k = look(c);
+      const open = k.open || '["', close = k.close || '"]';
+      const mark = CHANGED_CELLS.has(c.id) ? ' ●' : '';
+      L.push('    ' + nid(c.id) + open + '<b>' + lab(esc(c.id)) + '</b> ' + lab(esc(c.title)) + mark + close);
+    }
+    L.push('  end');
+  });
+  // One arrow per pair of cells, labelled with the numbers of the rows it stands for; rows on the main path are drawn
+  // thick. Rows back to the cell that called, or to the cell itself, and the rows every agent's cell shares, are not drawn.
+  for (const c of G.cells) {
+    const to = new Map();
+    c.rows.forEach((r, i) => {
+      if (r.common || !isTarget(r.to)) return;
+      const e = to.get(r.to) || { nos: [], main: false };
+      e.nos.push(i + 1); e.main = e.main || r.main; to.set(r.to, e);
+    });
+    for (const [t, e] of to) L.push('  ' + nid(c.id) + (e.main ? ' ==>|"' : ' -->|"') + e.nos.join(',') + '"| ' + nid(t));
+  }
+  // The rows every agent's cell shares, drawn once.
+  const agent = G.cells.find(c => c.kind === 'agent');
+  if (agent) {
+    const shared = agent.rows.filter(r => r.common).map(r => r.name.replace(/_/g, ' ') + ' → ' + (r.to === '@self' ? 'itself' : r.to));
+    L.push('  common["<b>Every agent cell also has</b><br/>' + lab(esc(shared.join(' · '))) + '"]');
+  }
+  if (G.rounds) {
+    const R = G.rounds;
+    L.push('  subgraph rounds_box["' + lab('Every agent round that does not end in a return the cell takes') + '"]');
+    L.push('    rb["<b>Return sent back</b><br/>the same cell again, told why<br/>' + R.sent_back_label + '"]');
+    for (const k of R.failed.kinds) {
+      const how = k.handle === 'wait' ? 'every work waits, then goes on from its cell'
+        : k.handle === 'retry' ? 'the same round again, ' + k.retries + ' times' : 'no retry';
+      L.push('    rf_' + k.name + '["<b>' + lab(esc(k.name.replace(/_/g, ' '))) + '</b><br/>' + lab(esc(how)) + '"]');
+    }
+    L.push('    rrec["<b>Every round records</b><br/>the whole command, versions"]');
+    L.push('    renv["<b>Agent environment</b><br/>only what the flow gives"]');
+    L.push('  end');
+    for (const k of R.failed.kinds) if (k.then && isTarget(k.then)) L.push('  rf_' + k.name + ' -->|"' + (k.handle === 'retry' ? 'still failing' : 'at once') + '"| ' + nid(k.then));
+  }
+  // Colours.
+  const defs = [];
+  for (const [name, k] of Object.entries(LOOK)) {
+    defs.push('  classDef k_' + name + ' fill:' + k.fill + ',stroke:' + k.stroke + ',stroke-width:2px,color:#1d2330' + (k.dash ? ',stroke-dasharray:5 3' : ''));
+  }
+  L.push(...defs);
+  for (const c of G.cells) L.push('  class ' + nid(c.id) + ' k_' + (c.kind === 'agent' ? (LOOK[c.line] ? c.line : 'fresh') : c.kind));
+  if (agent) L.push('  class common k_tool');
+  if (G.rounds) {
+    const ids = ['rb', 'rrec', 'renv', ...G.rounds.failed.kinds.map(k => 'rf_' + k.name)];
+    L.push('  class ' + ids.join(',') + ' k_rounds');
+  }
+  return L.join('\n');
+}
+
+// ---------------------------------------------------------------- the panel
+const panel = document.getElementById('panel');
+function closePanel() { panel.classList.remove('open'); focus(null); }
+function cellLink(id) { return isTarget(id) ? '<a class="cell" data-cell="' + esc(id) + '">' + esc(id) + '</a>' : '<code>' + esc(id) + '</code>'; }
+function src(s) {
+  if (s === 'self') return 'the agent itself';
+  if (typeof s === 'string') return esc(s);
+  if (Array.isArray(s)) return cellLink(s[0]) + (s[1] ? ' <code>' + esc(s[1]) + '</code>' : '');
+  const k = Object.keys(s)[0];
+  return esc(k) + ': <code>' + esc(s[k]) + '</code>' + (s.by ? ' <span class="meta">by ' + esc(s.by) + '</span>' : '');
+}
+function cond(a) {
+  if (!Array.isArray(a)) return esc(J(a));
+  const [op, p, v] = a;
+  const vals = x => (Array.isArray(x) ? x : [x]).map(y => '<code>' + esc(y) + '</code>').join(' | ');
+  switch (op) {
+    case 'all': return 'always';
+    case 'own': return 'this cell\'s own answer';
+    case 'has': return 'has <code>' + esc(p) + '</code>';
+    case 'is': return '<code>' + esc(p) + '</code> is ' + vals(v);
+    case 'any': return '<code>' + esc(p) + '</code> holds any of ' + vals(v);
+    case 'none': return '<code>' + esc(p) + '</code> holds none of ' + vals(v);
+    case 'or': return a.slice(1).map(x => Array.isArray(x) && Array.isArray(x[0]) ? x.map(cond).join(' and ') : cond(x)).join(' <b>or</b> ');
+    default: return '<code>' + esc(J(a)) + '</code>';
+  }
+}
+function schemaTree(s, name, required, depth) {
+  if (!s || depth > 12) return '';
+  const t = s.type || (s.anyOf ? 'one of' : s.enum ? 'enum' : '');
+  let head = '<span class="fname">' + esc(name) + '</span> <span class="ftype">' + esc(Array.isArray(t) ? t.join('|') : t)
+    + (required === false ? ', optional' : '') + '</span>';
+  if (s.enum) head += ' <span class="ftype">' + s.enum.map(x => esc(J(x))).join(' | ') + '</span>';
+  if (s.const !== undefined) head += ' <span class="ftype">= ' + esc(J(s.const)) + '</span>';
+  const desc = s.description ? '<div class="fdesc">' + esc(s.description) + '</div>' : '';
+  let kids = '';
+  if (s.properties) {
+    const req = new Set(s.required || []);
+    kids += Object.entries(s.properties).map(([k, v]) => schemaTree(v, k, req.has(k), depth + 1)).join('');
+  }
+  if (s.items) kids += schemaTree(s.items, '[item]', undefined, depth + 1);
+  if (s.anyOf) kids += s.anyOf.map((x, i) => schemaTree(x, 'form ' + (i + 1), undefined, depth + 1)).join('');
+  if (!kids) return '<div class="field">' + head + desc + '</div>';
+  return '<details class="field"' + (depth < 2 ? ' open' : '') + '><summary>' + head + '</summary>' + desc + kids + '</details>';
+}
+function notesFor(where) {
+  const ns = CELL_NOTES[where];
+  if (!ns) return '';
+  return '<h3>What changed</h3>' + ns.map(n => '<div class="change-item chg">' + esc(n.what)
+    + (n.before != null || n.after != null ? beforeAfter(n.before, n.after) : '') + '</div>').join('');
+}
+function beforeAfter(b, a) {
+  const show = x => x == null ? '<i>none</i>' : '<span class="mono">' + esc(typeof x === 'string' ? x : J(x)) + '</span>';
+  return '<details><summary>before and after</summary><p><b>Before:</b> ' + show(b) + '</p><p><b>After:</b> ' + show(a) + '</p></details>';
+}
+function showCell(id) {
+  const c = CELL[id];
+  if (!c) return;
+  const k = look(c);
+  let h = '<button class="close">Close</button><h2>' + esc(c.id) + ' &middot; ' + esc(c.title) + '</h2>';
+  h += '<div class="meta">' + esc(k.name) + (c.stage ? ' &middot; stage ' + esc(c.stage) : '') + (c.gate ? ' &middot; gate' : '')
+    + (c.needs ? ' &middot; needs ' + esc(c.needs) : '') + '</div>';
+  if (c.step) h += '<p><b>Engine step <code>' + esc(c.step) + '</code>:</b> ' + esc(FLOW.engine.steps[c.step] || '') + '</p>';
+  h += notesFor(c.id);
+  h += '<h3>Inputs</h3><table><tr><th>What</th><th>From</th><th>How</th></tr>';
+  for (const x of c.inputs) {
+    const key = c.id + J(x.from) + '|' + (x.id || '');
+    const ch = INPUT_CHANGE[key];
+    h += '<tr' + (ch ? ' class="chg"' : '') + '><td>' + esc(x.what) + (x.maybe ? ' <span class="tag">may be missing</span>' : '')
+      + (ch && ch !== 'added' && ch !== 'changed' ? '<div class="before">' + esc(ch) + '</div>' : '')
+      + (ch ? '<div class="chg-note">' + (ch === 'added' ? 'added' : 'changed') + '</div>' : '') + '</td><td>'
+      + x.from.map(src).join('<br>') + '</td><td>' + esc(x.held || '') + '</td></tr>';
+  }
+  h += '</table>';
+  if (c.rules && c.rules.length) {
+    h += '<h3>Rules given</h3><ul class="plain">' + c.rules.map(r => {
+      const rule = G.rules.find(x => x.name === r.name);
+      return '<li><details><summary><code>' + esc(r.name) + '</code> <span class="meta">' + esc(r.held || '') + '</span></summary>'
+        + (rule ? '<p>' + esc(rule.desc) + '</p><ul class="plain">' + rule.text.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') + '</details></li>';
+    }).join('') + '</ul>';
+  }
+  if (c.prompt && c.prompt.length) {
+    h += '<h3>Prompt</h3>' + c.prompt.map(p => '<p>' + esc(p) + '</p>').join('');
+    if (c.prompt_by) {
+      h += '<p class="meta">By <code>' + esc(c.prompt_by.by) + '</code>:</p><ul class="plain">'
+        + Object.entries(c.prompt_by.cases || {}).map(([k, v]) => '<li><code>' + esc(k) + '</code>: ' + esc([].concat(v).join(' ')) + '</li>').join('') + '</ul>';
+    }
+  }
+  if (c.forms && c.forms.length) h += '<h3>Returns</h3><p>One of: ' + c.forms.map(f => esc(f.say)).join(', ') + '.</p>';
+  if (c.schema) h += '<details><summary>Return format, field by field</summary>' + schemaTree(c.schema, 'return', true, 0) + '</details>';
+  h += '<h3>Rows</h3><table><tr><th>#</th><th>Row</th><th>When</th><th>To</th></tr>';
+  c.rows.forEach((r, i) => {
+    const ch = ROW_CHANGE[c.id + '|' + r.name];
+    const extra = [];
+    if (r.counts) extra.push('counts ' + esc(r.counts));
+    if (r.waits) extra.push('waits');
+    if (r.sets && Object.keys(r.sets).length) extra.push('sets ' + Object.entries(r.sets).map(([k, v]) => '<code>' + esc(k) + '=' + esc(v) + '</code>').join(' '));
+    if (r.do && r.do.length) extra.push('does ' + r.do.map(d => '<code>' + esc(d.do) + '</code>' + (d.at ? ' at <code>' + esc(d.at) + '</code>' : '')).join(', '));
+    h += '<tr' + (ch ? ' class="chg"' : '') + '><td>' + (i + 1) + '</td><td><code>' + esc(r.name) + '</code>'
+      + (r.main ? '<span class="tag main">main</span>' : '') + (r.common ? '<span class="tag">shared</span>' : '')
+      + (ch ? '<div class="chg-note">' + ch + '</div>' : '') + '</td><td>' + (r.if || []).map(cond).join(' and ')
+      + (extra.length ? '<div class="meta">' + extra.join('; ') + '</div>' : '') + (r.note ? '<div class="meta">' + esc(r.note) + '</div>' : '')
+      + '</td><td>' + (r.to === '@self' ? 'itself' : r.to === '@caller' ? 'back to the cell that called' : r.to === '@asker' ? 'back to the cell that asked' : cellLink(r.to)) + '</td></tr>';
+  });
+  h += '</table>';
+  if (c.checks && c.checks.length) {
+    h += '<h3>Checks before the row is taken</h3><ul class="plain">' + c.checks.map(x => '<li><code>' + esc(x.check) + '</code>'
+      + (x.at ? ' at <code>' + esc(x.at) + '</code>' : '') + '<div class="meta">' + esc(FLOW.engine.checks[x.check] || '') + '</div></li>').join('') + '</ul>';
+  }
+  if (c.always && c.always.length) {
+    h += '<h3>Done every time</h3><ul class="plain">' + c.always.map(x => {
+      const name = x.do || x.view;
+      const d = x.do ? FLOW.engine.actions[x.do] : '';
+      return '<li><code>' + esc(name) + '</code>' + (x.at ? ' at <code>' + esc(x.at) + '</code>' : '') + (d ? '<div class="meta">' + esc(d) + '</div>' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  open(h);
+  focus(c.id);
+}
+function showRounds() {
+  const R = G.rounds;
+  let h = '<button class="close">Close</button><h2>Every agent round that does not end in a return the cell takes</h2>';
+  h += '<p>' + esc(R.desc) + '</p>' + notesFor('rounds');
+  h += '<h3>A return sent back</h3><p>' + esc(R.sentBack.desc) + '</p><p>' + esc(R.sentBack.pause) + '</p>';
+  h += '<h3>A run that ended without a return</h3><p>' + esc(R.failed.desc) + '</p><table><tr><th>Kind</th><th>When</th><th>What the engine does</th></tr>';
+  for (const k of R.failed.kinds) {
+    h += '<tr><td><code>' + esc(k.name) + '</code></td><td>' + esc(k.when) + '</td><td>' + esc(k.desc)
+      + '<div class="meta">' + esc(k.handle) + (k.retries ? ', ' + k.retries + ' retries' : '') + (k.then ? ', then ' : '') + '</div>'
+      + (k.then ? cellLink(k.then) : '') + '</td></tr>';
+  }
+  h += '</table><h3>What every round records</h3><ul class="plain">' + R.record.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>';
+  h += '<h3>What an agent starts with</h3><ul class="plain">' + R.environment.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>';
+  open(h);
+  focus(null);
+}
+function showCommon() {
+  const agent = G.cells.find(c => c.kind === 'agent');
+  let h = '<button class="close">Close</button><h2>Rows every agent cell shares</h2><table><tr><th>Row</th><th>When</th><th>To</th></tr>';
+  for (const r of agent.rows.filter(r => r.common)) {
+    h += '<tr><td><code>' + esc(r.name) + '</code></td><td>' + (r.if || []).map(cond).join(' and ') + '</td><td>'
+      + (r.to === '@self' ? 'itself' : cellLink(r.to)) + '</td></tr>';
+  }
+  open(h + '</table>');
+}
+function showChanges() {
+  let h = '<button class="close">Close</button><h2>What changed</h2><p class="meta">Against the flow given with <code>--against</code>. '
+    + CHANGES.length + ' changes.</p>';
+  const by = {};
+  for (const c of CHANGES) (by[c.where] = by[c.where] || []).push(c);
+  for (const [w, cs] of Object.entries(by)) {
+    const title = w === 'rounds' ? 'Agent rounds that do not end in a return' : w === 'graph' ? 'The graph' : w === 'engine' ? 'Engine names' : 'Cell ' + w + (CELL[w] ? ' · ' + CELL[w].title : '');
+    h += '<h3>' + (CELL[w] ? '<a class="cell" data-cell="' + esc(w) + '">' + esc(title) + '</a>' : w === 'rounds' ? '<a class="cell" data-rounds="1">' + esc(title) + '</a>' : esc(title)) + '</h3>';
+    for (const c of cs) h += '<div class="change-item chg">' + esc(c.what) + (c.before != null || c.after != null ? beforeAfter(c.before, c.after) : '') + '</div>';
+  }
+  open(h);
+}
+function open(h) {
+  panel.innerHTML = h;
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+panel.addEventListener('click', e => {
+  if (e.target.closest('.close')) { closePanel(); return; }
+  const a = e.target.closest('a.cell');
+  if (!a) return;
+  if (a.dataset.rounds) { showRounds(); return; }
+  showCell(a.dataset.cell);
+  view.center(a.dataset.cell);
+});
+
+// ---------------------------------------------------------------- the viewer
+const vp = document.getElementById('vp'), stage = document.getElementById('stage');
+const view = (() => {
+  const v = { s: 1, x: 0, y: 0, w: 0, h: 0 };
+  const apply = () => { stage.style.transform = 'translate(' + v.x + 'px,' + v.y + 'px) scale(' + v.s + ')'; };
+  const whole = () => {
+    const r = vp.getBoundingClientRect();
+    const s = Math.min((r.width - 32) / v.w, (r.height - 32) / v.h, 1.5);
+    return { s, x: (r.width - v.w * s) / 2, y: Math.max(16, (r.height - v.h * s) / 2) };
+  };
+  const set = t => { v.s = t.s; v.x = t.x; v.y = t.y; apply(); };
+  const zoomAt = (k, px, py) => {
+    const s = Math.min(4, Math.max(0.05, v.s * k));
+    v.x = px - (px - v.x) * (s / v.s); v.y = py - (py - v.y) * (s / v.s); v.s = s; apply();
+  };
+  let drag = null;
+  vp.addEventListener('pointerdown', e => {
+    if (e.target.closest('g.node')) return;
+    drag = { x: e.clientX - v.x, y: e.clientY - v.y }; vp.classList.add('dragging'); vp.setPointerCapture(e.pointerId);
+  });
+  vp.addEventListener('pointermove', e => { if (drag) { v.x = e.clientX - drag.x; v.y = e.clientY - drag.y; apply(); } });
+  vp.addEventListener('pointerup', () => { drag = null; vp.classList.remove('dragging'); });
+  // Two fingers move the diagram; a pinch, or two fingers with shift, zooms.
+  vp.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = vp.getBoundingClientRect();
+    if (e.ctrlKey || e.metaKey || e.shiftKey) zoomAt(Math.exp(-(e.deltaY || e.deltaX) * 0.01), e.clientX - r.left, e.clientY - r.top);
+    else { v.x -= e.deltaX; v.y -= e.deltaY; apply(); }
+  }, { passive: false });
+  let saved = null;
+  return {
+    sized(w, h) { v.w = w; v.h = h; set(whole()); },
+    fit() { const t = whole(); if (Math.abs(v.s - t.s) > t.s * 0.01) { saved = v.s; set(t); } else if (saved) { const r = vp.getBoundingClientRect(); zoomAt(saved / v.s, r.width / 2, r.height / 2); } },
+    zoom(k) { const r = vp.getBoundingClientRect(); zoomAt(k, r.width / 2, r.height / 2); },
+    center(id) {
+      const el = nodeEl(id);
+      if (!el) return;
+      const b = el.getBoundingClientRect(), r = vp.getBoundingClientRect();
+      const s = Math.max(v.s, 0.8);
+      const cx = (b.left + b.width / 2 - r.left - v.x) / v.s, cy = (b.top + b.height / 2 - r.top - v.y) / v.s;
+      const room = panel.classList.contains('open') ? r.width - panel.offsetWidth : r.width;
+      set({ s, x: room / 2 - cx * s, y: r.height / 2 - cy * s });
+    },
+  };
+})();
+document.getElementById('fit').onclick = () => view.fit();
+document.getElementById('zin').onclick = () => view.zoom(1.25);
+document.getElementById('zout').onclick = () => view.zoom(0.8);
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea')) return;
+  if (e.key === ' ') { e.preventDefault(); view.fit(); }
+  if (e.key === 'Escape') closePanel();
+});
+const NODES = {};
+function nodeEl(id) { return NODES[nid(id)]; }
+function focus(id) {
+  for (const el of Object.values(NODES)) el.classList.remove('focus');
+  if (id && nodeEl(id)) nodeEl(id).classList.add('focus');
+}
+
+// ---------------------------------------------------------------- start
+function dark() {
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t) return t === 'dark';
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+async function start() {
+  diff();
+  if (G.rounds) G.rounds.sent_back_label = '3 in a row: the work pauses'.replace('3', G.rounds.sentBack.pauseAfter);
+  document.getElementById('summary').textContent = G.name + ' · ' + G.cells.length + ' cells · '
+    + G.cells.reduce((n, c) => n + c.rows.length, 0) + ' rows';
+  const btn = document.getElementById('changes');
+  if (BASE) { btn.hidden = false; btn.textContent = CHANGES.length + ' changes'; btn.onclick = showChanges; }
+  const ll = document.getElementById('legend-list');
+  ll.innerHTML = Object.entries(LOOK).filter(([k]) => k !== 'rounds' || G.rounds).map(([, k]) => '<li><span class="sw" style="background:' + k.fill
+    + ';border-color:' + k.stroke + (k.dash ? ';border-style:dashed' : '') + '"></span>' + esc(k.name) + '</li>').join('')
+    + '<li>Thick arrow: a row on the main path. The number on an arrow is the row\'s number in the cell.</li>'
+    + (BASE ? '<li><span class="sw" style="border-color:var(--changed);border-width:3px"></span>Changed against the flow it is compared with (●)</li>' : '');
+  mermaid.initialize({
+    startOnLoad: false, securityLevel: 'strict', theme: dark() ? 'dark' : 'default', suppressErrorRendering: true,
+    fontFamily: getComputedStyle(document.body).fontFamily, look: 'classic', maxTextSize: 1000000, maxEdges: 2000,
+    flowchart: { padding: 8, nodeSpacing: 24, rankSpacing: 36, htmlLabels: true },
+  });
+  let svg;
+  try {
+    svg = (await mermaid.render('flowsvg', diagram())).svg;
+  } catch (e) {
+    stage.innerHTML = '<div class="error">The diagram did not draw: ' + esc(e && e.message || e) + '</div>';
+    return;
+  }
+  stage.innerHTML = svg;
+  const el = stage.querySelector('svg');
+  for (const g of el.querySelectorAll('g.node')) {
+    const m = (g.dataset && g.dataset.id) || ((g.id || '').match(/(?:^|-)((?:n|rf_|rb|rrec|renv|common)[A-Za-z0-9_]*)-\d+$/) || [])[1];
+    if (!m) continue;
+    NODES[m] = g;
+    const id = m.startsWith('n') ? G.cells.find(c => nid(c.id) === m)?.id : null;
+    if (id && CHANGED_CELLS.has(id)) g.classList.add('changed');
+    if (!id && CELL_NOTES.rounds && /^(rf_|rb|rrec|renv)/.test(m)) g.classList.add('changed');
+    g.addEventListener('click', e => {
+      e.stopPropagation();
+      if (id) showCell(id);
+      else if (m === 'common') showCommon();
+      else if (G.rounds) showRounds();
+    });
+  }
+  const box = el.viewBox && el.viewBox.baseVal;
+  const w = box && box.width ? box.width : el.getBoundingClientRect().width;
+  const h = box && box.height ? box.height : el.getBoundingClientRect().height;
+  el.setAttribute('width', w); el.setAttribute('height', h); el.style.maxWidth = 'none';
+  view.sized(w, h);
+}
+start();
+</script>
+</body>
+</html>

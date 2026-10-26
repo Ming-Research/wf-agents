@@ -10,7 +10,9 @@ use sha2::{Digest, Sha256};
 
 use crate::check::Analysis;
 use crate::field::{Field, segment};
-use crate::format::{Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Kind, Named, PromptBy, Rule, Src};
+use crate::format::{
+    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, Rounds, Rule, Src,
+};
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
 pub const COMPILED: &str = "wf-agents compiled 1";
@@ -56,6 +58,8 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounds: Option<Rounds>,
     pub cells: Vec<CompiledCell>,
 }
 
@@ -771,7 +775,52 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
+        rounds: match &f.rounds {
+            Some(r) => Some(rounds(r, &cells)?),
+            None => None,
+        },
         cells,
     };
     Ok((out, stats))
+}
+
+/// The rounds section as written, once each kind of failure is known to go somewhere that exists.
+fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
+    ensure!(r.sent_back.pause_after > 0, "rounds.sentBack.pauseAfter is 0");
+    let mut seen = std::collections::BTreeSet::new();
+    for k in &r.failed.kinds {
+        ensure!(seen.insert(&k.name), "rounds.failed: two kinds named {}", k.name);
+        let to = k.then.as_deref();
+        match k.handle {
+            Handle::Wait => {
+                ensure!(
+                    to.is_none() && k.retries.is_none(),
+                    "rounds.failed {}: a failure waited out goes nowhere and is not retried",
+                    k.name
+                );
+            }
+            Handle::Retry => {
+                ensure!(
+                    k.retries.is_some_and(|n| n > 0) && to.is_some(),
+                    "rounds.failed {}: a retried failure says how many times, and where the work goes then",
+                    k.name
+                );
+            }
+            Handle::Ask => {
+                ensure!(
+                    k.retries.is_none() && to.is_some(),
+                    "rounds.failed {}: a failure asked about at once is not retried, and says where the work goes",
+                    k.name
+                );
+            }
+        }
+        if let Some(t) = to {
+            ensure!(
+                cells.iter().any(|c| c.id == t),
+                "rounds.failed {}: no such cell: {t}",
+                k.name
+            );
+        }
+    }
+    Ok(r.clone())
 }

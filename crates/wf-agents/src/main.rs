@@ -1,6 +1,7 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 
 mod owner;
+mod page;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -174,6 +175,22 @@ enum FlowCommand {
         #[arg(long)]
         schema: Option<PathBuf>,
     },
+    /// Writes the page that shows a flow as a state machine: each cell's inputs, returns, rows and checks, drawn as
+    /// a diagram; with --against, it also lists what changed from that flow.
+    Page {
+        /// The flow to show.
+        #[arg(default_value = "flow/flow.json")]
+        flow: PathBuf,
+        /// A flow to compare it with, such as the one last approved.
+        #[arg(long)]
+        against: Option<PathBuf>,
+        /// The database definition the flows' inputs are read from; by default, the one built into the command.
+        #[arg(long)]
+        schema: Option<PathBuf>,
+        /// Where to write the page.
+        #[arg(long, short)]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -188,6 +205,12 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
+        Some(Command::Flow(FlowCommand::Page {
+            flow,
+            against,
+            schema,
+            out,
+        })) => flow_page(&flow, against.as_deref(), schema.as_deref(), &out),
         Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
         Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
@@ -204,14 +227,28 @@ fn read(p: &Path) -> Result<String, String> {
     std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))
 }
 
-fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
+/// A flow file compiled against a database definition, or the one built into the command.
+fn compile_file(flow: &Path, schema: Option<&Path>) -> Result<flow::Compiled, String> {
     let text = read(flow)?;
     let schema = match schema {
         Some(p) => read(p)?,
         None => db::SCHEMA.to_string(),
     };
     let relations = db::relations(&schema).map_err(|e| format!("the database definition: {e}"))?;
-    let compiled = flow::compile(&text, &flow::Context { relations }).map_err(|e| e.to_string())?;
+    flow::compile(&text, &flow::Context { relations }).map_err(|e| format!("{}: {e}", flow.display()))
+}
+
+fn flow_page(flow: &Path, against: Option<&Path>, schema: Option<&Path>, out: &Path) -> Result<(), String> {
+    let compiled = compile_file(flow, schema)?;
+    let base = against.map(|p| compile_file(p, schema)).transpose()?;
+    let html = page::page(&compiled, base.as_ref())?;
+    std::fs::write(out, html).map_err(|e| format!("{}: {e}", out.display()))?;
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
+fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
+    let compiled = compile_file(flow, schema)?;
     for s in &compiled.stats {
         println!(
             "{}: {} cells, {} rows, {} states, {} output places",
