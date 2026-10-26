@@ -427,6 +427,87 @@ const CASES: &[Case] = &[
         runs: &["wf-agents history 3 --full"],
         wrong: "",
     },
+    Case {
+        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
+        name: "an option after the quote",
+        text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --bogus\n```",
+        runs: &[
+            "wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --bogus",
+        ],
+        wrong: "bogus",
+    },
+    Case {
+        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
+        name: "after a continued line",
+        text: "```sh\nwf-agents pause 3 \\\n  --why \"A,\nB\" --bogus\n```",
+        runs: &["wf-agents pause 3 --why \"A, B\" --bogus"],
+        wrong: "bogus",
+    },
+    Case {
+        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
+        name: "a second line that begins with the program",
+        text: "```sh\nwf-agents say 3 \"first line\nwf-agents queue add\"\n```",
+        runs: &["wf-agents say 3 \"first line wf-agents queue add\""],
+        wrong: "",
+    },
+    Case {
+        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
+        name: "right options after the quote",
+        text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --queue\n```",
+        runs: &[
+            "wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --queue",
+        ],
+        wrong: "",
+    },
+    Case {
+        group: "a_code_span_does_not_run_over_into_the_next_block",
+        name: "an unclosed span in a list item",
+        text: "- not closed `wf-agents status\n- run `wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_code_span_does_not_run_over_into_the_next_block",
+        name: "an unclosed span in a heading",
+        text: "## Not closed `here\n`wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_code_span_does_not_run_over_into_the_next_block",
+        name: "a span that wraps inside a list item",
+        text: "- run `wf-agents queue\n  put 3` now",
+        runs: &["wf-agents queue put 3"],
+        wrong: "",
+    },
+    Case {
+        group: "a_command_after_a_utility_that_runs_it_is_read",
+        name: "nohup",
+        text: "`nohup wf-agents run --twice &`",
+        runs: &["wf-agents run --twice"],
+        wrong: "twice",
+    },
+    Case {
+        group: "a_command_after_a_utility_that_runs_it_is_read",
+        name: "exec",
+        text: "`exec wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_after_a_utility_that_runs_it_is_read",
+        name: "env with a variable",
+        text: "`env WF_AGENTS_DATA=DIR wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_after_a_utility_that_runs_it_is_read",
+        name: "right nohup",
+        text: "`nohup wf-agents run --once &`",
+        runs: &["wf-agents run --once"],
+        wrong: "",
+    },
 ];
 
 /// What the check finds in the text that writes every command once, except `skip`, followed by `extra`.
@@ -588,6 +669,32 @@ fn a_program_given_by_its_path_is_read() {
 #[test]
 fn a_code_span_of_three_backticks_is_not_a_fence() {
     check_group("a_code_span_of_three_backticks_is_not_a_fence");
+}
+
+// A quoted value that runs onto the next line is one value, as a shell reads it: the words on the next line are part
+// of the quoted text, and what follows the closing quote is again the command's options (POSIX shell command language,
+// quoting: a quotation goes on, newlines in it kept, until the closing quote). `wf-agents item add` with a long
+// `--problem` is the command a README is most likely to write over several lines.
+#[test]
+fn a_quoted_value_that_runs_onto_the_next_line_is_one_value() {
+    check_group("a_quoted_value_that_runs_onto_the_next_line_is_one_value");
+}
+
+// A code span does not run over into the next block: a backtick with no match in its own block is text, and the span
+// in the next list item or after a heading is still read (CommonMark 0.31, section 3.1: block structure takes
+// precedence over inline structure). One missing backtick must not hide the command after it.
+#[test]
+fn a_code_span_does_not_run_over_into_the_next_block() {
+    check_group("a_code_span_does_not_run_over_into_the_next_block");
+}
+
+// A command after a utility that runs it is a command line of its own: `nohup`, `exec` and `env` take a utility and
+// its arguments (POSIX utilities and special built-ins), and a README that starts a long-running engine is likely to
+// use one. A word that only has `wf-agents` after a program that does not run it, such as the cargo package, is not
+// the program (see a_program_given_by_its_path_is_read).
+#[test]
+fn a_command_after_a_utility_that_runs_it_is_read() {
+    check_group("a_command_after_a_utility_that_runs_it_is_read");
 }
 
 // Placeholders and the options every command has are not reported, whatever the check does with the words after them.
