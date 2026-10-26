@@ -397,7 +397,7 @@ fn run(d: &Path, once: bool) -> Result<(), String> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use clap::{Command, CommandFactory};
+    use clap::{Arg, ArgAction, Command, CommandFactory};
 
     use super::Cli;
 
@@ -439,66 +439,218 @@ mod tests {
         }
     }
 
-    /// The command lines a text writes in code: the inline spans, and the lines of fenced blocks, that start with
-    /// `wf-agents `. A command line has to be on one line of the text.
-    fn snippets(text: &str) -> Vec<&str> {
+    /// The code spans of a paragraph of Markdown, each on one line: a span ends at the next run of as many backticks
+    /// as the run that opened it, and may wrap onto the next line of the paragraph. A run with no such end is text.
+    fn spans(paragraph: &str) -> Vec<String> {
         let mut out = Vec::new();
-        let mut fenced = false;
-        for line in text.lines() {
-            if line.trim_start().starts_with("```") {
-                fenced = !fenced;
-            } else if fenced {
-                out.push(line.trim());
-            } else {
-                out.extend(line.split('`').skip(1).step_by(2).map(str::trim));
+        let mut rest = paragraph;
+        while let Some(open) = rest.find('`') {
+            let opening = &rest[open..];
+            let ticks = opening.chars().take_while(|c| *c == '`').count();
+            let body = &opening[ticks..];
+            match closing(body, ticks) {
+                Some((start, end)) => {
+                    out.push(body[..start].replace('\n', " "));
+                    rest = &body[end..];
+                }
+                None => rest = body,
             }
         }
-        out.retain(|s| s.starts_with("wf-agents "));
         out
     }
 
-    /// What a command line comes to: the words that name its command, and what is wrong with it. Subcommands are
-    /// looked for up to the first option; the words after it are option values or positional arguments, and are not
-    /// checked, nor are short options.
-    fn read_line(root: &Command, line: &str) -> (String, Vec<String>) {
-        let mut cmd = root;
-        let mut path = String::from("wf-agents");
-        let mut wrong = Vec::new();
-        let mut options = false;
-        for word in line.split_whitespace().skip(1) {
-            if word.starts_with('-') {
-                options = true;
-                if let Some(long) = word.strip_prefix("--") {
-                    let name = long.split('=').next().unwrap_or_default();
-                    if !cmd.get_arguments().any(|a| a.get_long() == Some(name)) {
-                        wrong.push(format!("{line}: no option --{name}"));
+    /// Where the first run of exactly `ticks` backticks in `text` starts and ends.
+    fn closing(text: &str, ticks: usize) -> Option<(usize, usize)> {
+        let mut from = 0;
+        while let Some(found) = text[from..].find('`') {
+            let start = from + found;
+            let run = text[start..].chars().take_while(|c| *c == '`').count();
+            if run == ticks {
+                return Some((start, start + run));
+            }
+            from = start + run;
+        }
+        None
+    }
+
+    /// The code a text writes, each piece on one line: the code spans of its paragraphs, and the lines of its fenced
+    /// blocks, fenced with backticks or with tildes. A line of a block that ends with a backslash goes on in the next.
+    fn snippets(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut paragraph: Vec<&str> = Vec::new();
+        let mut fence: Option<(char, usize)> = None;
+        let mut joined = String::new();
+        for line in text.lines() {
+            let line = line.trim();
+            let marker = line.chars().next().filter(|c| matches!(*c, '`' | '~'));
+            let run = marker.map_or(0, |m| line.chars().take_while(|c| *c == m).count());
+            match fence {
+                None if run >= 3 => {
+                    out.extend(spans(&paragraph.join("\n")));
+                    paragraph.clear();
+                    fence = marker.map(|m| (m, run));
+                }
+                None if line.is_empty() => {
+                    out.extend(spans(&paragraph.join("\n")));
+                    paragraph.clear();
+                }
+                None => paragraph.push(line),
+                Some((m, ticks)) if marker == Some(m) && run >= ticks && line.len() == run => {
+                    if !joined.is_empty() {
+                        out.push(std::mem::take(&mut joined));
+                    }
+                    fence = None;
+                }
+                Some(_) => match line.strip_suffix('\\') {
+                    Some(head) => {
+                        joined.push_str(head);
+                        joined.push(' ');
+                    }
+                    None => {
+                        joined.push_str(line);
+                        out.push(std::mem::take(&mut joined));
+                    }
+                },
+            }
+        }
+        out.extend(spans(&paragraph.join("\n")));
+        if !joined.is_empty() {
+            out.push(joined);
+        }
+        out
+    }
+
+    /// The commands a piece of shell runs, each as its words with the quotes taken off: `&&`, `||`, `|`, `;` and `&`
+    /// end a command, and a comment ends the line.
+    fn commands(line: &str) -> Vec<Vec<String>> {
+        let mut out = Vec::new();
+        let mut words: Vec<String> = Vec::new();
+        let mut word = String::new();
+        let mut started = false;
+        let mut quote: Option<char> = None;
+        let mut chars = line.chars();
+        while let Some(c) = chars.next() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => word.push(c),
+                (None, '"' | '\'') => {
+                    quote = Some(c);
+                    started = true;
+                }
+                (None, '\\') => {
+                    word.extend(chars.next());
+                    started = true;
+                }
+                (None, '#') if !started => break,
+                (None, c) if c.is_whitespace() || matches!(c, '&' | '|' | ';') => {
+                    if started {
+                        words.push(std::mem::take(&mut word));
+                        started = false;
+                    }
+                    if !c.is_whitespace() && !words.is_empty() {
+                        out.push(std::mem::take(&mut words));
                     }
                 }
-            } else if options || !cmd.has_subcommands() {
-                // An option's value or a positional argument: not checked.
+                (None, c) => {
+                    word.push(c);
+                    started = true;
+                }
+            }
+        }
+        if started {
+            words.push(word);
+        }
+        if !words.is_empty() {
+            out.push(words);
+        }
+        out
+    }
+
+    /// Whether a word sets a variable for the command after it, such as `WF_AGENTS_DATA=DIR`.
+    fn is_assignment(word: &str) -> bool {
+        let Some((name, _)) = word.split_once('=') else { return false };
+        !name.is_empty()
+            && !name.starts_with(|c: char| c.is_ascii_digit())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+
+    /// The words of a command from the program's name on, when it runs `wf-agents`: a shell prompt and the variables
+    /// set before the program are left out.
+    fn from_program(mut words: Vec<String>) -> Option<Vec<String>> {
+        let before = words
+            .iter()
+            .map(String::as_str)
+            .take_while(|w| *w == "$" || is_assignment(w))
+            .count();
+        let words = words.split_off(before);
+        let program = words.first().map(String::as_str) == Some("wf-agents");
+        program.then_some(words)
+    }
+
+    /// Whether the option is followed by a value, which is not a subcommand or an argument.
+    fn takes_value(arg: &Arg) -> bool {
+        matches!(arg.get_action(), ArgAction::Set | ArgAction::Append)
+    }
+
+    /// What a command line comes to: the words that name its command, and what is wrong with it. The words that name
+    /// the command are the subcommands written before the first option. Subcommands are looked up all along the line,
+    /// as clap does, with the options and their values left out of the way; the words after the command are its
+    /// arguments, and so are those after `--`. Values, positional arguments and short options are not checked.
+    fn read_line(root: &Command, words: &[String]) -> (String, Vec<String>) {
+        let line = words.join(" ");
+        let mut cmd = root;
+        let mut named = String::from("wf-agents");
+        let mut wrong = Vec::new();
+        let mut options = false;
+        let mut rest = words.iter().skip(1);
+        while let Some(word) = rest.next() {
+            if word == "--" {
+                break;
+            } else if let Some(long) = word.strip_prefix("--") {
+                options = true;
+                let (name, valued) = match long.split_once('=') {
+                    Some((name, _)) => (name, true),
+                    None => (long, false),
+                };
+                match cmd.get_arguments().find(|a| a.get_long() == Some(name)) {
+                    None => wrong.push(format!("{line}: no option --{name}")),
+                    Some(arg) if takes_value(arg) && !valued => {
+                        rest.next();
+                    }
+                    Some(_) => {}
+                }
+            } else if word.starts_with('-') && word.len() > 1 {
+                options = true;
+            } else if !cmd.has_subcommands() {
+                // A positional argument: not checked.
             } else if word.starts_with('<') {
                 // A placeholder for the command: which one is not known, so nothing after it is checked.
                 break;
             } else if let Some(sub) = cmd.find_subcommand(word) {
                 cmd = sub;
-                path = format!("{path} {word}");
+                if !options {
+                    named = format!("{named} {word}");
+                }
             } else {
                 wrong.push(format!("{line}: no subcommand {word}"));
                 break;
             }
         }
-        (path, wrong)
+        (named, wrong)
     }
 
     /// What is wrong with a text against the commands: a command it never writes, and a subcommand or a long option
-    /// that one of its command lines names and the command does not have.
+    /// that one of its command lines names and the command does not have. A command is written when a command line
+    /// begins with the whole words that run it, such as `wf-agents queue put`.
     fn problems(text: &str, root: &Command) -> Vec<String> {
         let mut written = BTreeSet::new();
         let mut out = Vec::new();
-        for line in snippets(text) {
-            let (path, wrong) = read_line(root, line);
-            written.insert(path);
-            out.extend(wrong);
+        for snippet in snippets(text) {
+            for words in commands(&snippet).into_iter().filter_map(from_program) {
+                let (named, wrong) = read_line(root, &words);
+                written.insert(named);
+                out.extend(wrong);
+            }
         }
         let mut all = Vec::new();
         leaves(root, "wf-agents", &mut all);
