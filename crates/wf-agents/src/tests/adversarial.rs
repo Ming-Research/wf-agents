@@ -828,9 +828,8 @@ fn a_block_quote_is_read_without_its_marker() {
 }
 
 // A line indented by four spaces or a tab, after a blank line, is a code block of its own (CommonMark 0.31, section
-// 4.4: indented code blocks); one that goes on with a paragraph, or that is the second paragraph of a list item with
-// less than four spaces beyond the item's text, is not. Judgment: the design says to write command lines in code font
-// or in a fenced block, so the engineer may call this test wrong; A1 asks for every command line written in code.
+// 4.4: indented code blocks), and the check reads it as code; one that goes on with a paragraph, or that is the second
+// paragraph of a list item with less than four spaces beyond the item's text, is not code.
 #[test]
 fn a_command_in_an_indented_code_block_is_read() {
     check_group("a_command_in_an_indented_code_block_is_read");

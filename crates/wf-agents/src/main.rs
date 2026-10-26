@@ -412,9 +412,9 @@ mod tests {
 
     const README: &str = include_str!("../../../README.md");
 
-    // What the README's data directory section names. This list is a copy: it keeps the README from losing an entry,
-    // and does not notice a path the engine starts to write.
-    const DATA_DIRECTORY: [&str; 9] = [
+    // What the README's section on the data directory lists. This list is a copy: it keeps the README from losing an
+    // entry, and does not notice a path the engine starts to write.
+    const DATA_DIRECTORY: [&str; 10] = [
         "install.toml",
         "shared/",
         "projects/",
@@ -424,6 +424,7 @@ mod tests {
         "tool-output/",
         "notifications.log",
         "worktrees/",
+        "stop",
     ];
 
     /// The command tree as clap builds it to parse: with its own `--help` and `help`, and with the global `--data`
@@ -856,12 +857,38 @@ mod tests {
         assert!(bare.is_empty(), "{bare:#?}");
     }
 
-    // The README names what is in the data directory.
+    /// The lines of the section of a README that begins at the heading `title`, up to the next heading.
+    fn section<'a>(text: &'a str, title: &str) -> Vec<&'a str> {
+        let after = text.lines().skip_while(|line| *line != title).skip(1);
+        after.take_while(|line| !line.starts_with('#')).collect()
+    }
+
+    /// The entries of the data directory that the README's section on it does not list as a bullet that begins with
+    /// the entry in code font. An entry that the README names somewhere else does not count.
+    fn unlisted(text: &str) -> Vec<&'static str> {
+        let lines = section(text, "### The data directory");
+        DATA_DIRECTORY
+            .into_iter()
+            .filter(|entry| {
+                let bullet = format!("- `{entry}`");
+                !lines.iter().any(|line| line.starts_with(&bullet))
+            })
+            .collect()
+    }
+
+    // The README's section on the data directory lists each of its entries as a bullet. An entry is also named in other
+    // places of the README, so taking its bullet away has to be reported with the entry's name.
     #[test]
     fn the_readme_names_what_is_in_the_data_directory() {
+        let missing = unlisted(README);
+        assert!(
+            missing.is_empty(),
+            "{missing:?} are not listed in the section on the data directory"
+        );
         for entry in DATA_DIRECTORY {
-            let code = format!("`{entry}`");
-            assert!(README.contains(&code), "the README does not name {code}");
+            let bullet = format!("- `{entry}`");
+            let without: Vec<&str> = README.lines().filter(|line| !line.starts_with(&bullet)).collect();
+            assert_eq!(unlisted(&without.join("\n")), [entry], "{entry} without its bullet");
         }
     }
 }

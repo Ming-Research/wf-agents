@@ -8,10 +8,10 @@
 //!   included, replaces the earlier one whole;
 //! - `shared/<name>.toml`: the files that projects start from, by their `extends`;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
-//! - `db/`: the database, kept out of git.
+//! - `db/`: the database, which is not committed.
 //!
-//! The command and the engine write more beside these, also kept out of git; README.md lists everything the data
-//! directory holds.
+//! The command and the engine write more beside these, which are not committed either; README.md lists everything the
+//! data directory holds.
 //!
 //! The engine reads only what is committed, so each round names the configuration it ran with by its commit.
 //! `config check` reads the working tree instead, to check a change before it is committed. A field the types do not
