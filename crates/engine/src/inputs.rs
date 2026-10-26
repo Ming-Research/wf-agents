@@ -147,6 +147,20 @@ pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &s
     Ok(None)
 }
 
+/// The rounds of a cell of the work that handed in the cell's own answer, newest first. A round that asked for
+/// tools, asked someone or paused took a row too, but answered nothing.
+pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Vec<work::Round>, String> {
+    let c = g.cell(cell);
+    Ok(work::rounds_at(e.db.conn(), w.id, cell)?
+        .into_iter()
+        .filter(|r| r.transition.is_some())
+        .filter(|r| match (c, &r.output) {
+            (Some(c), Some(o)) => form_of(g, c, o).is_none(),
+            _ => true,
+        })
+        .collect())
+}
+
 /// Gathers every input of a cell.
 pub fn gather(
     e: &Engine,
@@ -236,7 +250,7 @@ fn source(
                 Some((format!("database {relation}"), Value::Array(rows)))
             }
         }
-        Src::Engine(n) => engine_input(e, w, item, n)?.map(|v| (format!("engine {n}"), v)),
+        Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| (format!("engine {n}"), v)),
     })
 }
 
@@ -272,7 +286,7 @@ fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
 }
 
 /// What the engine computes for an input; none when there is nothing.
-pub fn engine_input(e: &Engine, w: &Work, item: &Item, name: &str) -> Result<Option<Value>, String> {
+pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -> Result<Option<Value>, String> {
     let wt = w.worktree.as_deref();
     let main = e
         .config
@@ -300,7 +314,7 @@ pub fn engine_input(e: &Engine, w: &Work, item: &Item, name: &str) -> Result<Opt
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::reviewed_head(e, w)?
+                    crate::values::reviewed_head(e, w, g)?
                 } else {
                     None
                 };

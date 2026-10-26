@@ -653,18 +653,11 @@ fn ask(
 
 /// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since
 /// each side last looked, and what the fix answered.
-fn choose_checks(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
+fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let conn = e.db.conn();
-    let accepted = |c: &str| -> Result<Vec<Round>, String> {
-        Ok(work::rounds_at(conn, w.id, c)?
-            .into_iter()
-            .filter(|r| r.transition.is_some())
-            .collect())
-    };
-    let reviews = accepted("5a")?;
-    let adversarial = accepted("6")?;
-    let fixes = accepted("8")?;
+    let reviews = inputs::answered(e, w, g, "5a")?;
+    let adversarial = inputs::answered(e, w, g, "6")?;
+    let fixes = inputs::answered(e, w, g, "8")?;
     let chose = inputs::last_return(e, w, g, "3f", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "yes");

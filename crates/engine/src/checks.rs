@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::Value;
 
-use crate::inputs::{at_path, last_return};
+use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, Work};
 use crate::{Engine, form_of, git, values};
 
@@ -116,12 +116,9 @@ impl Ctx<'_> {
             .collect()
     }
 
-    /// The accepted rounds of a cell of this work, newest first.
+    /// The rounds of a cell of this work that handed in its own answer, newest first.
     fn accepted(&self, cell: &str) -> Result<Vec<Round>, String> {
-        Ok(work::rounds_at(self.e.db.conn(), self.w.id, cell)?
-            .into_iter()
-            .filter(|r| r.transition.is_some())
-            .collect())
+        answered(self.e, self.w, self.g, cell)
     }
 
     fn last(&self, cell: &str, path: &str) -> Result<Option<Value>, String> {
