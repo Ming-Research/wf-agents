@@ -129,6 +129,17 @@ fn stderr_of(child: &mut Child) -> String {
     text
 }
 
+/// Whether the engine has finished being built: its database holds the flow version, which the engine stores as the
+/// last step of its construction, after compiling the flow. What follows is the start of its loop.
+fn engine_is_built(dir: &Path) -> bool {
+    let flags = db::rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY;
+    let Ok(conn) = db::rusqlite::Connection::open_with_flags(config::database(dir), flags) else {
+        return false;
+    };
+    let built: Result<i64, _> = conn.query_row("SELECT count(*) FROM flow_versions", [], |r| r.get(0));
+    built.is_ok_and(|n| n > 0)
+}
+
 // A1, for a start that is refused: it changes nothing. The `stop` file a running engine is watching is still there (a
 // new engine deletes one as stale when it starts, which would cancel a stop meant for the engine that runs), and no
 // database, log or other file appeared. The directory holds no configuration, so a start that got past the lock would
@@ -154,8 +165,8 @@ fn a_refused_run_and_a_refused_once_leave_the_data_directory_as_it_was() {
 // it whole; it goes on holding the lock past its start-up, into its loop; a second `run` and a second `run --once` are
 // refused naming it; and when it is killed outright the lock is free at once. Nothing else tests that the lock the
 // command takes is still held after the engine is built (a guard dropped on the way passes the tests that hold a
-// `Lock` themselves) or that a started engine's own text is what a refusal reads. About 2 s: the engine compiles the
-// flow when it starts.
+// `Lock` themselves) or that a started engine's own text is what a refusal reads. About 5 s: the engine compiles the
+// flow when it starts (4.5 s in the CI log for the same construction in `lock_adversarial.rs`), then 0.5 s in its loop.
 #[test]
 fn a_running_engine_holds_the_lock_refuses_a_second_start_and_loses_it_when_killed() {
     let d = committed_dir("live");
@@ -173,8 +184,8 @@ fn a_running_engine_holds_the_lock_refuses_a_second_start_and_loses_it_when_kill
     let mut engine = Running(child);
     let pid = engine.0.id();
 
-    // Wait until the engine has taken the lock, written who it is and opened its database. Reading the file, not
-    // taking the lock, so that the test never holds it when the engine starts.
+    // Wait until the engine has taken the lock, written who it is and been built. Reading the file, not taking the
+    // lock, so that the test never holds it when the engine starts.
     let begun = Instant::now();
     loop {
         if let Some(status) = engine.0.try_wait().unwrap() {
@@ -182,7 +193,7 @@ fn a_running_engine_holds_the_lock_refuses_a_second_start_and_loses_it_when_kill
             panic!("the engine stopped by itself ({status}): {said}");
         }
         let text = std::fs::read_to_string(config::engine_lock(&d)).unwrap_or_default();
-        if text.starts_with(&format!("{pid} ")) && config::database(&d).exists() {
+        if text.starts_with(&format!("{pid} ")) && engine_is_built(&d) {
             break;
         }
         assert!(
