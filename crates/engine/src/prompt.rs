@@ -172,6 +172,14 @@ pub fn agent(
         push("# Rules\n");
         push(&rules);
     }
+    if give_all && cell.tools.iter().any(|t| t == "query") {
+        push("# The database\n");
+        push("The tables and views the query tool reads, as the database defines them, with what each holds:\n");
+        push(&format!(
+            "```sql\n{}```\n",
+            db::described(e.db.conn()).unwrap_or_default()
+        ));
+    }
     push("# What you are given\n");
     if let (Some(wt), Some(branch)) = (&w.worktree, &w.branch) {
         push(&format!(
