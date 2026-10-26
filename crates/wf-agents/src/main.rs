@@ -473,13 +473,31 @@ mod tests {
         None
     }
 
-    /// The code a text writes, each piece on one line: the code spans of its paragraphs, and the lines of its fenced
-    /// blocks, fenced with backticks or with tildes. A line of a block that ends with a backslash goes on in the next.
+    /// Whether a line of Markdown begins a list item: a bullet or a number, then a space.
+    fn starts_item(line: &str) -> bool {
+        let digits = line.chars().take_while(char::is_ascii_digit).count();
+        let rest = if digits > 0 {
+            line[digits..].strip_prefix(['.', ')'])
+        } else {
+            line.strip_prefix(['-', '*', '+'])
+        };
+        rest.is_some_and(|rest| rest.starts_with(' '))
+    }
+
+    /// Whether a line of Markdown is a heading: one to six `#`, then a space.
+    fn is_heading(line: &str) -> bool {
+        let hashes = line.chars().take_while(|c| *c == '#').count();
+        (1..=6).contains(&hashes) && line[hashes..].starts_with(' ')
+    }
+
+    /// The code a text writes: the code spans of its blocks of text, and the fenced blocks, fenced with backticks or
+    /// with tildes, each as a text of its own lines. A list item and a heading begin a block, so that a backtick which
+    /// is never closed does not reach into the next one.
     fn snippets(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         let mut paragraph: Vec<&str> = Vec::new();
         let mut fence: Option<(char, usize)> = None;
-        let mut joined = String::new();
+        let mut block: Vec<&str> = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             let marker = line.chars().next().filter(|c| matches!(*c, '`' | '~'));
@@ -497,60 +515,83 @@ mod tests {
                     out.extend(spans(&paragraph.join("\n")));
                     paragraph.clear();
                 }
+                None if is_heading(line) => {
+                    out.extend(spans(&paragraph.join("\n")));
+                    paragraph.clear();
+                    out.extend(spans(line));
+                }
+                None if starts_item(line) => {
+                    out.extend(spans(&paragraph.join("\n")));
+                    paragraph.clear();
+                    paragraph.push(line);
+                }
                 None => paragraph.push(line),
                 Some((m, ticks)) if marker == Some(m) && run >= ticks && line.len() == run => {
-                    if !joined.is_empty() {
-                        out.push(std::mem::take(&mut joined));
-                    }
+                    out.push(block.join("\n"));
+                    block.clear();
                     fence = None;
                 }
-                Some(_) => match line.strip_suffix('\\') {
-                    Some(head) => {
-                        joined.push_str(head);
-                        joined.push(' ');
-                    }
-                    None => {
-                        joined.push_str(line);
-                        out.push(std::mem::take(&mut joined));
-                    }
-                },
+                Some(_) => block.push(line),
             }
         }
         out.extend(spans(&paragraph.join("\n")));
-        if !joined.is_empty() {
-            out.push(joined);
+        if fence.is_some() {
+            out.push(block.join("\n"));
         }
         out
     }
 
-    /// The commands a piece of shell runs, each as its words with the quotes taken off: `&&`, `||`, `|`, `;` and `&`
-    /// end a command, and a comment ends the line.
-    fn commands(line: &str) -> Vec<Vec<String>> {
+    /// The commands a piece of shell runs, each as its words with the quotes taken off. A line ends a command, as do
+    /// `&&`, `||`, `|`, `;` and `&`. A backslash before a line break joins the two lines, a quote goes on over lines
+    /// until it is closed, and a comment runs to the end of its line.
+    fn commands(text: &str) -> Vec<Vec<String>> {
         let mut out = Vec::new();
         let mut words: Vec<String> = Vec::new();
         let mut word = String::new();
         let mut started = false;
         let mut quote: Option<char> = None;
-        let mut chars = line.chars();
+        let mut chars = text.chars();
         while let Some(c) = chars.next() {
             match (quote, c) {
                 (Some(q), c) if c == q => quote = None,
+                // Inside double quotes a backslash escapes only these, and a line break.
+                (Some('"'), '\\') => match chars.next() {
+                    Some('\n') | None => {}
+                    Some(next) => {
+                        if !matches!(next, '"' | '\\' | '$' | '`') {
+                            word.push('\\');
+                        }
+                        word.push(next);
+                    }
+                },
+                (Some(_), '\n') => word.push(' '),
                 (Some(_), c) => word.push(c),
                 (None, '"' | '\'') => {
                     quote = Some(c);
                     started = true;
                 }
                 (None, '\\') => {
-                    word.extend(chars.next());
-                    started = true;
+                    if let Some(next) = chars.next().filter(|n| *n != '\n') {
+                        word.push(next);
+                        started = true;
+                    }
                 }
-                (None, '#') if !started => break,
+                (None, '#') if !started => {
+                    for next in chars.by_ref() {
+                        if next == '\n' {
+                            break;
+                        }
+                    }
+                    if !words.is_empty() {
+                        out.push(std::mem::take(&mut words));
+                    }
+                }
                 (None, c) if c.is_whitespace() || matches!(c, '&' | '|' | ';') => {
                     if started {
                         words.push(std::mem::take(&mut word));
                         started = false;
                     }
-                    if !c.is_whitespace() && !words.is_empty() {
+                    if (c == '\n' || !c.is_whitespace()) && !words.is_empty() {
                         out.push(std::mem::take(&mut words));
                     }
                 }
@@ -579,13 +620,14 @@ mod tests {
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
-    /// The reserved words of a shell that stand before a command in a loop, a condition or a negation.
-    const KEYWORDS: [&str; 9] = ["if", "then", "elif", "else", "do", "while", "until", "!", "{"];
+    /// The words of a shell, separated by spaces, that stand before a command without being part of it: the reserved
+    /// words of a loop, a condition and a negation, and the utilities that run the command after them.
+    const BEFORE_COMMAND: &str = "if then elif else do while until ! { nohup exec env sudo time command";
 
     /// Whether a word stands before a command and is not part of it: a shell prompt, a variable set for the command,
-    /// or a reserved word.
+    /// a reserved word or a utility that runs the command.
     fn precedes_command(word: &str) -> bool {
-        word == "$" || is_assignment(word) || KEYWORDS.contains(&word)
+        word == "$" || is_assignment(word) || BEFORE_COMMAND.split(' ').any(|w| w == word)
     }
 
     /// Whether a word names the program: `wf-agents`, or a path that ends in it, such as `./target/release/wf-agents`.
