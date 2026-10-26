@@ -46,9 +46,13 @@ enum Command {
         all: bool,
     },
     /// One card in full, with its rulings.
-    Card { id: i64 },
+    Card {
+        /// The card's number.
+        id: i64,
+    },
     /// Answers a question card, or rules on a design card.
     Answer {
+        /// The card's number.
         card: i64,
         /// The answer, or what the ruling says.
         #[arg(long)]
@@ -68,42 +72,59 @@ enum Command {
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
+        /// The work to say it to.
         work: i64,
+        /// What to say.
         text: String,
+        /// The line of the work it is for, as the flow names its lines.
         #[arg(long, default_value = "engineer")]
         line: String,
     },
     /// Pauses a work.
     Pause {
+        /// The work to pause.
         work: i64,
+        /// Why it is paused.
         #[arg(long)]
         why: String,
     },
     /// Lets a paused work go on.
-    Resume { work: i64 },
+    Resume {
+        /// The work to let go on.
+        work: i64,
+    },
     /// Where each work stands.
     Status,
     /// A work's rounds.
     History {
+        /// The work whose rounds to list.
         work: i64,
         /// Every round in full: what it was given and what it returned.
         #[arg(long)]
         full: bool,
     },
     /// How many times a work took the rows that count each counter.
-    Counters { work: i64 },
+    Counters {
+        /// The work to count for.
+        work: i64,
+    },
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
     /// The time and cost of each work, or of one work's rounds by cell.
-    Cost { work: Option<i64> },
+    Cost {
+        /// The work whose rounds to show by cell; without it, every work.
+        work: Option<i64>,
+    },
 }
 
 #[derive(Subcommand)]
 enum ItemCommand {
     /// Creates an item.
     Add {
+        /// The project the item belongs to, as the configuration names it.
         #[arg(long)]
         project: String,
+        /// What to do, as an action, within the length the configuration allows.
         #[arg(long)]
         title: String,
         /// What cannot be done or is wrong.
@@ -132,14 +153,19 @@ enum ItemCommand {
     List,
     /// Makes an item depend on another.
     Depend {
+        /// The item that depends on the other.
         item: i64,
+        /// The item it depends on.
         on: i64,
+        /// What it needs of that item, in one sentence.
         #[arg(long)]
         needs: String,
     },
     /// Cancels an item, and ends its work.
     Cancel {
+        /// The item to cancel.
         item: i64,
+        /// Why it is cancelled.
         #[arg(long)]
         why: String,
     },
@@ -151,11 +177,15 @@ enum QueueCommand {
     List,
     /// Puts an item in the queue: last, or first, or before or after another.
     Put {
+        /// The item to put in the queue.
         item: i64,
+        /// Puts it first.
         #[arg(long)]
         first: bool,
+        /// Puts it before this item.
         #[arg(long)]
         before: Option<i64>,
+        /// Puts it after this item.
         #[arg(long)]
         after: Option<i64>,
     },
@@ -361,4 +391,197 @@ fn run(d: &Path, once: bool) -> Result<(), String> {
         return Ok(());
     }
     e.run(&|| false, Duration::from_secs(10))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use clap::{Command, CommandFactory};
+
+    use super::Cli;
+
+    const README: &str = include_str!("../../../README.md");
+
+    // What the README's data directory section names. This list is a copy: it keeps the README from losing an entry,
+    // and does not notice a path the engine starts to write.
+    const DATA_DIRECTORY: [&str; 9] = [
+        "install.toml",
+        "shared/",
+        "projects/",
+        "rules/",
+        "db/",
+        "logs/",
+        "tool-output/",
+        "notifications.log",
+        "worktrees/",
+    ];
+
+    /// The command tree as clap builds it to parse: with its own `--help` and `help`, and with the global `--data`
+    /// passed on to every subcommand.
+    fn tree() -> Command {
+        let mut cmd = Cli::command();
+        cmd.build();
+        cmd
+    }
+
+    /// Every command that has no subcommands, with the words that run it, such as `wf-agents item add`.
+    fn leaves<'a>(cmd: &'a Command, words: &str, out: &mut Vec<(String, &'a Command)>) {
+        for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+            let path = format!("{words} {}", sub.get_name());
+            if sub.has_subcommands() {
+                leaves(sub, &path, out);
+            } else {
+                out.push((path, sub));
+            }
+        }
+    }
+
+    /// The command lines a text writes in code: the inline spans, and the lines of fenced blocks, that start with
+    /// `wf-agents `. A command line has to be on one line of the text.
+    fn snippets(text: &str) -> Vec<&str> {
+        let mut out = Vec::new();
+        let mut fenced = false;
+        for line in text.lines() {
+            if line.trim_start().starts_with("```") {
+                fenced = !fenced;
+            } else if fenced {
+                out.push(line.trim());
+            } else {
+                out.extend(line.split('`').skip(1).step_by(2).map(str::trim));
+            }
+        }
+        out.retain(|s| s.starts_with("wf-agents "));
+        out
+    }
+
+    /// What a command line comes to: the words that name its command, and what is wrong with it. Subcommands are
+    /// looked for up to the first option; the words after it are option values or positional arguments, and are not
+    /// checked, nor are short options.
+    fn read_line(root: &Command, line: &str) -> (String, Vec<String>) {
+        let mut cmd = root;
+        let mut path = String::from("wf-agents");
+        let mut wrong = Vec::new();
+        let mut options = false;
+        for word in line.split_whitespace().skip(1) {
+            if word.starts_with('-') {
+                options = true;
+                if let Some(long) = word.strip_prefix("--") {
+                    let name = long.split('=').next().unwrap_or_default();
+                    if !cmd.get_arguments().any(|a| a.get_long() == Some(name)) {
+                        wrong.push(format!("{line}: no option --{name}"));
+                    }
+                }
+            } else if options || !cmd.has_subcommands() {
+                // An option's value or a positional argument: not checked.
+            } else if word.starts_with('<') {
+                // A placeholder for the command: which one is not known, so nothing after it is checked.
+                break;
+            } else if let Some(sub) = cmd.find_subcommand(word) {
+                cmd = sub;
+                path = format!("{path} {word}");
+            } else {
+                wrong.push(format!("{line}: no subcommand {word}"));
+                break;
+            }
+        }
+        (path, wrong)
+    }
+
+    /// What is wrong with a text against the commands: a command it never writes, and a subcommand or a long option
+    /// that one of its command lines names and the command does not have.
+    fn problems(text: &str, root: &Command) -> Vec<String> {
+        let mut written = BTreeSet::new();
+        let mut out = Vec::new();
+        for line in snippets(text) {
+            let (path, wrong) = read_line(root, line);
+            written.insert(path);
+            out.extend(wrong);
+        }
+        let mut all = Vec::new();
+        leaves(root, "wf-agents", &mut all);
+        for (path, _) in all {
+            if !written.contains(&path) {
+                out.push(format!("{path}: never written"));
+            }
+        }
+        out
+    }
+
+    // The README writes every command, and names only subcommands and long options that exist. One command from each
+    // depth is named, so that a walk which finds no commands cannot pass.
+    #[test]
+    fn the_readme_matches_the_commands() {
+        let root = tree();
+        let mut all = Vec::new();
+        leaves(&root, "wf-agents", &mut all);
+        let paths: Vec<&str> = all.iter().map(|(path, _)| path.as_str()).collect();
+        for sample in ["wf-agents run", "wf-agents flow check", "wf-agents item add"] {
+            assert!(paths.contains(&sample), "{sample} is not among {paths:?}");
+        }
+        let wrong = problems(README, &root);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    // Each way a README can be wrong is reported once, as what it is; a README that is right reports nothing.
+    #[test]
+    fn a_wrong_readme_is_reported_as_what_is_wrong_with_it() {
+        let root = tree();
+        let mut all = Vec::new();
+        leaves(&root, "wf-agents", &mut all);
+        // The text that writes every command, less the commands in `without` and with the command lines in `extra`.
+        let text = |without: &[&str], extra: &[&str]| {
+            let mut lines: Vec<String> = Vec::new();
+            for (path, _) in &all {
+                if !without.contains(&path.as_str()) {
+                    lines.push(format!("`{path}`"));
+                }
+            }
+            lines.extend(extra.iter().map(|line| format!("`{line}`")));
+            lines.join("\n")
+        };
+        let right = problems(&text(&[], &[]), &root);
+        assert!(right.is_empty(), "{right:#?}");
+        let missing = text(&["wf-agents queue put"], &[]);
+        let expected = ["wf-agents queue put: never written"];
+        assert_eq!(problems(&missing, &root), expected);
+        // `wf-agents cards` stays in the text, and is not `wf-agents card`.
+        let confused = text(&["wf-agents card"], &[]);
+        let expected = ["wf-agents card: never written"];
+        assert_eq!(problems(&confused, &root), expected);
+        let no_such_subcommand = text(&[], &["wf-agents queue add"]);
+        let expected = ["wf-agents queue add: no subcommand add"];
+        assert_eq!(problems(&no_such_subcommand, &root), expected);
+        let no_such_option = text(&[], &["wf-agents run --twice"]);
+        let expected = ["wf-agents run --twice: no option --twice"];
+        assert_eq!(problems(&no_such_option, &root), expected);
+    }
+
+    // Every argument of every command has a help text, so `--help` describes all of them.
+    #[test]
+    fn every_argument_has_a_help_text() {
+        let root = tree();
+        let mut all = Vec::new();
+        leaves(&root, "wf-agents", &mut all);
+        let seen: usize = all.iter().map(|(_, cmd)| cmd.get_arguments().count()).sum();
+        assert!(seen > 0, "no arguments were found");
+        let mut bare = Vec::new();
+        for (path, cmd) in &all {
+            for arg in cmd.get_arguments() {
+                if arg.get_help().is_none() {
+                    bare.push(format!("{path}: {}", arg.get_id()));
+                }
+            }
+        }
+        assert!(bare.is_empty(), "{bare:#?}");
+    }
+
+    // The README names what is in the data directory.
+    #[test]
+    fn the_readme_names_what_is_in_the_data_directory() {
+        for entry in DATA_DIRECTORY {
+            let code = format!("`{entry}`");
+            assert!(README.contains(&code), "the README does not name {code}");
+        }
+    }
 }
