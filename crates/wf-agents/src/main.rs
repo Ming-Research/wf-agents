@@ -568,7 +568,9 @@ mod tests {
 
     /// Whether a word sets a variable for the command after it, such as `WF_AGENTS_DATA=DIR`.
     fn is_assignment(word: &str) -> bool {
-        let Some((name, _)) = word.split_once('=') else { return false };
+        let Some((name, _)) = word.split_once('=') else {
+            return false;
+        };
         !name.is_empty()
             && !name.starts_with(|c: char| c.is_ascii_digit())
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
