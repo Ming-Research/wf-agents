@@ -65,8 +65,9 @@ pub trait GitHub {
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Closes a pull request with a comment.
     fn close(&self, repo: &str, pr: i64, comment: &str) -> Result<(), Failure>;
-    /// Runs a gh command, as agents hand it in, with the engine's credentials; gives its exit code and output.
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure>;
+    /// Runs a gh command, as agents hand it in, with the engine's credentials, in the work's worktree so that it is
+    /// about the project's repository; gives its exit code and output.
+    fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure>;
 }
 
 /// GitHub through the gh CLI.
@@ -272,9 +273,10 @@ impl GitHub for Gh {
             .map(|_| ())
     }
 
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure> {
+    fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         let out = Command::new("gh")
             .args(args)
+            .current_dir(dir)
             .output()
             .map_err(|e| Failure::other(format!("gh: {e}")))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();

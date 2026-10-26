@@ -220,7 +220,7 @@ impl GitHub for FakeHub {
         Ok(())
     }
 
-    fn gh(&self, args: &[String]) -> Result<(i32, String), Failure> {
+    fn gh(&self, _dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         Ok((0, args.join(" ")))
     }
 }
