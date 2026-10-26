@@ -4617,7 +4617,8 @@
                   "desc": "This step itself failed to run; this is not a check's result",
                   "fields": [
                     {
-                      "$ref": "failure_kind"
+                      "$ref": "failure_kind",
+                      "name": "failure"
                     },
                     {
                       "$ref": "failure_what"
@@ -6645,7 +6646,8 @@
                   "desc": "This step itself failed to run; this is not a check's result",
                   "fields": [
                     {
-                      "$ref": "failure_kind"
+                      "$ref": "failure_kind",
+                      "name": "failure"
                     },
                     {
                       "$ref": "failure_what"
@@ -6803,7 +6805,8 @@
                   "desc": "This step itself failed to run; this is not a check's result",
                   "fields": [
                     {
-                      "$ref": "failure_kind"
+                      "$ref": "failure_kind",
+                      "name": "failure"
                     },
                     {
                       "$ref": "failure_what"

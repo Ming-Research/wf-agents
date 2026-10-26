@@ -113,6 +113,14 @@ case!(
     }
 );
 case!(
+    a_branch_field_named_like_the_marker,
+    "a branch has a field named like the union's marker kind",
+    |v| {
+        let out = &mut node(v, "7")["out"][0];
+        out["branches"][4]["fields"][0] = json!({ "$ref": "failure_kind" });
+    }
+);
+case!(
     a_field_every_branch_has_is_also_in_a_branch,
     "a field every branch has is also in a branch",
     |v| {

@@ -173,6 +173,12 @@ impl Shapes<'_> {
         if clash {
             return Err(format!("a field every branch has is also in a branch: {}", f.name));
         }
+        if f.branches.iter().any(|b| b.fields.iter().any(|y| y.name == f.by)) {
+            return Err(format!(
+                "a branch has a field named like the union's marker {}: {}",
+                f.by, f.name
+            ));
+        }
         Ok(f)
     }
 }
