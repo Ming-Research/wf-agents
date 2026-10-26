@@ -27,7 +27,8 @@ enum Command {
     /// The configuration in the data directory.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Runs the engine: starts works on the queue's items and takes each through the flow, until stopped.
+    /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
+    /// appears in the data directory.
     Run {
         /// Takes one pass only: carries out the outbox, starts what can start, and takes each work one step.
         #[arg(long)]
@@ -360,5 +361,11 @@ fn run(d: &Path, once: bool) -> Result<(), String> {
         e.tick()?;
         return Ok(());
     }
-    e.run(&|| false, Duration::from_secs(10))
+    // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
+    let stop = d.join("stop");
+    let _ = std::fs::remove_file(&stop);
+    e.run(&|| stop.exists(), Duration::from_secs(10))?;
+    let _ = std::fs::remove_file(&stop);
+    eprintln!("{} stopped: {} exists", db::now() / 1000, stop.display());
+    Ok(())
 }

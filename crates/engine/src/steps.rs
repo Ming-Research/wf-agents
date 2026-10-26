@@ -25,7 +25,7 @@ fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> 
         return Ok(Some(r));
     }
     let ended = Ended {
-        rejected: Some(json!({ "error": "the engine stopped before this round ended; it runs again" })),
+        rejected: Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" })),
         ..Ended::default()
     };
     e.db.write(Actor::Engine, |tx| {
@@ -67,7 +67,12 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return not_applicable(e, w, g, cell, need);
     }
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    let rejected: Vec<&Round> = at_cell.iter().take_while(|r| r.rejected.is_some()).collect();
+    // A round the engine itself cut off is not a return sent back.
+    let rejected: Vec<&Round> = at_cell
+        .iter()
+        .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
+        .take_while(|r| r.rejected.is_some())
+        .collect();
     let reason = rejected
         .first()
         .map(|r| r.rejected.clone().unwrap_or_default().to_string());
