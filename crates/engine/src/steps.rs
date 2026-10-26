@@ -46,13 +46,20 @@ fn need_met(project: &config::Project, need: &str) -> bool {
     project.has(need).unwrap_or(false)
 }
 
-/// The inputs as recorded in a round: what each was, and its value.
+/// The inputs as recorded in a round: what each was, and its value; the history stands for the rounds before.
 fn recorded_inputs(gathered: &[Gathered]) -> Value {
     Value::Array(
         gathered
             .iter()
             .filter(|x| !x.itself())
-            .map(|x| json!({ "what": x.input.what, "value": x.value, "held": x.held() }))
+            .map(|x| {
+                let value = if x.history() {
+                    json!(inputs::EARLIER)
+                } else {
+                    json!(x.value)
+                };
+                json!({ "what": x.input.what, "value": value, "held": x.held() })
+            })
             .collect(),
     )
 }
