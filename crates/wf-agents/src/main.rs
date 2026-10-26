@@ -440,11 +440,17 @@ mod tests {
     }
 
     /// The code spans of a paragraph of Markdown, each on one line: a span ends at the next run of as many backticks
-    /// as the run that opened it, and may wrap onto the next line of the paragraph. A run with no such end is text.
+    /// as the run that opened it, and may wrap onto the next line of the paragraph. A run with no such end is text, and
+    /// so is a backtick that a backslash escapes; inside a span a backslash escapes nothing.
     fn spans(paragraph: &str) -> Vec<String> {
         let mut out = Vec::new();
         let mut rest = paragraph;
         while let Some(open) = rest.find('`') {
+            let slashes = rest[..open].chars().rev().take_while(|c| *c == '\\').count();
+            if slashes % 2 == 1 {
+                rest = &rest[open + 1..];
+                continue;
+            }
             let opening = &rest[open..];
             let ticks = opening.chars().take_while(|c| *c == '`').count();
             let body = &opening[ticks..];
@@ -490,16 +496,69 @@ mod tests {
         (1..=6).contains(&hashes) && line[hashes..].starts_with(' ')
     }
 
-    /// The code a text writes: the code spans of its blocks of text, and the fenced blocks, fenced with backticks or
-    /// with tildes, each as a text of its own lines. A list item and a heading begin a block, so that a backtick which
-    /// is never closed does not reach into the next one.
+    /// Adds the code spans of the paragraph to `out`, and begins the next paragraph.
+    fn flush(paragraph: &mut Vec<&str>, out: &mut Vec<String>) {
+        out.extend(spans(&paragraph.join("\n")));
+        paragraph.clear();
+    }
+
+    /// Whether the line is part of a block quote, and what it says without the `>` that marks it and the space after.
+    fn unquote(line: &str) -> (bool, &str) {
+        let mut rest = line;
+        let mut quoted = false;
+        while let Some(after) = rest.trim_start().strip_prefix('>') {
+            quoted = true;
+            rest = after.strip_prefix(' ').unwrap_or(after);
+        }
+        (quoted, rest)
+    }
+
+    /// How far a line is indented; a tab goes to the next multiple of four.
+    fn indent_of(line: &str) -> usize {
+        let mut width = 0;
+        for c in line.chars() {
+            match c {
+                ' ' => width += 1,
+                '\t' => width += 4 - width % 4,
+                _ => break,
+            }
+        }
+        width
+    }
+
+    /// How far the text of a list item is indented, for a line that begins the item: the marker, and the spaces after
+    /// it, of which one to four count.
+    fn item_column(line: &str) -> usize {
+        let text = line.trim_start();
+        let marker = text.find(' ').unwrap_or(text.len());
+        let spaces = text[marker..].chars().take_while(|c| *c == ' ').count();
+        indent_of(line) + marker + if spaces > 4 { 1 } else { spaces }
+    }
+
+    /// The code a text writes: the code spans of its blocks of text, and its fenced blocks (fenced with backticks or
+    /// with tildes) and indented blocks, each as a text of its own lines. A list item and a heading begin a block, so
+    /// that a backtick which is never closed does not reach into the next one; a block quote is read without the `>`
+    /// that begins its lines.
     fn snippets(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         let mut paragraph: Vec<&str> = Vec::new();
         let mut fence: Option<(char, usize)> = None;
         let mut block: Vec<&str> = Vec::new();
+        let mut was_quoted = false;
+        let mut was_blank = true;
+        // How far the text of the list item we are in is indented; zero when we are in no list item.
+        let mut item_at = 0;
         for line in text.lines() {
-            let line = line.trim();
+            let (quoted, raw) = unquote(line);
+            let line = raw.trim();
+            let indent = indent_of(raw);
+            if fence.is_none() && quoted != was_quoted {
+                flush(&mut paragraph, &mut out);
+            }
+            was_quoted = quoted;
+            if was_blank && !line.is_empty() && indent < item_at && !starts_item(line) {
+                item_at = 0;
+            }
             let marker = line.chars().next().filter(|c| matches!(*c, '`' | '~'));
             let run = marker.map_or(0, |m| line.chars().take_while(|c| *c == m).count());
             // The info string of a block fenced with backticks has no backtick in it: ```code``` is a code span.
@@ -507,23 +566,20 @@ mod tests {
             let opens = run >= 3 && (marker == Some('~') || !ticks_after);
             match fence {
                 None if opens => {
-                    out.extend(spans(&paragraph.join("\n")));
-                    paragraph.clear();
+                    flush(&mut paragraph, &mut out);
                     fence = marker.map(|m| (m, run));
                 }
-                None if line.is_empty() => {
-                    out.extend(spans(&paragraph.join("\n")));
-                    paragraph.clear();
-                }
+                None if line.is_empty() => flush(&mut paragraph, &mut out),
+                // Four spaces beyond the text of the item we are in, where no paragraph goes on: an indented block.
+                None if paragraph.is_empty() && indent >= item_at + 4 => out.push(line.to_string()),
                 None if is_heading(line) => {
-                    out.extend(spans(&paragraph.join("\n")));
-                    paragraph.clear();
+                    flush(&mut paragraph, &mut out);
                     out.extend(spans(line));
                 }
                 None if starts_item(line) => {
-                    out.extend(spans(&paragraph.join("\n")));
-                    paragraph.clear();
+                    flush(&mut paragraph, &mut out);
                     paragraph.push(line);
+                    item_at = item_column(raw);
                 }
                 None => paragraph.push(line),
                 Some((m, ticks)) if marker == Some(m) && run >= ticks && line.len() == run => {
@@ -533,8 +589,9 @@ mod tests {
                 }
                 Some(_) => block.push(line),
             }
+            was_blank = line.is_empty();
         }
-        out.extend(spans(&paragraph.join("\n")));
+        flush(&mut paragraph, &mut out);
         if fence.is_some() {
             out.push(block.join("\n"));
         }
@@ -542,8 +599,9 @@ mod tests {
     }
 
     /// The commands a piece of shell runs, each as its words with the quotes taken off. A line ends a command, as do
-    /// `&&`, `||`, `|`, `;` and `&`. A backslash before a line break joins the two lines, a quote goes on over lines
-    /// until it is closed, and a comment runs to the end of its line.
+    /// `&&`, `||`, `|`, `;`, `&`, and the parentheses of a subshell and of a command substitution. A backslash before
+    /// a line break joins the two lines, a quote goes on over lines until it is closed, and a comment runs to the end
+    /// of its line.
     fn commands(text: &str) -> Vec<Vec<String>> {
         let mut out = Vec::new();
         let mut words: Vec<String> = Vec::new();
@@ -586,7 +644,7 @@ mod tests {
                         out.push(std::mem::take(&mut words));
                     }
                 }
-                (None, c) if c.is_whitespace() || matches!(c, '&' | '|' | ';') => {
+                (None, c) if c.is_whitespace() || matches!(c, '&' | '|' | ';' | '(' | ')') => {
                     if started {
                         words.push(std::mem::take(&mut word));
                         started = false;
