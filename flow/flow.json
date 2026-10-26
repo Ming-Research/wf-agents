@@ -1584,8 +1584,8 @@
   },
   "engine": {
     "steps": {
-      "start_work": "Takes the next ready item when a slot is free, has the session manager create the worktree, branch and engineer session, and records where the work runs: every later round runs there, and each push is checked against the last pushed head.",
-      "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled, and records each run, the pushed head and the PR number under the calling cell. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
+      "start_work": "Takes the next ready item when a slot is free and has the session manager create the worktree, branch and engineer session.",
+      "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
       "full_ci_on_draft": "Catches the draft PR up with main and runs the full CI the project's configuration names on it, running a red check once more on the same commit; checks in the table of known red checks do not count.",
       "choose_checks": "Decides what runs next, from whether the design chose adversarial testing, whether the review accepted none, the change reviewed last, each side's last results, and the rows the fix cell answered.",
       "check_plan": "Measures on the commit to merge what the PR touches and how much more of each budget it uses, and compares that with the plan segment the work hangs on. With no plan segment there is nothing to break, and the work fits.",
@@ -1606,6 +1606,9 @@
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
       "record_waits": "Records the items the architect's reply has this work wait for. The engineer's session is kept, and the work holds no slot while it waits.",
+      "record_place": "Records where the work runs: every later round runs there, and each push is checked against the last pushed head.",
+      "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
+      "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "An urgent side report starts a round of the architect at once.",
       "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work."
@@ -2560,6 +2563,12 @@
                 ]
               ],
               "to": "1",
+              "do": [
+                {
+                  "at": "place",
+                  "do": "record_place"
+                }
+              ],
               "sets": {
                 "full_ci": "not_green",
                 "stage": "research"
@@ -3307,6 +3316,12 @@
               "to": "15",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed."
+            }
+          ],
+          "always": [
+            {
+              "at": "results",
+              "do": "record_tool_runs"
             }
           ]
         },
@@ -6508,9 +6523,14 @@
                 ]
               ],
               "to": "11",
+              "do": [
+                {
+                  "at": "plan",
+                  "do": "set_aside_checks"
+                }
+              ],
               "counts": "interjections",
-              "interject": true,
-              "note": "The engine does not run what it chose this time but takes the interjection to choose the way on; if that carries on, the work comes back here and the engine chooses again."
+              "interject": true
             }
           ],
           "inenums": {
