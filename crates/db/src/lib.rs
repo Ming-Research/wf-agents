@@ -44,6 +44,8 @@ pub enum Error {
         item: i64,
         depends_on: i64,
     },
+    /// The write was given up, for the reason given; nothing of it was kept.
+    Abort(String),
 }
 
 impl From<rusqlite::Error> for Error {
@@ -67,6 +69,7 @@ impl fmt::Display for Error {
                     "item {item} cannot depend on {depends_on}: {depends_on} already depends on {item}"
                 )
             }
+            Error::Abort(why) => write!(f, "{why}"),
         }
     }
 }
@@ -322,9 +325,9 @@ fn hidden(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
     st.query_map([HIDDEN], |r| r.get(0))?.collect()
 }
 
-/// Opens the database at `path` the way agents query it: read-only, and with no value of a table hidden from agents
-/// readable, through a view either.
-pub fn open_for_agents(path: &Path) -> Result<Connection> {
+/// Opens the database at `path` the way agents query it, for one query: read-only, with no value of a table hidden
+/// from agents readable, through a view either, and stopped once it has run for `limit`.
+pub fn open_for_agents(path: &Path, limit: Duration) -> Result<Connection> {
     let mut conn =
         Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
     conn.busy_timeout(Duration::from_secs(10))?;
@@ -335,6 +338,16 @@ pub fn open_for_agents(path: &Path) -> Result<Connection> {
         AuthAction::Read { table_name, .. } if !hidden.contains(table_name) => Authorization::Allow,
         _ => Authorization::Deny,
     }))?;
+    // The handler runs every few thousand steps; the clock starts at the connection's first.
+    let started: Arc<Mutex<Option<std::time::Instant>>> = Arc::new(Mutex::new(None));
+    conn.progress_handler(
+        10_000,
+        Some(move || {
+            let mut s = started.lock().unwrap_or_else(|e| e.into_inner());
+            let t = *s.get_or_insert_with(std::time::Instant::now);
+            t.elapsed() > limit
+        }),
+    )?;
     Ok(conn)
 }
 
@@ -593,7 +606,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let agent = open_for_agents(&path).unwrap();
+        let agent = open_for_agents(&path, Duration::from_secs(5)).unwrap();
         let t: String = agent
             .query_row("SELECT title FROM ready_items", [], |r| r.get(0))
             .unwrap();
@@ -601,6 +614,9 @@ mod tests {
         assert!(agent.prepare("SELECT cli_session FROM sessions").is_err());
         assert!(agent.execute("DELETE FROM dispatch_queue", []).is_err());
         assert!(agent.execute_batch("ATTACH ':memory:' AS other").is_err());
+        let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
+        let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
+        assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
         let d = described(db.conn()).unwrap();
         assert!(d.contains("CREATE TABLE items") && d.contains("CREATE VIEW ready_items"));
         assert!(!d.contains("CREATE TABLE sessions"));

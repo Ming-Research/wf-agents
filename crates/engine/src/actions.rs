@@ -1,0 +1,512 @@
+//! What rows and cells do besides moving the work: `engine.actions` in the flow. Each runs inside the transaction
+//! that ends the round, so it happens exactly when the round is recorded. What must happen outside the database (a
+//! message to the owner, closing a PR, reverting a merge, removing a worktree) is put in the outbox in that
+//! transaction and carried out by [`run_outbox`] after it.
+//!
+//! In this version the owner answers for the architect, so what the flow sends to the architect goes to the owner.
+
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
+use db::rusqlite::{OptionalExtension, Transaction, params};
+use flow::CompiledCell;
+use serde_json::{Value, json};
+
+use crate::inputs::at_path;
+use crate::work::{Item, Work, json_col, query_json};
+use crate::{Engine, git};
+
+/// What an action knows: the work as it was when the round started, the round and its return.
+pub struct Ctx {
+    pub work: Work,
+    pub item: Option<Item>,
+    pub project: Option<config::Project>,
+    /// The CLI the item's level runs on.
+    pub cli: Option<String>,
+    pub round: i64,
+    pub cell: CompiledCell,
+    pub output: Value,
+    /// The return as rows read it: an agent's form taken out of the field it sits in.
+    pub unwrapped: Value,
+    /// The field an agent's forms sit in.
+    pub within: String,
+    pub data: PathBuf,
+}
+
+fn sql(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+
+/// Puts an action in the outbox, due now.
+fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, ?2, ?3, ?4)",
+        params![work, kind, args.to_string(), db::now()],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// Tells the owner something, through the outbox.
+pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
+    outbox(tx, work, "notify", &json!({ "text": text }))
+}
+
+impl Ctx {
+    fn about(&self) -> String {
+        match &self.item {
+            Some(i) => format!("work {} (item {}: {})", self.work.id, i.id, i.title),
+            None => format!("work {}", self.work.id),
+        }
+    }
+
+    fn item_id(&self) -> Result<i64, String> {
+        self.item
+            .as_ref()
+            .map(|i| i.id)
+            .ok_or_else(|| format!("work {} has no item", self.work.id))
+    }
+
+    fn project(&self) -> Result<&config::Project, String> {
+        self.project
+            .as_ref()
+            .ok_or_else(|| format!("work {}: its project is not in the configuration", self.work.id))
+    }
+
+    /// The last accepted return of a cell of this work that has a value at a path, with its round.
+    fn last(&self, tx: &Transaction<'_>, cell: &str, path: &str) -> Result<Option<(i64, Value)>, String> {
+        let p = format!("$.{path}");
+        tx.query_row(
+            "SELECT id, json_extract(output, ?3) FROM rounds
+             WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL AND json_extract(output, ?3) IS NOT NULL
+             ORDER BY id DESC LIMIT 1",
+            params![self.work.id, cell, p],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, db::rusqlite::types::Value>(1)?)),
+        )
+        .optional()
+        .map_err(sql)
+        .map(|o| o.map(|(id, v)| (id, sql_value(v))))
+    }
+}
+
+/// A value json_extract gave, as JSON: objects and lists come back as their text.
+fn sql_value(v: db::rusqlite::types::Value) -> Value {
+    use db::rusqlite::types::Value as V;
+    match v {
+        V::Null => Value::Null,
+        V::Integer(i) => json!(i),
+        V::Real(f) => json!(f),
+        V::Text(t) => serde_json::from_str(&t).unwrap_or(Value::String(t)),
+        V::Blob(_) => Value::Null,
+    }
+}
+
+/// Whether the design paths changed on the work's branch against main.
+fn tree_changed(w: &Work, project: &config::Project) -> Result<bool, String> {
+    let Some(wt) = &w.worktree else { return Ok(false) };
+    let fork = git::fork_point(wt, &project.main)?;
+    Ok(git::changed(wt, &fork, "HEAD")?
+        .iter()
+        .any(|f| git::under(f, &project.design_paths)))
+}
+
+/// The work's design card not yet replaced: its id and status.
+fn current_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
+    tx.query_row(
+        "SELECT c.id, c.status FROM cards c JOIN rounds r ON r.id = c.round
+         WHERE r.work = ?1 AND c.kind = 'design' AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+        [work],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(sql)
+}
+
+fn new_card(tx: &Transaction<'_>, round: i64, body: &Value) -> Result<i64, String> {
+    tx.execute(
+        "INSERT INTO cards (round, kind, body, status) VALUES (?1, 'design', ?2, 'open')",
+        params![round, body.to_string()],
+    )
+    .map_err(sql)?;
+    Ok(tx.last_insert_rowid())
+}
+
+/// Carries out one action.
+pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
+    let w = ctx.work.id;
+    let at_value = at.and_then(|p| at_path(&ctx.unwrapped, p));
+    match name {
+        "record_place" => {
+            let p = &ctx.output["place"];
+            tx.execute(
+                "UPDATE works SET machine = ?2, worktree = ?3, branch = ?4 WHERE id = ?1",
+                params![w, p["machine"].as_str(), p["worktree"].as_str(), p["branch"].as_str()],
+            )
+            .map_err(sql)?;
+            if let (Some(cli), Some(s)) = (&ctx.cli, p["session"].as_str()) {
+                tx.execute(
+                    "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', ?2, ?3)
+                     ON CONFLICT (work, line) DO NOTHING",
+                    params![w, cli, s],
+                )
+                .map_err(sql)?;
+            }
+        }
+        "record_tool_runs" => {
+            let runs = query_json(
+                tx,
+                "SELECT result FROM tool_runs WHERE round = ?1 AND tool = 'ci' ORDER BY id",
+                &[&ctx.round],
+                1000,
+            )?;
+            let mut head: Option<String> = None;
+            let mut pr: Option<i64> = None;
+            for r in runs {
+                let res = &r["result"];
+                if res["push"]["verdict"] == "pushed" {
+                    head = res["push"]["head"].as_str().map(str::to_string);
+                }
+                if let Some(n) = res["pr"].as_i64() {
+                    pr = Some(n);
+                }
+            }
+            tx.execute(
+                "UPDATE works SET pushed_head = coalesce(?2, pushed_head), pr = coalesce(?3, pr) WHERE id = ?1",
+                params![w, head, pr],
+            )
+            .map_err(sql)?;
+        }
+        "lock_acceptance" => {
+            let Some((round, acceptance)) = ctx.last(tx, "2a", &format!("{}.acceptance", ctx.within))? else {
+                return Err("no design handed in acceptance conditions to lock".into());
+            };
+            let item = ctx.item_id()?;
+            let locked: Option<String> = tx
+                .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .map_err(sql)?;
+            if json_col(locked).as_ref() != Some(&acceptance) {
+                tx.execute(
+                    "UPDATE items SET acceptance = ?2, acceptance_round = ?3 WHERE id = ?1",
+                    params![item, acceptance.to_string(), round],
+                )
+                .map_err(sql)?;
+            }
+        }
+        "lock_new_acceptance" => {
+            let Some(acceptance) = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance")) else {
+                return Ok(());
+            };
+            tx.execute(
+                "UPDATE items SET acceptance = ?2, acceptance_round = ?3 WHERE id = ?1",
+                params![ctx.item_id()?, acceptance.to_string(), ctx.round],
+            )
+            .map_err(sql)?;
+        }
+        "post_design_card" => {
+            if !tree_changed(&ctx.work, ctx.project()?)? {
+                return Ok(());
+            }
+            let path = format!("{}.design_tree.design_card", ctx.within);
+            let Some((round, body)) = ctx.last(tx, "2a", &path)? else {
+                return Ok(());
+            };
+            let posted: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM cards WHERE round = ?1 AND kind = 'design'",
+                    [round],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(sql)?;
+            if posted.is_some() {
+                return Ok(());
+            }
+            let card = new_card(tx, round, &body)?;
+            notify(
+                tx,
+                Some(w),
+                &format!(
+                    "Design card {card} of {}: the architect looks first, and in this version you rule as both. It blocks nothing until the merge.",
+                    ctx.about()
+                ),
+            )?;
+        }
+        "update_design_card" => {
+            let Some(body) = at_value else { return Ok(()) };
+            let card = new_card(tx, ctx.round, &body)?;
+            if let Some((old, status)) = current_card(tx, w)?.filter(|(id, _)| *id != card) {
+                tx.execute(
+                    "UPDATE cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
+                    params![old, card],
+                )
+                .map_err(sql)?;
+                let again = if status == "ruled" {
+                    " A decision you ruled on changed: it must be confirmed again."
+                } else {
+                    ""
+                };
+                notify(
+                    tx,
+                    Some(w),
+                    &format!("Design card {card} of {} replaces card {old}.{again}", ctx.about()),
+                )?;
+            } else {
+                notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
+            }
+        }
+        "replace_design_card" => {
+            tx.execute(
+                "UPDATE cards SET status = 'replaced'
+                 WHERE kind = 'design' AND status IN ('open', 'ruled') AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                [w],
+            )
+            .map_err(sql)?;
+        }
+        "notify_pending_approvers" => {
+            let why = match current_card(tx, w)? {
+                Some((card, status)) if status == "open" => format!("design card {card} waits for your ruling"),
+                Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
+                None => "it waits for the items it depends on to merge".to_string(),
+            };
+            notify(tx, Some(w), &format!("{} is ready to merge, but {why}.", ctx.about()))?;
+        }
+        "revert_merge" => {
+            let project = ctx.project()?;
+            let Some((_, merged)) = ctx.last(tx, "9", "result.merge_commit")? else {
+                return Err("no merge to revert".into());
+            };
+            outbox(
+                tx,
+                Some(w),
+                "revert_merge",
+                &json!({
+                    "repo": project.repo,
+                    "main": project.main,
+                    "checkout": project.checkout,
+                    "merge_commit": merged,
+                    "worktrees": ctx.data.join("worktrees"),
+                }),
+            )?;
+        }
+        "reopen_with_fix" => {
+            // The merged PR is closed; the branch carries on, and its next push opens a new PR with the fix.
+            tx.execute("UPDATE works SET pr = NULL WHERE id = ?1", [w])
+                .map_err(sql)?;
+        }
+        "report_missing_check" => {
+            let names: Vec<String> = at_path(&ctx.unwrapped, "main.checks.name")
+                .map(|v| match v {
+                    Value::Array(xs) => xs.iter().filter_map(|x| x.as_str().map(str::to_string)).collect(),
+                    Value::String(s) => vec![s],
+                    _ => Vec::new(),
+                })
+                .unwrap_or_default();
+            notify(
+                tx,
+                Some(w),
+                &format!(
+                    "Main broke after {} merged, and the full CI on the draft did not catch it ({}). The merge is being reverted; add the check that broke main to the project's full CI.",
+                    ctx.about(),
+                    if names.is_empty() {
+                        "the deployment".to_string()
+                    } else {
+                        names.join(", ")
+                    }
+                ),
+            )?;
+        }
+        "record_waits" => {
+            let Some((_, waits)) = ctx.last(tx, "15", "reply.waits")? else {
+                return Ok(());
+            };
+            let item = ctx.item_id()?;
+            for x in waits.as_array().cloned().unwrap_or_default() {
+                let Some(key) = x["key"]
+                    .as_str()
+                    .and_then(|k| k.trim_start_matches('#').parse::<i64>().ok())
+                else {
+                    return Err(format!(
+                        "the reply has the work wait for {}, which is not an item number",
+                        x["key"]
+                    ));
+                };
+                let exists: Option<i64> = tx
+                    .query_row(
+                        "SELECT 1 FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                        params![item, key],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(sql)?;
+                if exists.is_none() {
+                    db::add_dependency(tx, item, key, x["delivers"].as_str().unwrap_or_default()).map_err(sql)?;
+                }
+            }
+        }
+        "hand_over_to_sub_items" => {
+            let Some(pr) = ctx.work.pr else { return Ok(()) };
+            let children = ctx
+                .last(tx, "15", "reply.children")?
+                .map(|(_, v)| v)
+                .unwrap_or(Value::Null);
+            let list: Vec<String> = children
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .map(|c| {
+                    format!(
+                        "#{} {}",
+                        c["key"].as_str().unwrap_or("?"),
+                        c["title"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect();
+            let comment = format!("Sub-items took over this work: {}. It does not merge.", list.join(", "));
+            outbox(
+                tx,
+                Some(w),
+                "close_pr",
+                &json!({ "repo": ctx.project()?.repo, "pr": pr, "comment": comment }),
+            )?;
+        }
+        "set_aside_checks" => {}
+        "wake_architect" => {
+            for r in ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default() {
+                if r["urgent"] == true {
+                    notify(
+                        tx,
+                        Some(w),
+                        &format!("Urgent side report from {} at cell {}: {r}", ctx.about(), ctx.cell.id),
+                    )?;
+                }
+            }
+        }
+        "deliver_answers" => {
+            let line = ctx.cell.line.clone().unwrap_or_else(|| "engineer".into());
+            for a in ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default() {
+                notify(
+                    tx,
+                    Some(w),
+                    &format!(
+                        "The {line} of {} answers the {}: {}",
+                        ctx.about(),
+                        a["to"].as_str().unwrap_or("owner"),
+                        a["text"].as_str().unwrap_or_default()
+                    ),
+                )?;
+            }
+        }
+        other => return Err(format!("no such engine action: {other}")),
+    }
+    Ok(())
+}
+
+/// Carries out what is due in the outbox; an action that fails is tried again later, waiting longer each time.
+/// Gives whether anything was done.
+pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
+    let due = query_json(
+        e.db.conn(),
+        "SELECT id, work, kind, args, attempts FROM outbox WHERE run_after <= ?1 ORDER BY id",
+        &[&db::now()],
+        100,
+    )?;
+    let mut did = false;
+    for row in due {
+        let id = row["id"].as_i64().unwrap_or_default();
+        let args = &row["args"];
+        let result = match row["kind"].as_str().unwrap_or_default() {
+            "notify" => notify_owner(e, args["text"].as_str().unwrap_or_default()),
+            "remove_worktree" => {
+                let checkout = PathBuf::from(args["checkout"].as_str().unwrap_or_default());
+                git::remove_worktree(&checkout, Path::new(args["dir"].as_str().unwrap_or_default()))
+            }
+            "close_pr" => e
+                .github
+                .close(
+                    args["repo"].as_str().unwrap_or_default(),
+                    args["pr"].as_i64().unwrap_or_default(),
+                    args["comment"].as_str().unwrap_or_default(),
+                )
+                .map_err(|f| f.what),
+            "revert_merge" => revert(e, args),
+            other => Err(format!("no such outbox action: {other}")),
+        };
+        did = true;
+        match result {
+            Ok(()) => {
+                e.db.conn()
+                    .execute("DELETE FROM outbox WHERE id = ?1", [id])
+                    .map_err(sql)?;
+            }
+            Err(why) => {
+                let n = row["attempts"].as_i64().unwrap_or_default() + 1;
+                let wait = (60_000_i64 << n.min(6)).min(3_600_000);
+                (e.say)(&format!("outbox {id} ({}) failed, attempt {n}: {why}", row["kind"]));
+                e.db.conn()
+                    .execute(
+                        "UPDATE outbox SET attempts = ?2, last_error = ?3, run_after = ?4 WHERE id = ?1",
+                        params![id, n, why, db::now() + wait],
+                    )
+                    .map_err(sql)?;
+            }
+        }
+    }
+    Ok(did)
+}
+
+/// What the owner is told is kept in the data directory's notifications.log, and said where the engine says things.
+fn notify_owner(e: &Engine, text: &str) -> Result<(), String> {
+    let path = e.data.join("notifications.log");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|x| format!("{}: {x}", path.display()))?;
+    writeln!(f, "{} {}", db::now(), text.replace('\n', " ")).map_err(|x| format!("{}: {x}", path.display()))?;
+    (e.say)(&format!("to the owner: {text}"));
+    Ok(())
+}
+
+/// Opens a PR that reverts a merge, and merges it.
+fn revert(e: &Engine, args: &Value) -> Result<(), String> {
+    let s = |k: &str| args[k].as_str().unwrap_or_default().to_string();
+    let (main, sha) = (s("main"), s("merge_commit"));
+    let checkout = PathBuf::from(s("checkout"));
+    let short: String = sha.chars().take(10).collect();
+    let branch = format!("wf-agents/revert-{short}");
+    let dir = PathBuf::from(s("worktrees")).join(format!("revert-{short}"));
+    git::git(&checkout, &["fetch", "-q", "origin", &main])?;
+    git::remove_worktree(&checkout, &dir)?;
+    git::git(
+        &checkout,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-B",
+            &branch,
+            &dir.to_string_lossy(),
+            &format!("origin/{main}"),
+        ],
+    )?;
+    let result = revert_in(e, &dir, &s("repo"), &main, &sha, &branch);
+    let _ = git::remove_worktree(&checkout, &dir);
+    result
+}
+
+fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: &str) -> Result<(), String> {
+    let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
+    git::git(dir, &[&who[..], &["revert", "--no-edit", sha]].concat())?;
+    let head = git::head(dir)?;
+    crate::hub::push(dir, &head, &format!("refs/heads/{branch}"), true).map_err(|f| f.what)?;
+    let short: String = sha.chars().take(10).collect();
+    let title = format!("Revert {short}: it broke main");
+    let body = format!("The merge {sha} broke main. This reverts it so that main recovers; the fix comes in a new PR.");
+    let pr = e
+        .github
+        .pull_request(repo, branch, main, Some((&title, &body)), None)
+        .map_err(|f| f.what)?;
+    e.github.merge(repo, pr).map_err(|f| f.what)?;
+    Ok(())
+}

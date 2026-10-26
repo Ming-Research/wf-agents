@@ -10,7 +10,9 @@ publish.workspace = true
 clap = { version = "4.6.7", features = ["derive", "env"] }
 config = { path = "../config" }
 db = { path = "../db" }
+engine = { path = "../engine" }
 flow = { path = "../flow" }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 [lints]
 workspace = true
