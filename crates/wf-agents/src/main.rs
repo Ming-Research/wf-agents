@@ -22,7 +22,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// The flow the engine runs.
-    #[command(subcommand, hide = true)]
+    #[command(subcommand)]
     Flow(FlowCommand),
     /// The configuration in the data directory.
     #[command(subcommand)]
