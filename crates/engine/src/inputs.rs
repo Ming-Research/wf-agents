@@ -1,7 +1,7 @@
 //! What a cell is given: each input gathered from its sources, the returns of earlier cells, the database, the
 //! configuration, what the engine computes and what rows recorded.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use db::rusqlite::ToSql;
@@ -14,6 +14,9 @@ use crate::{Engine, form_of, git};
 
 /// The most rows an input read from the database gives.
 const ROWS: usize = 200;
+
+/// The least length, as JSON, of a value the history gives again by the round that first held it.
+const REPEATED: usize = 300;
 
 /// The view of the work's rounds. A round's input does not hold it again, and the history gives each round without
 /// the history it was given: those are the rounds before it, there already, and holding them would give every
@@ -47,7 +50,7 @@ impl Gathered {
     }
 }
 
-fn is_history(x: &CompiledInput) -> bool {
+pub fn is_history(x: &CompiledInput) -> bool {
     x.from
         .iter()
         .any(|s| matches!(s, Src::Db { relation, .. } if relation == HISTORY))
@@ -67,6 +70,52 @@ fn compact(row: &mut Value, history: &BTreeSet<&str>) {
             }
         }
     }
+}
+
+/// Gives each value of the history's rounds that an earlier round already held by that round: most of what a round
+/// is given is what the rounds before it were given or returned.
+fn refer_back(rows: &mut [Value]) {
+    let mut seen = HashMap::new();
+    for r in rows {
+        let round = r["round"].as_i64().unwrap_or_default();
+        for field in ["input", "output", "tools"] {
+            if let Some(v) = r.get_mut(field) {
+                refer(v, round, &mut seen);
+            }
+        }
+    }
+}
+
+fn refer(v: &mut Value, round: i64, seen: &mut HashMap<String, i64>) {
+    let text = v.to_string();
+    if text.len() < REPEATED {
+        return;
+    }
+    if let Some(r) = seen.get(&text) {
+        *v = json!(format!("The same as in round {r}"));
+        return;
+    }
+    match v {
+        Value::Array(xs) => xs.iter_mut().for_each(|x| refer(x, round, seen)),
+        Value::Object(o) => o.values_mut().for_each(|x| refer(x, round, seen)),
+        _ => {}
+    }
+    seen.insert(text, round);
+}
+
+/// The history as a session that holds its rounds up to one is given it: the rounds after that one.
+pub fn since(x: &mut Gathered, upto: i64) {
+    let Some(Value::Array(rows)) = x.value.take() else {
+        return;
+    };
+    let after: Vec<Value> = rows
+        .into_iter()
+        .filter(|r| r["round"].as_i64().is_some_and(|n| n > upto))
+        .collect();
+    x.value = Some(json!({
+        "earlier": format!("The rounds up to round {upto} were given to you earlier in this session"),
+        "since": after,
+    }));
 }
 
 /// The value at a path of a return, as an input gives it: a branch keeps only what is of that branch, and the
@@ -236,6 +285,7 @@ fn source(
                 for r in &mut rows {
                     compact(r, &history);
                 }
+                refer_back(&mut rows);
             }
             // The interjections an agent is given are those for its own line.
             let rows: Vec<Value> = match (relation.as_str(), &cell.line) {
@@ -437,5 +487,40 @@ mod tests {
             row["input"],
             json!({ "inputs": [{ "what": what, "value": EARLIER }, { "what": "The plan", "value": "x" }] })
         );
+    }
+
+    #[test]
+    fn the_history_gives_a_value_again_by_the_round_that_held_it() {
+        let design = json!({ "design": "d".repeat(REPEATED) });
+        let mut rows = vec![
+            json!({ "round": 2, "output": { "design": design.clone(), "short": "s" } }),
+            json!({ "round": 5, "input": { "inputs": [{ "what": "The design", "value": design.clone() }] },
+                    "output": { "short": "s" } }),
+        ];
+        refer_back(&mut rows);
+        assert_eq!(rows[0]["output"]["design"], design);
+        assert_eq!(rows[1]["input"]["inputs"][0]["value"], "The same as in round 2");
+        assert_eq!(rows[1]["output"]["short"], "s");
+    }
+
+    #[test]
+    fn a_session_is_given_the_rounds_after_those_it_holds() {
+        let mut x = Gathered {
+            input: CompiledInput {
+                id: None,
+                what: "This work's history".into(),
+                from: vec![Src::Db {
+                    relation: HISTORY.into(),
+                    by: Some("work".into()),
+                }],
+                maybe: false,
+                held: Some(Held::Given),
+            },
+            value: Some(json!([{ "round": 3 }, { "round": 7 }, { "round": 9 }])),
+        };
+        since(&mut x, 7);
+        let v = x.value.unwrap();
+        assert_eq!(v["since"], json!([{ "round": 9 }]));
+        assert!(v["earlier"].as_str().unwrap().contains("round 7"));
     }
 }

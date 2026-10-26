@@ -130,8 +130,27 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .find(|r| r.ended_at.is_some())
         .is_some_and(|r| r.compactions > 0);
     let give_all = !used || compacted;
-    let gathered = inputs::gather(e, w, g, cell, &item)?;
+    let mut gathered = inputs::gather(e, w, g, cell, &item)?;
     let given = values::given(e, w, g, cell, &item, &gathered)?;
+    // A session holds the history up to the last of its rounds that ran and was given it, and is given only what came
+    // after.
+    let held = line_rounds
+        .iter()
+        .filter(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()))
+        .filter(|r| {
+            r.cell
+                .as_deref()
+                .and_then(|c| g.cell(c))
+                .is_some_and(|c| c.inputs.iter().any(inputs::is_history))
+        })
+        .map(|r| r.id)
+        .max()
+        .filter(|_| !give_all);
+    if let Some(upto) = held {
+        for x in gathered.iter_mut().filter(|x| x.history()) {
+            inputs::since(x, upto);
+        }
+    }
     let interjections: Vec<Value> = inputs::db_rows(e, w, &item, "waiting_interjections", Some("work"))?
         .into_iter()
         .filter(|r| r["line"] == line.as_str())
