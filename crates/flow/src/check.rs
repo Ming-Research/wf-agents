@@ -31,8 +31,11 @@ const KINDS: [&str; 14] = [
 pub(crate) struct Findings {
     order: Vec<(usize, String, String)>,
     example: HashMap<(usize, String, String), String>,
-    dropped: Vec<(String, String, Vec<(String, String)>)>,
+    dropped: Vec<Dropped>,
 }
+
+/// A cell, a row it takes, and the places of its return nobody reads after it, each with a way there.
+type Dropped = (String, String, Vec<(String, String)>);
 
 fn kind_at(kind: &str) -> usize {
     KINDS.iter().position(|k| *k == kind).unwrap_or(KINDS.len())
@@ -98,7 +101,7 @@ impl Findings {
                 format!("dropped {c} {r}: nobody reads {}, e.g. after {way}", names.join(", ")),
             ));
         }
-        all.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        all.sort_by_key(|a| (a.0, a.1));
         all.into_iter().map(|x| x.2).collect()
     }
 }

@@ -438,7 +438,7 @@ impl<'s> Graph<'s> {
             let gone: BTreeSet<String> = if agent {
                 ret.forms
                     .iter()
-                    .filter(|f| !has_form(n, *f))
+                    .filter(|f| !has_form(n, f))
                     .filter_map(|f| f.field.clone())
                     .collect()
             } else {
@@ -570,7 +570,7 @@ impl<'s> Graph<'s> {
                         out.push(field);
                     }
                 }
-                forms = ret.forms.iter().filter(|f| has_form(n, *f)).cloned().collect();
+                forms = ret.forms.iter().filter(|f| has_form(n, f)).cloned().collect();
                 say = say_of(&forms);
                 always.extend(common.always.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
                 checks.extend(

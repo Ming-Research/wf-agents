@@ -25,8 +25,11 @@ pub(crate) struct State {
     pub stopped: Option<usize>,
     pub callers: Vec<usize>,
     pub from: Option<usize>,
-    pub recorded: Vec<(String, String)>,
+    pub recorded: Recorded,
 }
+
+/// The values rows recorded on the way, by name.
+pub(crate) type Recorded = Vec<(String, String)>;
 
 impl State {
     /// The cell a source naming a pointer points at in this state.
@@ -57,7 +60,7 @@ impl Graph<'_> {
     pub fn step(&self, s: &State, r: &Row) -> Step {
         let mut v: BTreeMap<String, String> = s.recorded.iter().cloned().collect();
         v.extend(r.sets.iter().map(|(k, x)| (k.clone(), x.clone())));
-        let v: Vec<(String, String)> = v.into_iter().collect();
+        let v: Recorded = v.into_iter().collect();
         let m = s.at;
         if r.target == Target::Same {
             // A pause: the same cell goes on in the same round, with what brought the work here.
@@ -178,7 +181,7 @@ impl Analysis<'_, '_> {
         index.insert(s0.clone(), 0);
         self.states.push(s0);
         self.par.push(None);
-        let mut cache: HashMap<(usize, Vec<(String, String)>), (Taken, Vec<String>)> = HashMap::new();
+        let mut cache: HashMap<(usize, Recorded), (Taken, Vec<String>)> = HashMap::new();
         let mut take_ids: HashMap<BTreeSet<usize>, usize> = HashMap::new();
         let mut next = 0;
         while next < self.states.len() {
@@ -192,7 +195,7 @@ impl Analysis<'_, '_> {
             }
             let c = &g.cells[s.at];
             let names = &self.inp_names[s.at];
-            let fixed: Vec<(String, String)> = s.recorded.iter().filter(|(k, _)| names.contains(k)).cloned().collect();
+            let fixed: Recorded = s.recorded.iter().filter(|(k, _)| names.contains(k)).cloned().collect();
             let key = (s.at, fixed);
             let (taken, unset) = match cache.get(&key) {
                 Some(x) => x.clone(),
