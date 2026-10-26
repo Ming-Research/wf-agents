@@ -9,10 +9,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch makes the older run pointless; main keeps every run.
+# A newer push to the same branch makes the older run pointless; main keeps every run. So does first-version, which
+# works merge into until the first version is reviewed: the engine watches the run on each merge commit.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/first-version' }}
 
 jobs:
   check:
