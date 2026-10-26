@@ -431,9 +431,7 @@ const CASES: &[Case] = &[
         group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
         name: "an option after the quote",
         text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --bogus\n```",
-        runs: &[
-            "wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --bogus",
-        ],
+        runs: &["wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --bogus"],
         wrong: "bogus",
     },
     Case {
@@ -454,9 +452,7 @@ const CASES: &[Case] = &[
         group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
         name: "right options after the quote",
         text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --queue\n```",
-        runs: &[
-            "wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --queue",
-        ],
+        runs: &["wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --queue"],
         wrong: "",
     },
     Case {
