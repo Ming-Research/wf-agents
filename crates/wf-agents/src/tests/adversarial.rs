@@ -85,6 +85,20 @@ const CASES: &[Case] = &[
         wrong: "",
     },
     Case {
+        group: "options_before_the_subcommand_do_not_end_the_reading",
+        name: "a value that is the name of a subcommand",
+        text: "`wf-agents --data queue put 3`",
+        runs: &["wf-agents --data queue put 3"],
+        wrong: "put",
+    },
+    Case {
+        group: "options_before_the_subcommand_do_not_end_the_reading",
+        name: "a value that is the name of a command",
+        text: "`wf-agents --data run status`",
+        runs: &["wf-agents --data run status"],
+        wrong: "",
+    },
+    Case {
         group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
         name: "unknown option",
         text: "```\nwf-agents item add \\\n  --project P --bogus X\n```",
@@ -281,6 +295,90 @@ const CASES: &[Case] = &[
         wrong: "",
     },
     Case {
+        group: "a_command_after_a_shell_keyword_is_read",
+        name: "in a loop",
+        text: "`while true; do wf-agents run --twice; done`",
+        runs: &["wf-agents run --twice"],
+        wrong: "twice",
+    },
+    Case {
+        group: "a_command_after_a_shell_keyword_is_read",
+        name: "in a condition",
+        text: "`if wf-agents queue add; then echo ok; fi`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_command_after_a_shell_keyword_is_read",
+        name: "right loop",
+        text: "`while true; do wf-agents run --once; sleep 60; done`",
+        runs: &["wf-agents run --once"],
+        wrong: "",
+    },
+    Case {
+        group: "a_program_given_by_its_path_is_read",
+        name: "relative path",
+        text: "`./target/release/wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_program_given_by_its_path_is_read",
+        name: "path in a block",
+        text: "```\ntarget/release/wf-agents run --twice\n```",
+        runs: &["wf-agents run --twice"],
+        wrong: "twice",
+    },
+    Case {
+        group: "a_program_given_by_its_path_is_read",
+        name: "right path",
+        text: "`./target/release/wf-agents queue put 3`",
+        runs: &["wf-agents queue put 3"],
+        wrong: "",
+    },
+    Case {
+        group: "a_program_given_by_its_path_is_read",
+        name: "a path that is not the program",
+        text: "`crates/wf-agents/src/main.rs`",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        group: "a_program_given_by_its_path_is_read",
+        name: "the package in a cargo command",
+        text: "`cargo test -p wf-agents --test readme`",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        group: "a_code_span_of_three_backticks_is_not_a_fence",
+        name: "span on a line of its own",
+        text: "```wf-agents queue add```",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_code_span_of_three_backticks_is_not_a_fence",
+        name: "span after it",
+        text: "```wf-agents status```\n\nsee `wf-agents queue add`",
+        runs: &["wf-agents status", "wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        group: "a_code_span_of_three_backticks_is_not_a_fence",
+        name: "a real block after it",
+        text: "```wf-agents status```\n\n```\nwf-agents run --twice\n```",
+        runs: &["wf-agents status", "wf-agents run --twice"],
+        wrong: "twice",
+    },
+    Case {
+        group: "a_code_span_of_three_backticks_is_not_a_fence",
+        name: "right span and span after it",
+        text: "```wf-agents queue put 3```\n\nsee `wf-agents status`",
+        runs: &["wf-agents queue put 3", "wf-agents status"],
+        wrong: "",
+    },
+    Case {
         group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "placeholder for the command",
         text: "`wf-agents <command> --help`",
@@ -467,6 +565,29 @@ fn right_wording_is_not_reported() {
 #[test]
 fn a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it() {
     check_group("a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it");
+}
+
+// A command after a shell keyword is a command line of its own: `do`, `then` and `if` stand before a command in a loop
+// or a condition, as a prompt or a variable does (POSIX shell, reserved words and compound commands).
+#[test]
+fn a_command_after_a_shell_keyword_is_read() {
+    check_group("a_command_after_a_shell_keyword_is_read");
+}
+
+// A program given by its path is the program: `./target/release/wf-agents queue add` runs the same command as
+// `wf-agents queue add`, and the README builds the command with cargo, so a path to it is likely. A path that only
+// has `wf-agents` among its directories, or a cargo package of that name, is not the program.
+#[test]
+fn a_program_given_by_its_path_is_read() {
+    check_group("a_program_given_by_its_path_is_read");
+}
+
+// A line that begins with three backticks and has a backtick after them is a code span, not the start of a fenced
+// block: the info string of a backtick fence has no backtick in it (CommonMark 0.31, fenced code blocks). Read as a
+// fence, it turns every block after it inside out.
+#[test]
+fn a_code_span_of_three_backticks_is_not_a_fence() {
+    check_group("a_code_span_of_three_backticks_is_not_a_fence");
 }
 
 // Placeholders and the options every command has are not reported, whatever the check does with the words after them.
