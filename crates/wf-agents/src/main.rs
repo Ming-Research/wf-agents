@@ -401,6 +401,8 @@ mod tests {
 
     use super::Cli;
 
+    mod adversarial;
+
     const README: &str = include_str!("../../../README.md");
 
     // What the README's data directory section names. This list is a copy: it keeps the README from losing an entry,
