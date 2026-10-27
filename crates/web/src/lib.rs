@@ -136,6 +136,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/inputs-now", get(inputs_now))
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
+        .route("/api/v1/architect", get(architect))
         .route("/api/v1/messages", get(messages))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/asks/{id}/answer", post(answer))
@@ -432,6 +433,11 @@ async fn items(State(app): State<App>) -> Result<Json<api::Items>, Fail> {
 
 async fn item(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::ItemDetail>, Fail> {
     read(&app, move |c, a| api::item(c, &a.flows, id)).await.map(Json)
+}
+
+/// The architect, as its tab shows it.
+async fn architect(State(app): State<App>) -> Result<Json<api::Architect>, Fail> {
+    read(&app, |c, a| api::architect(c, &a.flows)).await.map(Json)
 }
 
 #[derive(Deserialize)]

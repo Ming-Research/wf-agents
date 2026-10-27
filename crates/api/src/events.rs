@@ -20,9 +20,18 @@ fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
     .ok()
 }
 
+/// Whether a work is a wake of the architect, whose tab shows it.
+fn wake(conn: &Connection, work: i64) -> bool {
+    conn.query_row("SELECT graph = 'architect' FROM works WHERE id = ?1", [work], |r| {
+        r.get(0)
+    })
+    .unwrap_or(false)
+}
+
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
-/// and number; the row SQLite tells of is found by its rowid, which nothing else reads.
+/// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
+/// (its matters, what stops new works, the plan, and a wake with its rounds and asks) makes the architect's event too.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -56,12 +65,21 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
             "flow_versions" => Some(Event::Flow { version: id }),
+            "architect_matters" | "dispatch_holds" | "plan_segments" | "plan_gates" | "plan_budgets" => {
+                Some(Event::Architect)
+            }
             _ => None,
         };
-        if let Some(e) = event
-            && !out.contains(&e)
-        {
-            out.push(e);
+        let of = match &event {
+            Some(Event::Work { work } | Event::Round { work, .. }) => Some(*work),
+            Some(Event::Ask { work, .. }) => *work,
+            _ => None,
+        };
+        let also = of.is_some_and(|w| wake(conn, w)).then_some(Event::Architect);
+        for e in event.into_iter().chain(also) {
+            if !out.contains(&e) {
+                out.push(e);
+            }
         }
     }
     out
@@ -119,6 +137,40 @@ mod tests {
                 Event::Item { item: Some(1) },
                 Event::Flow { version: 1 },
             ]
+        );
+    }
+
+    // A wake's round names the wake and the architect's tab; the architect's matters, what stops new works and the
+    // plan name the tab alone, once.
+    #[test]
+    fn what_the_architect_tab_shows_names_it_too() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, 1, 'architect', 'A0')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'A0', '{}', 'c', 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let touched = |t: &str, rowid: i64| Changed {
+            table: t.to_string(),
+            rowid,
+        };
+        let rows = [
+            touched("rounds", 1),
+            touched("architect_matters", 1),
+            touched("dispatch_holds", 1),
+            touched("plan_segments", 2),
+        ];
+        assert_eq!(
+            events(db.conn(), &rows),
+            [Event::Round { work: 1, round: 1 }, Event::Architect]
         );
     }
 }

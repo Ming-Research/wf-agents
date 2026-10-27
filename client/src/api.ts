@@ -135,7 +135,7 @@ why: string, };
  * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
  * reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "activity", work: number, round: number, what: string, at: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
 
 /**
  * Where a work stands.
@@ -401,7 +401,11 @@ read_at: number | null,
 /**
  * For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
  */
-ask: number | null, ask_kinds: Array<AskKind>, };
+ask: number | null, ask_kinds: Array<AskKind>,
+/**
+ * Whether it came of a wake of the architect: told by one of its rounds, or the engine's notice of one.
+ */
+architect: boolean, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -714,6 +718,193 @@ round: number, cell: string,
  * The path of the return it is at, as the flow writes it.
  */
 path: string, value: JsonValue, };
+
+/**
+ * The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy and the plan
+ * it works by, and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+ */
+export type Architect = {
+/**
+ * Its wakes, newest first.
+ */
+wakes: Array<Wake>,
+/**
+ * The matters it has not handled: those due and not held, in the order they came; then those held; then those
+ * not due yet, the soonest first.
+ */
+queue: Array<Matter>,
+/**
+ * What stops new works from starting, oldest first.
+ */
+holds: Array<DispatchHold>,
+/**
+ * What its wakes asked the owner, oldest first.
+ */
+asks: Array<OwnerAsk>,
+/**
+ * Its log over its latest fifty wakes, newest first: each answer to whether what runs fits, and each matter it
+ * picked, with what it made of it.
+ */
+log: Array<LogEntry>,
+/**
+ * The policy in force; none before the first takes effect.
+ */
+policy: PolicyInForce | null,
+/**
+ * The policy a wake is setting now; none while no wake sets one.
+ */
+setting: PolicySetting | null, understanding: Understanding, plan: Plan, };
+
+/**
+ * One wake of the architect.
+ */
+export type Wake = { work: WorkSummary,
+/**
+ * What woke it: the matters its queue held when it woke, as its first round was given them.
+ */
+woke_for: Array<Queued>,
+/**
+ * How many matters it handled.
+ */
+handled: number,
+/**
+ * The matter it handles now, as its last pick chose it, until it records that matter; none when it handles none,
+ * or is over.
+ */
+handling: JsonValue | null, };
+
+/**
+ * A matter as the architect's queue gave it to a wake.
+ */
+export type Queued = { matter: number, kind: string, what: string, item: number | null, };
+
+/**
+ * A matter for the architect that it has not handled.
+ */
+export type Matter = { id: number,
+/**
+ * Its kind, one of the flow's kinds of matter for the architect.
+ */
+kind: string,
+/**
+ * What it is, in one sentence, as the engine wrote it.
+ */
+what: string,
+/**
+ * Who raised it: `work`, a round of a work; `architect`, a round of its own; `owner`, the owner's words or
+ * answer; `engine`, the engine.
+ */
+source: string,
+/**
+ * The item it concerns, and the item's title.
+ */
+item: number | null, title: string | null,
+/**
+ * The round that raised it, by its work and its number in the work.
+ */
+work: number | null, round: number | null,
+/**
+ * When it came, and when it is due: none for a matter due at once.
+ */
+at: number, due: number | null,
+/**
+ * For a matter due once an item's work ends: that item.
+ */
+due_item: number | null,
+/**
+ * Why it waits though picked (`owner_ask`, `approval`), and the ask of the owner that holds it.
+ */
+held: string | null, held_by: number | null,
+/**
+ * For a matter due and not held: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
+ * `none`), and how long since it was due, in milliseconds.
+ */
+waits: string | null, waited_ms: number | null,
+/**
+ * For the owner's answer to an ask that held a matter: that matter.
+ */
+answers: number | null, };
+
+/**
+ * What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
+ * `policy`, while a new policy is set; and since when.
+ */
+export type DispatchHold = { reason: string, since: number, };
+
+/**
+ * What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.
+ */
+export type Said = { work: number, round: number, at: number | null, value: JsonValue, };
+
+/**
+ * One entry of the architect's log, by the wake and the round it starts at.
+ */
+export type LogEntry = { "kind": "fit", work: number, round: number, at: number | null, fit: JsonValue, } | { "kind": "matter", work: number, round: number, at: number | null, pick: JsonValue, crux: Said | null, judgments: Array<Said>, looks: Array<Said>, recorded: number | null, };
+
+/**
+ * The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
+ */
+export type PolicyInForce = { work: number, round: number, at: number | null, policy: JsonValue, };
+
+/**
+ * A new policy as a wake sets it: the latest study of it, and the latest text with its probes and every reading of it
+ * by a new architect since, with the architect's verdict on each.
+ */
+export type PolicySetting = { work: number, study: Said | null, draft: Draft | null, };
+
+/**
+ * A version of the policy being set, by the round that wrote it.
+ */
+export type Draft = { round: number, policy: JsonValue, probes: JsonValue, readings: Array<Reading>, };
+
+/**
+ * A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
+ */
+export type Reading = { round: number, reading: JsonValue, verdict: JsonValue, };
+
+/**
+ * Where things stand, as the architect last wrote it: the state of things at its latest first question, what its
+ * wrap-ups learned since, oldest first, and its latest check against the constitution with the mismatches with its
+ * earlier judgments.
+ */
+export type Understanding = { state: Said | null, learned: Array<JsonValue>, against: Said | null, };
+
+/**
+ * The plan: its segments in the order works start from them, its gates and its budgets.
+ */
+export type Plan = { segments: Array<PlanSegment>, gates: Array<PlanGate>, budgets: Array<PlanBudget>, };
+
+/**
+ * A segment of the plan, with the items that hang on it.
+ */
+export type PlanSegment = { key: string, project: string, title: string,
+/**
+ * The stage of the policy it belongs to, by the stage's number, or maintenance.
+ */
+stage: string, delivers: string, done_when: string,
+/**
+ * The segments that must be done first, by key.
+ */
+after: JsonValue, assumptions: JsonValue, indicators: JsonValue, size: string,
+/**
+ * Until when or what it is deferred.
+ */
+deferred: string | null,
+/**
+ * The items that hang on it, each with its title, whether it is cancelled or held, and the cell its latest work
+ * is at.
+ */
+items: JsonValue, };
+
+/**
+ * A gate of the plan: which segments may touch what it governs.
+ */
+export type PlanGate = { name: string, basis: string, what: string, segments: JsonValue, };
+
+/**
+ * A budget of the plan: what is measured, the whole line and how it is shared out among the segments.
+ */
+export type PlanBudget = { name: string, basis: string, measure: string, line: string, split: JsonValue, };
 
 /**
  * Why a request failed.

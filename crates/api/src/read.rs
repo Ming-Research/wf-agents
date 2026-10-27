@@ -15,10 +15,11 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    AskKind, DesignCard, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary,
-    Items, KeptFile, LinkedItem, NamedText, OwnerAsk, OwnerMessage, PausedBy, ProjectNow, Replacement,
-    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown,
-    ToolRun, Waits, WorkDetail, WorkState, WorkSummary,
+    Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail,
+    ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk, OwnerMessage,
+    PausedBy, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
+    Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
+    Said, Session, Shown, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,16 +393,24 @@ fn summary(
     }
 }
 
+/// A count by key, as a query that gives each key with its count reads it.
+fn counts(conn: &Connection, q: &str) -> Result<HashMap<i64, i64>> {
+    let mut st = conn.prepare(q)?;
+    Ok(st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
 /// The works a filter selects, as summaries, with their rows.
 fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, WorkSummary)>> {
-    let count = |q: &str| -> Result<HashMap<i64, i64>> {
-        let mut st = conn.prepare(q)?;
-        Ok(st
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?)
-    };
-    let asks = count("SELECT work, count(*) FROM owner_asks WHERE answer IS NULL GROUP BY work")?;
-    let design_cards = count("SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work")?;
+    let asks = counts(
+        conn,
+        "SELECT work, count(*) FROM owner_asks WHERE answer IS NULL GROUP BY work",
+    )?;
+    let design_cards = counts(
+        conn,
+        "SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work",
+    )?;
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
     for (w, rounds) in work_rows(conn, filter, args)? {
@@ -424,9 +433,12 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
     Ok(out)
 }
 
-/// Every work, oldest first.
+/// Every work but the architect's wakes, which its tab shows, oldest first.
 pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
-    Ok(summaries(conn, flows, "", &[])?.into_iter().map(|(_, s)| s).collect())
+    Ok(summaries(conn, flows, "WHERE w.graph <> 'architect'", &[])?
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect())
 }
 
 const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.started_at, r.ended_at, r.model,
@@ -643,7 +655,8 @@ fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> 
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at
+const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at,
+       w.graph = 'architect'
 FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
 LEFT JOIN sessions s ON s.id = r.session LEFT JOIN items i ON i.id = w.item";
 
@@ -664,12 +677,14 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             read_at: r.get(9)?,
             ask: None,
             ask_kinds: Vec::new(),
+            architect: r.get(10)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body,
+       coalesce(w.graph = 'architect', 0)
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
 LEFT JOIN owner_asks a ON a.id = n.ask";
 
@@ -690,6 +705,7 @@ fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Ow
             read_at: r.get(6)?,
             ask: r.get(7)?,
             ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
+            architect: r.get(9)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -1491,6 +1507,418 @@ fn shown(conn: &Connection, flows: &Flows, item: i64) -> Result<Vec<Shown>> {
     Ok(out)
 }
 
+/// The architect, as its tab shows it. Its cells are named as the views over its rounds name them.
+pub fn architect(conn: &Connection, flows: &Flows) -> Result<Architect> {
+    let mut wakes = summaries(conn, flows, "WHERE w.graph = 'architect'", &[])?;
+    wakes.reverse();
+    let log = log(conn)?;
+    let handled = counts(
+        conn,
+        "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
+    )?;
+    let mut woke = woke_for(conn)?;
+    // A new policy is being set while the latest wake, not over, is at the stage the study of one is in.
+    let setting = match wakes.first() {
+        Some((_, s)) if !over(s) && s.stage.is_some() => {
+            let study = flows
+                .graph(conn, s.flow_version, &s.graph)
+                .and_then(|g| g.cell("P1").and_then(|c| c.stage.clone()));
+            if study == s.stage {
+                Some(setting(conn, s.id)?)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let wakes = wakes
+        .into_iter()
+        .map(|(_, s)| Wake {
+            woke_for: woke.remove(&s.id).unwrap_or_default(),
+            handled: handled.get(&s.id).copied().unwrap_or(0),
+            handling: if over(&s) { None } else { handling(&log, s.id) },
+            work: s,
+        })
+        .collect();
+    Ok(Architect {
+        wakes,
+        queue: queue(conn)?,
+        holds: holds(conn)?,
+        asks: asks(conn, "WHERE w.graph = 'architect'", &[])?,
+        log,
+        policy: policy(conn)?,
+        setting,
+        understanding: understanding(conn)?,
+        plan: plan(conn)?,
+    })
+}
+
+fn over(w: &WorkSummary) -> bool {
+    matches!(w.state, WorkState::Done | WorkState::Ended)
+}
+
+/// What a round handed back under a field of its answer, as the round's record keeps it.
+fn returned(output: Option<String>, field: Option<&str>) -> Value {
+    let o = json(output).map(|o| o["outcome"].clone()).unwrap_or(Value::Null);
+    match field {
+        Some(f) => o[f].clone(),
+        None => o,
+    }
+}
+
+/// The matter a wake handles now: the one its latest pick chose, when no record of it followed.
+fn handling(log: &[LogEntry], wake: i64) -> Option<Value> {
+    log.iter()
+        .find_map(|e| match e {
+            LogEntry::Matter {
+                work, pick, recorded, ..
+            } if *work == wake => Some(recorded.is_none().then(|| pick["chosen"].clone())),
+            _ => None,
+        })
+        .flatten()
+}
+
+/// What each wake's first round was given of the queue, by wake: the matters that woke it.
+fn woke_for(conn: &Connection) -> Result<HashMap<i64, Vec<Queued>>> {
+    let mut st = conn.prepare(
+        "SELECT r.work, r.input FROM rounds r JOIN works w ON w.id = r.work WHERE w.graph = 'architect' AND r.n = 1",
+    )?;
+    let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (work, input) = row?;
+        let Some(input) = json(Some(input)) else { continue };
+        let input = db::put_back(conn, &input);
+        let queued = input["inputs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|x| {
+                x["from"]
+                    .as_array()
+                    .is_some_and(|f| f.iter().any(|s| s["db"] == "architect_queue"))
+            })
+            .filter_map(|x| x["value"].as_array())
+            .flatten()
+            .filter_map(|m| {
+                Some(Queued {
+                    matter: m["matter"].as_i64()?,
+                    kind: m["kind"].as_str()?.to_string(),
+                    what: m["what"].as_str().unwrap_or_default().to_string(),
+                    item: m["item"].as_i64(),
+                })
+            })
+            .collect();
+        out.insert(work, queued);
+    }
+    Ok(out)
+}
+
+/// The architect's log over its latest fifty wakes, newest first: each answer to whether what runs fits, and each
+/// matter picked with its crux, its judgments and second looks in order, and the round that recorded it.
+fn log(conn: &Connection) -> Result<Vec<LogEntry>> {
+    let mut st = conn.prepare(
+        "SELECT r.work, r.n, r.cell, r.transition, r.ended_at, r.output
+         FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.graph = 'architect' AND r.cell IN ('A5', 'A6', 'A7', 'A8', 'A9', 'A11') AND r.transition IS NOT NULL
+           AND r.work IN (SELECT id FROM works WHERE graph = 'architect' ORDER BY id DESC LIMIT 50)
+         ORDER BY r.work, r.n",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<i64>>(4)?,
+            r.get::<_, Option<String>>(5)?,
+        ))
+    })?;
+    let mut out: Vec<LogEntry> = Vec::new();
+    // The matter picked whose record has not come yet; it ends at the next pick, or with its wake.
+    let mut open: Option<LogEntry> = None;
+    for row in rows {
+        let (work, round, cell, transition, at, output) = row?;
+        if matches!(&open, Some(LogEntry::Matter { work: w, .. }) if *w != work) {
+            out.extend(open.take());
+        }
+        let said = |field: Option<&str>, output: Option<String>| Said {
+            work,
+            round,
+            at,
+            value: returned(output, field),
+        };
+        match cell.as_str() {
+            "A5" => out.push(LogEntry::Fit {
+                work,
+                round,
+                at,
+                fit: returned(output, Some("fit")),
+            }),
+            "A6" => {
+                out.extend(open.take());
+                if transition == "picked" {
+                    open = Some(LogEntry::Matter {
+                        work,
+                        round,
+                        at,
+                        pick: returned(output, Some("pick")),
+                        crux: None,
+                        judgments: Vec::new(),
+                        looks: Vec::new(),
+                        recorded: None,
+                    });
+                }
+            }
+            _ => {
+                if let Some(LogEntry::Matter {
+                    crux,
+                    judgments,
+                    looks,
+                    recorded,
+                    ..
+                }) = open.as_mut()
+                {
+                    match cell.as_str() {
+                        "A7" => *crux = Some(said(Some("crux"), output)),
+                        "A8" => judgments.push(said(None, output)),
+                        "A9" => looks.push(said(Some("verdict"), output)),
+                        _ => *recorded = Some(round),
+                    }
+                }
+                if cell == "A11" {
+                    out.extend(open.take());
+                }
+            }
+        }
+    }
+    out.extend(open);
+    let key = |e: &LogEntry| match e {
+        LogEntry::Fit { work, round, .. } | LogEntry::Matter { work, round, .. } => (*work, *round),
+    };
+    out.sort_by_key(|e| std::cmp::Reverse(key(e)));
+    Ok(out)
+}
+
+/// The matters the architect has not handled: those due and not held, in the order they came; then those held; then
+/// those not due yet, the soonest first.
+fn queue(conn: &Connection) -> Result<Vec<Matter>> {
+    let mut st = conn.prepare(
+        "SELECT m.id, m.kind, m.what,
+           CASE WHEN w.graph = 'architect' THEN 'architect' WHEN m.work IS NOT NULL THEN 'work'
+                WHEN m.kind IN ('owner_words', 'owner_approved') THEN 'owner' ELSE 'engine' END,
+           m.item, i.title, m.work, m.round, m.at, m.due, m.due_item, m.held, m.held_by, q.waits, q.waited_ms, m.answers
+         FROM architect_matters m LEFT JOIN architect_queue q ON q.matter = m.id
+         LEFT JOIN items i ON i.id = m.item LEFT JOIN works w ON w.id = m.work
+         WHERE m.handled_round IS NULL
+         ORDER BY CASE WHEN q.matter IS NOT NULL THEN 0 WHEN m.held IS NOT NULL THEN 1 ELSE 2 END,
+           CASE WHEN q.matter IS NULL AND m.held IS NULL THEN coalesce(m.due, m.at) END, m.id",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok(Matter {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            what: r.get(2)?,
+            source: r.get(3)?,
+            item: r.get(4)?,
+            title: r.get(5)?,
+            work: r.get(6)?,
+            round: r.get(7)?,
+            at: r.get(8)?,
+            due: r.get(9)?,
+            due_item: r.get(10)?,
+            held: r.get(11)?,
+            held_by: r.get(12)?,
+            waits: r.get(13)?,
+            waited_ms: r.get(14)?,
+            answers: r.get(15)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn holds(conn: &Connection) -> Result<Vec<DispatchHold>> {
+    let mut st = conn.prepare("SELECT reason, since FROM dispatch_holds ORDER BY since, reason")?;
+    let rows = st.query_map([], |r| {
+        Ok(DispatchHold {
+            reason: r.get(0)?,
+            since: r.get(1)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The policy in force, with the round in which it took effect.
+fn policy(conn: &Connection) -> Result<Option<PolicyInForce>> {
+    Ok(conn
+        .query_row(
+            "SELECT p.work, p.round, r.ended_at, p.policy FROM policy_current p
+             JOIN rounds r ON r.work = p.work AND r.n = p.round",
+            [],
+            |r| {
+                Ok(PolicyInForce {
+                    work: r.get(0)?,
+                    round: r.get(1)?,
+                    at: r.get(2)?,
+                    policy: json(r.get(3)?).unwrap_or(Value::Null),
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// The policy a wake is setting: its latest study, and its latest text with the readings of it, unless a newer study
+/// has sent the text back to be written again.
+fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
+    let study = conn
+        .query_row(
+            "SELECT n, ended_at, output FROM rounds WHERE work = ?1 AND cell = 'P1' AND transition IS NOT NULL
+             ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| {
+                Ok(Said {
+                    work,
+                    round: r.get(0)?,
+                    at: r.get(1)?,
+                    value: returned(r.get(2)?, Some("study")),
+                })
+            },
+        )
+        .optional()?;
+    let draft = conn
+        .query_row(
+            "SELECT round, policy, probes, readings FROM policy_trials WHERE work = ?1",
+            [work],
+            |r| {
+                let readings = json(r.get(3)?)
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| Reading {
+                        round: x["round"].as_i64().unwrap_or_default(),
+                        reading: x["reading"].clone(),
+                        verdict: x["verdict"].clone(),
+                    })
+                    .collect();
+                Ok(Draft {
+                    round: r.get(0)?,
+                    policy: json(r.get(1)?).unwrap_or(Value::Null),
+                    probes: json(r.get(2)?).unwrap_or(Value::Null),
+                    readings,
+                })
+            },
+        )
+        .optional()?
+        .filter(|d| study.as_ref().is_none_or(|s| d.round > s.round));
+    Ok(PolicySetting { work, study, draft })
+}
+
+/// Where things stand, as the architect last wrote it.
+fn understanding(conn: &Connection) -> Result<Understanding> {
+    let state = conn
+        .query_row(
+            "SELECT a.work, a.round, r.ended_at, a.state, a.learned FROM architect_state a
+             JOIN rounds r ON r.work = a.work AND r.n = a.round",
+            [],
+            |r| {
+                let said = Said {
+                    work: r.get(0)?,
+                    round: r.get(1)?,
+                    at: r.get(2)?,
+                    value: json(r.get(3)?).unwrap_or(Value::Null),
+                };
+                let learned: Vec<Value> = json(r.get(4)?).and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                Ok((said, learned))
+            },
+        )
+        .optional()?;
+    let against = conn
+        .query_row(
+            "SELECT r.work, r.n, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
+             WHERE w.graph = 'architect' AND r.cell = 'A2' AND r.transition IS NOT NULL
+             ORDER BY r.work DESC, r.n DESC LIMIT 1",
+            [],
+            |r| {
+                Ok(Said {
+                    work: r.get(0)?,
+                    round: r.get(1)?,
+                    at: r.get(2)?,
+                    value: returned(r.get(3)?, None),
+                })
+            },
+        )
+        .optional()?;
+    let (state, learned) = match state {
+        Some((s, l)) => (Some(s), l),
+        None => (None, Vec::new()),
+    };
+    Ok(Understanding {
+        state,
+        learned,
+        against,
+    })
+}
+
+/// A column of JSON, as its value; none as null.
+fn json_col(r: &Row<'_>, i: usize) -> rusqlite::Result<Value> {
+    Ok(json(r.get(i)?).unwrap_or(Value::Null))
+}
+
+/// The plan: its segments in the order works start from them, its gates and its budgets.
+fn plan(conn: &Connection) -> Result<Plan> {
+    let mut st = conn.prepare(
+        "SELECT segment, project, title, stage, delivers, done_when, after, assumptions, indicators, size, deferred,
+                items
+         FROM plan",
+    )?;
+    let segments = st
+        .query_map([], |r| {
+            Ok(PlanSegment {
+                key: r.get(0)?,
+                project: r.get(1)?,
+                title: r.get(2)?,
+                stage: r.get(3)?,
+                delivers: r.get(4)?,
+                done_when: r.get(5)?,
+                after: json_col(r, 6)?,
+                assumptions: json_col(r, 7)?,
+                indicators: json_col(r, 8)?,
+                size: r.get(9)?,
+                deferred: r.get(10)?,
+                items: json_col(r, 11)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut st = conn.prepare("SELECT name, basis, what, segments FROM plan_gates ORDER BY name")?;
+    let gates = st
+        .query_map([], |r| {
+            Ok(PlanGate {
+                name: r.get(0)?,
+                basis: r.get(1)?,
+                what: r.get(2)?,
+                segments: json_col(r, 3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut st = conn.prepare("SELECT name, basis, measure, line, split FROM plan_budgets ORDER BY name")?;
+    let budgets = st
+        .query_map([], |r| {
+            Ok(PlanBudget {
+                name: r.get(0)?,
+                basis: r.get(1)?,
+                measure: r.get(2)?,
+                line: r.get(3)?,
+                split: json_col(r, 4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Plan {
+        segments,
+        gates,
+        budgets,
+    })
+}
+
 /// A file under the data directory's `logs` or `tool-output` directory, as text, cut after `max` bytes.
 pub fn file(data: &Path, dir: &str, name: &str, max: u64) -> Result<String> {
     let missing = || Error::NotFound(format!("no file {dir}/{name}"));
@@ -1979,5 +2407,255 @@ mod tests {
         assert_eq!(at("progress"), Some(json!("read the code")));
         // The start's return holds nothing the flow shows.
         assert!(d.shown.iter().all(|x| x.cell == "1"));
+    }
+
+    /// Two wakes of the architect: one over, which handled an engineer's question, and one at the owner's reading of
+    /// the study of a new policy; the matters it has not handled, a hold on new works and a segment of the plan.
+    fn architect_setup(name: &str) -> Setup {
+        let mut s = setup(name);
+        let queued = json!({ "inputs": [{ "from": [{ "db": "architect_queue" }], "value": [
+            { "matter": 1, "kind": "split", "item": 1, "what": "Split #1?", "waits": "agent", "waited_ms": 5 },
+        ] }], "given": {} });
+        let none = json!({ "inputs": [{ "from": [{ "db": "architect_queue" }], "value": [] }], "given": {} });
+        let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
+        let wake = [
+            ("A0", queued.to_string(), None, Some("woke")),
+            (
+                "A1",
+                "{}".into(),
+                Some(out(
+                    json!({ "state": { "lines": [{ "line": "l", "serves": "s", "approach": "a",
+                    "where": "w", "stuck": "no", "recent": "r" }], "changed": "c" } }),
+                )),
+                Some("clear"),
+            ),
+            (
+                "A5",
+                "{}".into(),
+                Some(out(json!({ "fit": { "verdict": "fits", "why": "w" } }))),
+                Some("fits"),
+            ),
+            (
+                "A6",
+                "{}".into(),
+                Some(out(
+                    json!({ "pick": { "verdict": "picked", "ranked": [{ "matter": "Split #1?", "why": "w" }],
+                    "chosen": { "matter": "Split #1?", "queued": 1, "about": "split", "why": "first" } } }),
+                )),
+                Some("picked"),
+            ),
+            (
+                "A7",
+                "{}".into(),
+                Some(out(json!({ "crux": { "root": "itself", "question": "q" } }))),
+                Some("found"),
+            ),
+            (
+                "A8",
+                "{}".into(),
+                Some(out(json!({ "judgment": { "chosen": "one" }, "changes": [] }))),
+                Some("left_structure"),
+            ),
+            ("A11", "{}".into(), Some("{}".into()), Some("matter_done")),
+            (
+                "A6",
+                "{}".into(),
+                Some(out(json!({ "pick": { "verdict": "nothing_to_do", "why": "w" } }))),
+                Some("nothing_to_do"),
+            ),
+            (
+                "A10",
+                "{}".into(),
+                Some(out(json!({ "learned": "L", "next_look": [] }))),
+                Some("wrapped_up"),
+            ),
+            ("A15", "{}".into(), Some("{}".into()), Some("put")),
+            ("A12", "{}".into(), None, None),
+        ];
+        let setting = [
+            ("A0", none.to_string(), None, Some("woke")),
+            (
+                "A2",
+                "{}".into(),
+                Some(out(
+                    json!({ "against": [{ "principle": "Article 2", "status": "broken", "where": "w",
+                    "evidence": "e" }], "mismatches": [] }),
+                )),
+                Some("gone_through"),
+            ),
+            ("A3", "{}".into(), Some("{}".into()), Some("set_policy_again")),
+            (
+                "P1",
+                "{}".into(),
+                Some(out(json!({ "study": { "intent": "i" } }))),
+                Some("studied"),
+            ),
+        ];
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, 1, 'architect', 'A12'),
+                 (NULL, 1, 'architect', 'P2')",
+                &[],
+            )?;
+            for (work, rounds) in [(2_i64, &wake[..]), (3, &setting[..])] {
+                for (i, (cell, input, output, transition)) in rounds.iter().enumerate() {
+                    let n = i as i64 + 1;
+                    let at = work * 100 + n;
+                    run(
+                        "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at,
+                         ended_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', ?7, ?7)",
+                        &[&work, &n, cell, input, output, transition, &at],
+                    )?;
+                }
+            }
+            run(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 5, 'P2', '{}', 'c', 400)",
+                &[],
+            )?;
+            let study = json!({ "from": "architect", "kind": "study", "work": 3, "cell": "P2",
+                "study": { "intent": "i" }, "choices": [["satisfied", "s"]] })
+            .to_string();
+            run("INSERT INTO owner_asks (work, round, body) VALUES (3, 5, ?1)", &[&study])?;
+            run(
+                "INSERT INTO architect_matters (kind, what, body, item, work, round, at, handled_work, handled_round)
+                 VALUES ('split', 'Split #1?', '{}', 1, 1, 1, 5, 2, 7)",
+                &[],
+            )?;
+            run(
+                "INSERT INTO architect_matters (kind, what, body, at) VALUES ('owner_words', 'The owner said', '{}', 200)",
+                &[],
+            )?;
+            run(
+                "INSERT INTO architect_matters (kind, what, body, at, due) VALUES ('next_look', 'Look', '{}', 210, 9000000000000)",
+                &[],
+            )?;
+            run(
+                "INSERT INTO architect_matters (kind, what, body, item, work, round, at, held, held_by)
+                 VALUES ('other_question', 'Held', '{}', 1, 1, 1, 220, 'owner_ask', 1)",
+                &[],
+            )?;
+            run("INSERT INTO dispatch_holds (reason, since) VALUES ('policy', 300)", &[])?;
+            run(
+                "INSERT INTO plan_segments (key, project, title, stage, delivers, done_when, assumptions, indicators,
+                 size, position) VALUES ('s1', 'p', 'Deliver', '1', 'd', 'w', '[]', '[]', 'small', 1.0)",
+                &[],
+            )?;
+            run("UPDATE items SET segment = 's1' WHERE id = 2", &[])?;
+            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 9, 'Learned L'), (1, 2, 'told')", &[])?;
+            Ok(())
+        })
+        .unwrap();
+        s
+    }
+
+    // The works list leaves the wakes out; a wake reads as a work on no item.
+    #[test]
+    fn the_architect_wakes_are_its_tab_s_not_the_works_list_s() {
+        let s = architect_setup("wakes");
+        let cache = Flows::default();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(ws.iter().map(|w| w.id).collect::<Vec<_>>(), [1]);
+        let d = work(s.db.conn(), &cache, 3).unwrap();
+        assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 5, 1));
+        let r = round(s.db.conn(), &cache, &s.data, 3, 4).unwrap();
+        assert!(r.limits.is_empty());
+        // What a wake's round told the owner names the architect.
+        let all = messages(s.db.conn(), true).unwrap();
+        let told: Vec<(&str, bool)> = all.iter().map(|m| (m.text.as_str(), m.architect)).collect();
+        assert!(told.contains(&("Learned L", true)) && told.contains(&("told", false)));
+    }
+
+    // The tab's read: the wakes newest first, with what woke each and what it handled; the queue, what is due first;
+    // the hold; the asks; the log newest first; the policy being set; where things stand; the plan.
+    #[test]
+    fn the_architect_says_its_wakes_queue_log_policy_and_understanding() {
+        let s = architect_setup("architect");
+        let a = architect(s.db.conn(), &Flows::default()).unwrap();
+        assert_eq!(a.wakes.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
+        let (now, last) = (&a.wakes[0], &a.wakes[1]);
+        assert_eq!(
+            (now.work.state, &now.work.waits),
+            (WorkState::Asking, &Some(Waits::Answer { ask: 1 }))
+        );
+        assert_eq!(last.work.state, WorkState::Done);
+        assert_eq!(
+            last.woke_for,
+            [Queued {
+                matter: 1,
+                kind: "split".into(),
+                what: "Split #1?".into(),
+                item: Some(1),
+            }]
+        );
+        assert!(now.woke_for.is_empty());
+        assert_eq!((last.handled, now.handled), (1, 0));
+        assert_eq!((&last.handling, &now.handling), (&None, &None));
+
+        let queue: Vec<(i64, Option<&str>, Option<&str>, &str)> = a
+            .queue
+            .iter()
+            .map(|m| (m.id, m.waits.as_deref(), m.held.as_deref(), m.source.as_str()))
+            .collect();
+        assert_eq!(
+            queue,
+            [
+                (2, Some("owner"), None, "owner"),
+                (4, None, Some("owner_ask"), "work"),
+                (3, None, None, "engine"),
+            ]
+        );
+        assert_eq!(a.queue[1].title.as_deref(), Some("First"));
+        assert_eq!(
+            a.holds,
+            [DispatchHold {
+                reason: "policy".into(),
+                since: 300,
+            }]
+        );
+        assert_eq!(a.asks.len(), 1);
+        assert_eq!(a.asks[0].body["kind"], "study");
+
+        assert_eq!(a.log.len(), 2);
+        let LogEntry::Matter {
+            work,
+            round,
+            pick,
+            crux,
+            judgments,
+            looks,
+            recorded,
+            ..
+        } = &a.log[0]
+        else {
+            panic!("not a matter: {:?}", a.log[0]);
+        };
+        assert_eq!((*work, *round, *recorded), (2, 4, Some(7)));
+        assert_eq!(pick["chosen"]["about"], "split");
+        assert_eq!(crux.as_ref().map(|c| c.value["question"].clone()), Some(json!("q")));
+        assert_eq!((judgments.len(), looks.len()), (1, 0));
+        assert_eq!(judgments[0].value["judgment"]["chosen"], "one");
+        assert!(matches!(&a.log[1], LogEntry::Fit { work: 2, round: 3, fit, .. } if fit["verdict"] == "fits"));
+
+        assert_eq!(a.policy, None);
+        let setting = a.setting.unwrap();
+        assert_eq!(setting.work, 3);
+        assert_eq!(
+            setting.study.map(|x| (x.round, x.value)),
+            Some((4, json!({ "intent": "i" })))
+        );
+        assert_eq!(setting.draft, None);
+
+        let u = &a.understanding;
+        assert_eq!(u.state.as_ref().map(|x| (x.work, x.round)), Some((2, 2)));
+        assert_eq!(u.state.as_ref().unwrap().value["changed"], "c");
+        assert_eq!(u.learned, [json!("L")]);
+        assert_eq!(u.against.as_ref().map(|x| (x.work, x.round)), Some((3, 2)));
+        assert_eq!(u.against.as_ref().unwrap().value["against"][0]["status"], "broken");
+
+        assert_eq!(a.plan.segments.len(), 1);
+        assert_eq!(a.plan.segments[0].key, "s1");
+        assert_eq!(a.plan.segments[0].items[0]["item"], 2);
+        assert!(a.plan.gates.is_empty() && a.plan.budgets.is_empty());
     }
 }

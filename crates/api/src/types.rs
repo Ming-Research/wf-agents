@@ -120,6 +120,9 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
+    /// What the architect's tab shows changed: its queue, what stops new works, the plan, or a wake, its rounds or
+    /// its asks.
+    Architect,
     /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
     /// reports it: a tool it uses, or what it says.
     Activity {
@@ -393,6 +396,8 @@ pub struct OwnerMessage {
     /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
     pub ask: Option<i64>,
     pub ask_kinds: Vec<AskKind>,
+    /// Whether it came of a wake of the architect: told by one of its rounds, or the engine's notice of one.
+    pub architect: bool,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -709,6 +714,222 @@ pub struct Shown {
     /// The path of the return it is at, as the flow writes it.
     pub path: String,
     pub value: Value,
+}
+
+/// The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy and the plan
+/// it works by, and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Architect {
+    /// Its wakes, newest first.
+    pub wakes: Vec<Wake>,
+    /// The matters it has not handled: those due and not held, in the order they came; then those held; then those
+    /// not due yet, the soonest first.
+    pub queue: Vec<Matter>,
+    /// What stops new works from starting, oldest first.
+    pub holds: Vec<DispatchHold>,
+    /// What its wakes asked the owner, oldest first.
+    pub asks: Vec<OwnerAsk>,
+    /// Its log over its latest fifty wakes, newest first: each answer to whether what runs fits, and each matter it
+    /// picked, with what it made of it.
+    pub log: Vec<LogEntry>,
+    /// The policy in force; none before the first takes effect.
+    pub policy: Option<PolicyInForce>,
+    /// The policy a wake is setting now; none while no wake sets one.
+    pub setting: Option<PolicySetting>,
+    pub understanding: Understanding,
+    pub plan: Plan,
+}
+
+/// One wake of the architect.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Wake {
+    pub work: WorkSummary,
+    /// What woke it: the matters its queue held when it woke, as its first round was given them.
+    pub woke_for: Vec<Queued>,
+    /// How many matters it handled.
+    pub handled: i64,
+    /// The matter it handles now, as its last pick chose it, until it records that matter; none when it handles none,
+    /// or is over.
+    pub handling: Option<Value>,
+}
+
+/// A matter as the architect's queue gave it to a wake.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Queued {
+    pub matter: i64,
+    pub kind: String,
+    pub what: String,
+    pub item: Option<i64>,
+}
+
+/// A matter for the architect that it has not handled.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Matter {
+    pub id: i64,
+    /// Its kind, one of the flow's kinds of matter for the architect.
+    pub kind: String,
+    /// What it is, in one sentence, as the engine wrote it.
+    pub what: String,
+    /// Who raised it: `work`, a round of a work; `architect`, a round of its own; `owner`, the owner's words or
+    /// answer; `engine`, the engine.
+    pub source: String,
+    /// The item it concerns, and the item's title.
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    /// The round that raised it, by its work and its number in the work.
+    pub work: Option<i64>,
+    pub round: Option<i64>,
+    /// When it came, and when it is due: none for a matter due at once.
+    pub at: i64,
+    pub due: Option<i64>,
+    /// For a matter due once an item's work ends: that item.
+    pub due_item: Option<i64>,
+    /// Why it waits though picked (`owner_ask`, `approval`), and the ask of the owner that holds it.
+    pub held: Option<String>,
+    pub held_by: Option<i64>,
+    /// For a matter due and not held: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
+    /// `none`), and how long since it was due, in milliseconds.
+    pub waits: Option<String>,
+    pub waited_ms: Option<i64>,
+    /// For the owner's answer to an ask that held a matter: that matter.
+    pub answers: Option<i64>,
+}
+
+/// What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
+/// `policy`, while a new policy is set; and since when.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct DispatchHold {
+    pub reason: String,
+    pub since: i64,
+}
+
+/// What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Said {
+    pub work: i64,
+    pub round: i64,
+    pub at: Option<i64>,
+    pub value: Value,
+}
+
+/// One entry of the architect's log, by the wake and the round it starts at.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LogEntry {
+    /// Its answer to whether what runs and what starts next fit.
+    Fit {
+        work: i64,
+        round: i64,
+        at: Option<i64>,
+        fit: Value,
+    },
+    /// A matter it picked: the pick (the ranked list and the one chosen), the crux, each judgment and each second look
+    /// at it in order (a second look that does not stand sends it back to be judged again), and the round that
+    /// recorded it; none for one it did not record, such as one that needed a new policy.
+    Matter {
+        work: i64,
+        round: i64,
+        at: Option<i64>,
+        pick: Value,
+        crux: Option<Said>,
+        judgments: Vec<Said>,
+        looks: Vec<Said>,
+        recorded: Option<i64>,
+    },
+}
+
+/// The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PolicyInForce {
+    pub work: i64,
+    pub round: i64,
+    pub at: Option<i64>,
+    pub policy: Value,
+}
+
+/// A new policy as a wake sets it: the latest study of it, and the latest text with its probes and every reading of it
+/// by a new architect since, with the architect's verdict on each.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PolicySetting {
+    pub work: i64,
+    pub study: Option<Said>,
+    pub draft: Option<Draft>,
+}
+
+/// A version of the policy being set, by the round that wrote it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Draft {
+    pub round: i64,
+    pub policy: Value,
+    pub probes: Value,
+    pub readings: Vec<Reading>,
+}
+
+/// A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Reading {
+    pub round: i64,
+    pub reading: Value,
+    pub verdict: Value,
+}
+
+/// Where things stand, as the architect last wrote it: the state of things at its latest first question, what its
+/// wrap-ups learned since, oldest first, and its latest check against the constitution with the mismatches with its
+/// earlier judgments.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Understanding {
+    pub state: Option<Said>,
+    pub learned: Vec<Value>,
+    pub against: Option<Said>,
+}
+
+/// The plan: its segments in the order works start from them, its gates and its budgets.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Plan {
+    pub segments: Vec<PlanSegment>,
+    pub gates: Vec<PlanGate>,
+    pub budgets: Vec<PlanBudget>,
+}
+
+/// A segment of the plan, with the items that hang on it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PlanSegment {
+    pub key: String,
+    pub project: String,
+    pub title: String,
+    /// The stage of the policy it belongs to, by the stage's number, or maintenance.
+    pub stage: String,
+    pub delivers: String,
+    pub done_when: String,
+    /// The segments that must be done first, by key.
+    pub after: Value,
+    pub assumptions: Value,
+    pub indicators: Value,
+    pub size: String,
+    /// Until when or what it is deferred.
+    pub deferred: Option<String>,
+    /// The items that hang on it, each with its title, whether it is cancelled or held, and the cell its latest work
+    /// is at.
+    pub items: Value,
+}
+
+/// A gate of the plan: which segments may touch what it governs.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PlanGate {
+    pub name: String,
+    pub basis: String,
+    pub what: String,
+    pub segments: Value,
+}
+
+/// A budget of the plan: what is measured, the whole line and how it is shared out among the segments.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PlanBudget {
+    pub name: String,
+    pub basis: String,
+    pub measure: String,
+    pub line: String,
+    pub split: Value,
 }
 
 /// Why a request failed.
