@@ -655,18 +655,18 @@ fn a_message_gives_each_material_once_in_a_session() {
     }
     let log = said.borrow().join("\n");
     let rounds = agent_rounds(&e, item);
-    let at = |cell: &str| -> &Value {
-        &rounds
+    let at = |cell: &str| -> Value {
+        rounds
             .iter()
             .find(|r| r.1 == cell)
+            .map(|r| r.2.clone())
             .unwrap_or_else(|| panic!("no round at {cell}:\n{log}"))
-            .2
     };
     for (id, cell, input) in &rounds {
         let m = input["message"].as_str().unwrap();
         assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
     }
-    let (first, second) = (at("1"), at("1a"));
+    let (first, second) = (&at("1"), &at("1a"));
     for a in ["format:common", "format:1", "rule:ground", "db:tables"] {
         assert_eq!(given(first, a), Some(true), "{a}");
     }
@@ -683,9 +683,9 @@ fn a_message_gives_each_material_once_in_a_session() {
     assert!(!m.contains("CREATE TABLE"), "{m}");
     let design = rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
     let acceptance = format!("R{design}·2a·acceptance");
-    assert_eq!(given(at("3f"), &acceptance), Some(false), "{}", at("3f"));
-    assert_eq!(given(at("4"), &acceptance), Some(false), "{}", at("4"));
-    assert_eq!(given(at("5"), &acceptance), Some(true), "{}", at("5"));
+    assert_eq!(given(&at("3f"), &acceptance), Some(false), "{}", at("3f"));
+    assert_eq!(given(&at("4"), &acceptance), Some(false), "{}", at("4"));
+    assert_eq!(given(&at("5"), &acceptance), Some(true), "{}", at("5"));
     assert!(
         !rounds
             .iter()

@@ -295,7 +295,7 @@ pub fn common_format(g: &CompiledGraph) -> String {
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),
-        json = serde_json::to_string_pretty(&Value::Object(schema)).unwrap_or_default(),
+        json = Value::Object(schema),
     )
 }
 
@@ -339,7 +339,7 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
         title = cell.title,
         w = g.within,
         others = others.join(", "),
-        json = serde_json::to_string_pretty(&own).unwrap_or_default(),
+        json = own,
     )
 }
 

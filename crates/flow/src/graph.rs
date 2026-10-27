@@ -133,7 +133,6 @@ pub(crate) struct Graph<'s> {
     pub block: Vec<usize>,
     pub entries: Vec<BTreeSet<usize>>,
     pub block_names: Vec<String>,
-    pub lines: Vec<String>,
     /// The key of every path a cell's rows, actions and checks name.
     pub akeys: HashMap<(usize, String), String>,
     out_keys: RefCell<HashMap<(usize, String), Option<String>>>,
@@ -774,7 +773,6 @@ impl<'s> Graph<'s> {
             block,
             entries,
             block_names,
-            lines,
             akeys: HashMap::new(),
             out_keys: RefCell::new(HashMap::new()),
         };

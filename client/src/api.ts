@@ -430,7 +430,7 @@ asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: 
  * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
  * version stored before the flow said it.
  */
-rounds?: Rounds, cells: Array<CompiledCell>, };
+rounds?: Rounds | null, cells: Array<CompiledCell>, };
 
 export type Counter = { name: string, desc: string, 
 /**
@@ -477,11 +477,11 @@ when: string, handle: Handle,
 /**
  * For a failure retried: how many times the same round runs again.
  */
-retries?: number, 
+retries?: number | null, 
 /**
  * The cell the work is taken to once the engine gives up; none for a failure it waits out.
  */
-then?: string, desc: string, };
+then?: string | null, desc: string, };
 
 export type Handle = "wait" | "retry" | "ask";
 
