@@ -194,7 +194,6 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 #[derive(Debug, Clone)]
 pub struct DesignCard {
     pub id: i64,
-    pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
     /// How many decisions it holds; one for a card whose body holds none.
@@ -204,18 +203,17 @@ pub struct DesignCard {
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
+        "SELECT c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
                 max(1, coalesce(json_array_length(c.body), 1))
          FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
          WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(DesignCard {
-                id: r.get(3)?,
-                status: r.get(0)?,
-                rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
-                head: r.get(2)?,
-                decisions: r.get::<_, i64>(4)? as usize,
+                id: r.get(2)?,
+                rulings: serde_json::from_str(&r.get::<_, String>(0)?).unwrap_or(Value::Null),
+                head: r.get(1)?,
+                decisions: r.get::<_, i64>(3)? as usize,
             })
         },
     );

@@ -338,7 +338,16 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     )
                     .map_err(sql)?;
                 }
-                let again = if before.iter().any(|(_, status)| status == "ruled") {
+                // The owner ruled on a card it replaces: the owner confirms the decisions again.
+                let owner_ruled: i64 = tx
+                    .query_row(
+                        "SELECT count(*) FROM design_cards c, json_each(c.rulings) r
+                         WHERE c.work = ?1 AND c.replaced_by = ?2 AND json_extract(r.value, '$.by') = 'owner'",
+                        params![w, card],
+                        |x| x.get(0),
+                    )
+                    .map_err(sql)?;
+                let again = if owner_ruled > 0 || before.iter().any(|(_, status)| status == "ruled") {
                     " A decision you ruled on changed: it must be confirmed again."
                 } else {
                     ""

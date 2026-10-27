@@ -582,10 +582,14 @@ pub fn ask_architect(
     )))
 }
 
+/// Where a matter came from and the reply given to it: the work and round that raised it, that round's cell, and the
+/// reply.
+type Raised = (Option<i64>, Option<i64>, Option<String>, Option<String>);
+
 /// Whether a matter is an engineer's question whose work still waits for the reply: raised by a round that queued it
 /// at the engineer's question cell, whose round is still open, with no reply given.
 fn waits_for_reply(e: &Engine, matter: i64) -> Result<Option<(i64, bool)>, String> {
-    let row: Option<(Option<i64>, Option<i64>, Option<String>, Option<String>)> =
+    let row: Option<Raised> =
         e.db.conn()
             .query_row(
                 "SELECT m.work, m.round, r.cell, m.reply FROM architect_matters m
@@ -640,7 +644,7 @@ fn who_waits(e: &Engine, matter: Option<i64>) -> Result<String, String> {
 /// Cell A15: every change the wake collected is put to the owner in one ask, numbered from 1, each with its reason, the
 /// matter it belongs to and who waits; the matters held for them wait for the answer. With none collected it puts
 /// nothing. The wake does not wait for the answer.
-pub fn submit_changes(e: &mut Engine, w: &Work, round: RoundId) -> Result<Value, String> {
+pub fn submit_changes(e: &mut Engine, w: &Work, cell: &str, round: RoundId) -> Result<Value, String> {
     let rows = query_json(
         e.db.conn(),
         "SELECT matter, changes FROM wake_changes WHERE work = ?1 ORDER BY round",
@@ -659,7 +663,7 @@ pub fn submit_changes(e: &mut Engine, w: &Work, round: RoundId) -> Result<Value,
         return Ok(json!({}));
     }
     let n = changes.len();
-    let body = json!({ "from": "architect", "work": w.id, "cell": "A15", "kind": "changes", "changes": changes });
+    let body = json!({ "from": "architect", "work": w.id, "cell": cell, "kind": "changes", "changes": changes });
     let id = e
         .db
         .write(Actor::Engine, |tx| {
@@ -1885,7 +1889,7 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         })
     })
     .collect();
-    close.sort_by(|a, b| b.0.cmp(&a.0));
+    close.sort_by_key(|x| std::cmp::Reverse(x.0));
     let close: Vec<Value> = close.into_iter().take(10).map(|x| x.1).collect();
     // The paths each work under way changed on its branch, against the work the matter came from.
     let mut same_paths = Vec::new();
@@ -1917,7 +1921,7 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     if let Some(mine) = running
         .iter()
         .find(|r| r["work"].as_i64() == from_work)
-        .and_then(&changed_by)
+        .and_then(changed_by)
     {
         for r in running.iter().filter(|r| r["work"].as_i64() != from_work) {
             let theirs = changed_by(r).unwrap_or_default();

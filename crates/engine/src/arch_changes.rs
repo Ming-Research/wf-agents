@@ -63,6 +63,9 @@ struct It {
     open: bool,
 }
 
+/// A budget's line and its shares: each segment's, by its key.
+type Budget = (String, Vec<(String, String)>);
+
 /// The items, their dependencies and the plan, as the changes find them and as each change leaves them. An item the
 /// changes create is known by its key until it is written, here as a number below zero.
 #[derive(Debug, Default)]
@@ -71,7 +74,7 @@ struct State {
     links: BTreeSet<(i64, i64)>,
     segments: BTreeMap<String, Vec<String>>,
     gates: BTreeMap<String, (String, Vec<String>)>,
-    budgets: BTreeMap<String, (String, Vec<(String, String)>)>,
+    budgets: BTreeMap<String, Budget>,
     red: BTreeSet<(String, String)>,
     keys: BTreeMap<String, i64>,
 }

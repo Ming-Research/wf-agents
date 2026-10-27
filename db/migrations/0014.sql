@@ -166,6 +166,14 @@ CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NU
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (id) WHERE handled_round IS NULL;
 
+-- Every design card not replaced waits for the architect's look, as a card handed in from now on does: the merge gate
+-- waits for the architect's ruling as well as the owner's.
+INSERT INTO architect_matters (kind, what, body, item, work, round, at)
+  SELECT 'design_card', 'Design card ' || c.id || ' of work ' || c.work || ' to look at',
+    json_object('design_card', c.id), w.item, c.work, c.round, CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  FROM design_cards c JOIN works w ON w.id = c.work
+  WHERE c.status <> 'replaced';
+
 DROP VIEW ready_items;
 DROP VIEW item_body;
 DROP VIEW side_reports;

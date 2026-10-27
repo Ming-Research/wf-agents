@@ -853,7 +853,7 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_wake") => json!({}),
         Some("wake") => architect::wake(e, w)?,
-        Some("submit_changes") => architect::submit_changes(e, w, round)?,
+        Some("submit_changes") => architect::submit_changes(e, w, &cell.id, round)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
