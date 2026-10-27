@@ -74,7 +74,9 @@ export function Messages() {
         {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
         {r.error !== null ? <span className="bad">{r.error}</span> : null}
       </div>
-      {list.length === 0 && r.data !== undefined ? <p className="muted">{t('messages_none')}</p> : null}
+      {list.length === 0 && r.data !== undefined ? (
+        <p className="muted">{t(all ? 'messages_none' : 'messages_none_unread')}</p>
+      ) : null}
       <ul className="msgs">
         {[...list].reverse().map((m) => (
           <Message key={m.id} m={m} onError={setError} />

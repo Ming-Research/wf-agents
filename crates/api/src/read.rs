@@ -259,11 +259,20 @@ fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState 
 
 fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open: (i64, i64)) -> WorkSummary {
     let cell = g.and_then(|g| g.cell(&w.at));
-    // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at.
-    let stage = cell.and_then(|c| c.stage.clone()).or_else(|| {
-        let stopped = w.resume_at.as_deref()?;
-        g?.cell(stopped)?.stage.clone()
-    });
+    // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at,
+    // which is where it goes back to, or else the last cell with a stage it had a round at (the rounds are in order).
+    let stage = cell
+        .and_then(|c| c.stage.clone())
+        .or_else(|| {
+            let stopped = w.resume_at.as_deref()?;
+            g?.cell(stopped)?.stage.clone()
+        })
+        .or_else(|| {
+            rounds
+                .iter()
+                .rev()
+                .find_map(|r| g?.cell(r.cell.as_deref()?)?.stage.clone())
+        });
     let count = |want: &[RoundOutcome]| rounds.iter().filter(|r| want.contains(&r.outcome())).count() as i64;
     WorkSummary {
         id: w.id,

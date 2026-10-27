@@ -1,8 +1,8 @@
 // An item in full, what matters most first: what it is, as its creator wrote it; what its works found and decided,
-// round by round; what done means (its locked acceptance); what it depends on and what depends on it; its works;
-// what an import recorded; its design cards and asks of the owner.
+// as it stands now; what done means (its locked acceptance); what it depends on and what depends on it, when there is
+// any; its works; what an import recorded; its design cards and asks of the owner.
 
-import type { ItemDetail, JsonValue, LinkedItem } from '../api';
+import type { ItemDetail, JsonValue, LinkedItem, Shown as ShownValue } from '../api';
 import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
 import { cost, time } from '../format';
 import { useResource } from '../live';
@@ -55,31 +55,76 @@ function Linked({ list }: { list: LinkedItem[] }) {
 const empty = (v: JsonValue) =>
   v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
 
-/// What the rounds of the item's works handed back that the flow shows on the item, work by work, round by round.
+/// Where a value shown on the item came from: the work, the round and the cell, opening the round.
+function From({ x }: { x: ShownValue }) {
+  return (
+    <Link to={`/works/${x.work}?round=${x.round}`} className="shown-from">
+      {t('shown_from', { work: x.work, round: x.round, cell: x.cell })}
+    </Link>
+  );
+}
+
+/// A field's path in words: `design_tree` is "Design tree".
+const pathWords = (p: string) => {
+  const w = p.replaceAll('_', ' ').replaceAll('.', ' · ');
+  return w.charAt(0).toUpperCase() + w.slice(1);
+};
+
+/// What the item's works found and decided, as the flow shows it on the item: where it stands now (the latest
+/// progress); each thing found or decided as it stands now, with the round that wrote it and the earlier versions folded
+/// under it; and every progress note, newest first. The rounds come in order, so the last of each is the newest.
 function Shown({ d }: { d: ItemDetail }) {
   const values = d.shown.filter((x) => !empty(x.value));
   if (values.length === 0) return <p className="muted">{t('none')}</p>;
-  const works = [...new Set(values.map((x) => x.work))];
+  const progress = values.filter((x) => x.path === 'progress');
+  const paths = [...new Set(values.filter((x) => x.path !== 'progress').map((x) => x.path))];
+  const latest = progress.length > 0 ? progress[progress.length - 1] : undefined;
   return (
     <>
-      {works.map((w) => (
-        <div key={w} className="shown-work">
-          <h3>
-            <Link to={`/works/${w}`}>{t('work_title', { id: w })}</Link>
-          </h3>
-          {values
-            .filter((x) => x.work === w)
-            .map((x, i) => (
-              <div key={i} className="shown-value">
-                <div className="muted">
-                  <Link to={`/works/${w}?round=${x.round}`}>{t('round_title', { id: x.round })}</Link> ·{' '}
-                  {t('shown_at', { cell: x.cell })} · <code>{x.path}</code>
-                </div>
-                <Json value={x.value} />
-              </div>
-            ))}
+      {latest !== undefined ? (
+        <div className="shown-now">
+          <strong>{t('shown_now')}</strong> <From x={latest} />
+          <p className="prose">{String(latest.value)}</p>
         </div>
-      ))}
+      ) : null}
+      {paths.map((p) => {
+        const all = values.filter((x) => x.path === p);
+        const now = all[all.length - 1];
+        const before = all.slice(0, -1).reverse();
+        return (
+          <details key={p} className="shown-path" open>
+            <summary>
+              <strong>{pathWords(p)}</strong> <From x={now} />
+            </summary>
+            <Json value={now.value} open={3} />
+            {before.length > 0 ? (
+              <details className="shown-before">
+                <summary className="muted">{t('shown_before', { n: before.length })}</summary>
+                {before.map((x) => (
+                  <div key={x.round} className="shown-old">
+                    <From x={x} />
+                    <Json value={x.value} />
+                  </div>
+                ))}
+              </details>
+            ) : null}
+          </details>
+        );
+      })}
+      {progress.length > 1 ? (
+        <details className="shown-path">
+          <summary>
+            <strong>{t('shown_progress', { n: progress.length })}</strong>
+          </summary>
+          <ol className="shown-log">
+            {[...progress].reverse().map((x) => (
+              <li key={x.round}>
+                <From x={x} /> <span className="prose">{String(x.value)}</span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
     </>
   );
 }
@@ -101,41 +146,41 @@ function Detail({ d }: { d: ItemDetail }) {
           <span>
             {t('col_deliver')} {i.deliver}
           </span>
-          {i.queued !== null ? (
-            <span>
-              {t('col_queued')} {i.queued}
-            </span>
-          ) : null}
           {i.pr !== null ? <span>PR #{i.pr}</span> : null}
         </div>
         {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
       </header>
       <Section title={t('problem')}>
-        <pre className="j-text">{d.problem}</pre>
+        <p className="prose">{d.problem}</p>
       </Section>
       <Section title={t('why')}>
-        <pre className="j-text">{d.why}</pre>
+        <p className="prose">{d.why}</p>
       </Section>
       {d.approach !== null ? (
         <Section title={t('approach')}>
-          <pre className="j-text">{d.approach}</pre>
+          <p className="prose">{d.approach}</p>
         </Section>
       ) : null}
       <Section title={t('item_shown')}>
-        <p className="muted">{t('item_shown_note')}</p>
         <Shown d={d} />
       </Section>
       <Section title={t('acceptance')}>
         {d.acceptance !== null ? <Acceptance value={d.acceptance} /> : <p className="muted">{t('not_locked')}</p>}
       </Section>
-      <div className="two">
-        <Section title={t('depends_on')}>
-          <Linked list={d.depends_on} />
-        </Section>
-        <Section title={t('depended_on_by')}>
-          <Linked list={d.depended_on_by} />
-        </Section>
-      </div>
+      {d.depends_on.length > 0 || d.depended_on_by.length > 0 ? (
+        <div className="two">
+          {d.depends_on.length > 0 ? (
+            <Section title={t('depends_on')}>
+              <Linked list={d.depends_on} />
+            </Section>
+          ) : null}
+          {d.depended_on_by.length > 0 ? (
+            <Section title={t('depended_on_by')}>
+              <Linked list={d.depended_on_by} />
+            </Section>
+          ) : null}
+        </div>
+      ) : null}
       <Section title={t('works')}>
         {d.works.length === 0 ? (
           <p className="muted">{t('none')}</p>

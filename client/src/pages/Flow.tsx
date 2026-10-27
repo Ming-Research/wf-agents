@@ -1,11 +1,10 @@
 // A flow's state machine: a stored version, or the flow as `flow/flow.json` is at a git ref of a project's checkout,
-// filling the window under the bar. The bar holds which flow is shown and, to review a change, which one it is
-// compared with; a comparison marks the cells added and changed and lists what changed.
+// filling the window under the bar. Over its top left corner, which flow is shown and, to review a change, which one
+// it is compared with; a comparison marks the cells added and changed and lists what changed.
 
 import { useState } from 'react';
 
 import type { Compiled, FlowAt, FlowDiff, FlowSource, FlowVersion, FlowView } from '../api';
-import { InBar } from '../bar';
 import { Loaded } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
 import { type Resource, useResource, useStatus } from '../live';
@@ -129,7 +128,7 @@ function Bar({ r, versions, current, at }: {
         .join('\n')
     : '';
   return (
-    <InBar>
+    <div className="flow-tools">
       <div className="bar-flow">
         {r.project !== null ? (
           <span className="bar-at" title={at?.data?.commit ?? ''}>
@@ -175,7 +174,7 @@ function Bar({ r, versions, current, at }: {
           <CompareBox r={r} versions={versions} shown={shown} onClose={() => setComparing(false)} />
         ) : null}
       </div>
-    </InBar>
+    </div>
   );
 }
 
@@ -190,7 +189,7 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
   return (
     <>
       {compiled.graphs.length > 1 ? (
-        <InBar>
+        <div className="flow-tools flow-tools-graph">
           <select value={g.name} onChange={(e) => setGraph(e.target.value)} aria-label={t('flow_graph_pick')}>
             {compiled.graphs.map((x) => (
               <option key={x.name} value={x.name}>
@@ -198,7 +197,7 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
               </option>
             ))}
           </select>
-        </InBar>
+        </div>
       ) : null}
       <FlowScreen
         key={`${g.name}:${r.version ?? ''}:${r.project ?? ''}:${r.ref ?? ''}`}

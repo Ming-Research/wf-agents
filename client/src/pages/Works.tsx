@@ -1,6 +1,7 @@
 // Every work, and below the list the one picked: those running or waiting at the top, in an area four rows high
 // that scrolls and whose height can be dragged; those that have ended folded under them, opening to a list that
-// scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays.
+// scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays. Both lists
+// have the same columns at the same widths, so that they read as one table.
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
@@ -8,7 +9,7 @@ import type { WorkSummary } from '../api';
 import { Loaded, WorkBadge } from '../components';
 import { cost, duration, time } from '../format';
 import { useResource } from '../live';
-import { navigate } from '../route';
+import { Link, navigate } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
 
@@ -31,6 +32,18 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
   const now = Date.now();
   return (
     <table className="list works-table">
+      <colgroup>
+        <col className="w-id" />
+        <col />
+        <col className="w-state" />
+        <col className="w-at" />
+        <col className="w-stage" />
+        <col className="w-rounds" />
+        <col className="w-time" />
+        <col className="w-time" />
+        <col className="w-cost" />
+        <col className="w-pr" />
+      </colgroup>
       <thead>
         <tr>
           <th>{t('col_work')}</th>
@@ -55,11 +68,11 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
             <td>#{w.id}</td>
             <td>
               {w.item !== null ? (
-                <span>
+                <Link to={`/items/${w.item}`} className="row-link" title={t('open_item')}>
                   <span className="muted">#{w.item} </span>
                   {w.title}
                   {w.project ? <span className="muted"> · {w.project}</span> : null}
-                </span>
+                </Link>
               ) : (
                 w.graph
               )}
@@ -69,13 +82,17 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
               {w.state === 'running' && w.running ? (
                 <span className="muted"> {t('running_for', { time: duration(now - w.running.started_at) })}</span>
               ) : null}
-              {w.paused ? <div className="why">{t('paused_why', { why: w.paused })}</div> : null}
-              {w.ended ? <div className="why">{t('ended_why', { why: w.ended })}</div> : null}
+              {w.open_asks > 0 ? <span className="warn"> {t('open_asks_n', { n: w.open_asks })}</span> : null}
+              {w.open_design_cards > 0 ? (
+                <span className="warn"> {t('open_design_cards_n', { n: w.open_design_cards })}</span>
+              ) : null}
+              {w.paused ? <div className="why">{w.paused}</div> : null}
+              {w.ended ? <div className="why">{w.ended}</div> : null}
             </td>
             <td>
               <span className="cell-id">{w.at}</span> {w.at_title}
             </td>
-            <td>{w.stage}</td>
+            <td>{w.stage !== null ? w.stage.replaceAll('_', ' ') : ''}</td>
             <td className="num">
               {w.rounds}
               {w.sent_back > 0 ? <span className="warn"> ↩{w.sent_back}</span> : null}
@@ -162,7 +179,11 @@ export function Works({ selected, round, cell }: { selected: number | null; roun
           }}
         </Loaded>
       </div>
-      {selected !== null ? <Work id={selected} round={round} cell={cell} /> : null}
+      {selected !== null ? (
+        <Work id={selected} round={round} cell={cell} />
+      ) : (
+        <p className="muted works-pick">{t('works_pick')}</p>
+      )}
     </div>
   );
 }

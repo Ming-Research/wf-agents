@@ -40,7 +40,7 @@ function KeptFile({ file, path }: { file: string; path: string }) {
 
 function Tool({ run }: { run: ToolRun }) {
   return (
-    <div className="boxed">
+    <div className="boxed tool-run">
       <div>
         <strong>{run.tool}</strong>
         {run.attempt > 1 ? <span className="muted"> {t('attempt', { n: run.attempt })}</span> : null}
@@ -152,7 +152,9 @@ function Happened({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f:
           .join(', '),
       })
     : cell?.kind === 'agent'
-      ? t('happened_engine_answered')
+      ? typeof progress === 'string'
+        ? t('happened_no_agent')
+        : t('happened_engine_answered')
       : cell?.kind === 'tool'
         ? t('happened_tools')
         : cell?.kind === 'owner'
@@ -254,9 +256,19 @@ function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
   );
 }
 
+/// What a step that was not an agent's came to, without the progress the sentence at the top already says.
+function cameTo(output: RoundDetail['output']): RoundDetail['output'] {
+  if (output === null || typeof output !== 'object' || Array.isArray(output) || typeof output.progress !== 'string') {
+    return output;
+  }
+  const rest = Object.fromEntries(Object.entries(output).filter(([k]) => k !== 'progress'));
+  return Object.keys(rest).length > 0 ? rest : null;
+}
+
 function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const f = useContext(FlowContext);
   const ran = d.message !== null;
+  const output = ran ? d.output : cameTo(d.output);
   return (
     <div className="round">
       <Happened d={d} rounds={rounds} f={f} />
@@ -281,9 +293,9 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
           ))}
         </Section>
       ) : null}
-      {d.output !== null ? (
+      {output !== null ? (
         <Section title={ran ? t('round_returned') : t('round_came_to')}>
-          <Json value={d.output} />
+          <Json value={output} open={4} />
         </Section>
       ) : null}
       {d.design_cards.map((c) => (

@@ -116,9 +116,10 @@ export function useRoute(): Route {
 }
 
 /// A link that moves within the page without loading it again; a click with a modifier key opens it as the browser
-/// would.
+/// would. The click stays with the link, so a link in a row that opens something else when clicked opens only its own.
 export function Link(props: { to: string; className?: string; title?: string; children: ReactNode }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     navigate(props.to);

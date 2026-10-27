@@ -59,8 +59,15 @@ function Engine() {
     const away = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('pointerdown', away);
-    return () => document.removeEventListener('pointerdown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', key);
+    };
   }, [open]);
   if (!online || !status) {
     return (
@@ -77,7 +84,9 @@ function Engine() {
         <span className={`dot ${dot}`} />
         <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
       </button>
-      <span className="muted">{t('slots', { used: status.slots_used, total: status.slots })}</span>
+      <span className="muted" title={t('slots_hint')}>
+        {t('slots', { used: status.slots_used, total: status.slots })}
+      </span>
       {open ? <EnginePanel status={status} onClose={() => setOpen(false)} /> : null}
     </div>
   );
@@ -95,8 +104,8 @@ function Unread({ className }: { className: string }) {
   );
 }
 
-/// The bar; `slot` is given the part of it a view fills with what it needs at hand.
-export function TopBar({ route, slot }: { route: Route; slot: (el: HTMLElement | null) => void }) {
+/// The bar: the views, and how the engine stands. A view's own controls stay in the view.
+export function TopBar({ route }: { route: Route }) {
   const on = (pages: Route['page'][]) => (pages.includes(route.page) ? 'nav nav-on' : 'nav');
   return (
     <nav className="topbar">
@@ -111,7 +120,7 @@ export function TopBar({ route, slot }: { route: Route; slot: (el: HTMLElement |
         {t('nav_flow')}
       </Link>
       <Unread className={on(['messages'])} />
-      <div className="bar-slot" ref={slot} />
+      <span className="bar-gap" />
       <Engine />
     </nav>
   );

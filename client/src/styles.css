@@ -532,6 +532,9 @@ pre.prompt {
 
 /* JSON */
 
+/* Text the agents and the owner wrote is prose and reads in the page's font; a message as sent, a file and what a tool
+   printed keep the fixed width they were written in. */
+
 .j-text {
   white-space: pre-wrap;
   word-break: break-word;
@@ -539,6 +542,67 @@ pre.prompt {
   padding: 6px 8px;
   border-radius: 6px;
   margin: 2px 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+pre.prompt,
+.file-text,
+.next-message,
+.tool-run .j-text {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.prose {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* What an item's works found and decided. */
+
+.shown-now {
+  border-left: 3px solid var(--accent);
+  padding: 4px 10px;
+  margin-bottom: 10px;
+}
+
+.shown-from {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shown-path {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.shown-path > summary {
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.shown-before {
+  margin-top: 6px;
+}
+
+.shown-before > summary {
+  cursor: pointer;
+}
+
+.shown-old {
+  margin: 6px 0 0 12px;
+}
+
+.shown-log {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
 }
 
 .j-str {
@@ -1057,34 +1121,37 @@ svg.fc {
   color: var(--muted);
 }
 
-/* The bar's part a view fills. */
+/* The bar keeps the engine at its right end. */
 
-.bar-slot {
+.bar-gap {
   flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
-.bar-flow,
-.bar-work {
+/* Which flow is shown and what it is compared with, over the chart's top left corner. */
+
+.flow-tools {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  left: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+}
+
+.flow-tools-graph {
+  top: 52px;
+}
+
+.bar-flow {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
   position: relative;
   white-space: nowrap;
-}
-
-.bar-work {
-  overflow: hidden;
-}
-
-.bar-item {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 28ch;
 }
 
 .bar-version {
@@ -1746,6 +1813,64 @@ summary.works-label {
 
 .works-table tr.selected td {
   background: var(--accent-soft);
+}
+
+/* Both lists of works have the same columns at the same widths; the item takes what is left. */
+
+.works-scroll {
+  overflow-x: auto;
+}
+
+.works-table {
+  table-layout: fixed;
+  min-width: 1000px;
+}
+
+.works-table .w-id {
+  width: 56px;
+}
+
+.works-table .w-state {
+  width: 240px;
+}
+
+.works-table .w-at {
+  width: 200px;
+}
+
+.works-table .w-stage {
+  width: 120px;
+}
+
+.works-table .w-rounds {
+  width: 90px;
+}
+
+.works-table .w-time {
+  width: 120px;
+}
+
+.works-table .w-cost {
+  width: 80px;
+}
+
+.works-table .w-pr {
+  width: 50px;
+}
+
+.row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.row-link:hover {
+  text-decoration: underline;
+}
+
+.works-pick {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  margin: 0;
 }
 
 .works-grip {

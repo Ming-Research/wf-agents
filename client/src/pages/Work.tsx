@@ -1,19 +1,19 @@
-// A work, for diagnosis: the state machine of the flow version it is pinned to, filling the window under the bar,
-// with what the work did on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent
-// back or failed, the arrows it took standing out. The bar holds the work's facts; its rounds are listed on the left,
-// and a round opens in the panel with its cell brought into view, a cell with its rounds.
+// A work, for diagnosis, under its row in the list of works (which holds its facts): the state machine of the flow
+// version it is pinned to, filling the rest of the window, with what the work did on it: the cell it is at ringed,
+// each cell it visited with its rounds and the rounds sent back or failed, the arrows it took standing out. Its rounds
+// are listed on the left, under its next round while the engine holds; a round opens in the panel with its cell
+// brought into view, a cell with its rounds.
 
 import { useEffect, useRef, useState } from 'react';
 
 import type { Compiled, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
-import { InBar } from '../bar';
-import { Json, Loaded, OutcomeBadge, Section, WorkBadge } from '../components';
+import { Json, Loaded, OutcomeBadge, Section } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration } from '../format';
+import { duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { useActivity, useResource, useStatus } from '../live';
-import { href, Link, navigate } from '../route';
+import { href, navigate } from '../route';
 import { t } from '../text';
 import { RoundView } from './RoundView';
 
@@ -44,51 +44,6 @@ function Timeline(props: { rounds: RoundSummary[]; selected: number | null; onRo
         ))}
       </tbody>
     </table>
-  );
-}
-
-function Bar({ d }: { d: WorkDetail }) {
-  const w = d.work;
-  const facts = [
-    t('work_flow', { version: w.flow_version, graph: w.graph }),
-    w.stage ? t('work_stage', { stage: w.stage }) : null,
-    t('work_rounds', { n: w.rounds }),
-    w.sent_back > 0 ? t('sent_back_n', { n: w.sent_back }) : null,
-    w.failed > 0 ? t('failed_n', { n: w.failed }) : null,
-    w.open_asks > 0 ? t('open_asks_n', { n: w.open_asks }) : null,
-    w.open_design_cards > 0 ? t('open_design_cards_n', { n: w.open_design_cards }) : null,
-    w.branch ? `${t('branch')}: ${w.branch}` : null,
-    w.pr !== null ? `PR #${w.pr}` : null,
-    w.paused ? t('paused_why', { why: w.paused }) : null,
-    w.ended ? t('ended_why', { why: w.ended }) : null,
-  ]
-    .filter((x) => x !== null)
-    .join('\n');
-  return (
-    <InBar>
-      <div className="bar-work" title={facts}>
-        <strong>{t('work_title', { id: w.id })}</strong>
-        {w.item !== null ? (
-          <Link to={`/items/${w.item}`} className="bar-item">
-            #{w.item} {w.title}
-          </Link>
-        ) : null}
-        <WorkBadge state={w.state} />
-        <span className="muted">
-          {t('work_at', { cell: w.at })} {w.at_title ?? ''}
-        </span>
-        {w.sent_back > 0 ? <span className="warn">↩{w.sent_back}</span> : null}
-        {w.failed > 0 ? <span className="bad">✕{w.failed}</span> : null}
-        {w.open_asks > 0 ? <span className="warn">{t('open_asks_n', { n: w.open_asks })}</span> : null}
-        {w.open_design_cards > 0 ? (
-          <span className="warn">{t('open_design_cards_n', { n: w.open_design_cards })}</span>
-        ) : null}
-        <span className="muted">{cost(w.cost_usd)}</span>
-        <Link to={`/flow/${w.flow_version}`} className="muted">
-          {t('work_flow_short', { version: w.flow_version })}
-        </Link>
-      </div>
-    </InBar>
   );
 }
 
@@ -311,7 +266,6 @@ export function Work({ id, round, cell }: { id: number; round: number | null; ce
       <Loaded r={detail}>
         {(d) => (
           <>
-            <Bar d={d} />
             <Loaded r={compiled}>
               {(c) => (
                 <Loaded r={view}>
