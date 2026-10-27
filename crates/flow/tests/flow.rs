@@ -15,7 +15,7 @@ fn compiled() -> flow::Compiled {
 }
 
 // The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked
-// it out: as many cells, rows, states and places, and the same inputs and rules already in each agent's session.
+// it out: as many cells, rows, states and places.
 #[test]
 fn the_engineer_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
@@ -26,29 +26,28 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
         (s.cells, s.rows, s.states, s.places),
         (want("cells"), want("rows"), want("states"), want("places"))
     );
-    let g = c.graph("engineer").unwrap();
-    // The reference holds an input with nothing to give, one read from the database or the repository, as held; the
-    // compiled flow says a session holds only inputs read from returns.
-    for (k, v) in r["held"].as_object().unwrap() {
-        let (cell, i) = k.split_once('.').unwrap();
-        let x = &g.cell(cell).unwrap().inputs[i.parse::<usize>().unwrap()];
-        let returns = x.from.iter().all(|s| matches!(s, flow::format::Src::Place(..)));
-        assert_eq!(
-            x.held == Some(flow::Held::Session),
-            returns && v.as_bool().unwrap(),
-            "input {k}"
-        );
-    }
-    for (k, v) in r["rules"].as_object().unwrap() {
-        let (cell, rule) = k.split_once('.').unwrap();
-        let c = g.cell(cell).unwrap();
-        let held = if rule == "project" {
-            c.project_rules
-        } else {
-            c.rules.iter().find(|x| x.name == rule).map(|x| x.held)
-        };
-        assert_eq!(held == Some(flow::Held::Session), v.as_bool().unwrap(), "rule {k}");
-    }
+}
+
+// The rounds section reaches the compiled flow with every kind of failed run, and a kind that goes to no cell, or a
+// retried kind that does not say how many times, is refused.
+#[test]
+fn the_rounds_section_is_compiled_and_checked() {
+    let c = compiled();
+    let r = c.graph("engineer").unwrap().rounds.clone().expect("the rounds section");
+    assert_eq!(r.sent_back.pause_after, 3);
+    let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
+    assert_eq!(kinds, ["usage_limit", "offline", "transient", "cannot_run"]);
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["rounds"]["failed"]["kinds"][2]["then"] = "99".into();
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(e.contains("rounds.failed transient: no such cell: 99"), "{e}");
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["rounds"]["failed"]["kinds"][2]
+        .as_object_mut()
+        .unwrap()
+        .remove("retries");
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(e.contains("a retried failure says how many times"), "{e}");
 }
 
 // What the engine stores reads back as it was, with the same digest each time.

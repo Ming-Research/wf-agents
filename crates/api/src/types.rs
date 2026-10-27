@@ -53,6 +53,20 @@ pub struct Status {
     pub started_at: i64,
     /// The version of wf-agents that runs.
     pub version: String,
+    /// While a failed run's cause stops every work alike, such as a usage limit or no network: no new round starts
+    /// until it is over.
+    pub halt: Option<Halt>,
+}
+
+/// Why the engine starts no new round for any work, and until when.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Halt {
+    /// The kind of failed run, as the flow names it: `usage_limit` or `offline`.
+    pub kind: String,
+    /// Until when: when the usage limit resets, or when the engine next looks whether the network is back.
+    pub until: i64,
+    /// What the command line reported.
+    pub why: String,
 }
 
 /// What changed, as the event stream gives it. An event names what to read again and never carries that state,
@@ -237,15 +251,25 @@ pub struct Session {
     pub cli_session: String,
 }
 
-/// One input a round was given: what it is, its value, and where its cell reads it from.
+/// One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it
+/// before its message was recorded with its materials: what it is, its value, and where its cell reads it from.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundInput {
     pub what: String,
     pub value: Value,
-    /// Whether the agent's session already held it, so that it was not given again.
-    pub held: Option<bool>,
     /// The sources the cell's definition names for it; empty when the cell no longer names this input.
     pub from: Vec<Src>,
+}
+
+/// One material of an agent round's message.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct RoundMaterial {
+    /// Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+    pub address: String,
+    /// The hash of its content, which tells two versions under one address apart.
+    pub hash: String,
+    /// Given in the message; otherwise the session already held it, and the message only referred to it.
+    pub given: bool,
 }
 
 /// A file a tool run kept, or that its result points to, under the data directory.
@@ -282,11 +306,18 @@ pub struct RoundDetail {
     pub graph: String,
     pub session: Option<Session>,
     pub config_commit: String,
-    /// The prompt exactly as the agent was given it; none for a round no agent ran.
-    pub prompt: Option<String>,
+    /// The message exactly as the agent was sent it (for a round recorded before messages were, its prompt); none
+    /// for a round no agent ran.
+    pub message: Option<String>,
+    /// Each material the message gave or referred to; empty for a round no agent ran, or one recorded before.
+    pub materials: Vec<RoundMaterial>,
+    /// How the command line was called: the whole command line, the session started or resumed, the engine's and
+    /// the command line's versions; none for a round no agent ran, or one recorded before.
+    pub call: Option<Value>,
+    /// The inputs of a step that is not an agent's round, or of an agent's round recorded before its materials were.
     pub inputs: Vec<RoundInput>,
-    /// What the engine gave, as recorded: the prompt and inputs above, and what the engine knew besides, such as
-    /// the head and the interjections handed in.
+    /// What the engine gave, as recorded: the message, materials, call or inputs above, and what the engine knew
+    /// besides, such as the head and the interjections handed in.
     pub input: Value,
     pub output: Option<Value>,
     /// Why the return was sent back or the run failed.

@@ -1,5 +1,5 @@
-//! The compiled flow: every graph with what its cells share expanded, each cell's return schema, how each agent
-//! gets each input and rule, and the rows. The engine runs on this, and stores it in `flow_versions` with its
+//! The compiled flow: every graph with what its cells share expanded, each cell's return schema, the inputs and rules
+//! each agent's cell is given, and the rows. The engine runs on this, and stores it in `flow_versions` with its
 //! digest; it reads it back to take a work on.
 
 use std::collections::BTreeMap;
@@ -11,7 +11,9 @@ use ts_rs::TS;
 
 use crate::check::Analysis;
 use crate::field::{Field, segment};
-use crate::format::{Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Kind, Named, PromptBy, Rule, Src};
+use crate::format::{
+    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, Rounds, Rule, Src,
+};
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
 pub const COMPILED: &str = "wf-agents compiled 1";
@@ -57,6 +59,10 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
+    /// What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
+    /// version stored before the flow said it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounds: Option<Rounds>,
     pub cells: Vec<CompiledCell>,
 }
 
@@ -68,15 +74,6 @@ pub struct CompiledInterject {
     pub from: Vec<Named>,
 }
 
-/// How an agent's cell gets an input or a rule: its line's session already holds it on every way to the cell, or
-/// the engine gives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-pub enum Held {
-    Session,
-    Given,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInput {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,15 +81,12 @@ pub struct CompiledInput {
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
-    /// For an agent's cell; none for one it reads itself.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub held: Option<Held>,
 }
 
+/// A rule of the flow an agent's cell is given, by its name.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RuleUse {
     pub name: String,
-    pub held: Held,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -135,9 +129,7 @@ pub struct CompiledCell {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     pub inputs: Vec<CompiledInput>,
-    /// For an agent's cell: how it gets the project's rules, which every agent is given.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_rules: Option<Held>,
+    /// The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleUse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -665,25 +657,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
     let schemas = Schemas {
         text: &g.source.enum_text,
     };
-    let held = |c: &Cell, i: usize| -> Option<Held> {
-        if c.kind != CellKind::Agent {
-            return None;
-        }
-        let x = &c.inputs[i];
-        if x.from.iter().all(|s| *s == Src::Itself) {
-            return None;
-        }
-        let places = x.from.iter().all(|s| matches!(s, Src::Place(..)));
-        let session = places && a.held.get(&(g.at[&c.id], i)).copied().unwrap_or(false);
-        Some(if session { Held::Session } else { Held::Given })
-    };
-    let rule = |ci: usize, r: Option<String>| {
-        if a.rule_held.get(&(ci, r)).copied().unwrap_or(false) {
-            Held::Session
-        } else {
-            Held::Given
-        }
-    };
     let mut cells = Vec::new();
     for (ci, c) in g.cells.iter().enumerate() {
         if c.kind == CellKind::Agent {
@@ -704,24 +677,14 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             inputs: c
                 .inputs
                 .iter()
-                .enumerate()
-                .map(|(i, x)| CompiledInput {
+                .map(|x| CompiledInput {
                     id: x.id.clone(),
                     what: x.what.clone(),
                     from: x.from.clone(),
                     maybe: x.maybe,
-                    held: held(c, i),
                 })
                 .collect(),
-            project_rules: (c.kind == CellKind::Agent).then(|| rule(ci, None)),
-            rules: c
-                .rules
-                .iter()
-                .map(|r| RuleUse {
-                    name: r.clone(),
-                    held: rule(ci, Some(r.clone())),
-                })
-                .collect(),
+            rules: c.rules.iter().map(|r| RuleUse { name: r.clone() }).collect(),
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
             forms: c.forms.clone(),
@@ -772,7 +735,52 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
+        rounds: match &f.rounds {
+            Some(r) => Some(rounds(r, &cells)?),
+            None => None,
+        },
         cells,
     };
     Ok((out, stats))
+}
+
+/// The rounds section as written, once each kind of failure is known to go somewhere that exists.
+fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
+    ensure!(r.sent_back.pause_after > 0, "rounds.sentBack.pauseAfter is 0");
+    let mut seen = std::collections::BTreeSet::new();
+    for k in &r.failed.kinds {
+        ensure!(seen.insert(&k.name), "rounds.failed: two kinds named {}", k.name);
+        let to = k.then.as_deref();
+        match k.handle {
+            Handle::Wait => {
+                ensure!(
+                    to.is_none() && k.retries.is_none(),
+                    "rounds.failed {}: a failure waited out goes nowhere and is not retried",
+                    k.name
+                );
+            }
+            Handle::Retry => {
+                ensure!(
+                    k.retries.is_some_and(|n| n > 0) && to.is_some(),
+                    "rounds.failed {}: a retried failure says how many times, and where the work goes then",
+                    k.name
+                );
+            }
+            Handle::Ask => {
+                ensure!(
+                    k.retries.is_none() && to.is_some(),
+                    "rounds.failed {}: a failure asked about at once is not retried, and says where the work goes",
+                    k.name
+                );
+            }
+        }
+        if let Some(t) = to {
+            ensure!(
+                cells.iter().any(|c| c.id == t),
+                "rounds.failed {}: no such cell: {t}",
+                k.name
+            );
+        }
+    }
+    Ok(r.clone())
 }

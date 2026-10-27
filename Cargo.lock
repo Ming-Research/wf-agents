@@ -263,6 +263,7 @@ dependencies = [
  "flow",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

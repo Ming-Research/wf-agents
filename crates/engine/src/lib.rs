@@ -1,8 +1,10 @@
 //! The engine: takes each work through the compiled flow, one cell at a time. At an agent's cell it runs a round of
-//! the agent; at its own cells and the tool cells it does the step itself; at the owner's it waits for the owner's
-//! answer. Each return is checked against the cell's schema and checks, takes exactly one row, and the round, the
-//! work's new position and what the row does in the database are written in one transaction. What must happen
-//! outside the database is put in the outbox in that transaction and carried out after it, so a crash loses none.
+//! the agent, whose message ([`message`]) gives the instruction every time and each material once per session; at its
+//! own cells and the tool cells it does the step itself; at the owner's it waits for the owner's answer. Each return
+//! is checked against the cell's schema and checks, takes exactly one row, and the round, the work's new position and
+//! what the row does in the database are written in one transaction. What must happen outside the database is put in
+//! the outbox in that transaction and carried out after it, so a crash loses none. A round that ends in no return the
+//! cell takes is handled as the flow's rounds section says.
 //!
 //! In this version the engine and the session manager are one process on one machine, the owner answers for the
 //! architect, and the engine takes one work one step at a time: a long round of one work holds up the others.
@@ -10,11 +12,12 @@
 pub mod agent;
 pub mod git;
 pub mod hub;
+pub mod message;
 
 mod actions;
 mod checks;
+mod failed;
 mod inputs;
-mod prompt;
 mod steps;
 mod tools;
 mod values;
@@ -22,6 +25,7 @@ mod work;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use db::rusqlite::params;
 use db::{Actor, Db};
@@ -29,6 +33,7 @@ use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
 pub use checks::CARD_RULING;
+pub use failed::{Halt, utc};
 pub use work::{Item, Round, Work, json_col, query_json};
 
 use agent::Agents;
@@ -37,8 +42,8 @@ use hub::GitHub;
 /// The graph works on items run.
 pub const ENGINEER: &str = "engineer";
 
-/// How many times in a row a cell's return may be sent back before the engine pauses the work for the owner.
-pub const MAX_REJECTED: usize = 3;
+/// The engine's version: the commit it was built from, which every agent's round records.
+pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
 
 /// What one step of a work came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +68,19 @@ pub struct Engine {
     pub flow_now: i64,
     /// Where the engine says what it does and what went wrong.
     pub say: Box<dyn Fn(&str)>,
+    /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
+    /// round starts until then.
+    pub halt: Option<Halt>,
+    /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
+    /// owner is told once.
+    told: Option<String>,
+    /// How many times in a row the network was found down.
+    probes: u32,
+    /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
+    /// after.
+    pub retry_wait: Duration,
+    /// Each CLI's version as it reported it, by the CLI's name in the configuration.
+    cli_versions: BTreeMap<String, String>,
 }
 
 impl Engine {
@@ -102,7 +120,7 @@ impl Engine {
             .map_err(|e| e.to_string())?;
         let mut flows = BTreeMap::new();
         flows.insert(flow_now, compiled);
-        Ok(Engine {
+        let mut e = Engine {
             db,
             data: data.to_path_buf(),
             config,
@@ -111,7 +129,63 @@ impl Engine {
             flows,
             flow_now,
             say: Box::new(|s| eprintln!("{s}")),
-        })
+            halt: None,
+            told: None,
+            probes: 0,
+            retry_wait: Duration::from_secs(30),
+            cli_versions: BTreeMap::new(),
+        };
+        let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
+        for name in names {
+            e.cli_version(&name);
+        }
+        Ok(e)
+    }
+
+    /// The configuration directory a CLI runs agents with, made when it is not there yet and kept out of git.
+    pub fn cli_home(&self, name: &str) -> Option<PathBuf> {
+        let cli = self.config.config.install.agents.clis.get(name)?;
+        let dir = cli.home(&self.data, name);
+        if !dir.exists() {
+            let made = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(".gitignore"), "*\n"));
+            if let Err(x) = made {
+                (self.say)(&format!("{}: {x}", dir.display()));
+            }
+        }
+        Some(dir)
+    }
+
+    /// A CLI's version as it reports it, read the first time it is asked for: when the engine starts.
+    pub fn cli_version(&mut self, name: &str) -> String {
+        if let Some(v) = self.cli_versions.get(name) {
+            return v.clone();
+        }
+        let Some(cli) = self.config.config.install.agents.clis.get(name).cloned() else {
+            return "unknown".to_string();
+        };
+        let home = self.cli_home(name);
+        let v = self.agents.version(&cli, home.as_deref());
+        self.cli_versions.insert(name.to_string(), v.clone());
+        v
+    }
+
+    /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.
+    pub fn halted(&mut self) -> bool {
+        match &self.halt {
+            Some(h) if db::now() < h.until => true,
+            Some(h) => {
+                (self.say)(&format!("the wait for {} is over: works go on", h.kind));
+                self.halt = None;
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// A round ran to a return: whatever stopped every work has passed.
+    fn returned(&mut self) {
+        self.told = None;
+        self.probes = 0;
     }
 
     /// The compiled flow a work runs on, read from the database the first time.
@@ -321,6 +395,10 @@ impl Engine {
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
+        failed::resume_answered(self)?;
+        if self.halted() {
+            return Ok(moved);
+        }
         while self.free_slots()? > 0 {
             let Some(item) = self.next_ready() else { break };
             let id = self.create_work(item)?;
@@ -331,6 +409,9 @@ impl Engine {
             }
         }
         for id in self.active()? {
+            if self.halted() {
+                break;
+            }
             if self.advance(id)? == Advance::Moved {
                 moved = true;
             }
@@ -347,6 +428,10 @@ impl Engine {
     pub fn step(&mut self, after: Option<i64>) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
+        failed::resume_answered(self)?;
+        if self.halted() {
+            return Ok(Stepped::default());
+        }
         let mark = self.rounds_mark()?;
         if self.free_slots()? > 0
             && let Some(item) = self.next_ready()

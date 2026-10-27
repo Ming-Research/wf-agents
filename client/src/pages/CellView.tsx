@@ -39,7 +39,6 @@ export function CellView({ cell }: { cell: CompiledCell }) {
                   {x.id != null ? <code>@{x.id} </code> : null}
                   {x.what}
                   {x.maybe ? <span className="muted"> · {t('maybe')}</span> : null}
-                  {x.held != null ? <span className="muted"> · {x.held}</span> : null}
                 </td>
                 <td className="muted">{x.from.map(srcText).join('; ')}</td>
               </tr>
@@ -94,14 +93,11 @@ export function CellView({ cell }: { cell: CompiledCell }) {
           </tbody>
         </table>
       </Section>
-      {rules.length > 0 || cell.project_rules != null ? (
+      {rules.length > 0 ? (
         <Section title={t('cell_rules')} open={false}>
           <ul>
-            {cell.project_rules != null ? <li>project · {cell.project_rules}</li> : null}
             {rules.map((r) => (
-              <li key={r.name}>
-                {r.name} · {r.held}
-              </li>
+              <li key={r.name}>{r.name}</li>
             ))}
           </ul>
         </Section>

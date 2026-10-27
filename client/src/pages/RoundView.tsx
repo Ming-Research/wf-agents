@@ -1,5 +1,7 @@
-// A round in full, for diagnosis: each input with where it came from, the prompt exactly as sent, the return, the
-// row it took or why it was sent back, the tools it ran with the files they kept, and what it cost.
+// A round in full, for diagnosis: for an agent's round, each material of its message by address, given or referred
+// to, the message exactly as sent and how the command line was called; for another step, each input with where it
+// came from; the return, the row it took or why it was sent back, the tools it ran with the files they kept, and what
+// it cost.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -96,25 +98,54 @@ function Detail({ d, onClose }: { d: RoundDetail; onClose: () => void }) {
           [t('round_config'), <code key="c">{d.config_commit}</code>],
         ]}
       />
-      <Section title={`${t('inputs')} (${d.inputs.length})`}>
-        {d.inputs.map((x, i) => (
-          <details key={i} className="input">
-            <summary>
-              <span className="input-what">{x.what}</span>
-              {x.held ? <span className="muted"> · {t('input_held')}</span> : null}
-            </summary>
-            {x.from.length > 0 ? (
-              <div className="muted">
-                {t('input_from')}: {x.from.map(srcText).join('; ')}
-              </div>
-            ) : null}
-            <Json value={x.value} />
-          </details>
-        ))}
+      {d.materials.length > 0 ? (
+        <Section title={`${t('materials')} (${d.materials.length})`}>
+          <table className="list defs">
+            <tbody>
+              {d.materials.map((m) => (
+                <tr key={m.address}>
+                  <td>
+                    <code>{m.address}</code>
+                  </td>
+                  <td>{m.given ? t('material_given') : <span className="muted">{t('material_referred')}</span>}</td>
+                  <td className="muted" title={m.hash}>
+                    <code>{m.hash.slice(0, 12)}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      ) : null}
+      {d.inputs.length > 0 ? (
+        <Section title={`${t('inputs')} (${d.inputs.length})`}>
+          {d.inputs.map((x, i) => (
+            <details key={i} className="input">
+              <summary>
+                <span className="input-what">{x.what}</span>
+              </summary>
+              {x.from.length > 0 ? (
+                <div className="muted">
+                  {t('input_from')}: {x.from.map(srcText).join('; ')}
+                </div>
+              ) : null}
+              <Json value={x.value} />
+            </details>
+          ))}
+        </Section>
+      ) : null}
+      <Section title={t('message')} open={false}>
+        {d.message !== null ? (
+          <pre className="j-text prompt">{d.message}</pre>
+        ) : (
+          <p className="muted">{t('no_message')}</p>
+        )}
       </Section>
-      <Section title={t('prompt')} open={false}>
-        {d.prompt !== null ? <pre className="j-text prompt">{d.prompt}</pre> : <p className="muted">{t('no_prompt')}</p>}
-      </Section>
+      {d.call !== null ? (
+        <Section title={t('call')} open={false}>
+          <Json value={d.call} />
+        </Section>
+      ) : null}
       {d.output !== null ? (
         <Section title={t('output')}>
           <Json value={d.output} />

@@ -9,13 +9,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use db::rusqlite::types::ValueRef;
 use db::rusqlite::{self, Connection, OptionalExtension, Row, params_from_iter};
+use flow::format::Src;
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
 use crate::{
     Card, FlowVersion, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem,
-    RoundDetail, RoundInput, RoundOutcome, RoundSummary, RunningRound, Session, ToolRun, WorkDetail, WorkState,
-    WorkSummary,
+    RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, ToolRun, WorkDetail,
+    WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,23 +83,30 @@ fn text(r: &Row<'_>, i: usize) -> rusqlite::Result<Option<String>> {
     })
 }
 
-/// How a round ended, from what it took or why it was rejected.
+/// How a round ended, from what it took or why it was rejected. A failed run is recorded under `failed` with its
+/// kind, or, in a round recorded before the kinds were, under `error`.
 fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended: bool) -> RoundOutcome {
     match (transition, rejected) {
         (Some(_), _) => RoundOutcome::Took,
         (None, Some(r)) if r.get("interrupted").is_some() => RoundOutcome::Interrupted,
-        (None, Some(r)) if r.get("error").is_some() => RoundOutcome::Failed,
+        (None, Some(r)) if r.get("failed").is_some() || r.get("error").is_some() => RoundOutcome::Failed,
         (None, Some(_)) => RoundOutcome::SentBack,
         (None, None) if ended => RoundOutcome::Ended,
         (None, None) => RoundOutcome::Running,
     }
 }
 
-/// Why a round was rejected, in its own words: the text of the one reason it holds.
+/// Why a round was rejected, in its own words: the text of the one reason it holds; for a failed run, its kind and
+/// what the command line reported.
 fn why(rejected: Option<&Value>) -> Option<String> {
     let (_, v) = rejected?.as_object()?.iter().next()?;
     Some(match v {
         Value::String(s) => s.clone(),
+        Value::Object(f) if f.contains_key("kind") => format!(
+            "{}: {}",
+            f["kind"].as_str().unwrap_or_default(),
+            f.get("what").and_then(Value::as_str).unwrap_or_default()
+        ),
         other => other.to_string(),
     })
 }
@@ -511,23 +519,43 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         .cell
         .as_deref()
         .and_then(|c| flows.graph(conn, flow_version, &graph)?.cell(c).cloned());
+    // An input is recorded with what the flow says it is (in a round recorded before messages were), or with its
+    // sources only; either names the cell's input it is.
     let inputs = input["inputs"]
         .as_array()
         .map(|xs| {
             xs.iter()
                 .map(|x| {
-                    let what = x["what"].as_str().unwrap_or_default().to_string();
-                    let from = cell
-                        .as_ref()
-                        .and_then(|c| c.inputs.iter().find(|i| i.what == what))
-                        .map(|i| i.from.clone())
-                        .unwrap_or_default();
+                    let recorded_from: Option<Vec<Src>> = serde_json::from_value(x["from"].clone()).ok();
+                    let def = cell.as_ref().and_then(|c| {
+                        c.inputs.iter().find(|i| match &recorded_from {
+                            Some(f) => i.from == *f,
+                            None => x["what"].as_str() == Some(i.what.as_str()),
+                        })
+                    });
                     RoundInput {
                         value: x.get("value").cloned().unwrap_or(Value::Null),
-                        held: x.get("held").and_then(Value::as_bool),
-                        what,
-                        from,
+                        what: x["what"]
+                            .as_str()
+                            .map(str::to_string)
+                            .or_else(|| def.map(|i| i.what.clone()))
+                            .unwrap_or_default(),
+                        from: recorded_from
+                            .or_else(|| def.map(|i| i.from.clone()))
+                            .unwrap_or_default(),
                     }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let materials = input["materials"]
+        .as_array()
+        .map(|xs| {
+            xs.iter()
+                .map(|m| RoundMaterial {
+                    address: m["address"].as_str().unwrap_or_default().to_string(),
+                    hash: m["hash"].as_str().unwrap_or_default().to_string(),
+                    given: m["given"].as_bool().unwrap_or(false),
                 })
                 .collect()
         })
@@ -538,7 +566,12 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         graph,
         session,
         config_commit,
-        prompt: input["prompt"].as_str().map(str::to_string),
+        message: input["message"]
+            .as_str()
+            .or(input["prompt"].as_str())
+            .map(str::to_string),
+        materials,
+        call: input.get("call").cloned(),
         inputs,
         input,
         output,
@@ -814,10 +847,11 @@ mod tests {
         assert_eq!((back.cost_usd, back.tool_runs), (Some(0.5), 1));
         assert_eq!(work(s.db.conn(), &cache, 9), Err(Error::NotFound("no work 9".into())));
 
+        // A round recorded before messages were gives its prompt as its message, and its inputs.
         let r = round(s.db.conn(), &cache, &s.data, 2).unwrap();
-        assert_eq!(r.prompt.as_deref(), Some("Do it"));
+        assert_eq!(r.message.as_deref(), Some("Do it"));
         assert_eq!(r.inputs[0].from, cell.inputs[0].from);
-        assert_eq!(r.inputs[0].held, Some(false));
+        assert!(r.materials.is_empty() && r.call.is_none());
         assert_eq!(r.session.as_ref().map(|x| x.cli_session.as_str()), Some("s1"));
         let files: Vec<&str> = r.tool_runs[0].files.iter().map(|f| f.file.as_str()).collect();
         assert_eq!(files, ["logs/run-1.log", "tool-output/round-2-1.txt"]);
@@ -832,6 +866,55 @@ mod tests {
             Err(Error::NotFound(_))
         ));
         assert!(matches!(file(&s.data, "db", "x", 100), Err(Error::NotFound(_))));
+    }
+
+    // A round recorded with its message gives each material, given or referred to, and the call; a step's inputs,
+    // recorded by their sources, are named by the cell's definition; a failed run says its kind.
+    #[test]
+    fn a_round_gives_its_message_materials_and_call() {
+        let mut s = setup("message");
+        let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
+        let input = json!({
+            "message": "# R4 · cell 1 · Research",
+            "materials": [
+                { "address": "rule:ground", "hash": "h1", "given": true },
+                { "address": "R2·1·understanding", "hash": "h2", "given": false },
+            ],
+            "call": { "command": ["claude", "-p"], "session": { "resumed": "s1" }, "engine": "c", "cli": "2" },
+            "engine": {},
+        });
+        let step = json!({ "inputs": [{ "from": cell.inputs[0].from, "value": "v" }], "given": {} });
+        let failed = json!({ "failed": { "kind": "transient", "what": "API Error: 529 Overloaded" } });
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, cell, session, input, rejected, config_commit, started_at, ended_at)
+                 VALUES (1, '1', 1, ?1, ?2, 'c', 60, 70)",
+                [input.to_string(), failed.to_string()],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', ?1, 'c', 80)",
+                [step.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let cache = Flows::default();
+        let r = round(s.db.conn(), &cache, &s.data, 4).unwrap();
+        assert_eq!(r.message.as_deref(), Some("# R4 · cell 1 · Research"));
+        assert_eq!(
+            r.materials
+                .iter()
+                .map(|m| (m.address.as_str(), m.given))
+                .collect::<Vec<_>>(),
+            [("rule:ground", true), ("R2·1·understanding", false)]
+        );
+        assert_eq!(r.call.as_ref().unwrap()["session"]["resumed"], "s1");
+        assert_eq!(r.round.outcome, RoundOutcome::Failed);
+        assert_eq!(r.round.why.as_deref(), Some("transient: API Error: 529 Overloaded"));
+        let step = round(s.db.conn(), &cache, &s.data, 5).unwrap();
+        assert_eq!(step.message, None);
+        assert_eq!(step.inputs[0].what, cell.inputs[0].what);
+        assert_eq!(step.inputs[0].from, cell.inputs[0].from);
     }
 
     #[test]

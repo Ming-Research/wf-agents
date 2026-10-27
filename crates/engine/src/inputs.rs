@@ -1,12 +1,12 @@
 //! What a cell is given: each input gathered from its sources, the returns of earlier cells, the database, the
-//! configuration, what the engine computes and what rows recorded.
+//! configuration, what the engine computes and what rows recorded. Each value keeps where it came from, which is
+//! what an agent's message addresses it by.
 
-use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use db::rusqlite::ToSql;
 use flow::format::Src;
-use flow::{CompiledCell, CompiledGraph, CompiledInput, Held};
+use flow::{CompiledCell, CompiledGraph, CompiledInput};
 use serde_json::{Map, Value, json};
 
 use crate::work::{self, Item, Work};
@@ -15,22 +15,59 @@ use crate::{Engine, form_of, git};
 /// The most rows an input read from the database gives.
 const ROWS: usize = 200;
 
-/// The least length, as JSON, of a value the history gives again by the round that first held it.
-const REPEATED: usize = 300;
+/// The view of the work's rounds that a flow version stored before the history was removed still names. It re-sent
+/// every round's whole record, so no input gives it any longer.
+const HISTORY: &str = "work_history";
 
-/// The view of the work's rounds. A round's input does not hold it again, and the history gives each round without
-/// the history it was given: those are the rounds before it, there already, and holding them would give every
-/// earlier round once more with each round.
-pub const HISTORY: &str = "work_history";
+/// Where a value an input gives comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Origin {
+    /// A place of a round's return: the round, its cell and the path, with the earliest round of the cell whose return
+    /// gave the same value there.
+    Place {
+        round: i64,
+        first: i64,
+        cell: String,
+        path: String,
+    },
+    /// A setting of the project's configuration.
+    Config(String),
+    /// A table or view of the database, for the item, work or project at hand.
+    Db(String),
+    /// What the engine computes.
+    Engine(String),
+    /// A value rows recorded.
+    Recorded(String),
+}
 
-/// What stands for the history in a round's input.
-pub const EARLIER: &str = "The rounds before this one";
+/// One value one source of an input gave.
+#[derive(Debug, Clone)]
+pub struct Part {
+    pub origin: Origin,
+    pub value: Value,
+}
+
+impl Part {
+    /// How the value is named when an input of several sources is given as one object.
+    fn label(&self) -> String {
+        match &self.origin {
+            Origin::Place { cell, path, .. } => format!("{cell}.{path}"),
+            Origin::Config(n) => format!("configuration {n}"),
+            Origin::Db(n) => format!("database {n}"),
+            Origin::Engine(n) => format!("engine {n}"),
+            Origin::Recorded(n) => format!("recorded {n}"),
+        }
+    }
+}
 
 /// One input as gathered.
 #[derive(Debug, Clone)]
 pub struct Gathered {
     pub input: CompiledInput,
-    /// None when no source has anything: the input is missing.
+    /// What each of its sources gave; empty when none has anything.
+    pub parts: Vec<Part>,
+    /// The value as one: the one part's, or an object of each part by where it came from; none when the input is
+    /// missing.
     pub value: Option<Value>,
 }
 
@@ -39,83 +76,6 @@ impl Gathered {
     pub fn itself(&self) -> bool {
         self.input.from.iter().all(|s| *s == Src::Itself)
     }
-
-    pub fn held(&self) -> bool {
-        self.input.held == Some(Held::Session)
-    }
-
-    /// Whether it is the work's history.
-    pub fn history(&self) -> bool {
-        is_history(&self.input)
-    }
-}
-
-pub fn is_history(x: &CompiledInput) -> bool {
-    x.from
-        .iter()
-        .any(|s| matches!(s, Src::Db { relation, .. } if relation == HISTORY))
-}
-
-/// A round as the history gives it: what the engine gave, without the prompt it wrote that into and without the
-/// history the round was given.
-fn compact(row: &mut Value, history: &BTreeSet<&str>) {
-    let Some(input) = row.get_mut("input").and_then(Value::as_object_mut) else {
-        return;
-    };
-    input.remove("prompt");
-    if let Some(Value::Array(xs)) = input.get_mut("inputs") {
-        for x in xs {
-            if x["what"].as_str().is_some_and(|w| history.contains(w)) {
-                x["value"] = json!(EARLIER);
-            }
-        }
-    }
-}
-
-/// Gives each value of the history's rounds that an earlier round already held by that round: most of what a round
-/// is given is what the rounds before it were given or returned.
-fn refer_back(rows: &mut [Value]) {
-    let mut seen = HashMap::new();
-    for r in rows {
-        let round = r["round"].as_i64().unwrap_or_default();
-        for field in ["input", "output", "tools"] {
-            if let Some(v) = r.get_mut(field) {
-                refer(v, round, &mut seen);
-            }
-        }
-    }
-}
-
-fn refer(v: &mut Value, round: i64, seen: &mut HashMap<String, i64>) {
-    let text = v.to_string();
-    if text.len() < REPEATED {
-        return;
-    }
-    if let Some(r) = seen.get(&text) {
-        *v = json!(format!("The same as in round {r}"));
-        return;
-    }
-    match v {
-        Value::Array(xs) => xs.iter_mut().for_each(|x| refer(x, round, seen)),
-        Value::Object(o) => o.values_mut().for_each(|x| refer(x, round, seen)),
-        _ => {}
-    }
-    seen.insert(text, round);
-}
-
-/// The history as a session that holds its rounds up to one is given it: the rounds after that one.
-pub fn since(x: &mut Gathered, upto: i64) {
-    let Some(Value::Array(rows)) = x.value.take() else {
-        return;
-    };
-    let after: Vec<Value> = rows
-        .into_iter()
-        .filter(|r| r["round"].as_i64().is_some_and(|n| n > upto))
-        .collect();
-    x.value = Some(json!({
-        "earlier": format!("The rounds up to round {upto} were given to you earlier in this session"),
-        "since": after,
-    }));
 }
 
 /// The value at a path of a return, as an input gives it: a branch keeps only what is of that branch, and the
@@ -156,20 +116,31 @@ pub fn at_path(x: &Value, path: &str) -> Option<Value> {
     }
 }
 
-/// The last return of a cell in the work that holds a place: for an agent's own answer, the last return of its own
-/// form; for the fields every return has, the last return that has them; for any other cell, its last return. The
-/// return is given as the rows read it, an agent's form taken out of the field it sits in.
-pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &str) -> Result<Option<Value>, String> {
-    let Some(c) = g.cell(cell) else { return Ok(None) };
+/// The returns of a cell in the work that hold a place, newest first, each with its round: for an agent's own answer,
+/// the returns of its own form; for the fields every return has, the returns that have them; for any other cell,
+/// every return that took a row. Each is given as the rows read it, an agent's form taken out of the field it sits
+/// in.
+pub fn returns_holding(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &str,
+    path: &str,
+) -> Result<Vec<(i64, Value)>, String> {
+    let Some(c) = g.cell(cell) else {
+        return Ok(Vec::new());
+    };
     let top = path.split(['.', '[']).next().unwrap_or_default();
+    let mut out = Vec::new();
     for r in work::rounds_at(e.db.conn(), w.id, cell)? {
-        let Some(out) = r.output.filter(|_| r.transition.is_some()) else {
+        let Some(ret) = r.output.filter(|_| r.transition.is_some()) else {
             continue;
         };
         if c.kind != "agent" {
-            return Ok(Some(out));
+            out.push((r.id, ret));
+            continue;
         }
-        let form = form_of(g, c, &out);
+        let form = form_of(g, c, &ret);
         let fields: Vec<&str> = c.forms.iter().filter_map(|f| f.field.as_deref()).collect();
         let props = c
             .schema
@@ -190,10 +161,15 @@ pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &s
             form.is_none()
         };
         if holds {
-            return Ok(Some(g.unwrap(&out)));
+            out.push((r.id, g.unwrap(&ret)));
         }
     }
-    Ok(None)
+    Ok(out)
+}
+
+/// The last return of a cell in the work that holds a place, as [`returns_holding`] finds it.
+pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &str) -> Result<Option<Value>, String> {
+    Ok(returns_holding(e, w, g, cell, path)?.into_iter().next().map(|x| x.1))
 }
 
 /// The rounds of a cell of the work that handed in the cell's own answer, newest first. A round that asked for
@@ -220,25 +196,27 @@ pub fn gather(
 ) -> Result<Vec<Gathered>, String> {
     let mut out = Vec::new();
     for x in &cell.inputs {
-        let mut parts: Vec<(String, Value)> = Vec::new();
+        let mut parts: Vec<Part> = Vec::new();
         for s in &x.from {
-            if let Some((label, v)) = source(e, w, g, cell, item, s)? {
-                parts.push((label, v));
-            }
+            parts.extend(source(e, w, g, cell, item, s)?);
         }
-        let value = match parts.len() {
-            0 => None,
-            1 => parts.pop().map(|p| p.1),
-            _ => Some(Value::Object(parts.into_iter().collect())),
+        let value = match parts.as_slice() {
+            [] => None,
+            [one] => Some(one.value.clone()),
+            many => Some(Value::Object(
+                many.iter().map(|p| (p.label(), p.value.clone())).collect(),
+            )),
         };
         out.push(Gathered {
             input: x.clone(),
+            parts,
             value,
         });
     }
     Ok(out)
 }
 
+/// What one source of an input gives: none when it has nothing.
 fn source(
     e: &Engine,
     w: &Work,
@@ -246,7 +224,7 @@ fn source(
     cell: &CompiledCell,
     item: &Item,
     s: &Src,
-) -> Result<Option<(String, Value)>, String> {
+) -> Result<Option<Part>, String> {
     Ok(match s {
         Src::Place(c, p) => {
             let id = if c.starts_with('@') {
@@ -255,9 +233,26 @@ fn source(
                 Some(c.clone())
             };
             let Some(id) = id else { return Ok(None) };
-            last_return(e, w, g, &id, p)?
-                .and_then(|r| at_path(&r, p))
-                .map(|v| (format!("{id}.{p}"), v))
+            let held = returns_holding(e, w, g, &id, p)?;
+            let mut values = held.iter().filter_map(|(r, ret)| at_path(ret, p).map(|v| (*r, v)));
+            let Some((round, value)) = values.next() else {
+                return Ok(None);
+            };
+            // The same value an earlier return gave is the one thing it was then.
+            let first = values
+                .filter(|(_, v)| *v == value)
+                .map(|(r, _)| r)
+                .last()
+                .unwrap_or(round);
+            Some(Part {
+                origin: Origin::Place {
+                    round,
+                    first,
+                    cell: id,
+                    path: p.clone(),
+                },
+                value,
+            })
         }
         Src::Itself => None,
         Src::Config(n) => {
@@ -265,28 +260,18 @@ fn source(
             project
                 .and_then(|p| p.setting(n))
                 .filter(|v| !v.is_null())
-                .map(|v| (format!("configuration {n}"), v))
+                .map(|v| Part {
+                    origin: Origin::Config(n.clone()),
+                    value: v,
+                })
         }
-        Src::Recorded(n) => w
-            .pos
-            .recorded
-            .get(n)
-            .map(|v| (format!("recorded {n}"), Value::String(v.clone()))),
+        Src::Recorded(n) => w.pos.recorded.get(n).map(|v| Part {
+            origin: Origin::Recorded(n.clone()),
+            value: Value::String(v.clone()),
+        }),
+        Src::Db { relation, .. } if relation == HISTORY => None,
         Src::Db { relation, by } => {
-            let mut rows = db_rows(e, w, item, relation, by.as_deref())?;
-            if relation == HISTORY {
-                let history: BTreeSet<&str> = g
-                    .cells
-                    .iter()
-                    .flat_map(|c| &c.inputs)
-                    .filter(|x| is_history(x))
-                    .map(|x| x.what.as_str())
-                    .collect();
-                for r in &mut rows {
-                    compact(r, &history);
-                }
-                refer_back(&mut rows);
-            }
+            let rows = db_rows(e, w, item, relation, by.as_deref())?;
             // The interjections an agent is given are those for its own line.
             let rows: Vec<Value> = match (relation.as_str(), &cell.line) {
                 ("waiting_interjections", Some(line)) => {
@@ -297,10 +282,16 @@ fn source(
             if rows.is_empty() && relation == "waiting_interjections" {
                 None
             } else {
-                Some((format!("database {relation}"), Value::Array(rows)))
+                Some(Part {
+                    origin: Origin::Db(relation.clone()),
+                    value: Value::Array(rows),
+                })
             }
         }
-        Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| (format!("engine {n}"), v)),
+        Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
+            origin: Origin::Engine(n.clone()),
+            value: v,
+        }),
     })
 }
 
@@ -473,54 +464,5 @@ mod tests {
             Some(json!([{ "change": "added", "test": "t" }]))
         );
         assert_eq!(at_path(&x, "nothing"), None);
-    }
-
-    #[test]
-    fn the_history_gives_a_round_without_its_prompt_or_its_history() {
-        let what = "This work's history";
-        let mut row = json!({ "round": 3, "input": { "prompt": "p", "inputs": [
-            { "what": what, "value": [{ "round": 1 }] },
-            { "what": "The plan", "value": "x" },
-        ] } });
-        compact(&mut row, &BTreeSet::from([what]));
-        assert_eq!(
-            row["input"],
-            json!({ "inputs": [{ "what": what, "value": EARLIER }, { "what": "The plan", "value": "x" }] })
-        );
-    }
-
-    #[test]
-    fn the_history_gives_a_value_again_by_the_round_that_held_it() {
-        let design = json!({ "design": "d".repeat(REPEATED) });
-        let mut rows = vec![
-            json!({ "round": 2, "output": { "design": design.clone(), "short": "s" } }),
-            json!({ "round": 5, "input": { "inputs": [{ "what": "The design", "value": design.clone() }] },
-                    "output": { "short": "s" } }),
-        ];
-        refer_back(&mut rows);
-        assert_eq!(rows[0]["output"]["design"], design);
-        assert_eq!(rows[1]["input"]["inputs"][0]["value"], "The same as in round 2");
-        assert_eq!(rows[1]["output"]["short"], "s");
-    }
-
-    #[test]
-    fn a_session_is_given_the_rounds_after_those_it_holds() {
-        let mut x = Gathered {
-            input: CompiledInput {
-                id: None,
-                what: "This work's history".into(),
-                from: vec![Src::Db {
-                    relation: HISTORY.into(),
-                    by: Some("work".into()),
-                }],
-                maybe: false,
-                held: Some(Held::Given),
-            },
-            value: Some(json!([{ "round": 3 }, { "round": 7 }, { "round": 9 }])),
-        };
-        since(&mut x, 7);
-        let v = x.value.unwrap();
-        assert_eq!(v["since"], json!([{ "round": 9 }]));
-        assert!(v["earlier"].as_str().unwrap().contains("round 7"));
     }
 }

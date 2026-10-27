@@ -406,7 +406,12 @@ fn status(
         config_commit: e.config.commit.clone(),
         language: e.config.config.install.owner.language.clone(),
         started_at,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
+        halt: e.halt.as_ref().map(|h| api::Halt {
+            kind: h.kind.clone(),
+            until: h.until,
+            why: h.why.clone(),
+        }),
     })
 }
 

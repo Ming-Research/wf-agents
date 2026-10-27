@@ -242,10 +242,41 @@ pub fn start_round(
     config_commit: &str,
     model: Option<&str>,
 ) -> Result<i64, String> {
+    start_numbered(conn, None, work, cell, session, input, config_commit, model)
+}
+
+/// The number the next round started will have. Only the engine starts rounds, one at a time, so an agent's message
+/// can name its round before the round is written.
+pub fn next_round(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("SELECT coalesce(max(id), 0) + 1 FROM rounds", [], |r| r.get(0))
+        .map_err(sql)
+}
+
+/// Starts a round under the number given, or the next one.
+#[allow(clippy::too_many_arguments)]
+pub fn start_numbered(
+    conn: &Connection,
+    id: Option<i64>,
+    work: i64,
+    cell: &str,
+    session: Option<i64>,
+    input: &Value,
+    config_commit: &str,
+    model: Option<&str>,
+) -> Result<i64, String> {
     conn.execute(
-        "INSERT INTO rounds (work, cell, session, input, config_commit, model, started_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![work, cell, session, input.to_string(), config_commit, model, db::now()],
+        "INSERT INTO rounds (id, work, cell, session, input, config_commit, model, started_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            id,
+            work,
+            cell,
+            session,
+            input.to_string(),
+            config_commit,
+            model,
+            db::now()
+        ],
     )
     .map_err(sql)?;
     Ok(conn.last_insert_rowid())
@@ -260,6 +291,8 @@ pub struct Ended {
     pub usage: Option<Value>,
     pub model: Option<String>,
     pub compactions: i64,
+    /// The command line the round ran with in the end, when it is not the one recorded at its start.
+    pub command: Option<Vec<String>>,
 }
 
 pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String> {
@@ -279,6 +312,13 @@ pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String>
         ],
     )
     .map_err(sql)?;
+    if let Some(c) = &e.command {
+        conn.execute(
+            "UPDATE rounds SET input = json_set(input, '$.call.command', json(?2)) WHERE id = ?1",
+            params![id, serde_json::to_string(c).unwrap_or_default()],
+        )
+        .map_err(sql)?;
+    }
     Ok(())
 }
 

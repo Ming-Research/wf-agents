@@ -17,11 +17,11 @@ pub use rusqlite;
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
-/// The steps that bring an existing database up to [`SCHEMA`]: the first takes version 1 to 2, the next 2 to 3, and
-/// so on. A change to `db/schema.sql` adds one in the same pull request. The first one also adds
-/// `db/migrations/0001.sql`, the schema as it was at version 1, and a test that a database migrated from it has the
-/// shape of one created from [`SCHEMA`].
-pub const MIGRATIONS: &[&str] = &[];
+/// The steps that bring an existing database up to [`SCHEMA`]: `db/migrations/0002.sql` takes version 1 to 2, the
+/// next 2 to 3, and so on. A change to `db/schema.sql` adds one in the same pull request. `db/migrations/0001.sql` is
+/// the schema as it was at version 1, from which a test migrates a database and compares it with one created from
+/// [`SCHEMA`].
+pub const MIGRATIONS: &[&str] = &[include_str!("../../../db/migrations/0002.sql")];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
@@ -429,16 +429,32 @@ pub fn open_read(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// What agents are told about the database: the definition of every table and view they can read, with the
-/// comments that say what each holds and who reads it, in the order the schema defines them.
-pub fn described(conn: &Connection) -> rusqlite::Result<String> {
+/// What agents are told about the database: each table and view they can read, by its name, with the first line of
+/// the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
+/// its comments included, with [`DEFINITION`] through the query tool.
+pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut st = conn.prepare(
-        "SELECT sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+        "SELECT name, sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
          AND instr(sql, ?1) = 0 ORDER BY rowid",
     )?;
-    let defs: Vec<String> = st.query_map([HIDDEN], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    Ok(defs.iter().map(|d| format!("{d};\n")).collect::<Vec<_>>().join("\n"))
+    let rows = st.query_map([HIDDEN], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (name, sql) = row?;
+        let first = sql
+            .lines()
+            .map(str::trim)
+            .find_map(|l| l.strip_prefix("--"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        out.push((name, first));
+    }
+    Ok(out)
 }
+
+/// The query that gives one table's or view's definition in full, with its comments, for `<name>`.
+pub const DEFINITION: &str = "SELECT sql FROM sqlite_master WHERE name = '<name>'";
 
 /// Every table and view a schema defines, with its columns, from the schema loaded into a database in memory.
 pub fn relations(schema: &str) -> rusqlite::Result<BTreeMap<String, BTreeSet<String>>> {
@@ -729,10 +745,89 @@ mod tests {
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
         assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
-        let d = described(db.conn()).unwrap();
-        assert!(d.contains("CREATE TABLE items") && d.contains("CREATE VIEW ready_items"));
-        assert!(!d.contains("CREATE TABLE sessions"));
-        assert!(d.contains("-- Item number, one sequence across all projects."));
+        // The index names each table and view with the first line of its description; the query it points to gives
+        // the whole definition with its comments.
+        let index = index(db.conn()).unwrap();
+        let names: Vec<&str> = index.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"items") && names.contains(&"ready_items"));
+        assert!(!names.contains(&"sessions"));
+        let (_, first) = index.iter().find(|(n, _)| n == "items").unwrap();
+        assert!(
+            first.starts_with("A piece of work to do, as its creator wrote it."),
+            "{first}"
+        );
+        let full: String = agent
+            .query_row(&DEFINITION.replace("<name>", "items"), [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            full.contains("-- Item number, one sequence across all projects."),
+            "{full}"
+        );
+    }
+
+    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
+    // and every row that points to them.
+    #[test]
+    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+        let v1 = include_str!("../../../db/migrations/0001.sql");
+        let mut old = Db {
+            conn: Connection::open_in_memory().unwrap(),
+            writer: Arc::new(Mutex::new(None)),
+            watch: Arc::default(),
+            listener: None,
+        };
+        old.conn.pragma_update(None, "foreign_keys", true).unwrap();
+        register(&old.conn, "wf_tx", &old.writer, |w| w.tx).unwrap();
+        register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
+        register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
+        old.upgrade(v1, &[]).unwrap();
+        old.write(Actor::Engine, |tx| {
+            let id = item(tx, "kept")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')", [id])?;
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', '{\"prompt\":\"p\"}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE items SET acceptance = '[]', acceptance_round = 1 WHERE id = ?1",
+                [id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+        let input: String = old
+            .conn()
+            .query_row("SELECT input FROM rounds WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(input, "{\"prompt\":\"p\"}");
+        let broken: i64 = old
+            .conn()
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(broken, 0);
+        let sql = |db: &Db| -> String {
+            db.conn()
+                .query_row("SELECT sql FROM sqlite_schema WHERE name = 'rounds'", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(sql(&old), sql(&new));
+        let v: i64 = old
+            .conn()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, VERSION);
     }
 
     // A database from a newer wf-agents, or a file that is not one, is not touched.

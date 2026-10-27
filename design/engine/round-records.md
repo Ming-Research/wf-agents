@@ -1,0 +1,5 @@
+Decision: An agent's round records the message it was sent, word for word; each material in it, with its address, the hash of its content and whether it was given or only referred to; and the call: the whole command line with the structured-output schema, the session started or resumed, the engine's version (the commit it was built from) and the command line's version as it reported it when the engine started; the flow's descriptions of inputs are not recorded apart, because what an agent saw must be told afterwards without guessing, and the record of what each session was given is what the engine decides what the session holds from.
+
+Decision: The round of cell 0 records no input, because starting a work only takes the queue's next item and decides nothing; the engine's other steps record the values of their inputs by their sources, without the flow's descriptions.
+
+Decision: Rounds recorded before this record keep their prompt and inputs as they were, and every reader (the engine, the interface's reads, the page) reads both, instead of rewriting old rounds, because a round is written once and never changed.

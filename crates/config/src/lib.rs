@@ -7,7 +7,9 @@
 //!   from, merged in order: a later table merges into an earlier one key by key, and any other value, a list
 //!   included, replaces the earlier one whole;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
-//! - `db/`: the database, kept out of git.
+//! - `db/`: the database, kept out of git;
+//! - `agents/<cli>/`: the configuration directory each CLI runs agents with, unless the CLI names another, kept out
+//!   of git; the owner logs in to the CLI there once.
 //!
 //! The engine reads only what is committed, so each round names the configuration it ran with by its commit.
 //! `config check` reads the working tree instead, to check a change before it is committed. A field the types do not
@@ -109,6 +111,21 @@ pub struct Cli {
     /// Arguments put before the ones the engine adds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// The directory the CLI keeps its own configuration in when it runs an agent (its settings, memory, plugins,
+    /// tool servers and login), apart from the owner's own: relative to the data directory, or absolute. By default
+    /// `agents/<the CLI's name>` in the data directory; the engine keeps it out of git.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<PathBuf>,
+}
+
+impl Cli {
+    /// The directory the CLI named `name` runs agents with, for the data directory `data`.
+    pub fn home(&self, data: &Path, name: &str) -> PathBuf {
+        match &self.config_dir {
+            Some(d) => data.join(d),
+            None => data.join("agents").join(name),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -681,6 +698,14 @@ asks = 9
         assert_eq!(p.setting("deploy"), Some(serde_json::Value::Null));
         assert_eq!(p.has("under_test"), Some(false));
         assert!(p.setting("nope").is_none());
+        // Agents run with a configuration directory of their own, inside the data directory unless one is set.
+        let cli = &c.install.agents.clis["claude"];
+        assert_eq!(cli.home(Path::new("/data"), "claude"), Path::new("/data/agents/claude"));
+        let set = Cli {
+            config_dir: Some(PathBuf::from("/elsewhere")),
+            ..cli.clone()
+        };
+        assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

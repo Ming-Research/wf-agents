@@ -1776,10 +1776,10 @@
           }
         ],
         "rules": [
-          "Before each round the engine looks at how large the line's session has grown; at the limit, it starts a new session on the same line and gives it the latest return of each cell of the work so far, plus the rules and inputs this cell needs, without the history. The worktree stays; the agent rereads the code it needs. The limit is set below the point where Claude Code compacts on its own; the number stays open until it has been measured at what size carrying on costs more than starting afresh.",
+          "Before each round the engine looks at how large the line's session has grown; at the limit, it starts a new session on the same line, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs. The limit is set below the point where Claude Code compacts on its own; the number stays open until it has been measured at what size carrying on costs more than starting afresh.",
           "Compaction still happens, for instance when a session fills up within a round. The session's record marks the compaction, and the session manager sees it: right after the compaction, the session manager gives the rules and inputs this cell got in this round again, then has the agent carry on. From then on the engine treats it as a new session and gives later cells what they need as usual.",
           "A cell on no line starts a session of its own every round, and the engine gives it every input.",
-          "When an agent hands in pause, the engine goes back to the same session and only says to carry on, giving no inputs: the session already holds them. If the session was replaced or compacted, the two rules above say what is given again."
+          "When an agent hands in pause, the engine runs the same cell again in the same session: it gives the cell's instruction again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
         ]
       },
       "rules": [
@@ -4001,6 +4001,15 @@
               ]
             },
             {
+              "what": "The design's description",
+              "from": [
+                [
+                  "2a",
+                  "design"
+                ]
+              ]
+            },
+            {
               "what": "The places the project's configuration says to attack, such as, for proofs, whether definitions match the specification, whether premises hold, and whether anything is assumed without proof; none if it names none",
               "from": [
                 {
@@ -4078,15 +4087,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "what": "This work's history: every round so far, at which cell, the input the engine gave, the return, and the row taken; whom it asked and what they answered; what the engine ran and what came of it, what it rejected, and where the counters stand. Tool calls within a round are not included",
-              "from": [
-                {
-                  "db": "work_history",
-                  "by": "work"
-                }
-              ]
             },
             {
               "what": "The diff and the code: read them yourself; you must see the implementation and the change to know where it is thin",
@@ -5106,15 +5106,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "what": "This work's history: every round so far, at which cell, the input the engine gave, the return, and the row taken; whom it asked and what they answered; what the engine ran and what came of it, what it rejected, and where the counters stand. Tool calls within a round are not included",
-              "from": [
-                {
-                  "db": "work_history",
-                  "by": "work"
-                }
-              ]
             },
             {
               "what": "The diff, the code and the design tree nodes: read them yourself",
@@ -7605,15 +7596,6 @@
               ]
             },
             {
-              "what": "This work's history: every round so far, at which cell, the input the engine gave, the return, and the row taken; whom it asked and what they answered; what the engine ran and what came of it, what it rejected, and where the counters stand. Tool calls within a round are not included",
-              "from": [
-                {
-                  "db": "work_history",
-                  "by": "work"
-                }
-              ]
-            },
-            {
               "what": "The code, the diff, the design tree and other items: read them yourself",
               "from": [
                 "self"
@@ -7750,15 +7732,6 @@
               "from": [
                 {
                   "db": "side_reports"
-                }
-              ]
-            },
-            {
-              "what": "This work's history: every round so far, at which cell, the input the engine gave, the return, and the row taken; whom it asked and what they answered; what the engine ran and what came of it, what it rejected, and where the counters stand. Tool calls within a round are not included",
-              "from": [
-                {
-                  "db": "work_history",
-                  "by": "work"
                 }
               ]
             },
@@ -7914,6 +7887,52 @@
             "name": "architect",
             "desc": "The architect over everything: for instance, a disagreement after looking at a design card"
           }
+        ]
+      },
+      "rounds": {
+        "desc": "What the engine does with an agent's round that does not end in a return the cell takes. Every agent's cell has this alike: a return can be sent back, or the agent's command line can end without handing in a return at all. Neither is a row of the cell.",
+        "sentBack": {
+          "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told where the return does not fit and what it must be.",
+          "pauseAfter": 3,
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+        },
+        "failed": {
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports.",
+          "kinds": [
+            {
+              "name": "usage_limit",
+              "when": "The account's usage limit is reached; the command line says when it resets",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the time the command line gives, tells the owner once, then carries on each work from the cell it recorded. One cause stops every work alike, so no work uses up retries or raises a card of its own."
+            },
+            {
+              "name": "offline",
+              "when": "The network cannot be reached",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the network is back, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+            },
+            {
+              "name": "transient",
+              "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
+              "handle": "retry",
+              "retries": 2,
+              "then": "15",
+              "desc": "The engine runs the same round again, twice, waiting longer each time, and records each attempt on the work. If it still fails, the engine pauses the work and asks the architect, as for a tool that fails twice; while the architect's flow does not run, that is a card for the owner."
+            },
+            {
+              "name": "cannot_run",
+              "when": "The login has expired, the command line cannot be found, or the prompt is too long for the model",
+              "handle": "ask",
+              "then": "16",
+              "desc": "Retrying cannot help, so the engine does not retry: it pauses the work and gives the owner a card at once. Only the owner can log in again or change what is installed; a prompt too long is a defect of the engine's to fix."
+            }
+          ]
+        },
+        "record": [
+          "Each round records, besides the message it was given and each material in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
+        ],
+        "environment": [
+          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
         ]
       }
     }

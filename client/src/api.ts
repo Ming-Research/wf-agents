@@ -64,7 +64,29 @@ started_at: number,
 /**
  * The version of wf-agents that runs.
  */
-version: string, };
+version: string, 
+/**
+ * While a failed run's cause stops every work alike, such as a usage limit or no network: no new round starts
+ * until it is over.
+ */
+halt: Halt | null, };
+
+/**
+ * Why the engine starts no new round for any work, and until when.
+ */
+export type Halt = { 
+/**
+ * The kind of failed run, as the flow names it: `usage_limit` or `offline`.
+ */
+kind: string, 
+/**
+ * Until when: when the usage limit resets, or when the engine next looks whether the network is back.
+ */
+until: number, 
+/**
+ * What the command line reported.
+ */
+why: string, };
 
 /**
  * What changed, as the event stream gives it. An event names what to read again and never carries that state,
@@ -191,17 +213,31 @@ recorded: JsonValue, rounds: Array<RoundSummary>, cards: Array<Card>, interjecti
 export type Session = { line: string, cli: string, cli_session: string, };
 
 /**
- * One input a round was given: what it is, its value, and where its cell reads it from.
+ * One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it
+ * before its message was recorded with its materials: what it is, its value, and where its cell reads it from.
  */
 export type RoundInput = { what: string, value: JsonValue, 
-/**
- * Whether the agent's session already held it, so that it was not given again.
- */
-held: boolean | null, 
 /**
  * The sources the cell's definition names for it; empty when the cell no longer names this input.
  */
 from: Array<Src>, };
+
+/**
+ * One material of an agent round's message.
+ */
+export type RoundMaterial = { 
+/**
+ * Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+ */
+address: string, 
+/**
+ * The hash of its content, which tells two versions under one address apart.
+ */
+hash: string, 
+/**
+ * Given in the message; otherwise the session already held it, and the message only referred to it.
+ */
+given: boolean, };
 
 /**
  * A file a tool run kept, or that its result points to, under the data directory.
@@ -234,12 +270,26 @@ export type RoundDetail = { round: RoundSummary, work: number,
  */
 flow_version: number, graph: string, session: Session | null, config_commit: string, 
 /**
- * The prompt exactly as the agent was given it; none for a round no agent ran.
+ * The message exactly as the agent was sent it (for a round recorded before messages were, its prompt); none
+ * for a round no agent ran.
  */
-prompt: string | null, inputs: Array<RoundInput>, 
+message: string | null, 
 /**
- * What the engine gave, as recorded: the prompt and inputs above, and what the engine knew besides, such as
- * the head and the interjections handed in.
+ * Each material the message gave or referred to; empty for a round no agent ran, or one recorded before.
+ */
+materials: Array<RoundMaterial>, 
+/**
+ * How the command line was called: the whole command line, the session started or resumed, the engine's and
+ * the command line's versions; none for a round no agent ran, or one recorded before.
+ */
+call: JsonValue | null, 
+/**
+ * The inputs of a step that is not an agent's round, or of an agent's round recorded before its materials were.
+ */
+inputs: Array<RoundInput>, 
+/**
+ * What the engine gave, as recorded: the message, materials, call or inputs above, and what the engine knew
+ * besides, such as the head and the interjections handed in.
  */
 input: JsonValue, output: JsonValue | null, 
 /**
@@ -375,7 +425,12 @@ within: string,
 /**
  * The cells of the asking part, and the one that receives answers to the cells of its line.
  */
-asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, cells: Array<CompiledCell>, };
+asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
+/**
+ * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
+ * version stored before the flow said it.
+ */
+rounds?: Rounds, cells: Array<CompiledCell>, };
 
 export type Counter = { name: string, desc: string, 
 /**
@@ -389,6 +444,47 @@ export type CompiledInterject = { name: string, desc: string, text: Array<string
 
 export type Named = { name: string, desc: string, };
 
+/**
+ * What the engine does with an agent's round that does not end in a return the cell takes: a return sent back, or
+ * a run of the agent's command line that ended without one. Every agent's cell has this alike.
+ */
+export type Rounds = { desc: string, sentBack: SentBack, failed: Failed, 
+/**
+ * What every round records.
+ */
+record: Array<string>, 
+/**
+ * What an agent's command line starts with, apart from what the flow gives it.
+ */
+environment: Array<string>, };
+
+export type SentBack = { desc: string, 
+/**
+ * How many returns of one cell in a row may be sent back before the engine pauses the work.
+ */
+pauseAfter: number, pause: string, };
+
+export type Failed = { desc: string, kinds: Array<Failure>, };
+
+/**
+ * One kind of run that ended without a return.
+ */
+export type Failure = { name: string, 
+/**
+ * What the command line reports when this happens.
+ */
+when: string, handle: Handle, 
+/**
+ * For a failure retried: how many times the same round runs again.
+ */
+retries?: number, 
+/**
+ * The cell the work is taken to once the engine gives up; none for a failure it waits out.
+ */
+then?: string, desc: string, };
+
+export type Handle = "wait" | "retry" | "ask";
+
 export type CompiledCell = { id: string, 
 /**
  * engine, agent, tool or owner.
@@ -399,19 +495,15 @@ kind: string,
  */
 gate: boolean, title: string, step: string | null, needs: string | null, line: string | null, stage: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
 /**
- * For an agent's cell: how it gets the project's rules, which every agent is given.
+ * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
  */
-project_rules: Held | null, rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by: PromptBy | null, forms?: Array<Form>, 
+rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by: PromptBy | null, forms?: Array<Form>, 
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
 schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, checks?: Array<Check>, handoff?: Array<string>, inenums?: { [key in string]: Array<[string, string]> }, };
 
-export type CompiledInput = { id: string | null, what: string, from: Array<Src>, maybe: boolean, 
-/**
- * For an agent's cell; none for one it reads itself.
- */
-held: Held | null, };
+export type CompiledInput = { id: string | null, what: string, from: Array<Src>, maybe: boolean, };
 
 /**
  * Where an input comes from.
@@ -419,12 +511,9 @@ held: Held | null, };
 export type Src = [string, string] | "self" | { config: string } | { db: string, by?: string } | { engine: string } | { recorded: string };
 
 /**
- * How an agent's cell gets an input or a rule: its line's session already holds it on every way to the cell, or
- * the engine gives it.
+ * A rule of the flow an agent's cell is given, by its name.
  */
-export type Held = "session" | "given";
-
-export type RuleUse = { name: string, held: Held, };
+export type RuleUse = { name: string, };
 
 export type PromptBy = { by: string, cases: { [key in string]: Array<string> }, };
 

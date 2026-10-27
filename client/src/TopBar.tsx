@@ -1,9 +1,10 @@
-// The bar on every view: the three views, how the engine stands, and what the owner asks of it (its mode, and in
-// single-step mode the next step).
+// The bar on every view: the three views, how the engine stands (and what stops every work, when something does), and
+// what the owner asks of it (its mode, and in single-step mode the next step).
 
 import { useState } from 'react';
 
 import type { Mode, Status } from './api';
+import { time } from './format';
 import { postJson } from './http';
 import { useOnline, useStatus } from './live';
 import { Link, type Route } from './route';
@@ -73,6 +74,11 @@ function Engine() {
         </button>
       ) : null}
       <LastStep status={status} t={t} />
+      {status.halt !== null ? (
+        <span className="bad" title={status.halt.why}>
+          {t('halt', { kind: status.halt.kind, until: time(status.halt.until) })}
+        </span>
+      ) : null}
       <span className="muted">{t('slots', { used: status.slots_used, total: status.slots })}</span>
       {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
     </div>

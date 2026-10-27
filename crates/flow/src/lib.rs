@@ -11,8 +11,10 @@
 //!   cell that waits for an answer gets it, and every loop of states passes a row that counts or waits;
 //! - every return each cell's output allows, in every state: exactly one row holds, and nothing in it is dropped;
 //! - every row from one block into another goes to one of that block's entries;
-//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is; and
-//!   whether an agent's session already holds each input and rule it is given.
+//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is.
+//!
+//! What an agent's session already holds is not worked out here: the engine decides it as it runs, from what each
+//! session was given and handed back.
 
 mod bits;
 mod check;
@@ -29,8 +31,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use compiled::{
-    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, Held, RuleUse,
-    Stats, ToolUse, found_at, valid,
+    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
+    ToolUse, found_at, valid,
 };
 pub use run::Position;
 

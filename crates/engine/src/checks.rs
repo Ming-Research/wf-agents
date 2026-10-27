@@ -206,10 +206,30 @@ fn owner_only() -> &'static BTreeSet<String> {
     })
 }
 
-/// File paths a text cites: each run of the characters a path is written with that has a slash in it, cut before
-/// a line number, whatever language the text around it is in.
+/// Whether a character ends a path written in a text: white space, a backtick or a quote, punctuation a path is not
+/// written with (a colon too, so that `path:line` gives the path), and the full-width punctuation of Chinese and
+/// Japanese text, which follows a path with no space before it.
+fn ends_path(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '`' | '"' | '\'' | ':' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '|' | '!' | '?'
+        )
+        // General punctuation: quotation marks, dashes and the ellipsis.
+        || ('\u{2010}'..='\u{205F}').contains(&c)
+        // CJK punctuation: 、。〈〉《》「」『』【】 and the like.
+        || ('\u{3000}'..='\u{303F}').contains(&c)
+        // Full-width forms of ASCII punctuation: ！（），：；？ and the like.
+        || ('\u{FF01}'..='\u{FF0F}').contains(&c)
+        || ('\u{FF1A}'..='\u{FF20}').contains(&c)
+        || ('\u{FF3B}'..='\u{FF40}').contains(&c)
+        || ('\u{FF5B}'..='\u{FF65}').contains(&c)
+}
+
+/// File paths a text cites: each run of characters between those that end a path, with a slash in it and not
+/// starting with one, a full stop that ends a sentence taken off, whatever language the text around it is in.
 fn cited_paths(text: &str) -> Vec<String> {
-    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '*')))
+    text.split(ends_path)
         .map(|w| w.trim_end_matches('.'))
         .filter(|w| w.contains('/') && !w.starts_with('/'))
         .map(str::to_string)
@@ -995,5 +1015,21 @@ mod tests {
             cited_paths("见 crates/wf-agents/src/main.rs：第 12 行"),
             ["crates/wf-agents/src/main.rs"]
         );
+    }
+
+    // The case the check once sent back: a correct path followed by a full-width colon.
+    #[test]
+    fn a_path_followed_by_full_width_punctuation_is_the_path() {
+        assert_eq!(
+            cited_paths("crates/wf-agents/src/main.rs："),
+            ["crates/wf-agents/src/main.rs"]
+        );
+        assert_eq!(
+            cited_paths("改了 crates/engine/src/steps.rs，以及（crates/flow/src/lib.rs）。"),
+            ["crates/engine/src/steps.rs", "crates/flow/src/lib.rs"]
+        );
+        assert_eq!(cited_paths("“design/engine/inputs.md”、"), ["design/engine/inputs.md"]);
+        // A path whose name is not ASCII is kept whole, and `path:line` gives the path.
+        assert_eq!(cited_paths("research/设计.md:3"), ["research/设计.md"]);
     }
 }

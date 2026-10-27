@@ -7,9 +7,11 @@ use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
 
 use crate::agent::{self, Request};
+use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
+use crate::message::{self, Held};
 use crate::work::{self, Ended, Item, Round, Work};
-use crate::{Advance, Engine, MAX_REJECTED, actions, checks, git, prompt, tools, values};
+use crate::{Advance, Engine, actions, checks, git, tools, values};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -46,20 +48,14 @@ fn need_met(project: &config::Project, need: &str) -> bool {
     project.has(need).unwrap_or(false)
 }
 
-/// The inputs as recorded in a round: what each was, and its value; the history stands for the rounds before.
+/// The inputs of a step that is not an agent's round, as its round records them: the value of each, by its sources,
+/// without what the flow says each is.
 fn recorded_inputs(gathered: &[Gathered]) -> Value {
     Value::Array(
         gathered
             .iter()
             .filter(|x| !x.itself())
-            .map(|x| {
-                let value = if x.history() {
-                    json!(inputs::EARLIER)
-                } else {
-                    json!(x.value)
-                };
-                json!({ "what": x.input.what, "value": value, "held": x.held() })
-            })
+            .map(|x| json!({ "from": x.input.from, "value": x.value }))
             .collect(),
     )
 }
@@ -73,24 +69,25 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     {
         return not_applicable(e, w, g, cell, need);
     }
+    let section = failed::section(e, g)?;
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    // A round the engine itself cut off is not a return sent back, and a work the owner let go on after it paused
-    // counts afresh.
+    // A round the engine itself cut off and a run that ended without a return are not returns sent back, and a work
+    // the owner let go on after it paused counts afresh.
     let resumed = work::resumed_at(e.db.conn(), w.id)?;
-    let rejected: Vec<&Round> = at_cell
-        .iter()
-        .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
-        .take_while(|r| r.rejected.is_some() && resumed.is_none_or(|t| r.started_at > t))
-        .collect();
-    let reason = rejected
-        .first()
-        .map(|r| r.rejected.clone().unwrap_or_default().to_string());
-    if rejected.len() >= MAX_REJECTED {
+    if let Some(why) = failed::waiting(e.retry_wait, &at_cell, resumed, &section) {
+        return Ok(Advance::Waits(why));
+    }
+    let sent_back = failed::sent_back(&at_cell, resumed);
+    let pause_after = section.sent_back.pause_after as usize;
+    if sent_back.len() >= pause_after {
+        let reason = sent_back
+            .first()
+            .map(|r| r.rejected.clone().unwrap_or_default().to_string())
+            .unwrap_or_default();
         let why = format!(
-            "{} returns of cell {} in a row were sent back; the last: {}",
-            rejected.len(),
-            cell.id,
-            reason.unwrap_or_default()
+            "{} returns of cell {} in a row were sent back; the last: {reason}",
+            sent_back.len(),
+            cell.id
         );
         e.pause(w.id, &why)?;
         (e.say)(&format!("work {} paused: {why}", w.id));
@@ -112,63 +109,44 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .ok();
-    // A session the CLI has started is resumed; one it never started is started under the id kept for it, and is
-    // given everything its line holds.
+    let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let line_rounds: Vec<Round> = match &session {
-        Some((sid, _)) => work::rounds(e.db.conn(), w.id)?
-            .into_iter()
+        Some((sid, _)) => work_rounds
+            .iter()
             .filter(|r| r.session == Some(*sid))
+            .cloned()
             .collect(),
         None => Vec::new(),
     };
+    // A session the CLI has started is resumed; one it never started is started under the id kept for it.
     let used = line_rounds
         .iter()
         .any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
-    let compacted = line_rounds
-        .iter()
-        .rev()
-        .find(|r| r.ended_at.is_some())
-        .is_some_and(|r| r.compactions > 0);
-    let give_all = !used || compacted;
-    let mut gathered = inputs::gather(e, w, g, cell, &item)?;
+    let held = Held::of(&line_rounds, g);
+    let registry = message::registry(&work_rounds);
+    let gathered = inputs::gather(e, w, g, cell, &item)?;
     let given = values::given(e, w, g, cell, &item, &gathered)?;
-    // A session holds the history up to the last of its rounds that ran and was given it, and is given only what came
-    // after.
-    let held = line_rounds
-        .iter()
-        .filter(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()))
-        .filter(|r| {
-            r.cell
-                .as_deref()
-                .and_then(|c| g.cell(c))
-                .is_some_and(|c| c.inputs.iter().any(inputs::is_history))
-        })
-        .map(|r| r.id)
-        .max()
-        .filter(|_| !give_all);
-    if let Some(upto) = held {
-        for x in gathered.iter_mut().filter(|x| x.history()) {
-            inputs::since(x, upto);
-        }
-    }
     let interjections: Vec<Value> = inputs::db_rows(e, w, &item, "waiting_interjections", Some("work"))?
         .into_iter()
         .filter(|r| r["line"] == line.as_str())
         .collect();
-    let columns = prompt::columns(e, w, g, cell, &item);
-    let text = prompt::agent(
+    let columns = message::columns(e, w, g, cell, &item);
+    let number = work::next_round(e.db.conn())?;
+    let msg = message::Context {
         e,
         w,
         g,
         cell,
-        &item,
-        &gathered,
-        &interjections,
-        reason.as_deref(),
-        &given,
-        give_all,
-        &columns,
-    );
+        item: &item,
+        round: number,
+        rounds: &work_rounds,
+        gathered: &gathered,
+        given: &given,
+        columns: &columns,
+        held: &held,
+        registry: &registry,
+    }
+    .build();
     let head = w.worktree.as_deref().and_then(|wt| git::head(wt).ok());
     let change = w
         .worktree
@@ -178,11 +156,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .iter()
         .filter_map(|i| i["interjection"].as_i64())
         .collect();
-    let input = json!({
-        "prompt": text,
-        "inputs": recorded_inputs(&gathered),
-        "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
-    });
     let commit = e.config.commit.clone();
     let fresh = agent::new_session_id();
     let (sid, resume, new_session) = match session {
@@ -201,12 +174,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             (id, None, fresh)
         }
     };
-    let round =
-        e.db.write(Actor::Engine, |tx| {
-            work::start_round(tx, w.id, &cell.id, Some(sid), &input, &commit, Some(&level.model))
-                .map_err(db::Error::Abort)
-        })
-        .map_err(sql)?;
     let wt = w.worktree.clone().unwrap_or_else(|| project.checkout.clone());
     let req = Request {
         work: w.id,
@@ -216,11 +183,34 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         model: level.model.clone(),
         effort: level.effort.clone(),
         worktree: wt,
+        config_dir: e.cli_home(&cli_name),
         resume,
         new_session: new_session.clone(),
-        prompt: text,
+        prompt: msg.text.clone(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
     };
+    let cli_version = e.cli_version(&cli_name);
+    let input = json!({
+        "message": msg.text,
+        "materials": msg.record(),
+        "call": agent::call(&req, &agent::command_line(&req), &cli_version),
+        "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
+    });
+    let round =
+        e.db.write(Actor::Engine, |tx| {
+            work::start_numbered(
+                tx,
+                Some(number),
+                w.id,
+                &cell.id,
+                Some(sid),
+                &input,
+                &commit,
+                Some(&level.model),
+            )
+            .map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
     (e.say)(&format!("work {} cell {}: round {round} of the {line}", w.id, cell.id));
     let reply = e.agents.run(&req);
     if reply.session != new_session && !reply.session.is_empty() {
@@ -235,15 +225,22 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         usage: Some(round_cost(reply.usage.clone(), &line_rounds)).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
+        command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
     let Some(output) = reply.output.clone() else {
-        let why = reply
-            .error
-            .clone()
-            .unwrap_or_else(|| "the round handed in nothing".to_string());
-        return reject(e, round, ended, json!({ "error": why }));
+        let f = Failed {
+            w,
+            g,
+            cell,
+            round,
+            at_cell: &at_cell,
+            resumed,
+            section: &section,
+        };
+        return f.handle(e, ended, &reply);
     };
+    e.returned();
     let row = match g.take(&cell.id, &output, &given) {
         Ok(r) => r.clone(),
         Err(why) => {
@@ -488,10 +485,20 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
             )));
         }
     }
-    let gathered = inputs::gather(e, w, g, cell, &item)?;
+    // Starting a work takes the queue's next item and decides nothing, so its round records no input.
+    let starts = step.as_deref() == Some("start_work");
+    let gathered = if starts {
+        Vec::new()
+    } else {
+        inputs::gather(e, w, g, cell, &item)?
+    };
     let given = values::given(e, w, g, cell, &item, &gathered)?;
     let commit = e.config.commit.clone();
-    let input = json!({ "inputs": recorded_inputs(&gathered), "given": given });
+    let input = if starts {
+        json!({})
+    } else {
+        json!({ "inputs": recorded_inputs(&gathered), "given": given })
+    };
     let quick = matches!(step.as_deref(), None | Some("choose_checks") | Some("check_plan"));
     if quick {
         let output = match step.as_deref() {

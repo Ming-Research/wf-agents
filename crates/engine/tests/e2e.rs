@@ -12,8 +12,21 @@ use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine, MAX_REJECTED};
+use engine::{Advance, Engine};
 use serde_json::{Value, json};
+
+/// How many returns of a cell in a row the flow sends back before it pauses the work.
+fn pause_after() -> usize {
+    let relations = db::relations(db::SCHEMA).unwrap();
+    let f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+    f.graph(engine::ENGINEER)
+        .unwrap()
+        .rounds
+        .as_ref()
+        .unwrap()
+        .sent_back
+        .pause_after as usize
+}
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -119,7 +132,8 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
     }
 }
 
-/// What the scripted agent hands in at a cell, and does in the worktree before.
+/// What the scripted agent hands in at a cell, and does in the worktree before. Under `@error` it hands in nothing,
+/// as a run that failed with that report; under `@compactions`, the session was compacted that many times.
 type Script = Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>)>;
 
 struct Scripted {
@@ -141,17 +155,32 @@ impl Agents for Scripted {
         };
         let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        if let Some(e) = set.get("@error") {
+            return Reply {
+                session,
+                usage: json!({ "started": true }),
+                error: e.as_str().map(str::to_string),
+                ..Reply::default()
+            };
+        }
+        let compactions = set.remove("@compactions").and_then(|c| c.as_i64()).unwrap_or(0);
         set.entry("side_reports".into()).or_insert(json!([]));
         set.entry("progress".into())
             .or_insert(json!(format!("round {n} at {}", r.cell)));
         Reply {
             output: Some(example(&r.schema, "", &pick, &set)),
-            session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
+            session,
             model: Some(r.model.clone()),
             usage: json!({ "cost_usd": 0.01 }),
-            compactions: 0,
+            compactions,
             error: None,
+            command: Vec::new(),
         }
+    }
+
+    fn version(&self, _cli: &config::Cli, _config_dir: Option<&Path>) -> String {
+        "scripted".to_string()
     }
 }
 
@@ -400,6 +429,7 @@ fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefC
     };
     let committed = config::committed(&s.data).unwrap();
     let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
+    e.retry_wait = std::time::Duration::ZERO;
     let said = Rc::new(RefCell::new(Vec::<String>::new()));
     let log = said.clone();
     e.say = Box::new(move |x| log.borrow_mut().push(x.to_string()));
@@ -535,11 +565,12 @@ fn a_single_step_runs_exactly_one_round() {
 fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let s = setup("resume");
     let mut scripts = scripts();
+    let max = pause_after();
     scripts.insert(
         "1",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |_: &Request, n: usize| {
             let bad = vec![("outcome", json!("the JSON text of an object"))];
-            (Vec::new(), if n <= MAX_REJECTED { bad } else { Vec::new() })
+            (Vec::new(), if n <= max { bad } else { Vec::new() })
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
@@ -567,5 +598,383 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Each agent round of the item's work, oldest first: its number, its cell, and what the engine recorded it gave.
+fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT r.id, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.id",
+        &[&item],
+        1000,
+    )
+    .unwrap()
+    .into_iter()
+    .map(|r| {
+        (
+            r["id"].as_i64().unwrap(),
+            r["cell"].as_str().unwrap().to_string(),
+            r["input"].clone(),
+        )
+    })
+    .collect()
+}
+
+/// Whether a round's message gave the material at an address, or only referred to it; none when it has none there.
+fn given(input: &Value, address: &str) -> Option<bool> {
+    input["materials"]
+        .as_array()?
+        .iter()
+        .find(|m| m["address"] == address)
+        .and_then(|m| m["given"].as_bool())
+}
+
+/// The hash of the material at an address in a round's message.
+fn hash_of(input: &Value, address: &str) -> Option<String> {
+    input["materials"]
+        .as_array()?
+        .iter()
+        .find(|m| m["address"] == address)
+        .and_then(|m| m["hash"].as_str().map(str::to_string))
+}
+
+// Every message starts with its round's address; within a session a material is given once and referred to after;
+// the database is an index; and the locked acceptance is the one material the design handed in, held by the
+// engineer's session and given to the review's.
+#[test]
+fn a_message_gives_each_material_once_in_a_session() {
+    let s = setup("materials");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..100 {
+        e.tick().unwrap();
+        if agent_rounds(&e, item).iter().any(|r| r.1 == "5") {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let rounds = agent_rounds(&e, item);
+    let at = |cell: &str| -> &Value {
+        &rounds
+            .iter()
+            .find(|r| r.1 == cell)
+            .unwrap_or_else(|| panic!("no round at {cell}:\n{log}"))
+            .2
+    };
+    for (id, cell, input) in &rounds {
+        let m = input["message"].as_str().unwrap();
+        assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
+    }
+    let (first, second) = (at("1"), at("1a"));
+    for a in ["format:common", "format:1", "rule:ground", "db:tables"] {
+        assert_eq!(given(first, a), Some(true), "{a}");
+    }
+    for a in ["format:common", "rule:ground", "db:tables"] {
+        assert_eq!(given(second, a), Some(false), "{a}");
+    }
+    assert_eq!(given(second, "format:1a"), Some(true));
+    let m = second["message"].as_str().unwrap();
+    assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("### db:tables"), "{m}");
+    assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
+    assert!(m.contains("- items: A piece of work to do"), "{m}");
+    assert!(!m.contains("CREATE TABLE"), "{m}");
+    let design = rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
+    let acceptance = format!("R{design}·2a·acceptance");
+    assert_eq!(given(at("3f"), &acceptance), Some(false), "{}", at("3f"));
+    assert_eq!(given(at("4"), &acceptance), Some(false), "{}", at("4"));
+    assert_eq!(given(at("5"), &acceptance), Some(true), "{}", at("5"));
+    assert!(
+        !rounds
+            .iter()
+            .any(|r| r.2["materials"].to_string().contains("item_acceptance"))
+    );
+    let call = &second["call"];
+    assert_eq!(call["cli"], "scripted");
+    assert_eq!(call["engine"], engine::VERSION);
+    assert!(call["session"]["resumed"].is_string(), "{call}");
+    assert!(first["call"]["session"]["started"].is_string());
+    let command: Vec<&str> = call["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        command.contains(&"--json-schema") && command.contains(&"--resume"),
+        "{call}"
+    );
+    assert!(
+        call["env"]["CLAUDE_CONFIG_DIR"]
+            .as_str()
+            .is_some_and(|d| d.ends_with("agents/claude")),
+        "{call}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A material whose content changed is given again under its address; after a compaction the session holds nothing,
+// and the next round is given what it needs again, the session's own earlier returns included.
+#[test]
+fn a_changed_material_is_given_again_and_so_is_everything_after_a_compaction() {
+    let s = setup("again");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1a",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@compactions", json!(1))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    write(&s.data, "rules/ground.md", "Facts first, then the rest.\n");
+    git(&s.data, &["add", "-A"]);
+    git(&s.data, &["commit", "-q", "-m", "a changed rule"]);
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let rounds = agent_rounds(&e, item);
+    let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
+    assert_eq!(&cells[..3], ["1", "1a", "2"], "{log}");
+    let (a, b, c) = (&rounds[0].2, &rounds[1].2, &rounds[2].2);
+    assert_eq!(given(b, "rule:ground"), Some(true));
+    assert_ne!(hash_of(a, "rule:ground"), hash_of(b, "rule:ground"));
+    assert_eq!(given(b, "format:common"), Some(false));
+    assert_eq!(given(c, "format:common"), Some(true));
+    assert_eq!(given(c, "rule:ground"), Some(true));
+    assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
+    let understanding = format!("R{}·1·understanding", rounds[0].0);
+    assert_eq!(given(c, &understanding), Some(true), "{c}");
+    let m = c["message"].as_str().unwrap();
+    assert!(m.contains(&format!("compacted in R{}", rounds[1].0)), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// How many returns sent back pause a work is the number the flow the work runs on says.
+#[test]
+fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
+    let s = setup("pause");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let relations = db::relations(db::SCHEMA).unwrap();
+    let mut f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+    f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
+    let (digest, text) = (f.digest(), f.json());
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
+            params![digest, text],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        Ok(())
+    })
+    .unwrap();
+    for _ in 0..6 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("2 returns of cell 1 in a row were sent back")),
+        "{paused:?}\n{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The engine over a setup whose cell 1 ends its first `times` runs without a return, the CLI reporting `report`.
+fn failing(name: &str, report: String, times: usize) -> (Setup, Engine, Rc<RefCell<Vec<String>>>, i64) {
+    let s = setup(name);
+    let mut scripts = scripts();
+    scripts.insert(
+        "1",
+        Box::new(move |_: &Request, n: usize| {
+            let fail = vec![("@error", json!(report))];
+            (Vec::new(), if n <= times { fail } else { Vec::new() })
+        }),
+    );
+    let (e, said, item) = start(&s, scripts);
+    (s, e, said, item)
+}
+
+/// The kind of each failed run, in order.
+fn failed_kinds(e: &Engine) -> Vec<String> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT json_extract(rejected, '$.failed.kind') AS kind FROM rounds
+         WHERE json_extract(rejected, '$.failed') IS NOT NULL ORDER BY id",
+        &[],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["kind"].as_str().unwrap_or_default().to_string())
+    .collect()
+}
+
+/// How many returns were sent back: rounds rejected that neither failed nor were cut off.
+fn sent_back(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE rejected IS NOT NULL AND json_extract(rejected, '$.failed') IS NULL
+             AND json_extract(rejected, '$.interrupted') IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+fn rounds_count(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+        .unwrap()
+}
+
+/// The lines of what the owner was told that name a word.
+fn told(s: &Setup, word: &str) -> usize {
+    std::fs::read_to_string(s.data.join("notifications.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains(word))
+        .count()
+}
+
+/// The card a work's failed run raised: whom it asks, and the kind of failure.
+fn failure_card(e: &Engine) -> (i64, String, String) {
+    e.db.conn()
+        .query_row(
+            "SELECT id, json_extract(body, '$.to'), json_extract(body, '$.failed.kind') FROM cards WHERE kind = 'ask'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap()
+}
+
+// A usage limit stops every work until the time the CLI says it resets, the owner told once; then the work goes on
+// from its cell, and the failed run is not a return sent back.
+#[test]
+fn a_usage_limit_stops_every_work_until_it_resets() {
+    let reset = db::now() / 1000 + 3600;
+    let (s, mut e, said, item) = failing("limit", format!("Claude AI usage limit reached|{reset}"), 1);
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000));
+    let before = rounds_count(&e);
+    e.tick().unwrap();
+    e.tick().unwrap();
+    assert_eq!(rounds_count(&e), before);
+    assert_eq!(told(&s, "usage_limit"), 1);
+    e.halt.as_mut().unwrap().until = 0;
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "1", "{log}");
+    assert_eq!(failed_kinds(&e), ["usage_limit"]);
+    assert_eq!(sent_back(&e), 0);
+    assert_eq!(told(&s, "usage_limit"), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With no network every work waits until the engine looks again; then the work goes on from its cell.
+#[test]
+fn no_network_stops_every_work_until_it_is_back() {
+    let report = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
+    let (s, mut e, said, item) = failing("offline", report, 1);
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!(h.kind, "offline");
+    assert!(h.until > db::now());
+    let before = rounds_count(&e);
+    e.tick().unwrap();
+    assert_eq!(rounds_count(&e), before);
+    e.halt.as_mut().unwrap().until = 0;
+    e.tick().unwrap();
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None);
+    assert_ne!(at, "1");
+    assert_eq!(failed_kinds(&e), ["offline"]);
+    assert_eq!(sent_back(&e), 0);
+    assert_eq!(told(&s, "offline"), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A passing failure runs the same round again as many times as the flow says; if it still fails, the work pauses
+// and the architect is asked, and once the card is answered the cell runs again. None of it is a return sent back.
+#[test]
+fn a_passing_failure_runs_again_then_asks_the_architect() {
+    let (s, mut e, said, item) = failing("transient", "API Error: 529 Overloaded".to_string(), 3);
+    for _ in 0..10 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1", "{log}");
+    let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
+    assert!(
+        paused.contains("3 times in a row") && paused.contains("asked the architect"),
+        "{paused}"
+    );
+    assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
+    assert_eq!(sent_back(&e), 0);
+    let (card, to, kind) = failure_card(&e);
+    assert_eq!((to.as_str(), kind.as_str()), ("architect", "transient"));
+    let ruling = json!([{ "by": "owner", "verdict": "answer", "text": "The service is back." }]).to_string();
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE cards SET status = 'ruled', rulings = ?2 WHERE id = ?1",
+            params![card, ruling],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A failure no retry can help, such as an expired login, pauses the work and asks the owner at once.
+#[test]
+fn a_run_no_retry_can_help_asks_the_owner_at_once() {
+    let (s, mut e, said, item) = failing("cannot", "Not logged in · Please run /login".to_string(), 1);
+    for _ in 0..5 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1", "{log}");
+    let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
+    assert!(
+        paused.contains("once") && paused.contains("asked the owner"),
+        "{paused}"
+    );
+    assert_eq!(failed_kinds(&e), ["cannot_run"]);
+    assert_eq!(sent_back(&e), 0);
+    let (_, to, kind) = failure_card(&e);
+    assert_eq!((to.as_str(), kind.as_str()), ("owner", "cannot_run"));
     let _ = std::fs::remove_dir_all(&s.root);
 }

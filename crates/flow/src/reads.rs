@@ -8,18 +8,14 @@
 //! - Nothing missing: on every way from the start to a cell, each input it reads has been written, unless the input
 //!   is marked maybe; and an input marked maybe is missing on some way. An engine step that switches on an input it
 //!   reads by id takes a row only on what that input can hold: what was not written, it cannot see.
-//! - What a session holds: an agent's cell on a line resumes the session the line's earlier rounds left. An input is
-//!   already in that session when, on every way to the cell, every place it reads was last replaced by a round of
-//!   the line, or was given to one of its rounds since; a place nothing has written counts as held, there being
-//!   nothing to give. The engine gives the rest. A rule is held when an earlier round of the line was given it.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use crate::bits::Bits;
 use crate::check::Analysis;
 use crate::field::{Place, PlaceKind, by_id, head};
 use crate::format::Src;
-use crate::graph::{CellKind, Graph, POINTERS};
+use crate::graph::{Graph, POINTERS};
 use crate::walk::State;
 
 /// A place of a cell's output: the cell, and the place's number among its places.
@@ -485,191 +481,6 @@ impl Analysis<'_, '_> {
         }
         for (kind, m, at, ex) in found {
             self.findings.first(kind, &g.cells[m].id, &at, ex);
-        }
-    }
-
-    pub fn sessions(&mut self) {
-        let g = self.g;
-        let n = self.states.len();
-        for line in &g.lines {
-            let boxes: BTreeSet<usize> = (0..g.cells.len())
-                .filter(|i| g.cells[*i].line.as_ref() == Some(line))
-                .collect();
-            let at_boxes = |s: usize| boxes.contains(&self.states[s].at);
-            let u: BTreeSet<Spot> = (0..n)
-                .filter(|s| at_boxes(*s))
-                .flat_map(|s| self.reads[s].iter().copied())
-                .collect();
-            let bit: HashMap<Spot, usize> = u.iter().enumerate().map(|(i, sp)| (*sp, i)).collect();
-            let nu = u.len();
-            let mut full = Bits::new(nu);
-            for i in 0..nu {
-                full.set(i);
-            }
-            let mut own: BTreeMap<usize, Vec<Spot>> = BTreeMap::new();
-            for sp in &u {
-                own.entry(sp.0).or_default().push(*sp);
-            }
-            let msk = |spots: &mut dyn Iterator<Item = Spot>| {
-                let mut b = Bits::new(nu);
-                for sp in spots {
-                    if let Some(i) = bit.get(&sp) {
-                        b.set(*i);
-                    }
-                }
-                b
-            };
-            // Reading a place reads every place inside it.
-            let inside: HashMap<Spot, Bits> = u
-                .iter()
-                .map(|&(c, k)| {
-                    let key = &self.places[c][k].key;
-                    let mut ins = own[&c]
-                        .iter()
-                        .copied()
-                        .filter(|&(_, j)| under(&self.places[c][j].key, key));
-                    ((c, k), msk(&mut ins))
-                })
-                .collect();
-            let read: Vec<Bits> = (0..n)
-                .map(|s| {
-                    let mut b = Bits::new(nu);
-                    if at_boxes(s) {
-                        for sp in &self.reads[s] {
-                            if let Some(x) = inside.get(sp) {
-                                b.or(x);
-                            }
-                        }
-                    }
-                    b
-                })
-                .collect();
-            // Of what the line reads, what each outcome replaces and writes.
-            let mut masks: HashMap<(usize, usize), (Bits, Bits)> = HashMap::new();
-            for m in 0..g.cells.len() {
-                for o in 0..self.rets[m].outcomes.len() {
-                    let pres = &self.rets[m].outcomes[o].pres;
-                    let mine = own.get(&m).map(Vec::as_slice).unwrap_or_default();
-                    let gone: Vec<Spot> = mine.iter().copied().filter(|&(_, k)| self.replaced(m, k, o)).collect();
-                    let got: Vec<Spot> = gone.iter().copied().filter(|&(_, k)| pres.has(k)).collect();
-                    masks.insert((m, o), (msk(&mut gone.into_iter()), msk(&mut got.into_iter())));
-                }
-            }
-            // What the line holds after the work leaves a state, for every return that takes the row: a round of the
-            // line holds what it read and what it returned; any other return or step replaces what the line held.
-            let moved = |s: usize, t: usize, v: &Bits| {
-                let m = self.states[s].at;
-                let mut v = v.clone();
-                if at_boxes(s) {
-                    v.or(&read[s]);
-                }
-                let mut out = full.clone();
-                for &o in &self.takes[t] {
-                    let (gone, got) = &masks[&(m, o)];
-                    let mut x = v.clone();
-                    x.or(gone);
-                    if !at_boxes(s) {
-                        x.and_not(got);
-                    }
-                    out.and(&x);
-                }
-                out
-            };
-            let mut holds = vec![full.clone(); n];
-            let mut todo: VecDeque<usize> = (0..n).collect();
-            let mut queued = vec![true; n];
-            while let Some(s) = todo.pop_front() {
-                queued[s] = false;
-                for &(_, s2, t) in &self.steps[s] {
-                    let mut v = moved(s, t, &holds[s]);
-                    v.and(&holds[s2]);
-                    if v != holds[s2] {
-                        holds[s2] = v;
-                        if !queued[s2] {
-                            queued[s2] = true;
-                            todo.push_back(s2);
-                        }
-                    }
-                }
-            }
-            for &m in &boxes {
-                for (idx, x) in g.cells[m].inputs.iter().enumerate() {
-                    let held = (0..n).filter(|s| self.states[*s].at == m).all(|s| {
-                        let st = &self.states[s];
-                        let mut b = msk(&mut x.from.iter().filter_map(|src| match src {
-                            Src::Place(c, p) => self.spot(c, p, st),
-                            _ => None,
-                        }));
-                        b.and_not(&holds[s]);
-                        !b.any()
-                    });
-                    self.held.insert((m, idx), held);
-                }
-            }
-            // A rule never changes: the line's session holds it when, on every way to the cell, an earlier round
-            // of the line was given it. The line's session holds none at the start.
-            let given = |c: usize| -> Vec<Option<String>> {
-                let cell = &g.cells[c];
-                let mut out = Vec::new();
-                if cell.kind == CellKind::Agent {
-                    out.push(None);
-                }
-                out.extend(cell.rules.iter().cloned().map(Some));
-                out
-            };
-            let names: Vec<Option<String>> = boxes
-                .iter()
-                .flat_map(|c| given(*c))
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            if names.is_empty() {
-                continue;
-            }
-            let rbit = |r: &Option<String>| names.iter().position(|x| x == r).unwrap_or(0);
-            let nr = names.len();
-            let mine: BTreeMap<usize, Bits> = boxes
-                .iter()
-                .map(|c| {
-                    let mut b = Bits::new(nr);
-                    for r in given(*c) {
-                        b.set(rbit(&r));
-                    }
-                    (*c, b)
-                })
-                .collect();
-            let mut all = Bits::new(nr);
-            for i in 0..nr {
-                all.set(i);
-            }
-            let mut rh = vec![all; n];
-            rh[0] = Bits::new(nr);
-            let mut todo: VecDeque<usize> = (0..n).collect();
-            let mut queued = vec![true; n];
-            while let Some(s) = todo.pop_front() {
-                queued[s] = false;
-                for &(_, s2, _) in &self.steps[s] {
-                    let mut v = rh[s].clone();
-                    if let Some(b) = mine.get(&self.states[s].at) {
-                        v.or(b);
-                    }
-                    v.and(&rh[s2]);
-                    if v != rh[s2] && s2 != 0 {
-                        rh[s2] = v;
-                        if !queued[s2] {
-                            queued[s2] = true;
-                            todo.push_back(s2);
-                        }
-                    }
-                }
-            }
-            for &m in &boxes {
-                for r in given(m) {
-                    let b = rbit(&r);
-                    let held = (0..n).filter(|s| self.states[*s].at == m).all(|s| rh[s].has(b));
-                    self.rule_held.insert((m, r), held);
-                }
-            }
         }
     }
 }

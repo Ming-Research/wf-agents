@@ -101,7 +101,6 @@ function cell(id: string, rows: CompiledRow[]): CompiledCell {
     line: 'engineer',
     stage: null,
     inputs: [],
-    project_rules: null,
     prompt_by: null,
     schema: null,
     rows,

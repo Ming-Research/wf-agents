@@ -185,6 +185,68 @@ pub struct Flow {
     pub design_card: Vec<String>,
     /// What the owner or the architect says to a running work, and who may.
     pub interject: Option<Interject>,
+    /// What the engine does with an agent's round that does not end in a return the cell takes.
+    pub rounds: Option<Rounds>,
+}
+
+/// What the engine does with an agent's round that does not end in a return the cell takes: a return sent back, or
+/// a run of the agent's command line that ended without one. Every agent's cell has this alike.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Rounds {
+    pub desc: String,
+    #[serde(rename = "sentBack")]
+    pub sent_back: SentBack,
+    pub failed: Failed,
+    /// What every round records.
+    pub record: Vec<String>,
+    /// What an agent's command line starts with, apart from what the flow gives it.
+    pub environment: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SentBack {
+    pub desc: String,
+    /// How many returns of one cell in a row may be sent back before the engine pauses the work.
+    #[serde(rename = "pauseAfter")]
+    pub pause_after: u32,
+    pub pause: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Failed {
+    pub desc: String,
+    pub kinds: Vec<Failure>,
+}
+
+/// One kind of run that ended without a return.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Failure {
+    pub name: String,
+    /// What the command line reports when this happens.
+    pub when: String,
+    pub handle: Handle,
+    /// For a failure retried: how many times the same round runs again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retries: Option<u32>,
+    /// The cell the work is taken to once the engine gives up; none for a failure it waits out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<String>,
+    pub desc: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Handle {
+    /// No new round starts for any work until the cause passes; then each work goes on from its cell.
+    Wait,
+    /// The same round runs again, then the work goes to `then`.
+    Retry,
+    /// The work goes to `then` at once.
+    Ask,
 }
 
 #[derive(Debug, Clone, Deserialize)]
