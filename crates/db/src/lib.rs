@@ -5,11 +5,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::functions::FunctionFlags;
-use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+use rusqlite::hooks::{Action, AuthAction, AuthContext, Authorization};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction, TransactionBehavior, params};
 
 pub use rusqlite;
@@ -113,11 +113,32 @@ struct Writer {
 
 type Current = Arc<Mutex<Option<Writer>>>;
 
+/// A row that a committed change touched: its table, and its rowid.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Changed {
+    pub table: String,
+    pub rowid: i64,
+}
+
+/// What is told the rows each committed write touched, given the connection that made it to look them up.
+pub type Listener = Box<dyn Fn(&Connection, &[Changed]) + Send>;
+
+/// The rows changed on a connection, kept until they can be told.
+#[derive(Default)]
+struct Watch {
+    /// Changed by the transaction still open.
+    pending: Vec<Changed>,
+    /// Changed by transactions that committed, not yet told.
+    committed: Vec<Changed>,
+}
+
 /// The database as the engine and the owner's commands use it. Every write goes through [`Db::write`]: a state
 /// table's triggers refuse a change made any other way, so none escapes `changes`.
 pub struct Db {
     conn: Connection,
     writer: Current,
+    watch: Arc<Mutex<Watch>>,
+    listener: Option<Listener>,
 }
 
 impl Db {
@@ -141,9 +162,52 @@ impl Db {
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
-        let mut db = Db { conn, writer };
+        let mut db = Db {
+            conn,
+            writer,
+            watch: Arc::default(),
+            listener: None,
+        };
         db.upgrade(SCHEMA, MIGRATIONS)?;
         Ok(db)
+    }
+
+    /// From now on tells `f` the rows each write on this connection touched, every table's, once its transaction
+    /// has committed: a reader that looks them up then sees them. Rows a statement outside [`Db::write`] changed are
+    /// told after the next write commits.
+    pub fn on_commit(&mut self, f: Listener) -> Result<()> {
+        let w = Arc::clone(&self.watch);
+        self.conn
+            .update_hook(Some(move |_: Action, _: &str, table: &str, rowid: i64| {
+                lock(&w).pending.push(Changed {
+                    table: table.to_string(),
+                    rowid,
+                });
+            }))?;
+        let w = Arc::clone(&self.watch);
+        self.conn.commit_hook(Some(move || {
+            let mut x = lock(&w);
+            let done = std::mem::take(&mut x.pending);
+            x.committed.extend(done);
+            // Lets the commit go on.
+            false
+        }))?;
+        let w = Arc::clone(&self.watch);
+        self.conn.rollback_hook(Some(move || lock(&w).pending.clear()))?;
+        self.listener = Some(f);
+        Ok(())
+    }
+
+    /// Tells the listener the rows committed since it was last told, each once.
+    fn tell(&self) {
+        let Some(f) = &self.listener else { return };
+        let rows = std::mem::take(&mut lock(&self.watch).committed);
+        if rows.is_empty() {
+            return;
+        }
+        let mut seen = HashSet::new();
+        let rows: Vec<Changed> = rows.into_iter().filter(|c| seen.insert(c.clone())).collect();
+        f(&self.conn, &rows);
     }
 
     /// The connection, for reads.
@@ -168,6 +232,7 @@ impl Db {
         set(&self.writer, None);
         let out = out?;
         tx.commit()?;
+        self.tell();
         Ok(out)
     }
 
@@ -205,6 +270,10 @@ impl Db {
 
 fn set(current: &Current, w: Option<Writer>) {
     *current.lock().unwrap_or_else(|e| e.into_inner()) = w;
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// A function the triggers call for the write in progress; outside one it fails, and so does the change.
@@ -348,6 +417,15 @@ pub fn open_for_agents(path: &Path, limit: Duration) -> Result<Connection> {
             t.elapsed() > limit
         }),
     )?;
+    Ok(conn)
+}
+
+/// Opens the database at `path` for the owner's interface to read: read-only, every table readable, waiting while a
+/// write holds the database.
+pub fn open_read(path: &Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    conn.busy_timeout(Duration::from_secs(10))?;
+    conn.pragma_update(None, "query_only", true)?;
     Ok(conn)
 }
 
@@ -573,6 +651,40 @@ mod tests {
         let titles = names(db.conn(), "SELECT title FROM items").unwrap();
         assert_eq!(titles, ["kept"]);
         assert_eq!(changes(&db).len(), 1);
+    }
+
+    #[test]
+    fn a_committed_write_tells_the_rows_it_touched_and_a_failed_one_nothing() {
+        let mut db = Db::in_memory().unwrap();
+        let told: Arc<Mutex<Vec<Changed>>> = Arc::default();
+        let t = Arc::clone(&told);
+        db.on_commit(Box::new(move |_, rows| t.lock().unwrap().extend(rows.iter().cloned())))
+            .unwrap();
+        let take = || -> Vec<Changed> {
+            told.lock()
+                .unwrap()
+                .drain(..)
+                .filter(|c| c.table != "changes")
+                .collect()
+        };
+        let id = db.write(Actor::Owner, |tx| item(tx, "a")).unwrap();
+        let items = vec![Changed {
+            table: "items".into(),
+            rowid: id,
+        }];
+        assert_eq!(take(), items);
+        let failed = db.write(Actor::Owner, |tx| {
+            item(tx, "b")?;
+            Err::<(), _>(Error::Abort("given up".into()))
+        });
+        assert!(failed.is_err());
+        db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE items SET title = 'c' WHERE id = ?1", [id])?;
+            tx.execute("UPDATE items SET title = 'd' WHERE id = ?1", [id])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(take(), items);
     }
 
     // Dependencies stay a directed acyclic graph.
