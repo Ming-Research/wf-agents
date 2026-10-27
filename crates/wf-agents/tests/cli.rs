@@ -91,6 +91,12 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
+/// The command ran and failed, which is exit status 1; the argument parser refuses what it does not know with 2, so
+/// a mistyped command line or a command that does not exist is not taken for a failure.
+fn failed(out: &Output) -> bool {
+    out.status.code() == Some(1)
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .arg("-C")
@@ -142,7 +148,7 @@ fn refused(dir: &Path, line: &str) {
     let out = wf(dir, line);
     let err = stderr(&out);
     let path = config::database(dir).display().to_string();
-    assert!(!out.status.success(), "`{line}` succeeded");
+    assert!(failed(&out), "`{line}`: {:?}", out.status);
     assert!(err.contains(&path), "`{line}`: {err}");
     assert!(err.contains("wf-agents init"), "`{line}`: {err}");
 }
@@ -238,7 +244,7 @@ fn no_command_makes_a_data_directory_that_is_not_there() {
     let dir = temp("typo");
     for line in UNCHECKED.into_iter().chain(CHECKED) {
         let out = wf(&dir, line);
-        assert!(!out.status.success(), "`{line}` succeeded");
+        assert!(failed(&out), "`{line}`: {:?}", out.status);
         assert!(!dir.exists(), "`{line}` made {}", dir.display());
     }
 }
@@ -259,7 +265,7 @@ fn init_makes_the_database_once() {
     let out = wf(&dir, add);
     assert!(out.status.success(), "{}", stderr(&out));
     let again = wf(&dir, "init");
-    assert!(!again.status.success());
+    assert!(failed(&again), "{:?}", again.status);
     assert!(stderr(&again).contains(&path));
     let out = wf(&dir, "item list");
     assert!(String::from_utf8(out.stdout).unwrap().contains("kept"));
@@ -282,11 +288,11 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
     for dir in [&plain, &uncommitted, &broken] {
         let before = entries(dir);
         let out = wf(dir, "init");
-        assert!(!out.status.success(), "init succeeded in {}", dir.display());
+        assert!(failed(&out), "init in {}: {:?}", dir.display(), out.status);
         assert_eq!(entries(dir), before, "{}", dir.display());
     }
     let out = wf(&absent, "init");
-    assert!(!out.status.success());
+    assert!(failed(&out), "init in {}: {:?}", absent.display(), out.status);
     assert!(!absent.exists());
     for dir in [&plain, &uncommitted, &broken] {
         let _ = std::fs::remove_dir_all(dir);
