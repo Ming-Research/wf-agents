@@ -309,8 +309,8 @@ impl<'a> Ways<'a> {
         out
     }
 
-    /// What a round of `c` is given: for an agent's cell, the return formats and the rules with the settings they
-    /// name, then the sources of its inputs; for any other cell, the sources of its inputs.
+    /// What a round of `c` is given: for an agent's cell, the return formats, what each numbered input is, the rules
+    /// and the worktree, then the sources of its inputs; for any other cell, the sources of its inputs.
     fn inputs(&self, c: &CompiledCell, trees: &BTreeMap<&str, Returns>) -> Vec<CellInput> {
         let agent = c.kind == AGENT;
         let mut out = Vec::new();
@@ -323,6 +323,9 @@ impl<'a> Ways<'a> {
         if agent {
             out.push(given(CellInputOf::CommonFormat, "format:common".into()));
             out.push(given(CellInputOf::CellFormat, format!("format:{}", c.id)));
+            if c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {
+                out.push(given(CellInputOf::CellInputs, format!("inputs:{}", c.id)));
+            }
             out.push(given(CellInputOf::ProjectRules, "rule:‹name›".into()));
             for r in &c.rules {
                 out.push(given(
@@ -330,7 +333,7 @@ impl<'a> Ways<'a> {
                     format!("rule:{}", r.name),
                 ));
             }
-            out.push(given(CellInputOf::Settings, "config:‹name›".into()));
+            out.push(given(CellInputOf::Workspace, "work:‹id›".into()));
         }
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {

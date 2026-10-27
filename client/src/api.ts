@@ -452,7 +452,7 @@ cells: Array<string>, };
 /**
  * What an input is.
  */
-export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "common_format" } | { "kind": "cell_format" };
+export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "common_format" } | { "kind": "cell_format" } | { "kind": "cell_inputs" } | { "kind": "workspace" };
 
 /**
  * What a cell hands back, as a tree of fields.

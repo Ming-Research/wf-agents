@@ -263,7 +263,7 @@ impl GitHub for FakeHub {
 
 /// The ids of the columns the review table lists in a prompt.
 fn columns(prompt: &str) -> Vec<String> {
-    let Some(start) = prompt.find("## The review table") else {
+    let Some(start) = prompt.find("## Review table") else {
         return Vec::new();
     };
     prompt[start..]
@@ -675,12 +675,24 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
         assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
     }
     let (first, second) = (&at("1"), &at("1a"));
-    for a in ["format:common", "format:1", "rule:ground"] {
+    let (work, _, _) = state(&e, item).unwrap();
+    let workspace = format!("work:{work}");
+    for a in [
+        "format:common",
+        "format:1",
+        "inputs:1",
+        "rule:ground",
+        workspace.as_str(),
+    ] {
         assert_eq!(given(first, a), Some(true), "{a}");
     }
-    for a in ["format:common", "rule:ground"] {
+    for a in ["format:common", "rule:ground", workspace.as_str()] {
         assert_eq!(given(second, a), Some(false), "{a}");
     }
+    // The inputs to work from are listed by their numbers, which `inputs:<cell>` explains once in a session.
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("\n1. item:"), "{m}");
+    assert!(m.contains(&format!("Worktree: {workspace}")), "{m}");
     assert_eq!(given(second, "format:1a"), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
@@ -814,6 +826,16 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
             .is_some_and(|p| p.starts_with("2 returns of cell 1 in a row were sent back")),
         "{paused:?}\n{log}"
     );
+    // After a return sent back the message only says why, and that the return is to be rewritten.
+    let rounds = agent_rounds(&e, item);
+    let (id, _, again) = &rounds[1];
+    let m = again["message"].as_str().unwrap();
+    assert!(
+        m.starts_with(&format!("# R{id} · cell 1\n\nYour return was sent back: "))
+            && m.ends_with("\nRewrite it (format:1).\n"),
+        "{m}"
+    );
+    assert_eq!(again["conditional"], json!([]));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -1,17 +1,19 @@
 //! The message an agent's round is sent, and what the round's session already holds.
 //!
 //! A message is the round's inputs, of two kinds. The always inputs are given every time the cell is entered: what to
-//! do this round (the cell's task), the conditional inputs to work from by their addresses, why the round happens and
-//! which format to hand in. A conditional input is anything worked on: a rule, the item, a setting, another cell's
-//! output, a tool's results, an interjection, a return format. Each has an address, and is given only when the
-//! session does not hold it: one the session already holds, by its content, is only referred to; one that is new or
-//! changed is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the record of
-//! what each of its rounds was given and handed back.
+//! do this round (the cell's task), what the agent reads itself, the addresses of the conditional inputs to work from
+//! by the number of each of the cell's inputs, why the round happens and which format to hand in. A conditional input
+//! is anything worked on: a rule, the item, a setting, another cell's output, a tool's results, an interjection, a
+//! return format, what each numbered input is, the worktree. Each has an address, and is given only when the session
+//! does not hold it: one the session already holds, by its content, is only referred to; one that is new or changed
+//! is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the
+//! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
+//! and that the return is to be rewritten.
 //!
 //! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
 //! content; a value the engine reads or computes for a round is `R<round>·engine·<name>`, by the earliest round it
-//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `card:<id>`, `ij:<id>`,
-//! `format:common` and `format:<cell>`.
+//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `card:<id>`, `ij:<id>`, `work:<id>`,
+//! `format:common`, `format:<cell>` and `inputs:<cell>`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -191,14 +193,11 @@ fn empty(v: &Value) -> bool {
     }
 }
 
-/// How a conditional input's content is written in a message.
+/// How a conditional input's content is written in a message: a text as it is, anything else as compact JSON.
 fn render(v: &Value) -> String {
     match v {
         Value::String(s) => s.trim_end().to_string(),
-        other => format!(
-            "```json\n{}\n```",
-            serde_json::to_string_pretty(other).unwrap_or_default()
-        ),
+        other => other.to_string(),
     }
 }
 
@@ -225,6 +224,21 @@ fn merge(a: &mut Value, b: &Value) {
                 x.insert(k.clone(), vb.clone());
             }
         }
+    }
+}
+
+/// A schema as the formats write it: `additionalProperties: false` left out, since the formats say once that no object
+/// holds fields it does not list.
+fn lean(schema: &Value) -> Value {
+    match schema {
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .filter(|(k, v)| !(*k == "additionalProperties" && **v == Value::Bool(false)))
+                .map(|(k, v)| (k.clone(), lean(v)))
+                .collect(),
+        ),
+        Value::Array(xs) => Value::Array(xs.iter().map(lean).collect()),
+        other => other.clone(),
     }
 }
 
@@ -297,14 +311,13 @@ pub fn common_format(g: &CompiledGraph) -> String {
         format!("; {}", leaves.join("; "))
     };
     format!(
-        "The forms every agent's return shares. A return is one JSON object. Its field `{w}` holds exactly one form: \
-         the cell's own answer, as `format:<cell>` gives it, or one of the forms here that `format:<cell>` says the \
-         cell has: {forms}. Every return also holds {every}{leaves}. As JSON Schema, each field of a return:\n\n\
-         ```json\n{json}\n```",
+        "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
+         the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
+         also holds {every}{leaves}. Each field, as JSON Schema; no object holds fields it does not list:\n\n{json}",
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),
-        json = Value::Object(schema),
+        json = lean(&Value::Object(schema)),
     )
 }
 
@@ -341,27 +354,31 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
         }
     }
     format!(
-        "The answer of cell {id} ({title}): what `{w}` holds when a round of this cell hands in its own answer, as JSON \
-         Schema. Instead of it, a return of this cell may hold these forms of `format:common`: {others}.\n\n\
-         ```json\n{json}\n```",
+        "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema; instead of it, a return of this cell may \
+         hold these forms of `format:common`: {others}.\n\n{json}",
         id = cell.id,
         title = cell.title,
         w = g.within,
         others = others.join(", "),
-        json = own,
+        json = lean(&own),
     )
 }
 
-/// A return format with the value of each setting it names written beside the setting's name, such as the owner's
-/// language beside `owner.language`: the compiled flow can name a setting, never its value, which the configuration
-/// holds. The value is written as JSON writes it inside a string, since the format holds the schema as JSON.
-fn with_settings(e: &Engine, project: &str, text: String) -> String {
+/// A return format or a rule with the value of each setting it names written beside the setting's name, such as
+/// the owner's language beside `owner.language`: the flow and the rules name a setting, never its value, which the
+/// configuration holds. In a return format, which holds the schema as JSON, the value is written as JSON writes it
+/// inside a string.
+fn with_settings(e: &Engine, project: &str, text: String, in_json: bool) -> String {
     let mut out = text;
-    // The fences around the JSON are not names: without them, names are the text between pairs of backticks.
+    // The fences around code are not names: without them, names are the text between pairs of backticks.
     for (name, value) in e.config.config.named_settings(project, &out.replace("```", "")) {
-        let quoted = Value::String(value).to_string();
-        let inner = &quoted[1..quoted.len() - 1];
-        out = out.replace(&format!("`{name}`"), &format!("`{name}` ({inner})"));
+        let value = if in_json {
+            let quoted = Value::String(value).to_string();
+            quoted[1..quoted.len() - 1].to_string()
+        } else {
+            value
+        };
+        out = out.replace(&format!("`{name}`"), &format!("`{name}` ({value})"));
     }
     out
 }
@@ -525,39 +542,41 @@ impl Context<'_> {
         }
     }
 
+    /// Why the cell's last return was sent back, when this round only rewrites it: the session holds everything else.
+    fn sent_back(&self) -> Option<String> {
+        let r = self.rounds.last()?;
+        if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() {
+            return None;
+        }
+        let rej = r.rejected.as_ref()?;
+        if ["interrupted", "failed", "error"].iter().any(|k| rej.get(k).is_some()) {
+            return None;
+        }
+        let reason = rej
+            .as_object()
+            .and_then(|o| o.values().next())
+            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
+            .unwrap_or_default();
+        Some(reason)
+    }
+
     /// Why this round happens, and the conditional inputs it says it with.
     fn why(&self, m: &mut Conditionals<'_>, interjections: &[String]) -> Vec<String> {
         let c = self.cell;
         let mut out = Vec::new();
         let here = |r: &&Round| r.cell.as_deref() == Some(c.id.as_str());
         let earlier = self.rounds.iter().rev().find(here);
-        if earlier.is_none() {
-            out.push("This is the first round at this cell.".to_string());
-        }
         match self.rounds.last() {
             Some(r) if here(&r) && r.transition.is_none() => {
                 let rej = r.rejected.clone().unwrap_or(Value::Null);
                 if rej.get("interrupted").is_some() {
                     out.push(format!(
-                        "R{} at this cell did not end: the engine stopped while it ran. This round does its work again.",
+                        "R{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
                 } else if let Some(f) = rej.get("failed").or(rej.get("error")) {
                     let what = f.get("what").and_then(Value::as_str).or(f.as_str()).unwrap_or_default();
-                    out.push(format!(
-                        "R{} at this cell ended without a return: {what}. This round does its work again.",
-                        r.id
-                    ));
-                } else {
-                    let reason = rej
-                        .as_object()
-                        .and_then(|o| o.values().next())
-                        .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
-                        .unwrap_or_default();
-                    out.push(format!(
-                        "Your return to R{} was sent back: {reason}\nHand it in again, put right.",
-                        r.id
-                    ));
+                    out.push(format!("R{} ended without a return ({what}): do its work again.", r.id));
                 }
             }
             Some(r) => {
@@ -565,11 +584,11 @@ impl Context<'_> {
                 let from = r.cell.as_deref().unwrap_or_default();
                 let paused = here(&r) && c.rows.iter().any(|x| x.name == row && x.to == "@self");
                 if paused {
-                    out.push(format!("You paused in R{}. Carry on.", r.id));
+                    out.push(format!("You paused in R{}: carry on.", r.id));
                 } else {
                     let title = self.g.cell(from).map(|x| x.title.as_str()).unwrap_or_default();
                     out.push(format!(
-                        "The work came here from cell {from} ({title}), R{}, by its row \"{row}\".",
+                        "Came from cell {from} ({title}) by its row `{row}`, R{}.",
                         r.id
                     ));
                     // Back from asking: the answer it brought.
@@ -589,7 +608,7 @@ impl Context<'_> {
                         });
                         if let Some((id, cell, reply)) = answer {
                             let a = m.add(m.earliest(format!("R{id}·{cell}·reply"), &reply), reply);
-                            out.push(format!("It comes back after asking; the answer: {a}."));
+                            out.push(format!("The answer to what you asked: {a}."));
                         }
                     }
                 }
@@ -605,65 +624,78 @@ impl Context<'_> {
         }
         if !interjections.is_empty() {
             out.push(format!(
-                "Said to you while this work runs: {}. Answer in this round as `format:common` says.",
+                "Said to you: {}. Answer in this round.",
                 interjections.join(", ")
             ));
         }
         out
     }
 
-    /// The message.
+    /// The message. After a return sent back it only says why, and that the return is to be rewritten.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
+        if let Some(reason) = self.sent_back() {
+            return Message {
+                text: format!(
+                    "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
+                    self.round, c.id, c.id
+                ),
+                conditional: Vec::new(),
+            };
+        }
         let mut m = Conditionals {
             held: self.held,
             registry: self.registry,
             list: Vec::new(),
         };
         // What every round needs from the start: the return formats (the query tool's description in them lists the
-        // database's tables and views), with the value of each setting they name beside its name, and the rules and
-        // the settings they name.
+        // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
+        // of each setting the formats and the rules name is written beside its name.
         m.add(
             "format:common".into(),
-            Value::String(with_settings(e, &item.project, common_format(g))),
+            Value::String(with_settings(e, &item.project, common_format(g), true)),
         );
         m.add(
             format!("format:{}", c.id),
-            Value::String(with_settings(e, &item.project, cell_format(g, c))),
+            Value::String(with_settings(e, &item.project, cell_format(g, c), true)),
         );
+        let numbered = cell_inputs(c);
+        if !numbered.is_empty() {
+            m.add(format!("inputs:{}", c.id), Value::String(numbered));
+        }
         let mut rules = Vec::new();
-        let mut settings: Vec<(String, String)> = Vec::new();
         let project = e.config.config.projects.get(&item.project);
         for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
             let Some(text) = e.config.config.rules.get(&name) else {
                 continue;
             };
-            rules.push(m.add(format!("rule:{name}"), Value::String(text.trim().to_string())));
-            for (k, v) in e.config.config.named_settings(&item.project, text) {
-                if !settings.iter().any(|(x, _)| *x == k) {
-                    settings.push((k, v));
-                }
-            }
+            let text = with_settings(e, &item.project, text.trim().to_string(), false);
+            rules.push(m.add(format!("rule:{name}"), Value::String(text)));
         }
         for r in &c.rules {
             if let Some(rule) = g.rules.iter().find(|x| x.name == r.name) {
                 let lines: Vec<String> = rule.text.iter().map(|t| format!("- {t}")).collect();
-                let text = format!("{}\n\n{}", rule.desc, lines.join("\n"));
+                let text = with_settings(
+                    e,
+                    &item.project,
+                    format!("{}\n\n{}", rule.desc, lines.join("\n")),
+                    false,
+                );
                 rules.push(m.add(format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        let settings: Vec<String> = settings
-            .into_iter()
-            .map(|(k, v)| m.add(format!("config:{k}"), Value::String(v)))
-            .collect();
-        // The inputs, each by the addresses of what it holds.
+        let workspace = workspace(w, project).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
+        // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
+        // itself is said in full.
         let mut work_from = Vec::new();
         let mut interjections = Vec::new();
+        let mut number = 0;
         for x in self.gathered {
             if x.itself() {
-                work_from.push(format!("- {}: read it yourself.", x.input.what));
+                work_from.push(format!("Read yourself: {}", x.input.what));
                 continue;
             }
+            number += 1;
             let mut addrs: Vec<String> = Vec::new();
             for p in &x.parts {
                 for (address, content) in self.conditional_of(&m, p) {
@@ -680,8 +712,14 @@ impl Context<'_> {
                 }
             }
             if !addrs.is_empty() {
-                work_from.push(format!("- {}: {}", x.input.what, addrs.join(", ")));
+                work_from.push(format!("{number}. {}", addrs.join(", ")));
             }
+        }
+        if !rules.is_empty() {
+            work_from.push(format!("Rules: {}", rules.join(", ")));
+        }
+        if let Some(a) = workspace {
+            work_from.push(format!("Worktree: {a}"));
         }
         let why = self.why(&mut m, &interjections);
 
@@ -692,20 +730,19 @@ impl Context<'_> {
         };
         push(&format!("# R{} · cell {} · {}\n", self.round, c.id, c.title));
         if !why.is_empty() {
-            push("## Why this round\n");
             push(&why.join("\n"));
             push("");
         }
         let given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
         if !given.is_empty() {
-            push("## Given in this message\n");
+            push("## Given\n");
             for x in given {
                 push(&format!("### {}\n", x.address));
                 push(&render(&x.content));
                 push("");
             }
         }
-        push("## What to do\n");
+        push("## Task\n");
         for p in &c.prompt {
             push(p);
         }
@@ -718,49 +755,66 @@ impl Context<'_> {
             }
         }
         push("");
-        push("## Work from\n");
-        for l in &work_from {
-            push(l);
+        if !work_from.is_empty() {
+            push("## Work from\n");
+            for l in &work_from {
+                push(l);
+            }
+            push("");
         }
-        if !rules.is_empty() {
-            push(&format!("- The rules: {}", rules.join(", ")));
-        }
-        if !settings.is_empty() {
-            push(&format!(
-                "- The settings the rules name, for this project: {}",
-                settings.join(", ")
-            ));
-        }
-        if let (Some(wt), Some(branch)) = (&w.worktree, &w.branch) {
-            push(&format!(
-                "\nYour working directory is this work's worktree, {}, on the branch {branch}. Commit your changes there; the engine pushes them when you ask it to with a tool.",
-                wt.display()
-            ));
-        }
-        if let Some(p) = project {
-            push(&format!(
-                "Main, wherever the flow says it, is this project's branch {}: the work branches from it, its PR merges into it, and a diff against main is a diff against it.",
-                p.main
-            ));
-        }
-        push("");
         if !self.columns.is_empty() {
-            push("## The review table: answer one row for each column, by its number\n");
+            push("## Review table: answer each column by its number\n");
             for (id, col) in self.columns {
                 push(&format!("{id}. {col}"));
             }
             push("");
         }
-        push("## Hand in\n");
-        push(&format!(
-            "One JSON object, and nothing else: this cell's own answer as format:{id} gives it, or one of the forms of format:common that format:{id} says this cell has.",
-            id = c.id
-        ));
+        push(&format!("Hand in one JSON object, as format:{} says.", c.id));
         Message {
             text: out,
             conditional: m.list,
         }
     }
+}
+
+/// What each numbered input of a cell is, the inputs the agent reads itself left out: what `inputs:<cell>` gives, and
+/// what the numbers in a message's list of inputs to work from stand for.
+pub fn cell_inputs(cell: &CompiledCell) -> String {
+    let lines: Vec<String> = cell
+        .inputs
+        .iter()
+        .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
+        .enumerate()
+        .map(|(i, x)| format!("{}. {}", i + 1, x.what))
+        .collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!(
+        "What each input of cell {} ({}) is, by the number a round's list of inputs gives it:\n{}",
+        cell.id,
+        cell.title,
+        lines.join("\n")
+    )
+}
+
+/// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
+/// `work:<id>` gives. None for a work of no project the configuration knows.
+fn workspace(w: &Work, project: Option<&config::Project>) -> Option<String> {
+    let p = project?;
+    let main = format!(
+        "Main, wherever the flow says it, is the branch {}: the work branches from it, its PR merges into it, and a \
+         diff against main is a diff against it.",
+        p.main
+    );
+    Some(match (&w.worktree, &w.branch) {
+        (Some(wt), Some(branch)) => format!(
+            "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
+             when you ask it to with a tool. {main}",
+            wt.display()
+        ),
+        _ => main,
+    })
 }
 
 /// The columns the table review answers, each with its number, for the review of this round. A re-review that looks

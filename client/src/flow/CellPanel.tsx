@@ -90,9 +90,10 @@ function InputLine({ c, m, rules }: { c: CompiledCell; m: CellInput; rules: bool
     default: {
       const key: Record<string, Key> = {
         project_rules: 'input_project_rules',
-        settings: 'input_settings',
         common_format: 'input_common_format',
         cell_format: 'input_cell_format',
+        cell_inputs: 'input_cell_inputs',
+        workspace: 'input_workspace',
       };
       return (
         <li>

@@ -92,8 +92,8 @@ pub fn command_line(r: &Request) -> Vec<String> {
     out
 }
 
-/// What a round's record says of its call: the whole command line, the environment the engine set, the schema the
-/// CLI was given, the session it started or resumed, and the engine's and the CLI's versions.
+/// What a round's record says of its call: the whole command line (the structured-output schema in it), the
+/// environment the engine set, the session it started or resumed, and the engine's and the CLI's versions.
 pub fn call(r: &Request, command: &[String], cli_version: &str) -> Value {
     let session = match &r.resume {
         Some(s) => json!({ "resumed": s }),
@@ -107,7 +107,6 @@ pub fn call(r: &Request, command: &[String], cli_version: &str) -> Value {
         "command": command,
         "env": env,
         "cwd": r.worktree.display().to_string(),
-        "schema": envelope(&r.schema),
         "session": session,
         "engine": crate::VERSION,
         "cli": cli_version,
@@ -595,7 +594,12 @@ mod tests {
         let c = call(&r, &line, "2.1.0 (Claude Code)");
         assert_eq!(c["session"]["resumed"], "s1");
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");
-        assert_eq!(c["schema"]["properties"]["progress"]["type"], "string");
+        // The structured-output schema is in the command line, and not recorded again beside it.
+        assert!(c.get("schema").is_none());
+        assert!(
+            line.windows(2)
+                .any(|w| w[0] == "--json-schema" && w[1].contains("\"progress\""))
+        );
         assert_eq!(c["cli"], "2.1.0 (Claude Code)");
         assert_eq!(c["engine"], crate::VERSION);
         let cmd = Claude::command(&r);

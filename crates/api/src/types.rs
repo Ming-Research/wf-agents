@@ -498,16 +498,19 @@ pub struct CellInput {
 pub enum CellInputOf {
     /// One source of one of the cell's inputs, by their places in the cell's inputs and in the input's sources.
     Input { input: usize, source: usize },
-    /// The project's rules, which every agent is given, as the project's configuration lists them.
+    /// The project's rules, which every agent is given, as the project's configuration lists them, with the value of
+    /// each setting they name beside it.
     ProjectRules,
     /// A rule of the flow the cell is given.
     Rule { name: String },
-    /// The project settings the project's rules name.
-    Settings,
     /// The forms every agent's return shares.
     CommonFormat,
     /// The cell's own answer, and which of the shared forms the cell has.
     CellFormat,
+    /// What each of the cell's inputs is, by the number a round's list of inputs to work from gives it.
+    CellInputs,
+    /// The work's worktree and branch, and the project's branch the flow calls main.
+    Workspace,
 }
 
 /// What a cell hands back, as a tree of fields.
