@@ -54,7 +54,9 @@ function Text({ label, value }: { label: string; value: JsonValue | undefined })
 /// The first sentence of a text, as a title on one line: up to its first full stop, at most 120 characters.
 export function firstSentence(text: string): string {
   const line = text.trim().split('\n')[0] ?? '';
-  const m = /^(.+?[.!?])(\s|$)/.exec(line);
+  // A full stop, question or exclamation mark ends a sentence before a space or the end; those of Chinese and Japanese
+  // end it on their own.
+  const m = /^(.+?(?:[.!?](?=\s|$)|[。！？]))/.exec(line);
   const one = m !== null ? m[1] : line;
   return one.length > 120 ? `${one.slice(0, 119)}…` : one;
 }

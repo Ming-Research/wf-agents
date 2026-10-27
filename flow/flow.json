@@ -2381,7 +2381,7 @@
           },
           {
             "name": "Interjections",
-            "what": "Interjections: what the owner or the architect said to you while this work runs, each with who said it. During a round, any that are waiting are given to you each time you finish using a tool; those that came before the round are at the top of its input. Rulings on the design card come this way too: a verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen), the owner's or the architect's",
+            "what": "What the owner or the architect said to you while this work runs, each with who said it. During a round, any that are waiting are given to you each time you finish using a tool; those that came before the round are at the top of its input. Rulings on the design card come this way too: a verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen), the owner's or the architect's",
             "from": [
               {
                 "db": "waiting_interjections",

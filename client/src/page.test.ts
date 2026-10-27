@@ -582,6 +582,7 @@ describe('a ruling on a design card', () => {
   it('titles each decision with its first sentence', () => {
     expect(firstSentence('Keep one table. It is simpler.')).toBe('Keep one table.');
     expect(firstSentence('v1.2 stays\nmore')).toBe('v1.2 stays');
+    expect(firstSentence('一二。三')).toBe('一二。');
     expect(firstSentence('x'.repeat(200)).length).toBe(120);
   });
 });
