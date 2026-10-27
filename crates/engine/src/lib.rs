@@ -142,12 +142,14 @@ impl Engine {
         Ok(e)
     }
 
-    /// The configuration directory a CLI runs agents with, made when it is not there yet and kept out of git.
+    /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of git even
+    /// when the owner made it first by logging in there.
     pub fn cli_home(&self, name: &str) -> Option<PathBuf> {
         let cli = self.config.config.install.agents.clis.get(name)?;
         let dir = cli.home(&self.data, name);
-        if !dir.exists() {
-            let made = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(".gitignore"), "*\n"));
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let made = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&ignore, "*\n"));
             if let Err(x) = made {
                 (self.say)(&format!("{}: {x}", dir.display()));
             }

@@ -712,6 +712,9 @@ fn a_message_gives_each_material_once_in_a_session() {
             .is_some_and(|d| d.ends_with("agents/claude")),
         "{call}"
     );
+    // The agents' configuration directory is kept out of the data directory's git.
+    let ignore = std::fs::read_to_string(s.data.join("agents/claude/.gitignore")).unwrap();
+    assert_eq!(ignore, "*\n");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
