@@ -616,7 +616,12 @@ pre.prompt,
   cursor: pointer;
 }
 
-.state-chip-off {
+.state-chip.item-new {
+  background: var(--code);
+  color: var(--muted);
+}
+
+.state-chip.state-chip-off {
   background: none;
   color: var(--muted);
   text-decoration: line-through;
