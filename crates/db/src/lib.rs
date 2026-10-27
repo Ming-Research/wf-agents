@@ -1171,7 +1171,7 @@ mod tests {
         .unwrap();
         // The database as it was at version 8, before the repair; the schema adds nothing since.
         db.conn.pragma_update(None, "user_version", 8).unwrap();
-        db.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        db.migrate(MIGRATIONS).unwrap();
         let mut st = db
             .conn()
             .prepare("SELECT status, replaced_by FROM design_cards ORDER BY id")
