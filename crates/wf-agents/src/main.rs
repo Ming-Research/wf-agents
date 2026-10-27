@@ -535,6 +535,7 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
                 line: n.line,
                 message: n.message,
                 step: n.step,
+                not_asked: n.not_asked,
             });
             let _ = answer.send(next);
         }

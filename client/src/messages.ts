@@ -23,8 +23,7 @@ const messages = {
   engine_holding: 'Holding',
   engine_halt: 'Waiting: {kind} until {until}',
   slots: 'Slots {used}/{total}',
-  slots_hint:
-    "Works holding a slot (started and not waiting for someone) / the machines' slots. A work that takes over from one the flow's new version stopped starts without waiting for a slot.",
+  slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   confirm_run: 'Let the engine run freely? It will start rounds on every work without asking.',
   request_failed: 'The request failed: {error}',
   works_drag: 'Drag to change the height of the list',
@@ -79,6 +78,8 @@ const messages = {
   next_message: 'The message the agent will get',
   next_run: 'Run next round',
   next_real: 'This runs one real round on your account.',
+  next_kind_not_asked: 'no agent: the engine answers it itself',
+  next_no_agent: "This records the engine's answer; no agent runs.",
   next_running: 'The round is running',
   design_cards: 'Design cards',
   item_imported: 'Imported',

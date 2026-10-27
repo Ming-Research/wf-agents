@@ -150,8 +150,11 @@ impl Engine {
 
     /// Every work still running on an older flow version stops, saying why: the round it was in is cut off, its design
     /// cards are replaced, and its asks of the owner need no answer. Each of their items gets a new work on this
-    /// version at once, before any item from the queue: its cell 0 takes over the stopped work's branch, worktree and
-    /// pull request, and its cell 1 is told what exists. A work that reached the end of its graph is not running.
+    /// version, before any item from the queue: its cell 0 takes over the stopped work's branch, worktree and pull
+    /// request, and its cell 1 is told what exists. A new work takes a slot only when one is free: in the order of the
+    /// works stopped, those that find one start now, and the items of the rest go to the head of the queue, ahead of
+    /// the items queued before, in the same order, to start as slots free. A work that reached the end of its graph is
+    /// not running.
     fn restart_on_new_flow(&mut self) -> Result<(), String> {
         let now = self.flow_now;
         let old: Vec<i64> = {
@@ -165,6 +168,7 @@ impl Engine {
                 .collect::<Result<_, _>>()
                 .map_err(|e| e.to_string())?
         };
+        let mut takeovers = Vec::new();
         for id in old {
             let w = self.work(id)?;
             if self.done(&w)? {
@@ -207,9 +211,43 @@ impl Engine {
                 .map_err(|e| e.to_string())?;
             (self.say)(&format!("work {id} stopped: {why}"));
             if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
+                takeovers.push((id, item));
+            }
+        }
+        // Every old work is stopped before any new one starts, so that the slots they held are free. Once one waits,
+        // those after it wait too, so that they start in the order of the works they replace.
+        let mut waiting = Vec::new();
+        for (id, item) in takeovers {
+            if waiting.is_empty() && self.free_slots()? > 0 {
                 let new = self.create_work(item)?;
                 (self.say)(&format!("work {new} started on item {item}, after work {id}"));
+            } else {
+                waiting.push((id, item));
             }
+        }
+        if waiting.is_empty() {
+            return Ok(());
+        }
+        let items: Vec<i64> = waiting.iter().map(|(_, item)| *item).collect();
+        self.db
+            .write(Actor::Engine, |tx| {
+                let first: f64 = tx.query_row("SELECT coalesce(min(position), 1.0) FROM dispatch_queue", [], |r| {
+                    r.get(0)
+                })?;
+                for (n, item) in items.iter().enumerate() {
+                    let position = first - (items.len() - n) as f64;
+                    tx.execute(
+                        "INSERT OR REPLACE INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                        params![item, position],
+                    )?;
+                }
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        for (id, item) in waiting {
+            (self.say)(&format!(
+                "item {item} waits for a free slot at the head of the queue, to take over from work {id}"
+            ));
         }
         Ok(())
     }

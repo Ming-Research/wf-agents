@@ -93,8 +93,10 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
   const kind =
     n === undefined
       ? ''
-      : n.kind === 'agent'
-        ? t('next_kind_agent', { line: n.line ?? '' })
+      : n.not_asked !== null
+        ? t('next_kind_not_asked')
+        : n.kind === 'agent'
+          ? t('next_kind_agent', { line: n.line ?? '' })
         : n.kind === 'engine'
           ? t('next_kind_engine', { step: n.step ?? '' })
           : n.kind === 'tool'
@@ -119,6 +121,7 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
         ) : null}
       </div>
       {next.error !== null ? <p className="bad">{next.error}</p> : null}
+      {n !== undefined && n.not_asked !== null ? <p className="prose">{n.not_asked}</p> : null}
       {n?.message ? (
         <details>
           <summary>{t('next_message')}</summary>
@@ -129,7 +132,7 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
         <button type="button" className="next-button" onClick={run} disabled={n === undefined}>
           {t('next_run')}
         </button>
-        <span className="muted">{t('next_real')}</span>
+        <span className="muted">{t(n !== undefined && n.not_asked !== null ? 'next_no_agent' : 'next_real')}</span>
       </div>
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
     </section>

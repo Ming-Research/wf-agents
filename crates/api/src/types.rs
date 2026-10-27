@@ -42,6 +42,9 @@ pub struct NextRound {
     pub message: Option<String>,
     /// For a step of the engine's own: which.
     pub step: Option<String>,
+    /// For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
+    /// itself, and there is no message.
+    pub not_asked: Option<String>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.

@@ -352,7 +352,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
 }
 
 /// What a work's next round would be, as the engine would take it now, with nothing run or recorded: its cell, and
-/// for an agent's round the message the agent would be sent.
+/// for an agent's round the message the agent would be sent, or why no agent is asked.
 pub struct NextRound {
     pub cell: String,
     pub title: String,
@@ -361,6 +361,9 @@ pub struct NextRound {
     pub line: Option<String>,
     pub message: Option<String>,
     pub step: Option<String>,
+    /// For an agent's cell whose need the project does not answer: why no agent is asked, the engine answering the
+    /// cell itself as its round would.
+    pub not_asked: Option<String>,
 }
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
@@ -373,20 +376,27 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
         .cell(&w.pos.at)
         .cloned()
         .ok_or_else(|| format!("work {work} is at no such cell: {}", w.pos.at))?;
-    let message = if cell.kind == "agent" {
-        Some(next_message(e, work)?.text)
-    } else {
-        None
-    };
+    // A gate whose need the project does not answer is answered by the engine, as its round does: no agent runs, and
+    // there is no message.
+    let mut not_asked = None;
+    if let Some(need) = cell.needs.as_deref().filter(|_| cell.kind == "agent")
+        && !need_met(&e.project_of(&w)?, need)
+    {
+        not_asked = Some(why_not_asked(e, &w, need)?);
+    }
+    let agent = cell.kind == "agent" && not_asked.is_none();
+    let message = if agent { Some(next_message(e, work)?.text) } else { None };
     Ok(NextRound {
         title: cell.title.clone(),
         kind: cell.kind.clone(),
         line: cell
             .line
             .clone()
-            .or_else(|| (cell.kind == "agent").then(|| "engineer".to_string())),
+            .or_else(|| agent.then(|| "engineer".to_string()))
+            .filter(|_| agent),
         step: cell.step.clone(),
         message,
+        not_asked,
         cell: cell.id,
     })
 }
@@ -436,6 +446,20 @@ fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advanc
     Ok(Advance::Moved)
 }
 
+/// Why a gate whose need the project's configuration does not answer is not asked, as the engine's answer says it.
+fn why_not_asked(e: &mut Engine, w: &Work, need: &str) -> Result<String, String> {
+    let desc = e
+        .flow(w.flow_version)?
+        .engine
+        .needs
+        .get(need)
+        .cloned()
+        .unwrap_or_default();
+    Ok(format!(
+        "Not asked: this question needs what this project does not have. {desc}"
+    ))
+}
+
 /// A gate whose need the project's configuration does not answer is not asked: the engine answers not applicable
 /// where the gate's answer has that, and no otherwise, and says why.
 fn not_applicable(
@@ -445,14 +469,7 @@ fn not_applicable(
     cell: &CompiledCell,
     need: &str,
 ) -> Result<Advance, String> {
-    let desc = e
-        .flow(w.flow_version)?
-        .engine
-        .needs
-        .get(need)
-        .cloned()
-        .unwrap_or_default();
-    let why = format!("Not asked: this question needs what this project does not have. {desc}");
+    let why = why_not_asked(e, w, need)?;
     let has_answer = cell
         .schema
         .as_ref()

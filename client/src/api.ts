@@ -37,7 +37,12 @@ line: string | null, message: string | null,
 /**
  * For a step of the engine's own: which.
  */
-step: string | null, };
+step: string | null, 
+/**
+ * For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
+ * itself, and there is no message.
+ */
+not_asked: string | null, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.

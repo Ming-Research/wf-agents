@@ -753,6 +753,105 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The next round of a work at a gate whose need the project does not answer is the engine's own answer, as the round
+// then is: the preview says why no agent is asked, and builds no message.
+#[test]
+fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
+    let s = setup("gate-preview");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..40 {
+        if state(&e, item).is_some_and(|(_, at, _)| at == "3a") {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "3a", "{log}");
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!((next.kind.as_str(), &next.message, &next.line), ("agent", &None, &None));
+    let why = next.not_asked.unwrap_or_default();
+    assert!(
+        why.starts_with("Not asked: this question needs what this project does not have."),
+        "{why}"
+    );
+    e.step(None).unwrap();
+    let (output, input): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT output, input FROM rounds WHERE work = ?1 AND cell = '3a'",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    let output: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(output["outcome"]["answer"]["why"], json!(why), "{output}");
+    let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+    assert_eq!(input, json!({ "engine": { "not_applicable": "under_test" } }));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A new work that takes over from one the new flow version stopped takes a slot only when one is free; until then its
+// item waits at the head of the queue, ahead of the items queued before, in the order of the works it replaces.
+#[test]
+fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
+    let s = setup("takeover-slots");
+    let (mut e, _, queued) = start(&s, scripts());
+    // Two items had works running on a flow version the engine no longer has built in; the machine has one slot.
+    let items: Vec<i64> =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+                [],
+            )?;
+            let v = tx.last_insert_rowid();
+            let mut items = Vec::new();
+            for title in ["First", "Second"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'It is missing.', 'People need it.', 'change', 'l')",
+                    [title],
+                )?;
+                let item = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', '1')",
+                    params![item, v],
+                )?;
+                items.push(item);
+            }
+            Ok(items)
+        })
+        .unwrap();
+    drop(e);
+    let (mut e, said) = engine(&s, scripts());
+    let log = said.borrow().join("\n");
+    let ready = |e: &Engine| -> Vec<i64> {
+        let mut st = e.db.conn().prepare("SELECT item FROM ready_items").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    // The first takes the slot; the second waits ahead of the item queued before.
+    assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
+    assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
+    assert_eq!(ready(&e), vec![items[1], queued], "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0);
+    assert!(
+        log.contains(&format!("item {} waits for a free slot", items[1])),
+        "{log}"
+    );
+    // Once the slot is free, the second starts, before the item queued before.
+    let first = works_of(&e, items[0])[1].0;
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [first])?;
+        Ok(())
+    })
+    .unwrap();
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.started_item, Some(items[1]), "{log}");
+    assert_eq!(ready(&e), vec![queued], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // An item imported with a branch and its pull request takes them over in its first work, and its cell 1 is told
 // where it came from.
 #[test]
