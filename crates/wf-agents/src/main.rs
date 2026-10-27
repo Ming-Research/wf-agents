@@ -99,6 +99,14 @@ enum Command {
         #[arg(long)]
         full: bool,
     },
+    /// The message the work's next agent round would be sent, built as the engine builds it, with nothing run or
+    /// recorded.
+    Message {
+        work: i64,
+        /// As JSON: the message, and each conditional input it gives or refers to, as a round records them.
+        #[arg(long)]
+        json: bool,
+    },
     /// How many times a work took the rows that count each counter.
     Counters { work: i64 },
     /// Returns sent back, compactions, counters past their limits, and works paused.
@@ -376,6 +384,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Resume { work } => owner::pause(d, work, None),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
+        Command::Message { work, json } => message(d, work, json),
         Command::Counters { work } => print(owner::counters(d, work)),
         Command::Anomalies => print(owner::anomalies(d)),
         Command::Cost { work } => print(owner::cost(d, work)),
@@ -414,6 +423,21 @@ fn status(
             why: h.why.clone(),
         }),
     })
+}
+
+/// Prints the message the work's next agent round would be sent.
+fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
+    let committed = config::committed(d).map_err(|e| e.to_string())?;
+    let github = engine::hub::Gh::new(d.join("logs"));
+    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
+    let m = engine::next_message(&mut e, work)?;
+    if json {
+        let v = serde_json::json!({ "message": m.text, "conditional": m.record() });
+        println!("{v}");
+    } else {
+        print!("{}", m.text);
+    }
+    Ok(())
 }
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it.

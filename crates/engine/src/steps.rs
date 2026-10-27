@@ -93,7 +93,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         (e.say)(&format!("work {} paused: {why}", w.id));
         return Ok(Advance::Stopped);
     }
-    let line = cell.line.clone().unwrap_or_else(|| "engineer".to_string());
     let (level, cli) = e
         .config
         .config
@@ -101,52 +100,20 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .map(|(l, c)| (l.clone(), c.clone()))
         .ok_or_else(|| format!("item {}: no such level in the configuration: {}", item.id, item.level))?;
     let cli_name = level.cli.clone();
-    let session: Option<(i64, String)> =
-        e.db.conn()
-            .query_row(
-                "SELECT id, cli_session FROM sessions WHERE work = ?1 AND line = ?2",
-                params![w.id, line],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .ok();
-    let work_rounds = work::rounds(e.db.conn(), w.id)?;
-    let line_rounds: Vec<Round> = match &session {
-        Some((sid, _)) => work_rounds
-            .iter()
-            .filter(|r| r.session == Some(*sid))
-            .cloned()
-            .collect(),
-        None => Vec::new(),
-    };
+    let Composed {
+        line,
+        session,
+        line_rounds,
+        given,
+        interjections,
+        columns,
+        number,
+        msg,
+    } = compose(e, w, g, cell, &item)?;
     // A session the CLI has started is resumed; one it never started is started under the id kept for it.
     let used = line_rounds
         .iter()
         .any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
-    let held = Held::of(&line_rounds);
-    let registry = message::registry(&work_rounds);
-    let gathered = inputs::gather(e, w, g, cell, &item)?;
-    let given = values::given(e, w, g, cell, &item, &gathered)?;
-    let interjections: Vec<Value> = inputs::db_rows(e, w, &item, "waiting_interjections", Some("work"))?
-        .into_iter()
-        .filter(|r| r["line"] == line.as_str())
-        .collect();
-    let columns = message::columns(e, w, g, cell, &item);
-    let number = work::next_round(e.db.conn())?;
-    let msg = message::Context {
-        e,
-        w,
-        g,
-        cell,
-        item: &item,
-        round: number,
-        rounds: &work_rounds,
-        gathered: &gathered,
-        given: &given,
-        columns: &columns,
-        held: &held,
-        registry: &registry,
-    }
-    .build();
     let head = w.worktree.as_deref().and_then(|wt| git::head(wt).ok());
     let change = w
         .worktree
@@ -281,6 +248,93 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after)
+}
+
+/// What an agent's round at a cell is built from, and the message it is sent.
+struct Composed {
+    line: String,
+    /// The line's session: its id and the CLI's id for it; none before the line's first round.
+    session: Option<(i64, String)>,
+    /// The session's rounds, oldest first.
+    line_rounds: Vec<Round>,
+    given: Map<String, Value>,
+    /// The interjections waiting for the line.
+    interjections: Vec<Value>,
+    columns: Vec<(String, String)>,
+    /// The number the round gets.
+    number: i64,
+    msg: message::Message,
+}
+
+/// Builds the message of an agent's round at a cell from the work as it stands, running and recording nothing.
+fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &Item) -> Result<Composed, String> {
+    let line = cell.line.clone().unwrap_or_else(|| "engineer".to_string());
+    let session: Option<(i64, String)> =
+        e.db.conn()
+            .query_row(
+                "SELECT id, cli_session FROM sessions WHERE work = ?1 AND line = ?2",
+                params![w.id, line],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+    let work_rounds = work::rounds(e.db.conn(), w.id)?;
+    let line_rounds: Vec<Round> = match &session {
+        Some((sid, _)) => work_rounds
+            .iter()
+            .filter(|r| r.session == Some(*sid))
+            .cloned()
+            .collect(),
+        None => Vec::new(),
+    };
+    let held = Held::of(&line_rounds);
+    let registry = message::registry(&work_rounds);
+    let gathered = inputs::gather(e, w, g, cell, item)?;
+    let given = values::given(e, w, g, cell, item, &gathered)?;
+    let interjections: Vec<Value> = inputs::db_rows(e, w, item, "waiting_interjections", Some("work"))?
+        .into_iter()
+        .filter(|r| r["line"] == line.as_str())
+        .collect();
+    let columns = message::columns(e, w, g, cell, item);
+    let number = work::next_round(e.db.conn())?;
+    let msg = message::Context {
+        e,
+        w,
+        g,
+        cell,
+        item,
+        round: number,
+        rounds: &work_rounds,
+        gathered: &gathered,
+        given: &given,
+        columns: &columns,
+        held: &held,
+        registry: &registry,
+    }
+    .build();
+    Ok(Composed {
+        line,
+        session,
+        line_rounds,
+        given,
+        interjections,
+        columns,
+        number,
+        msg,
+    })
+}
+
+/// The message the work's next round would be sent, when the work is at an agent's cell: built as its round builds
+/// it, with nothing run or recorded.
+pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, String> {
+    let w = e.work(work)?;
+    let g = e.graph_of(&w)?;
+    let cell = g
+        .cell(&w.pos.at)
+        .filter(|c| c.kind == "agent")
+        .cloned()
+        .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
+    let item = e.item_of(&w)?;
+    Ok(compose(e, &w, &g, &cell, &item)?.msg)
 }
 
 /// The CLI reports what its session has cost so far, the rounds it resumed from included; a round's own cost is what

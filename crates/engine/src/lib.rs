@@ -17,7 +17,7 @@ mod actions;
 mod checks;
 mod failed;
 mod inputs;
-mod message;
+pub mod message;
 mod steps;
 mod tools;
 mod values;
@@ -34,6 +34,7 @@ use serde_json::Value;
 
 pub use checks::CARD_RULING;
 pub use failed::{Halt, utc};
+pub use steps::next_message;
 pub use work::{Item, Round, Work, json_col, query_json};
 
 use agent::Agents;
