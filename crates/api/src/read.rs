@@ -16,8 +16,8 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     Card, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
-    LinkedItem, RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, ToolRun,
-    WorkDetail, WorkState, WorkSummary,
+    LinkedItem, RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, Shown,
+    ToolRun, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -615,7 +615,8 @@ pub fn compiled_flow(conn: &Connection, version: i64) -> Result<String> {
 
 /// What the flow page shows of a stored flow version besides the flow itself.
 pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowView> {
-    Ok(view::view(&flows.get(conn, version)?))
+    let c = flows.get(conn, version)?;
+    Ok(view::view(&c))
 }
 
 /// The stored flow version a compiled flow is, by its digest.
@@ -735,8 +736,91 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
             .collect(),
         works: works.into_iter().filter(|w| w.item == Some(id)).collect(),
         cards: cards(conn, "WHERE w.item = ?1", id)?,
+        shown: shown(conn, flows, id)?,
         item: summary,
     })
+}
+
+/// The values at a path of a return, as an input gives them: a shape named in brackets keeps only what is of that
+/// shape, and the values at a path inside a list are given as a list. None when the return has nothing there.
+fn value_at(x: &Value, path: &str) -> Option<Value> {
+    let of_shape = |v: &Value, b: &str| v.as_object().is_some_and(|o| o.values().any(|x| x == b));
+    let mut cur = vec![x.clone()];
+    for seg in path.split('.') {
+        let (name, shape) = match seg.split_once('[') {
+            Some((n, rest)) => (n, Some(rest.trim_end_matches(']'))),
+            None => (seg, None),
+        };
+        let mut next = Vec::new();
+        for c in cur {
+            match c {
+                Value::Array(xs) => next.extend(xs.iter().filter_map(|it| it.get(name).cloned())),
+                o => next.extend(o.get(name).cloned()),
+            }
+        }
+        if let Some(b) = shape {
+            next = next
+                .into_iter()
+                .filter_map(|v| match v {
+                    Value::Array(xs) => {
+                        let keep: Vec<Value> = xs.into_iter().filter(|it| of_shape(it, b)).collect();
+                        (!keep.is_empty()).then_some(Value::Array(keep))
+                    }
+                    o => of_shape(&o, b).then_some(o),
+                })
+                .collect();
+        }
+        cur = next;
+    }
+    match cur.len() {
+        0 => None,
+        1 => cur.pop(),
+        _ => Some(Value::Array(cur)),
+    }
+}
+
+/// What the rounds of an item's works handed back that their flow versions show on the item, oldest first.
+fn shown(conn: &Connection, flows: &Flows, item: i64) -> Result<Vec<Shown>> {
+    let mut st = conn.prepare(
+        "SELECT r.id, r.work, r.cell, r.output, w.flow_version, w.graph FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.item = ?1 AND r.cell IS NOT NULL AND r.output IS NOT NULL AND r.transition IS NOT NULL
+         ORDER BY r.id",
+    )?;
+    let rows = st.query_map([item], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            text(r, 3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, String>(5)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (round, work, cell, output, version, graph) = row?;
+        let Some(g) = flows.graph(conn, version, &graph) else {
+            continue;
+        };
+        let Some(c) = g.cell(&cell) else { continue };
+        if c.shown.is_empty() {
+            continue;
+        }
+        let Some(ret) = json(output) else { continue };
+        let ret = if c.kind == "agent" { g.unwrap(&ret) } else { ret };
+        for path in &c.shown {
+            if let Some(value) = value_at(&ret, path) {
+                out.push(Shown {
+                    work,
+                    round,
+                    cell: cell.clone(),
+                    path: path.clone(),
+                    value,
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// A file under the data directory's `logs` or `tool-output` directory, as text, cut after `max` bytes.
@@ -950,5 +1034,36 @@ mod tests {
         assert_eq!(second.depended_on_by[0].item.id, 1);
         assert!(second.works.is_empty());
         assert_eq!(flows(s.db.conn()).unwrap()[0].works, 1);
+    }
+
+    #[test]
+    fn an_item_shows_what_the_flow_marks_shown_of_its_rounds() {
+        let mut s = setup("shown");
+        let ret = json!({
+            "outcome": { "understanding": { "problem": "what is wrong" } },
+            "progress": "read the code",
+            "side_reports": []
+        })
+        .to_string();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, cell, session, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, '1', 1, '{}', ?1, 'done', 'c', 90, 91)",
+                [&ret],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let d = item(s.db.conn(), &Flows::default(), 1).unwrap();
+        let at = |path: &str| {
+            d.shown
+                .iter()
+                .find(|x| x.cell == "1" && x.path == path)
+                .map(|x| x.value.clone())
+        };
+        assert_eq!(at("understanding"), Some(json!({ "problem": "what is wrong" })));
+        assert_eq!(at("progress"), Some(json!("read the code")));
+        // The start's return holds nothing the flow shows.
+        assert!(d.shown.iter().all(|x| x.cell == "1"));
     }
 }
