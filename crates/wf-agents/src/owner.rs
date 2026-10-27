@@ -425,6 +425,8 @@ pub fn history(data: &Path, work: i64, full: bool) -> Result<String, String> {
             &[&work],
             10_000,
         )?;
+        // Each round as it was given: the texts its record keeps once put back.
+        let rows: Vec<Value> = rows.iter().map(|r| db::put_back(db.conn(), r)).collect();
         return serde_json::to_string_pretty(&rows).map_err(sql);
     }
     show(

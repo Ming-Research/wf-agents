@@ -578,6 +578,8 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no round {id}")))?;
     let (summary, work, flow_version, graph, session, config_commit, input, output, usage, rejected) = row;
+    // The record as the round was given it: each text it keeps once put back.
+    let input = db::put_back(conn, &input);
     let cell = summary
         .cell
         .as_deref()

@@ -10,7 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::hooks::{Action, AuthAction, AuthContext, Authorization};
-use rusqlite::{Connection, OpenFlags, ToSql, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, ToSql, Transaction, TransactionBehavior, params};
+use serde_json::Value;
 
 pub use rusqlite;
 
@@ -27,13 +28,14 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0004.sql"),
     include_str!("../../../db/migrations/0005.sql"),
     include_str!("../../../db/migrations/0006.sql"),
+    include_str!("../../../db/migrations/0007.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 4] = ["rounds", "tool_runs", "changes", "outbox"];
+const UNTRACKED: [&str; 5] = ["rounds", "tool_runs", "changes", "outbox", "contents"];
 
 /// The line a table's description has when agents may not read it.
 const HIDDEN: &str = "Hidden from agents.";
@@ -536,6 +538,62 @@ pub fn shape(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     Ok(out)
 }
 
+/// How long a text must be for a round's record to keep it in `contents` and refer to it.
+pub const STORED: usize = 256;
+
+/// The key a text is kept under in `contents`: the SHA-256 of the text, in hex.
+pub fn content_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Keeps texts in `contents`, each once.
+pub fn keep(tx: &Transaction<'_>, texts: &[(String, String)]) -> rusqlite::Result<()> {
+    for (hash, text) in texts {
+        tx.execute(
+            "INSERT INTO contents (hash, text) VALUES (?1, ?2) ON CONFLICT (hash) DO NOTHING",
+            params![hash, text],
+        )?;
+    }
+    Ok(())
+}
+
+/// A round's record as it was: each `{"content": hash}` put back as the text kept under that hash, and each
+/// `{"parts": [...]}` (texts and such references) joined into one text. A record that refers to nothing, as every round
+/// recorded before `contents` was, comes back as it is.
+pub fn put_back(conn: &Connection, v: &Value) -> Value {
+    let text = |h: &str| -> Option<String> {
+        conn.query_row("SELECT text FROM contents WHERE hash = ?1", [h], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
+    };
+    let only = |v: &Value, key: &str| -> Option<Value> {
+        let o = v.as_object()?;
+        if o.len() == 1 { o.get(key).cloned() } else { None }
+    };
+    if let Some(h) = only(v, "content").and_then(|h| h.as_str().map(str::to_string)) {
+        return Value::String(text(&h).unwrap_or_else(|| format!("(content {h} is not kept)")));
+    }
+    if let Some(Value::Array(parts)) = only(v, "parts") {
+        let mut out = String::new();
+        for p in &parts {
+            if let Value::String(s) = put_back(conn, p) {
+                out.push_str(&s);
+            }
+        }
+        return Value::String(out);
+    }
+    match v {
+        Value::Array(xs) => Value::Array(xs.iter().map(|x| put_back(conn, x)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), put_back(conn, x))).collect()),
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -861,6 +919,37 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(v, VERSION);
+    }
+
+    // A round's record keeps a large text once and refers to it; put back, it is the text it was. A record that
+    // refers to nothing comes back as it is.
+    #[test]
+    fn a_kept_text_is_put_back_where_the_record_refers_to_it() {
+        let mut db = Db::in_memory().unwrap();
+        let big = "x".repeat(STORED);
+        let h = content_hash(&big);
+        db.write(Actor::Engine, |tx| {
+            keep(tx, &[(h.clone(), big.clone()), (h.clone(), big.clone())])?;
+            Ok(())
+        })
+        .unwrap();
+        let stored = serde_json::json!({
+            "message": { "parts": ["# R1\n", { "content": h }, "\nend\n"] },
+            "call": { "command": ["claude", "--json-schema", { "content": h }] },
+            "old": "a whole text",
+        });
+        let back = put_back(db.conn(), &stored);
+        assert_eq!(back["message"], format!("# R1\n{big}\nend\n"));
+        assert_eq!(
+            back["call"]["command"],
+            serde_json::json!(["claude", "--json-schema", big])
+        );
+        assert_eq!(back["old"], "a whole text");
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM contents", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
     }
 
     // A database from a newer wf-agents, or a file that is not one, is not touched.

@@ -730,7 +730,7 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
                 r.get(0)
             })
             .unwrap();
-    let input: Value = serde_json::from_str(&input).unwrap();
+    let input: Value = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
     let m = input["message"].as_str().unwrap();
     for want in [
         "This item was worked on before.".to_string(),
@@ -857,7 +857,7 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
         (
             r["id"].as_i64().unwrap(),
             r["cell"].as_str().unwrap().to_string(),
-            r["input"].clone(),
+            db::put_back(e.db.conn(), &r["input"]),
         )
     })
     .collect()
@@ -969,6 +969,23 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
             .as_str()
             .is_some_and(|d| d.ends_with("agents/claude")),
         "{call}"
+    );
+    // The record keeps each large text once: the shared formats and the structured-output schema are in contents
+    // once, however many rounds and sessions were given them, and a round's record refers to them.
+    let kept = |like: &str| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM contents WHERE text LIKE ?1", [like], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(kept("The forms every agent's return shares.%"), 1);
+    assert_eq!(kept("{\"type\":\"object\"%"), 1);
+    let raw: String =
+        e.db.conn()
+            .query_row("SELECT input FROM rounds WHERE id = ?1", [rounds[0].0], |r| r.get(0))
+            .unwrap();
+    assert!(
+        !raw.contains("The forms every agent's return shares.") && raw.contains("{\"content\":"),
+        "{raw}"
     );
     // The agents' configuration directory is kept out of the data directory's git.
     let ignore = std::fs::read_to_string(s.data.join("agents/claude/.gitignore")).unwrap();

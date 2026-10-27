@@ -146,6 +146,15 @@ CREATE TABLE owner_messages (
   read_at INTEGER
 ) STRICT;
 
+CREATE TABLE contents (
+  -- Each large text a round's record holds, once: a conditional input given in a message, a cell's task, the
+  -- structured-output schema of a command line. The record refers to it by the SHA-256 of the text, as
+  -- {"content": hash}, and the text it was is that record with each reference put back. Written once, never changed.
+  -- Read by: the engine and the owner's interface, putting a round's record back together.
+  hash TEXT PRIMARY KEY,
+  text TEXT NOT NULL
+) STRICT;
+
 CREATE TABLE flow_versions (
   -- Every compiled flow a work has run on. A work runs on the version it started with; when the flow moves to a new
   -- version, the works still running on an older one stop, and their items start again on the new one. Old rounds

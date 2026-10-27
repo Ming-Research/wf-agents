@@ -40,6 +40,11 @@ pub struct Conditional {
 #[derive(Debug, Clone)]
 pub struct Message {
     pub text: String,
+    /// The text as the round's record keeps it: the text itself, or its parts, each large one (a conditional input
+    /// given, the cell's task) a reference to what `kept` holds.
+    pub stored: Value,
+    /// The large parts, each by the hash `contents` keeps it under.
+    pub kept: Vec<(String, String)>,
     pub conditional: Vec<Conditional>,
     /// The round a short message goes on from, a return sent back or a round cut off midway: the session holds
     /// everything that round was given, and only the interjections it was given are this round's.
@@ -731,26 +736,27 @@ impl Context<'_> {
     /// The message. After a return sent back it only says why, and that the return is to be rewritten.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
+        let short = |text: String, prev: i64| Message {
+            stored: Value::String(text.clone()),
+            text,
+            kept: Vec::new(),
+            conditional: Vec::new(),
+            continues: Some(prev),
+        };
         if let Some((prev, reason)) = self.sent_back() {
-            return Message {
-                text: format!(
-                    "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
-                    self.round, c.id, c.id
-                ),
-                conditional: Vec::new(),
-                continues: Some(prev),
-            };
+            let text = format!(
+                "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
+                self.round, c.id, c.id
+            );
+            return short(text, prev);
         }
         if let Some(prev) = self.cut_off() {
-            return Message {
-                text: format!(
-                    "# R{} · cell {}\n\nR{prev} was cut off midway. First look at the worktree as it is now (files \
-                     changed, commits made), then go on with its work, and hand it in as format:{} says.\n",
-                    self.round, c.id, c.id
-                ),
-                conditional: Vec::new(),
-                continues: Some(prev),
-            };
+            let text = format!(
+                "# R{} · cell {}\n\nR{prev} was cut off midway. First look at the worktree as it is now (files \
+                 changed, commits made), then go on with its work, and hand it in as format:{} says.\n",
+                self.round, c.id, c.id
+            );
+            return short(text, prev);
         }
         let mut m = Conditionals {
             held: self.held,
@@ -832,58 +838,103 @@ impl Context<'_> {
         }
         let why = self.why(&mut m, &interjections);
 
-        let mut out = String::new();
-        let mut push = |s: &str| {
-            out.push_str(s);
-            out.push('\n');
-        };
-        push(&format!("# R{} · cell {} · {}\n", self.round, c.id, c.title));
+        let mut out = Writer::default();
+        out.line(&format!("# R{} · cell {} · {}\n", self.round, c.id, c.title));
         if !why.is_empty() {
-            push(&why.join("\n"));
-            push("");
+            out.line(&why.join("\n"));
+            out.line("");
         }
         let given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
         if !given.is_empty() {
-            push("## Given\n");
+            out.line("## Given\n");
             for x in given {
-                push(&format!("### {}\n", x.address));
-                push(&render(&x.content));
-                push("");
+                out.line(&format!("### {}\n", x.address));
+                out.keep(&render(&x.content));
+                out.line("");
             }
         }
-        push("## Task\n");
-        for p in &c.prompt {
-            push(p);
-        }
+        out.line("## Task\n");
+        let mut task: Vec<&str> = c.prompt.iter().map(String::as_str).collect();
         if let Some(pb) = &c.prompt_by
             && let Some(v) = self.given.get(&pb.by).and_then(Value::as_str)
             && let Some(lines) = pb.cases.get(v)
         {
-            for l in lines {
-                push(l);
-            }
+            task.extend(lines.iter().map(String::as_str));
         }
-        push("");
+        out.keep(&task.join("\n"));
+        out.line("");
         if !work_from.is_empty() {
-            push("## Work from\n");
+            out.line("## Work from\n");
             for l in &work_from {
-                push(l);
+                out.line(l);
             }
-            push("");
+            out.line("");
         }
         if !self.columns.is_empty() {
-            push("## Review table: answer each column by its number\n");
+            out.line("## Review table: answer each column by its number\n");
             for (id, col) in self.columns {
-                push(&format!("{id}. {col}"));
+                out.line(&format!("{id}. {col}"));
             }
-            push("");
+            out.line("");
         }
-        push(&format!("Hand in one JSON object, as format:{} says.", c.id));
+        out.line(&format!("Hand in one JSON object, as format:{} says.", c.id));
+        let (text, stored, kept) = out.finish();
         Message {
-            text: out,
+            text,
+            stored,
+            kept,
             conditional: m.list,
             continues: None,
         }
+    }
+}
+
+/// A message as it is written, line by line, with the large parts the round's record keeps once.
+#[derive(Default)]
+struct Writer {
+    text: String,
+    /// The parts the record keeps, and the text written since the last large one.
+    parts: Vec<Value>,
+    since: String,
+    kept: Vec<(String, String)>,
+}
+
+impl Writer {
+    fn line(&mut self, s: &str) {
+        self.text.push_str(s);
+        self.text.push('\n');
+        self.since.push_str(s);
+        self.since.push('\n');
+    }
+
+    /// A line that may be large: the record refers to a large one by its hash, and keeps it once.
+    fn keep(&mut self, s: &str) {
+        if s.len() < db::STORED {
+            return self.line(s);
+        }
+        self.text.push_str(s);
+        self.text.push('\n');
+        if !self.since.is_empty() {
+            self.parts.push(Value::String(std::mem::take(&mut self.since)));
+        }
+        let h = db::content_hash(s);
+        self.parts.push(json!({ "content": h }));
+        self.since.push('\n');
+        if !self.kept.iter().any(|(k, _)| *k == h) {
+            self.kept.push((h, s.to_string()));
+        }
+    }
+
+    /// The text, the text as the record keeps it, and what the record keeps once.
+    fn finish(mut self) -> (String, Value, Vec<(String, String)>) {
+        if self.parts.is_empty() {
+            let text = self.text;
+            return (text.clone(), Value::String(text), Vec::new());
+        }
+        if !self.since.is_empty() {
+            self.parts.push(Value::String(std::mem::take(&mut self.since)));
+        }
+        (self.text, json!({ "parts": self.parts }), self.kept)
     }
 }
 

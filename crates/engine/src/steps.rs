@@ -155,14 +155,19 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
     };
     let cli_version = e.cli_version(&cli_name);
+    // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
+    // structured-output schema.
+    let mut kept = msg.kept.clone();
+    let call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
     let input = json!({
-        "message": msg.text,
+        "message": msg.stored,
         "conditional": msg.record(),
-        "call": agent::call(&req, &agent::command_line(&req), &cli_version),
+        "call": call,
         "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
     });
     let round =
         e.db.write(Actor::Engine, |tx| {
+            db::keep(tx, &kept)?;
             work::start_numbered(
                 tx,
                 Some(number),
@@ -243,6 +248,23 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after)
+}
+
+/// A round's call as its record keeps it: the structured-output schema the command line gives, the same for every
+/// round of a graph, kept once in `contents` and referred to there.
+fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
+    if let Some(args) = call["command"].as_array_mut()
+        && let Some(i) = args.iter().position(|a| a == "--json-schema").map(|i| i + 1)
+        && let Some(schema) = args.get(i).and_then(Value::as_str).map(str::to_string)
+        && schema.len() >= db::STORED
+    {
+        let h = db::content_hash(&schema);
+        args[i] = json!({ "content": h });
+        if !kept.iter().any(|(k, _)| *k == h) {
+            kept.push((h, schema));
+        }
+    }
+    call
 }
 
 /// What an agent's round at a cell is built from, and the message it is sent.
