@@ -217,9 +217,11 @@ fn ends_path(c: char) -> bool {
         )
         // General punctuation: quotation marks, dashes and the ellipsis.
         || ('\u{2010}'..='\u{205F}').contains(&c)
-        // CJK punctuation: 、。〈〉《》「」『』【】 and the like.
+        // CJK punctuation: the ideographic comma and full stop, the angle, corner and lenticular brackets, and the
+        // like.
         || ('\u{3000}'..='\u{303F}').contains(&c)
-        // Full-width forms of ASCII punctuation: ！（），：；？ and the like.
+        // Full-width forms of ASCII punctuation: the exclamation mark, the brackets, the comma, the colon, the
+        // semicolon, the question mark and the like.
         || ('\u{FF01}'..='\u{FF0F}').contains(&c)
         || ('\u{FF1A}'..='\u{FF20}').contains(&c)
         || ('\u{FF3B}'..='\u{FF40}').contains(&c)
@@ -1012,7 +1014,7 @@ mod tests {
         assert!(cited_paths("https://github.com/a/b/actions/runs/1").is_empty());
         assert!(cited_paths("/etc/passwd").is_empty());
         assert_eq!(
-            cited_paths("见 crates/wf-agents/src/main.rs：第 12 行"),
+            cited_paths("\u{89c1} crates/wf-agents/src/main.rs\u{ff1a}\u{7b2c} 12 \u{884c}"),
             ["crates/wf-agents/src/main.rs"]
         );
     }
@@ -1021,15 +1023,23 @@ mod tests {
     #[test]
     fn a_path_followed_by_full_width_punctuation_is_the_path() {
         assert_eq!(
-            cited_paths("crates/wf-agents/src/main.rs："),
+            cited_paths("crates/wf-agents/src/main.rs\u{ff1a}"),
             ["crates/wf-agents/src/main.rs"]
         );
         assert_eq!(
-            cited_paths("改了 crates/engine/src/steps.rs，以及（crates/flow/src/lib.rs）。"),
+            cited_paths(
+                "\u{6539}\u{4e86} crates/engine/src/steps.rs\u{ff0c}\u{4ee5}\u{53ca}\u{ff08}crates/flow/src/lib.rs\u{ff09}\u{3002}"
+            ),
             ["crates/engine/src/steps.rs", "crates/flow/src/lib.rs"]
         );
-        assert_eq!(cited_paths("“design/engine/inputs.md”、"), ["design/engine/inputs.md"]);
+        assert_eq!(
+            cited_paths("\u{201c}design/engine/inputs.md\u{201d}\u{3001}"),
+            ["design/engine/inputs.md"]
+        );
         // A path whose name is not ASCII is kept whole, and `path:line` gives the path.
-        assert_eq!(cited_paths("research/设计.md:3"), ["research/设计.md"]);
+        assert_eq!(
+            cited_paths("research/\u{8bbe}\u{8ba1}.md:3"),
+            ["research/\u{8bbe}\u{8ba1}.md"]
+        );
     }
 }
