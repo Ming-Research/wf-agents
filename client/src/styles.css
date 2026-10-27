@@ -2529,13 +2529,25 @@ summary.works-label {
   text-decoration: none;
 }
 
+/* What the work waits for gives way last, then where it is, then its name. */
 .work-name,
 .work-state,
 .work-where {
-  flex: 0 1 auto;
   min-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.work-name {
+  flex: 0 4 auto;
+}
+
+.work-state {
+  flex: 0 1 auto;
+}
+
+.work-where {
+  flex: 0 2 auto;
 }
 
 .work-others {

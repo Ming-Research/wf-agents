@@ -102,6 +102,7 @@ describe('how a work goes on', () => {
     slots_used: 0,
     flow_version: 2,
     config_commit: 'c',
+    repos: {},
     started_at: 0,
     version: 'v',
     halt: null,
