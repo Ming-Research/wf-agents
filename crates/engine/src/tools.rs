@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
-use crate::work::{self, Item, Work};
+use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, git};
 
 /// How many times a tool is tried before it is given up.
@@ -30,7 +30,7 @@ fn sql(e: impl std::fmt::Display) -> String {
 /// failure with what each attempt gave.
 fn attempts(
     e: &Engine,
-    round: i64,
+    round: RoundId,
     tool: &str,
     args: &Value,
     mut f: impl FnMut() -> Result<Value, Failure>,
@@ -40,8 +40,9 @@ fn attempts(
         let now = db::now();
         e.db.conn()
             .execute(
-                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-                params![round, tool, args.to_string(), n, now],
+                "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![round.work, round.n, tool, args.to_string(), n, now],
             )
             .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
         let id = e.db.conn().last_insert_rowid();
@@ -74,12 +75,12 @@ fn attempts(
 }
 
 /// A text given inline when it is short, or saved under the data directory and given by its path.
-fn inline_or_saved(e: &Engine, round: i64, n: usize, text: String) -> String {
+fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String {
     if text.len() <= LONG {
         return text;
     }
     let dir = e.data.join("tool-output");
-    let path = dir.join(format!("round-{round}-{n}.txt"));
+    let path = dir.join(format!("{round}-{n}.txt"));
     match std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&path, &text)) {
         Ok(()) => format!(
             "Too long to give here ({} bytes); saved to {}",
@@ -413,7 +414,13 @@ pub fn describe(req: &Value) -> String {
 
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
 /// and merges in what ran before.
-pub fn run_tools(e: &mut Engine, w: &Work, item: &Item, round: i64, gathered: &[Gathered]) -> Result<Value, String> {
+pub fn run_tools(
+    e: &mut Engine,
+    w: &Work,
+    item: &Item,
+    round: RoundId,
+    gathered: &[Gathered],
+) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
@@ -513,7 +520,7 @@ fn ci(
     w: &Work,
     project: &config::Project,
     item: &Item,
-    round: i64,
+    round: RoundId,
     req: &Value,
     pushed: &mut Option<String>,
     pr: &Cell<Option<i64>>,
@@ -578,7 +585,7 @@ fn ci_before(
     e: &Engine,
     w: &Work,
     project: &config::Project,
-    round: i64,
+    round: RoundId,
     n: usize,
     req: &Value,
     pushed: Option<&str>,
@@ -613,7 +620,7 @@ fn ci_before(
     let base = git::git(&wt, &["merge-base", &sha, &format!("origin/{}", project.main)])
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
-    let refname = format!("refs/heads/wf-agents-before/{}-{round}-{n}", w.id);
+    let refname = format!("refs/heads/wf-agents-before/{}-{}-{n}", round.work, round.n);
     attempts(e, round, "ci_before", req, || {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
@@ -627,7 +634,7 @@ fn gh(
     e: &Engine,
     w: &Work,
     project: &config::Project,
-    round: i64,
+    round: RoundId,
     n: usize,
     req: &Value,
 ) -> Result<Value, (Failure, String)> {
@@ -660,7 +667,7 @@ fn gh(
     Ok(json!({ "ran": { "verdict": "ran", "exit": code, "output": inline_or_saved(e, round, n, out) } }))
 }
 
-fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
+fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
     let text = req["sql"].as_str().unwrap_or_default().to_string();
     let limits = e.config.config.install.query.clone();
     let path = config::database(&e.data);
@@ -686,7 +693,7 @@ fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failur
 // Cell 7.
 
 /// Catches the branch up with main, pushes it, and runs the full CI on it; a red check is run again once.
-pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value, String> {
+pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let wt = w.worktree.clone().ok_or("the work has no worktree")?;
     if !git::is_clean(&wt)? {
@@ -748,7 +755,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Valu
 // Cell 9.
 
 /// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it.
-pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value, String> {
+pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let wt = w.worktree.clone().ok_or("the work has no worktree")?;
     let Some(pr) = w.pr else {
@@ -799,7 +806,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value,
 
 /// Watches the full CI on the merge commit. On red it runs the red checks again, looks in the table of known red
 /// checks, and runs them on main's commit before the merge, in that order.
-pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, round: i64) -> Result<Value, String> {
+pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     if project.deploy.is_some() {
         return Ok(not_run(

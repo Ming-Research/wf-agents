@@ -10,12 +10,12 @@
 import { useState, type MouseEvent } from 'react';
 
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
-import { time } from '../format';
+import { roundName, time } from '../format';
 import { postJson } from '../http';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Link, navigate } from '../route';
+import { Link, navigate, workHref } from '../route';
 import { t } from '../text';
 
 export { words };
@@ -275,7 +275,9 @@ function Replaced({ c }: { c: DesignCard }) {
         <p className="card-replaced">
           {t('card_replaced_by')} <CardLink id={r.design_card} item={c.item} />
           {r.at !== null ? <span className="muted"> · {time(r.at)}</span> : null} ·{' '}
-          <Link to={`/works/${r.work}?round=${r.round}`}>{t('card_replaced_in', { round: r.round, cell })}</Link>
+          <Link to={workHref(r.work, { round: r.round })}>
+            {t('card_replaced_in', { round: roundName(r.work, r.round), cell })}
+          </Link>
         </p>
       )}
       {r?.changed ? <Markdown text={r.changed} /> : null}

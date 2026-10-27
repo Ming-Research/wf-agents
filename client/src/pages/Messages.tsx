@@ -9,7 +9,7 @@ import type { OwnerMessage } from '../api';
 import { time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
-import { Link } from '../route';
+import { Link, workHref } from '../route';
 import { t } from '../text';
 import { KindChip } from './Decide';
 
@@ -28,7 +28,7 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
     <li className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
       <div className="msg-head">
         {work !== null ? (
-          <Link to={m.round !== null ? `/works/${work}?round=${m.round}` : `/works/${work}`}>
+          <Link to={workHref(work, { round: m.round })}>
             {t('work_title', { id: work })}
           </Link>
         ) : null}

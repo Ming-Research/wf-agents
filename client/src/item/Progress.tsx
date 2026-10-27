@@ -4,11 +4,12 @@
 
 import type { Compiled, CompiledGraph, ItemDetail, RoundSummary, WorkDetail, WorkSummary } from '../api';
 import { liveState, Loaded, OutcomeBadge } from '../components';
+import { roundName } from '../format';
 import { words } from '../labelled';
 import { useResource, useStatus } from '../live';
 import { MarkdownInline } from '../markdown';
 import { bringIntoView } from '../pages/Decide';
-import { Link } from '../route';
+import { Link, workHref } from '../route';
 import { t } from '../text';
 import { byStage, progress, type Step } from './checklist';
 
@@ -51,8 +52,8 @@ function Note({ r, work }: { r: RoundSummary; work: number }) {
   if (r.progress === null && !bad) return null;
   return (
     <li>
-      <Link to={`/works/${work}?round=${r.id}`} className="shown-from">
-        {t('round_short', { id: r.id })}
+      <Link to={workHref(work, { round: r.n })} className="shown-from">
+        {roundName(work, r.n)}
       </Link>{' '}
       {bad ? (
         <>
@@ -92,7 +93,7 @@ function Line({ s, d, w }: { s: Step; d: ItemDetail; w: WorkSummary }) {
         {s.state === 'now' ? <Waits d={d} w={w} /> : null}
         <ul className="step-notes">
           {notes.map((r) => (
-            <Note key={r.id} r={r} work={w.id} />
+            <Note key={r.n} r={r} work={w.id} />
           ))}
         </ul>
         <Link to={`/works/${w.id}?cell=${encodeURIComponent(s.cell)}`} className="shown-from">

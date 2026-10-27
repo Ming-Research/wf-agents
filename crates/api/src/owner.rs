@@ -60,7 +60,7 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
     let found: Option<(String, i64)> = db
         .conn()
         .query_row(
-            "SELECT c.status, r.work FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
+            "SELECT status, work FROM design_cards WHERE id = ?1",
             [design_card],
             |x| Ok((x.get(0)?, x.get(1)?)),
         )
@@ -142,11 +142,17 @@ mod tests {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '16')", [])?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '4', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '4', '{}', 'c', 1)",
                 [],
             )?;
-            tx.execute("INSERT INTO owner_asks (round, body) VALUES (1, '{\"to\": \"owner\"}')", [])?;
-            tx.execute("INSERT INTO design_cards (round, body, status) VALUES (1, '[]', 'open')", [])?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"to\": \"owner\"}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, '[]', 'open')",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();

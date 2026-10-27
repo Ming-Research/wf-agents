@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Compiled, CompiledGraph, FlowDiff, GraphView, RoundSummary } from '../api';
 import { FlowChart, type FlowChartHandle, type Pick } from '../graph/FlowChart';
+import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { t } from '../text';
 import { CellPanel, type CellTab, cellWho } from './CellPanel';
@@ -29,7 +30,9 @@ export type FlowScreenProps = {
   start: string | null;
   /// When two flows are compared: what changed, which the panel opens on.
   diff?: FlowDiff | null;
-  /// On a work's page: its rounds, a round's panel, and the round the address names.
+  /// On a work's page: the work, its rounds, a round's panel, and the round the address names, each round by its
+  /// number in the work.
+  work?: number;
   rounds?: RoundSummary[];
   round?: number | null;
   onRound?: (round: number | null) => void;
@@ -104,7 +107,8 @@ function InterjectionPanel() {
 }
 
 export function FlowScreen(props: FlowScreenProps) {
-  const { compiled, g, view, legend, marks, cell, onCell, start, diff, rounds, round, onRound, renderRound } = props;
+  const { compiled, g, view, legend, marks, cell, onCell, start, diff, work, rounds, round, onRound, renderRound } = props;
+  const nameOf = (n: number) => roundName(work ?? 0, n);
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
   const trail = useTrail<Subject>(same);
@@ -204,7 +208,7 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'changes':
         return t('panel_changes');
       case 'round':
-        return t('round_title', { id: s.round });
+        return nameOf(s.round);
     }
   };
   const panel = (() => {
@@ -224,8 +228,9 @@ export function FlowScreen(props: FlowScreenProps) {
             <CellPanel
               c={c}
               rows={now.rows}
+              work={work}
               rounds={rounds?.filter((r) => r.cell === c.id)}
-              onRound={onRound ? (r) => trail.open({ kind: 'round', round: r.id }) : undefined}
+              onRound={onRound ? (r) => trail.open({ kind: 'round', round: r.n }) : undefined}
               diff={diff?.graphs.find((x) => x.name === g.name)?.cells.find((x) => x.id === c.id) ?? null}
               tab={cellTab}
               onTab={setCellTab}
@@ -244,13 +249,13 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'changes':
         return { title: t('panel_changes'), who: null, body: diff ? <DiffPanel diff={diff} graph={g.name} /> : null };
       case 'round':
-        return { title: t('round_title', { id: now.round }), who: null, body: renderRound?.(now.round) ?? null };
+        return { title: nameOf(now.round), who: null, body: renderRound?.(now.round) ?? null };
     }
   })();
   // A round's panel brings its cell into view.
   useEffect(() => {
     if (now?.kind !== 'round') return;
-    const at = rounds?.find((r) => r.id === now.round)?.cell;
+    const at = rounds?.find((r) => r.n === now.round)?.cell;
     if (at) {
       setPicked(`c:${at}`);
       chartRef.current?.focus(at);

@@ -297,13 +297,13 @@ pub fn status(data: &Path) -> Result<String, String> {
     show(
         data,
         "SELECT w.id AS work, w.item, i.title, w.at, w.pr, w.paused, w.ended,
-                (SELECT group_concat(a.id) FROM owner_asks a JOIN rounds r ON r.id = a.round
-                 WHERE r.work = w.id AND a.answer IS NULL) AS open_asks,
-                (SELECT group_concat(c.id) FROM design_cards c JOIN rounds r ON r.id = c.round
-                 WHERE r.work = w.id AND c.status = 'open') AS open_design_cards,
+                (SELECT group_concat(a.id) FROM owner_asks a WHERE a.work = w.id AND a.answer IS NULL) AS open_asks,
+                (SELECT group_concat(c.id) FROM design_cards c
+                 WHERE c.work = w.id AND c.status = 'open') AS open_design_cards,
                 (SELECT count(*) FROM interjections x WHERE x.work = w.id AND x.delivered_round IS NULL) AS waiting_says,
-                (SELECT r.cell || ' ' || coalesce(r.transition, CASE WHEN r.rejected IS NOT NULL THEN 'sent back' ELSE 'running' END)
-                 FROM rounds r WHERE r.work = w.id ORDER BY r.id DESC LIMIT 1) AS last
+                (SELECT 'R' || r.work || '-' || r.n || ' ' || r.cell || ' '
+                        || coalesce(r.transition, CASE WHEN r.rejected IS NOT NULL THEN 'sent back' ELSE 'running' END)
+                 FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1) AS last
          FROM works w LEFT JOIN items i ON i.id = w.item ORDER BY w.id",
         &[],
         40,
@@ -312,8 +312,9 @@ pub fn status(data: &Path) -> Result<String, String> {
 
 pub fn asks(data: &Path, all: bool) -> Result<String, String> {
     let q = format!(
-        "SELECT a.id AS ask, r.work, w.item, r.cell, a.body, a.answer FROM owner_asks a
-         JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work {} ORDER BY a.id",
+        "SELECT a.id AS ask, a.work, 'R' || a.work || '-' || a.round AS round, w.item, r.cell, a.body, a.answer
+         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work {}
+         ORDER BY a.id",
         if all { "" } else { "WHERE a.answer IS NULL" }
     );
     show(data, &q, &[], 80)
@@ -323,8 +324,8 @@ pub fn ask(data: &Path, id: i64) -> Result<String, String> {
     let db = open(data)?;
     let rows = query_json(
         db.conn(),
-        "SELECT a.id AS ask, r.work, r.cell, a.body, a.answer FROM owner_asks a
-         JOIN rounds r ON r.id = a.round WHERE a.id = ?1",
+        "SELECT a.id AS ask, a.work, 'R' || a.work || '-' || a.round AS round, r.cell, a.body, a.answer
+         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = ?1",
         &[&id],
         1,
     )?;
@@ -334,8 +335,9 @@ pub fn ask(data: &Path, id: i64) -> Result<String, String> {
 
 pub fn design_cards(data: &Path, all: bool) -> Result<String, String> {
     let q = format!(
-        "SELECT c.id AS design_card, c.status, r.work, w.item, r.cell, c.body FROM design_cards c
-         JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work {} ORDER BY c.id",
+        "SELECT c.id AS design_card, c.status, c.work, 'R' || c.work || '-' || c.round AS round, w.item, r.cell, c.body
+         FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round JOIN works w ON w.id = c.work {}
+         ORDER BY c.id",
         if all { "" } else { "WHERE c.status <> 'replaced'" }
     );
     show(data, &q, &[], 80)
@@ -345,8 +347,9 @@ pub fn design_card(data: &Path, id: i64) -> Result<String, String> {
     let db = open(data)?;
     let rows = query_json(
         db.conn(),
-        "SELECT c.id AS design_card, c.status, r.work, r.cell, c.body, c.rulings, c.replaced_by FROM design_cards c
-         JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
+        "SELECT c.id AS design_card, c.status, c.work, 'R' || c.work || '-' || c.round AS round, r.cell, c.body,
+                c.rulings, c.replaced_by
+         FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.id = ?1",
         &[&id],
         1,
     )?;
@@ -359,7 +362,7 @@ pub fn history(data: &Path, work: i64, full: bool) -> Result<String, String> {
         let db = open(data)?;
         let rows = query_json(
             db.conn(),
-            "SELECT * FROM work_history WHERE work = ?1 ORDER BY round",
+            "SELECT 'R' || work || '-' || round AS name, * FROM work_history WHERE work = ?1 ORDER BY round",
             &[&work],
             10_000,
         )?;
@@ -369,10 +372,10 @@ pub fn history(data: &Path, work: i64, full: bool) -> Result<String, String> {
     }
     show(
         data,
-        "SELECT r.id AS round, r.cell, r.transition, json_extract(r.rejected, '$') AS rejected,
+        "SELECT 'R' || r.work || '-' || r.n AS round, r.cell, r.transition, json_extract(r.rejected, '$') AS rejected,
                 json_extract(r.output, '$.progress') AS progress, r.model, r.compactions,
                 (r.ended_at - r.started_at) / 1000 AS secs, json_extract(r.usage, '$.cost_usd') AS cost_usd
-         FROM rounds r WHERE r.work = ?1 ORDER BY r.id",
+         FROM rounds r WHERE r.work = ?1 ORDER BY r.n",
         &[&work],
         60,
     )
@@ -396,7 +399,8 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
     out.push_str(&table(
         &query_json(
             db.conn(),
-            "SELECT work, id AS round, cell, rejected FROM rounds WHERE rejected IS NOT NULL ORDER BY id",
+            "SELECT work, 'R' || work || '-' || n AS round, cell, rejected FROM rounds WHERE rejected IS NOT NULL
+             ORDER BY work, n",
             &[],
             10_000,
         )?,
@@ -406,7 +410,8 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
     out.push_str(&table(
         &query_json(
             db.conn(),
-            "SELECT work, id AS round, cell, compactions FROM rounds WHERE compactions > 0",
+            "SELECT work, 'R' || work || '-' || n AS round, cell, compactions FROM rounds WHERE compactions > 0
+             ORDER BY work, n",
             &[],
             10_000,
         )?,
@@ -451,7 +456,7 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
             data,
             "SELECT cell, count(*) AS rounds, sum(ended_at - started_at) / 1000 AS secs,
                     round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)), 2) AS cost_usd
-             FROM rounds WHERE work = ?1 GROUP BY cell ORDER BY min(id)",
+             FROM rounds WHERE work = ?1 GROUP BY cell ORDER BY min(n)",
             &[&w],
             40,
         ),

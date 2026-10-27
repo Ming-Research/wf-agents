@@ -49,6 +49,10 @@ describe('the addresses', () => {
       const i = at.indexOf('?');
       expect(i < 0 ? parse(at, '') : parse(at.slice(0, i), at.slice(i))).toEqual(r);
     }
+    // A round is named by its work and its number in the work; a name of another work's round opens none.
+    expect(href({ ...work, round: 240 })).toBe('/works/3?round=R3-240');
+    expect(parse('/works/3', '?round=R4-240')).toEqual(work);
+    expect(parse('/works/3', '?round=240')).toEqual(work);
     expect(parse('/', '')).toEqual({ page: 'works' });
     expect(parse('/works/x', '')).toEqual({ page: 'missing' });
     // A tab or a choice of rounds the page does not know is the work's rounds, all of them.
@@ -87,7 +91,7 @@ describe('the flow in words', () => {
 
 describe('events', () => {
   it('name what to read again', () => {
-    expect(named({ kind: 'round', work: 2, round: 9 })).toEqual(['works', 'work:2', 'round:9', 'items', 'item:*']);
+    expect(named({ kind: 'round', work: 2, round: 9 })).toEqual(['works', 'work:2', 'round:2-9', 'items', 'item:*']);
     expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works']);
     expect(named({ kind: 'ready' })).toEqual([]);
     expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*']);
@@ -129,16 +133,16 @@ function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}
   };
 }
 
-function round(id: number, cellId: string | null, outcome: RoundSummary['outcome'], transition: string | null): RoundSummary {
+function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'], transition: string | null): RoundSummary {
   return {
-    id,
+    n,
     cell: cellId,
     line: null,
     outcome,
     transition,
     why: null,
-    started_at: id,
-    ended_at: outcome === 'running' ? null : id + 1,
+    started_at: n,
+    ended_at: outcome === 'running' ? null : n + 1,
     model: null,
     cost_usd: null,
     compactions: 0,
@@ -372,8 +376,8 @@ describe("a work's rounds", () => {
       round(4, 'a', 'interrupted', null),
     ];
     expect(roundsShown(rounds, null)).toHaveLength(4);
-    expect(roundsShown(rounds, 'sent_back').map((r) => r.id)).toEqual([2]);
-    expect(roundsShown(rounds, 'failed').map((r) => r.id)).toEqual([3, 4]);
+    expect(roundsShown(rounds, 'sent_back').map((r) => r.n)).toEqual([2]);
+    expect(roundsShown(rounds, 'failed').map((r) => r.n)).toEqual([3, 4]);
   });
 });
 
@@ -412,28 +416,28 @@ describe('a round', () => {
         { id: null, what: 'the counters', from: [{ db: 'work_counters', by: 'work' }], maybe: false },
       ],
     });
-    const workFrom = ['1. R350·2a·ask', 'Read yourself: the code', '3. R353·engine·work_counters', 'Rules: rule:general'];
+    const workFrom = ['1. R6-12·2a·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
     expect(addressesByNumber(workFrom)).toEqual(
       new Map([
-        [1, ['R350·2a·ask']],
-        [3, ['R353·engine·work_counters']],
+        [1, ['R6-12·2a·ask']],
+        [3, ['R6-15·engine·work_counters']],
       ]),
     );
     const sent = new Map([
-      ['R350·2a·ask', false],
-      ['R353·engine·work_counters', true],
+      ['R6-12·2a·ask', false],
+      ['R6-15·engine·work_counters', true],
     ]);
     expect(inputRows(c, workFrom, sent).map((r) => [r.no, r.addresses])).toEqual([
-      [1, [{ address: 'R350·2a·ask', sent: false }]],
+      [1, [{ address: 'R6-12·2a·ask', sent: false }]],
       [2, []],
-      [3, [{ address: 'R353·engine·work_counters', sent: true }]],
+      [3, [{ address: 'R6-15·engine·work_counters', sent: true }]],
     ]);
   });
 
   it('says where an input comes from, names a model as people do, and reads rows a query gave', () => {
     const title = (id: string) => `${id} Choose`;
-    expect(sourceWords('R350·2a·ask', title)).toBe('from R350 at 2a Choose');
-    expect(sourceWords('R353·engine·work_counters', title)).toBe('computed by the engine for R353');
+    expect(sourceWords('R6-12·2a·ask', title)).toBe('from R6-12 at 2a Choose');
+    expect(sourceWords('R6-15·engine·work_counters', title)).toBe('computed by the engine for R6-15');
     expect(sourceWords('item:3', title)).toBe('item 3');
     expect(modelName('claude-opus-5-5')).toBe('Opus 5.5');
     expect(modelName('gpt-x')).toBe('gpt-x');

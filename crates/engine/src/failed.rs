@@ -13,7 +13,7 @@ use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
 
 use crate::agent::{self, Reply};
-use crate::work::{self, Ended, Round, Work};
+use crate::work::{self, Ended, Round, RoundId, Work};
 use crate::{Advance, Engine, actions};
 
 /// Why the engine starts no new round for any work, and until when.
@@ -120,7 +120,7 @@ pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s:
     let due = last.ended_at.unwrap_or(last.started_at) + wait;
     (db::now() < due).then(|| {
         format!(
-            "round {} ended without a return; the cell runs again at {}",
+            "{} ended without a return; the cell runs again at {}",
             last.id,
             utc(due)
         )
@@ -144,7 +144,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 pub struct Failed<'a> {
     pub w: &'a Work,
     pub cell: &'a CompiledCell,
-    pub round: i64,
+    pub round: RoundId,
     pub section: &'a Rounds,
 }
 
@@ -173,7 +173,7 @@ impl Failed<'_> {
             failed["until"] = json!(t);
         }
         (e.say)(&format!(
-            "round {} ended without a return ({}): {what}",
+            "{} ended without a return ({}): {what}",
             self.round, kind.name
         ));
         let ended = Ended {
@@ -252,7 +252,7 @@ mod tests {
         let rounds = |n: i64| -> Vec<Round> {
             (0..n)
                 .map(|i| Round {
-                    id: n - i,
+                    id: RoundId::new(1, n - i),
                     cell: Some("1".into()),
                     session: None,
                     input: json!({}),

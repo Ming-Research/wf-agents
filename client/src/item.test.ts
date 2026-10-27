@@ -146,16 +146,16 @@ const graph: CompiledGraph = {
   ],
 };
 
-function round(id: number, at: string, transition: string | null, extra: Partial<RoundSummary> = {}): RoundSummary {
+function round(n: number, at: string, transition: string | null, extra: Partial<RoundSummary> = {}): RoundSummary {
   return {
-    id,
+    n,
     cell: at,
     line: null,
     outcome: transition === null ? 'running' : 'took',
     transition,
     why: null,
-    started_at: id,
-    ended_at: transition === null ? null : id + 1,
+    started_at: n,
+    ended_at: transition === null ? null : n + 1,
     model: null,
     cost_usd: null,
     compactions: 0,
@@ -195,7 +195,7 @@ describe('the checklist of a work', () => {
     expect(summary(steps)).toEqual(['a done', 'b done', 'q done', 'c now x2', 'f done', 'm ahead']);
     const a = steps[0];
     // The tools' round counts under the cell that asked for them.
-    expect(a.rounds.map((r) => r.id)).toEqual([2, 3, 4]);
+    expect(a.rounds.map((r) => r.n)).toEqual([2, 3, 4]);
     expect(a.row).toBe('done');
     // Coming back from asking the owner is not getting to the cell again; the ask is under the stage it was asked at.
     expect(steps[1].passes).toBe(1);

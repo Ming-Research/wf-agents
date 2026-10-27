@@ -193,8 +193,8 @@ pub struct DesignCard {
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
         "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id
-         FROM design_cards c JOIN rounds r ON r.id = c.round
-         WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+         FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
+         WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(DesignCard {

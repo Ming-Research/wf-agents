@@ -35,7 +35,8 @@ pub struct Item {
     pub deliver: String,
     pub level: String,
     pub acceptance: Option<Value>,
-    pub acceptance_round: Option<i64>,
+    /// The round that locked the acceptance.
+    pub acceptance_round: Option<RoundId>,
     pub cancelled: Option<String>,
     /// What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
     /// request.
@@ -44,10 +45,40 @@ pub struct Item {
     pub imported_pr: Option<i64>,
 }
 
+/// A round, by its work and its number among the work's rounds, counted from 1 in the order they started. Ordered by
+/// its work, then its number: a later work's rounds come after an earlier one's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RoundId {
+    pub work: i64,
+    pub n: i64,
+}
+
+impl RoundId {
+    pub fn new(work: i64, n: i64) -> RoundId {
+        RoundId { work, n }
+    }
+
+    /// The round a name such as `R5-9` names.
+    pub fn parse(name: &str) -> Option<RoundId> {
+        let (work, n) = name.strip_prefix('R')?.split_once('-')?;
+        Some(RoundId {
+            work: work.parse().ok()?,
+            n: n.parse().ok()?,
+        })
+    }
+}
+
+/// A round's name, as people and agents see it: `R<work>-<n>`.
+impl std::fmt::Display for RoundId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "R{}-{}", self.work, self.n)
+    }
+}
+
 /// A round as `rounds` holds it.
 #[derive(Debug, Clone)]
 pub struct Round {
-    pub id: i64,
+    pub id: RoundId,
     pub cell: Option<String>,
     pub session: Option<i64>,
     pub input: Value,
@@ -109,7 +140,7 @@ impl Work {
         if let Some(g) = g {
             let mut st = conn
                 .prepare(
-                    "SELECT cell, transition FROM rounds WHERE work = ?1 AND transition IS NOT NULL ORDER BY id DESC",
+                    "SELECT cell, transition FROM rounds WHERE work = ?1 AND transition IS NOT NULL ORDER BY n DESC",
                 )
                 .map_err(sql)?;
             let rows = st
@@ -150,11 +181,15 @@ impl Work {
 impl Item {
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
         conn.query_row(
-            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_round, cancelled,
-                    imported_from, imported_branch, imported_pr
+            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work,
+                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr
              FROM items WHERE id = ?1",
             [id],
             |r| {
+                let locked = match (r.get::<_, Option<i64>>(9)?, r.get::<_, Option<i64>>(10)?) {
+                    (Some(work), Some(n)) => Some(RoundId { work, n }),
+                    _ => None,
+                };
                 Ok(Item {
                     id: r.get(0)?,
                     project: r.get(1)?,
@@ -165,11 +200,11 @@ impl Item {
                     deliver: r.get(6)?,
                     level: r.get(7)?,
                     acceptance: json_col(r.get(8)?),
-                    acceptance_round: r.get(9)?,
-                    cancelled: r.get(10)?,
-                    imported_from: r.get(11)?,
-                    imported_branch: r.get(12)?,
-                    imported_pr: r.get(13)?,
+                    acceptance_round: locked,
+                    cancelled: r.get(11)?,
+                    imported_from: r.get(12)?,
+                    imported_branch: r.get(13)?,
+                    imported_pr: r.get(14)?,
                 })
             },
         )
@@ -177,29 +212,32 @@ impl Item {
     }
 }
 
-const ROUND: &str = "SELECT id, cell, session, input, output, transition, rejected, compactions, started_at, ended_at,
-                     usage FROM rounds";
+const ROUND: &str = "SELECT work, n, cell, session, input, output, transition, rejected, compactions, started_at,
+                     ended_at, usage FROM rounds";
 
 fn round(r: &rusqlite::Row<'_>) -> rusqlite::Result<Round> {
     Ok(Round {
-        id: r.get(0)?,
-        cell: r.get(1)?,
-        session: r.get(2)?,
-        input: json_col(r.get(3)?).unwrap_or(Value::Null),
-        output: json_col(r.get(4)?),
-        transition: r.get(5)?,
-        rejected: json_col(r.get(6)?),
-        compactions: r.get(7)?,
-        started_at: r.get(8)?,
-        ended_at: r.get(9)?,
-        usage: json_col(r.get(10)?),
+        id: RoundId {
+            work: r.get(0)?,
+            n: r.get(1)?,
+        },
+        cell: r.get(2)?,
+        session: r.get(3)?,
+        input: json_col(r.get(4)?).unwrap_or(Value::Null),
+        output: json_col(r.get(5)?),
+        transition: r.get(6)?,
+        rejected: json_col(r.get(7)?),
+        compactions: r.get(8)?,
+        started_at: r.get(9)?,
+        ended_at: r.get(10)?,
+        usage: json_col(r.get(11)?),
     })
 }
 
 /// The work's rounds at a cell, newest first.
 pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>, String> {
     let mut st = conn
-        .prepare(&format!("{ROUND} WHERE work = ?1 AND cell = ?2 ORDER BY id DESC"))
+        .prepare(&format!("{ROUND} WHERE work = ?1 AND cell = ?2 ORDER BY n DESC"))
         .map_err(sql)?;
     st.query_map(params![work, cell], round)
         .map_err(sql)?
@@ -210,7 +248,7 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
 /// All the work's rounds, oldest first.
 pub fn rounds(conn: &Connection, work: i64) -> Result<Vec<Round>, String> {
     let mut st = conn
-        .prepare(&format!("{ROUND} WHERE work = ?1 ORDER BY id"))
+        .prepare(&format!("{ROUND} WHERE work = ?1 ORDER BY n"))
         .map_err(sql)?;
     st.query_map([work], round)
         .map_err(sql)?
@@ -247,7 +285,7 @@ pub fn last_resume(conn: &Connection, work: i64) -> Result<Option<(i64, String)>
 /// The round of the work still running or waiting, if any.
 pub fn open_round(conn: &Connection, work: i64) -> Result<Option<Round>, String> {
     conn.query_row(
-        &format!("{ROUND} WHERE work = ?1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1"),
+        &format!("{ROUND} WHERE work = ?1 AND ended_at IS NULL ORDER BY n DESC LIMIT 1"),
         [work],
         round,
     )
@@ -255,7 +293,7 @@ pub fn open_round(conn: &Connection, work: i64) -> Result<Option<Round>, String>
     .map_err(sql)
 }
 
-/// Starts a round; it is completed by [`finish_round`] and never changed after.
+/// Starts the work's next round; it is completed by [`finish_round`] and never changed after.
 pub fn start_round(
     conn: &Connection,
     work: i64,
@@ -264,35 +302,47 @@ pub fn start_round(
     input: &Value,
     config_commit: &str,
     model: Option<&str>,
-) -> Result<i64, String> {
-    start_numbered(conn, None, work, cell, session, input, config_commit, model)
+) -> Result<RoundId, String> {
+    start_numbered(
+        conn,
+        next_round(conn, work)?,
+        cell,
+        session,
+        input,
+        config_commit,
+        model,
+    )
 }
 
-/// The number the next round started will have. Only the engine starts rounds, one at a time, so an agent's message
-/// can name its round before the round is written.
-pub fn next_round(conn: &Connection) -> Result<i64, String> {
-    conn.query_row("SELECT coalesce(max(id), 0) + 1 FROM rounds", [], |r| r.get(0))
-        .map_err(sql)
+/// The round the work's next round started will be. Only the engine starts rounds, one at a time, so an agent's
+/// message can name its round before the round is written.
+pub fn next_round(conn: &Connection, work: i64) -> Result<RoundId, String> {
+    let n: i64 = conn
+        .query_row(
+            "SELECT coalesce(max(n), 0) + 1 FROM rounds WHERE work = ?1",
+            [work],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    Ok(RoundId { work, n })
 }
 
-/// Starts a round under the number given, or the next one.
-#[allow(clippy::too_many_arguments)]
+/// Starts a round as the round given.
 pub fn start_numbered(
     conn: &Connection,
-    id: Option<i64>,
-    work: i64,
+    id: RoundId,
     cell: &str,
     session: Option<i64>,
     input: &Value,
     config_commit: &str,
     model: Option<&str>,
-) -> Result<i64, String> {
+) -> Result<RoundId, String> {
     conn.execute(
-        "INSERT INTO rounds (id, work, cell, session, input, config_commit, model, started_at)
+        "INSERT INTO rounds (work, n, cell, session, input, config_commit, model, started_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            id,
-            work,
+            id.work,
+            id.n,
             cell,
             session,
             input.to_string(),
@@ -302,7 +352,7 @@ pub fn start_numbered(
         ],
     )
     .map_err(sql)?;
-    Ok(conn.last_insert_rowid())
+    Ok(id)
 }
 
 /// How a round ended.
@@ -318,13 +368,14 @@ pub struct Ended {
     pub command: Option<Vec<String>>,
 }
 
-pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String> {
+pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
     conn.execute(
-        "UPDATE rounds SET output = ?2, transition = ?3, rejected = ?4, usage = ?5, compactions = ?6,
-                model = coalesce(?7, model), ended_at = ?8
-         WHERE id = ?1 AND ended_at IS NULL",
+        "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = ?6, compactions = ?7,
+                model = coalesce(?8, model), ended_at = ?9
+         WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
         params![
-            id,
+            id.work,
+            id.n,
             e.output.as_ref().map(Value::to_string),
             e.transition,
             e.rejected.as_ref().map(Value::to_string),
@@ -337,8 +388,8 @@ pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String>
     .map_err(sql)?;
     if let Some(c) = &e.command {
         conn.execute(
-            "UPDATE rounds SET input = json_set(input, '$.call.command', json(?2)) WHERE id = ?1",
-            params![id, serde_json::to_string(c).unwrap_or_default()],
+            "UPDATE rounds SET input = json_set(input, '$.call.command', json(?3)) WHERE work = ?1 AND n = ?2",
+            params![id.work, id.n, serde_json::to_string(c).unwrap_or_default()],
         )
         .map_err(sql)?;
     }

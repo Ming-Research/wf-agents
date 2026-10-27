@@ -8,26 +8,28 @@ import { useEffect, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown } from '../api';
 import { Facts, ItemBadge, Loaded, Section, WorkBadge } from '../components';
-import { cost, time } from '../format';
+import { cost, roundName, time } from '../format';
 import { Acceptance, Approaches, Deviation, Design, Field, Fold, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str } from '../labelled';
 import { useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Link } from '../route';
+import { Link, workHref } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, DesignCardView } from './Decide';
 
-/// Where a value shown on the item came from: the work, the round and the cell, opening the round.
+/// Where a value shown on the item came from: the round and the cell, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
+  const round = roundName(x.work, x.round);
   return (
-    <Link to={`/works/${x.work}?round=${x.round}`} className="shown-from">
-      {x.cell !== undefined
-        ? t('shown_from', { work: x.work, round: x.round, cell: x.cell })
-        : t('shown_from_round', { work: x.work, round: x.round })}
+    <Link to={workHref(x.work, { round: x.round })} className="shown-from">
+      {x.cell !== undefined ? t('shown_from', { round, cell: x.cell }) : round}
     </Link>
   );
 }
+
+/// A round of one of the item's works: two values shown come from the same round when this is the same.
+const roundKey = (x: { work: number; round: number }) => `${x.work}-${x.round}`;
 
 /// The paths of a return the page draws in a place of its own; any other path the flow shows on the item is listed
 /// as labelled text. Messages to the owner are on the messages view; the design tree's change is the design card.
@@ -112,7 +114,7 @@ function Problem({ d, shown }: { d: ItemDetail; shown: Map<string, Shown[]> }) {
       {before.length > 0 ? (
         <Fold title={t('shown_before', { n: before.length })}>
           {before.map((x) => (
-            <div key={x.round} className="shown-old">
+            <div key={roundKey(x)} className="shown-old">
               <From x={x} />
               <Understanding value={x.value} />
             </div>
@@ -124,8 +126,8 @@ function Problem({ d, shown }: { d: ItemDetail; shown: Map<string, Shown[]> }) {
 }
 
 /// One version of the design: why it was chosen, the design itself and the measure, as one round wrote them.
-function DesignOf({ round, shown }: { round: number; shown: Map<string, Shown[]> }) {
-  const at = (path: string): JsonValue | undefined => shown.get(path)?.find((x) => x.round === round)?.value;
+function DesignOf({ round, shown }: { round: string; shown: Map<string, Shown[]> }) {
+  const at = (path: string): JsonValue | undefined => shown.get(path)?.find((x) => roundKey(x) === round)?.value;
   const why = at('why');
   const design = at('design');
   const measure = at('measure');
@@ -142,12 +144,15 @@ function DesignOf({ round, shown }: { round: number; shown: Map<string, Shown[]>
 /// folded; earlier versions folded.
 function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
   const marks = ['chosen', 'why', 'design', 'measure'].flatMap((p) => shown.get(p) ?? []);
-  const rounds = [...new Set(marks.map((x) => x.round))].sort((a, b) => a - b);
+  // The rounds that wrote a version, oldest first: by their works, then their numbers in the work.
+  const rounds = [...new Map(marks.map((x) => [roundKey(x), x])).values()]
+    .sort((a, b) => a.work - b.work || a.round - b.round)
+    .map(roundKey);
   const options = newest(shown.get('options'));
   if (rounds.length === 0 && options === undefined) return null;
   const round = rounds[rounds.length - 1];
-  const from = marks.find((x) => x.round === round);
-  const chosen = str(shown.get('chosen')?.find((x) => x.round === round)?.value);
+  const from = marks.find((x) => roundKey(x) === round);
+  const chosen = str(shown.get('chosen')?.find((x) => roundKey(x) === round)?.value);
   const n = options !== undefined && Array.isArray(options.value) ? options.value.length : 0;
   return (
     <Block title={t('design_title')} from={from ?? options}>
@@ -174,12 +179,12 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
             .slice(0, -1)
             .reverse()
             .map((r) => {
-              const x = marks.find((y) => y.round === r);
+              const x = marks.find((y) => roundKey(y) === r);
               return (
                 <div key={r} className="shown-old">
                   {x !== undefined ? <From x={x} /> : null}
                   <h3 className="design-chosen">
-                    <MarkdownInline text={str(shown.get('chosen')?.find((y) => y.round === r)?.value)} />
+                    <MarkdownInline text={str(shown.get('chosen')?.find((y) => roundKey(y) === r)?.value)} />
                   </h3>
                   <DesignOf round={r} shown={shown} />
                 </div>
@@ -201,16 +206,16 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
     for (const m of x.value) if (isObj(m) && typeof m.id === 'string') met.set(m.id, m);
   }
   if (d.acceptance !== null) {
-    const locked = d.acceptance_round !== null ? d.shown.find((x) => x.round === d.acceptance_round) : undefined;
+    const at = d.acceptance_work !== null && d.acceptance_round !== null
+      ? { work: d.acceptance_work, round: d.acceptance_round }
+      : null;
     return (
       <Block title={t('acceptance')}>
         <p className="shown-from">
-          {locked !== undefined ? (
-            <Link to={`/works/${locked.work}?round=${locked.round}`} className="shown-from">
-              {t('acceptance_locked', { round: locked.round })}
+          {at !== null ? (
+            <Link to={workHref(at.work, { round: at.round })} className="shown-from">
+              {t('acceptance_locked', { round: roundName(at.work, at.round) })}
             </Link>
-          ) : d.acceptance_round !== null ? (
-            t('acceptance_locked', { round: d.acceptance_round })
           ) : null}
         </p>
         <Acceptance value={d.acceptance} met={met} />

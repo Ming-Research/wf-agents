@@ -10,7 +10,7 @@ use crate::agent::{self, Request};
 use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message::{self, Held};
-use crate::work::{self, Ended, Item, Round, Work};
+use crate::work::{self, Ended, Item, Round, RoundId, Work};
 use crate::{Advance, Engine, actions, checks, git, tools, values};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -182,21 +182,14 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let round =
         e.db.write(Actor::Engine, |tx| {
             db::keep(tx, &kept)?;
-            work::start_numbered(
-                tx,
-                Some(number),
-                w.id,
-                &cell.id,
-                Some(sid),
-                &input,
-                &commit,
-                Some(&level.model),
-            )
-            .map_err(db::Error::Abort)
+            work::start_numbered(tx, number, &cell.id, Some(sid), &input, &commit, Some(&level.model))
+                .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
-    (e.say)(&format!("work {} cell {}: round {round} of the {line}", w.id, cell.id));
-    let reply = e.agents.run(&req, &|what: &str| (e.activity)(w.id, round, what));
+    (e.say)(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
+    let reply = e
+        .agents
+        .run(&req, &|what: &str| (e.activity)(round.work, round.n, what));
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
         e.db.write(Actor::Engine, |tx| {
@@ -292,8 +285,8 @@ struct Composed {
     /// The interjections waiting for the line.
     interjections: Vec<Value>,
     columns: Vec<(String, String)>,
-    /// The number the round gets.
-    number: i64,
+    /// The round it will be.
+    number: RoundId,
     msg: message::Message,
 }
 
@@ -326,7 +319,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         .filter(|r| r["line"] == line.as_str())
         .collect();
     let columns = message::columns(e, w, g, cell, item);
-    let number = work::next_round(e.db.conn())?;
+    let number = work::next_round(e.db.conn(), w.id)?;
     let msg = message::Context {
         e,
         w,
@@ -417,9 +410,11 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     {
         let asked: Option<(i64, Option<String>)> =
             e.db.conn()
-                .query_row("SELECT id, answer FROM owner_asks WHERE round = ?1", [r.id], |x| {
-                    Ok((x.get(0)?, x.get(1)?))
-                })
+                .query_row(
+                    "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    [r.id.work, r.id.n],
+                    |x| Ok((x.get(0)?, x.get(1)?)),
+                )
                 .ok();
         if let Some((id, None)) = asked {
             waits = Some(format!("your answer to ask {id}"));
@@ -498,8 +493,8 @@ fn round_cost(mut usage: Value, line_rounds: &[Round]) -> Value {
     usage
 }
 
-fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advance, String> {
-    (e.say)(&format!("round {round} sent back: {why}"));
+fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
+    (e.say)(&format!("{round} sent back: {why}"));
     let ended = Ended {
         rejected: Some(why),
         transition: None,
@@ -577,7 +572,7 @@ pub fn finish(
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
-    round: i64,
+    round: RoundId,
     output: Value,
     row: &CompiledRow,
     ended: Ended,
@@ -616,14 +611,14 @@ pub fn finish(
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
         if let Some(h) = &head_after {
             tx.execute(
-                "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?2) WHERE id = ?1",
-                params![round, h],
+                "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?3) WHERE work = ?1 AND n = ?2",
+                params![round.work, round.n, h],
             )?;
         }
         for id in delivered {
             tx.execute(
                 "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
-                params![id, round],
+                params![id, round.n],
             )?;
         }
         for a in &cell.always {
@@ -655,7 +650,7 @@ pub fn finish(
 }
 
 /// Ends the round at the graph's end, which has no rows: the work is done.
-fn finish_end(e: &mut Engine, w: &Work, round: i64, output: Value) -> Result<Advance, String> {
+fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value) -> Result<Advance, String> {
     let ended = Ended {
         output: Some(output),
         ..Ended::default()
@@ -851,12 +846,14 @@ fn ask(
     if let Some(r) = open.filter(|r| r.cell.as_deref() == Some(cell.id.as_str())) {
         let asked: Option<(i64, Option<String>)> =
             e.db.conn()
-                .query_row("SELECT id, answer FROM owner_asks WHERE round = ?1", [r.id], |x| {
-                    Ok((x.get(0)?, x.get(1)?))
-                })
+                .query_row(
+                    "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    [r.id.work, r.id.n],
+                    |x| Ok((x.get(0)?, x.get(1)?)),
+                )
                 .ok();
         let Some((id, answer)) = asked else {
-            return Err(format!("round {} asks, but put no ask to the owner", r.id));
+            return Err(format!("{} asks, but put no ask to the owner", r.id));
         };
         let Some(answer) = answer else {
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
@@ -900,8 +897,8 @@ fn ask(
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
             tx.execute(
-                "INSERT INTO owner_asks (round, body) VALUES (?1, ?2)",
-                params![round, body.to_string()],
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
+                params![round.work, round.n, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
             actions::notify_ask(tx, w.id, id, &format!("{text}{about} (ask {id})")).map_err(db::Error::Abort)?;
@@ -982,8 +979,8 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
             .is_some_and(|r| r.input["engine"]["change"].as_str() != now.as_deref())
     };
     let answers_after = |rs: &[Round], kinds: &[&str]| -> bool {
-        let since = rs.first().map_or(0, |r| r.id);
-        fixes.iter().filter(|f| f.id > since).any(|f| {
+        let since = rs.first().map(|r| r.id);
+        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
             f.output
                 .as_ref()
                 .and_then(|o| o[&g.within]["rows"].as_array().cloned())
@@ -1035,7 +1032,7 @@ mod tests {
 
     fn round(usage: Value) -> Round {
         Round {
-            id: 1,
+            id: RoundId::new(1, 1),
             cell: None,
             session: Some(1),
             input: Value::Null,

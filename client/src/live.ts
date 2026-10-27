@@ -7,7 +7,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { Event, Status } from './api';
 import { getJson } from './http';
 
-/// What a running agent did, as its command line reported it.
+/// What a running agent did, as its command line reported it, with the round's number in its work.
 export type Activity = { round: number; what: string; at: number };
 
 type State = {
@@ -49,7 +49,7 @@ export function named(e: Event): string[] {
     case 'work':
       return ['works', `work:${e.work}`, 'items', 'item:*'];
     case 'round':
-      return ['works', `work:${e.work}`, `round:${e.round}`, 'items', 'item:*'];
+      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*'];
     case 'design_card':
     case 'ask':
       return e.work === null ? ['works', 'work:*', 'item:*'] : ['works', `work:${e.work}`, 'item:*'];

@@ -2,6 +2,8 @@
 
 import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 
+import { roundName } from './format';
+
 /// What the window over the left of a work's chart shows: its rounds, its design cards, or its messages and asks.
 export type WorkTab = 'rounds' | 'cards' | 'messages';
 
@@ -12,6 +14,7 @@ export type RoundsOnly = 'sent_back' | 'failed';
 export type WorkRoute = {
   page: 'work';
   id: number;
+  /// The round open, by its number in the work; the address names it as `?round=R<work>-<n>`.
   round: number | null;
   cell: string | null;
   tab: WorkTab;
@@ -42,6 +45,12 @@ const num = (s: string | null | undefined): number | null => {
   return Number(s);
 };
 
+/// The number in the work of the round a name such as `R5-9` names, when it is a round of that work.
+const roundOf = (work: number, s: string | null): number | null => {
+  const m = s === null ? null : /^R(\d+)-(\d+)$/.exec(s);
+  return m !== null && Number(m[1]) === work ? Number(m[2]) : null;
+};
+
 export function parse(pathname: string, search: string): Route {
   const q = new URLSearchParams(search);
   const parts = pathname.split('/').filter((p) => p !== '');
@@ -55,7 +64,7 @@ export function parse(pathname: string, search: string): Route {
       return {
         page: 'work',
         id,
-        round: num(q.get('round')),
+        round: roundOf(id, q.get('round')),
         cell: q.get('cell'),
         tab: tab === 'cards' || tab === 'messages' ? tab : 'rounds',
         only: only === 'sent_back' || only === 'failed' ? only : null,
@@ -98,7 +107,7 @@ export function href(r: Route): string {
       return `/works/${r.id}${query([
         ['tab', r.tab === 'rounds' ? null : r.tab],
         ['only', r.only],
-        ['round', r.round],
+        ['round', r.round === null ? null : roundName(r.id, r.round)],
         ['cell', r.cell],
       ])}`;
     case 'items':

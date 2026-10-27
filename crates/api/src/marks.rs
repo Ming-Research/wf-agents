@@ -59,11 +59,11 @@ mod tests {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", [])?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '1', '{}', 'c', 1)",
                 [],
             )?;
             for t in ["a", "b", "c"] {
-                tx.execute("INSERT INTO owner_messages (round, text) VALUES (1, ?1)", [t])?;
+                tx.execute("INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)", [t])?;
             }
             tx.execute(
                 "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 1), (NULL, 'Halted.', 2)",

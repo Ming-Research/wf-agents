@@ -212,10 +212,13 @@ fn the_owner_reads_messages_and_marks_them_read() {
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
         tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", [])?;
         tx.execute(
-            "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '5a', '{}', 'c', 1)",
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '5a', '{}', 'c', 1)",
             [],
         )?;
-        tx.execute("INSERT INTO owner_messages (round, text) VALUES (1, 'first'), (1, 'second')", [])?;
+        tx.execute(
+            "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, 'first'), (1, 1, 'second')",
+            [],
+        )?;
         tx.execute(
             "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 5)",
             [],
@@ -267,11 +270,17 @@ fn the_owner_answers_and_rules_on_the_page() {
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
         tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '16')", [])?;
         tx.execute(
-            "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '4', '{}', 'c', 1)",
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '4', '{}', 'c', 1)",
             [],
         )?;
-        tx.execute("INSERT INTO owner_asks (round, body) VALUES (1, '{\"to\":\"owner\"}')", [])?;
-        tx.execute("INSERT INTO design_cards (round, body, status) VALUES (1, '[]', 'open')", [])?;
+        tx.execute(
+            "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"to\":\"owner\"}')",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, '[]', 'open')",
+            [],
+        )?;
         Ok(())
     })
     .unwrap();

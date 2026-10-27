@@ -502,7 +502,7 @@ fn an_item_goes_from_the_queue_to_main() {
     assert_eq!(main, "old\nfeature");
     let cells: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT cell, transition FROM rounds WHERE work = (SELECT id FROM works WHERE item = ?1) ORDER BY id",
+        "SELECT cell, transition FROM rounds WHERE work = (SELECT id FROM works WHERE item = ?1) ORDER BY n",
         &[&item],
         1000,
     )
@@ -541,7 +541,7 @@ fn an_item_goes_from_the_queue_to_main() {
         let input: String =
             e.db.conn()
                 .query_row(
-                    "SELECT input FROM rounds WHERE cell = ?1 ORDER BY id LIMIT 1",
+                    "SELECT input FROM rounds WHERE cell = ?1 ORDER BY work, n LIMIT 1",
                     [cell],
                     |r| r.get(0),
                 )
@@ -640,10 +640,10 @@ fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
     git(&wt, &["commit", "-q", "-m", "A decision"]);
     let card =
         e.db.write(Actor::Engine, |tx| {
-            let round: i64 = tx.query_row("SELECT max(id) FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
             tx.execute(
-                "INSERT INTO design_cards (round, body, status) VALUES (?1, '[]', 'open')",
-                [round],
+                "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
+                [work, round],
             )?;
             let card = tx.last_insert_rowid();
             tx.execute("UPDATE works SET at = '19' WHERE id = ?1", [work])?;
@@ -689,7 +689,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
             e.db.conn()
                 .prepare(
                     "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
-                     WHERE w.item = ?1 AND r.cell = '2b' AND r.ended_at IS NOT NULL ORDER BY r.id",
+                     WHERE w.item = ?1 AND r.cell = '2b' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
                 )
                 .unwrap();
         st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -750,7 +750,7 @@ fn the_advisor_runs_one_level_above_the_item() {
         e.db.conn()
             .query_row(
                 "SELECT r.model, s.line FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
-                 WHERE w.item = ?1 AND s.line = 'advisor' ORDER BY r.id LIMIT 1",
+                 WHERE w.item = ?1 AND s.line = 'advisor' ORDER BY r.work, r.n LIMIT 1",
                 [item],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -768,7 +768,7 @@ fn the_advisor_runs_one_level_above_the_item() {
         e.db.conn()
             .query_row(
                 "SELECT r.model FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
-                 WHERE w.item = ?1 AND s.line = 'engineer' ORDER BY r.id LIMIT 1",
+                 WHERE w.item = ?1 AND s.line = 'engineer' ORDER BY r.work, r.n LIMIT 1",
                 [item],
                 |r| r.get(0),
             )
@@ -788,14 +788,14 @@ fn an_ask_waiting_for_its_answer_offers_no_round() {
     let ask =
         e.db.write(Actor::Engine, |tx| {
             tx.execute("UPDATE works SET at = '16' WHERE id = ?1", [work])?;
+            let round = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '16', '{}', 'c', 1)",
-                [work],
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, '16', '{}', 'c', 1)",
+                [work, round],
             )?;
-            let round = tx.last_insert_rowid();
             tx.execute(
-                "INSERT INTO owner_asks (round, body) VALUES (?1, '{\"to\":\"owner\"}')",
-                [round],
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                [work, round],
             )?;
             Ok(tx.last_insert_rowid())
         })
@@ -834,9 +834,9 @@ fn a_settled_row_leaves_the_fix_table() {
     let add = |e: &mut Engine, output: &Value| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, '7', '{}', ?2, 'next', 'c', 1, 2)",
-                params![work, output.to_string()],
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, '7', '{}', ?3, 'next', 'c', 1, 2)",
+                params![work, next_round(tx, work)?, output.to_string()],
             )?;
             tx.execute("UPDATE works SET at = '8' WHERE id = ?1", [work])?;
             Ok(())
@@ -906,14 +906,15 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert!(at != "0" && at != "1", "{log}");
-    let (cell, text, read): (String, String, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.id = m.round",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .unwrap();
+    let (cell, text, read): (String, String, Option<i64>) = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
     assert_eq!(
         (cell.as_str(), text.as_str(), read),
         ("1", "The item's example does not run as written.", None)
@@ -962,11 +963,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let cut = e
         .db
         .write(Actor::Engine, |tx| {
+            let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, session, input, config_commit, started_at) VALUES (?1, '1a', ?2, '{}', 'c', 1)",
-                params![work, session],
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, '1a', ?3, '{}', 'c', 1)",
+                params![work, n, session],
             )?;
-            Ok(tx.last_insert_rowid())
+            Ok(n)
         })
         .unwrap();
     e.step(None).unwrap();
@@ -976,7 +978,7 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let m = input["message"].as_str().unwrap();
     assert!(
         m.starts_with(&format!(
-            "# R{id} · cell 1a\n\nR{cut} was cut off midway. First look at the worktree"
+            "# {id} · cell 1a\n\nR{work}-{cut} was cut off midway. First look at the worktree"
         )),
         "{m}"
     );
@@ -1045,7 +1047,7 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
     for want in [
         "This item was worked on before.".to_string(),
         format!("- Work {old} "),
-        format!("WHERE work = {old} ORDER BY id"),
+        format!("WHERE work = {old} ORDER BY n"),
         "git log --oneline origin/main..HEAD".to_string(),
         format!("pr view {} --comments", pr.unwrap()),
         "it was half done before".to_string(),
@@ -1080,20 +1082,23 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     let (work, at, _) = state(&e, item).unwrap();
     let open_round = |e: &mut Engine| -> i64 {
         e.db.write(Actor::Engine, |tx| {
+            let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, ?2, '{}', 'c', 1)",
-                params![work, at],
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, ?3, '{}', 'c', 1)",
+                params![work, n, at],
             )?;
-            Ok(tx.last_insert_rowid())
+            Ok(n)
         })
         .unwrap()
     };
     let rejected = |e: &Engine, round: i64| -> (Option<i64>, Value) {
         let (ended, rejected): (Option<i64>, Option<String>) =
             e.db.conn()
-                .query_row("SELECT ended_at, rejected FROM rounds WHERE id = ?1", [round], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
+                .query_row(
+                    "SELECT ended_at, rejected FROM rounds WHERE work = ?1 AND n = ?2",
+                    [work, round],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
                 .unwrap();
         (
             ended,
@@ -1154,7 +1159,7 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
         e.db.conn()
             .query_row(
                 "SELECT r.output FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = '13' AND r.transition IS NOT NULL ORDER BY r.id LIMIT 1",
+                 WHERE w.item = ?1 AND r.cell = '13' AND r.transition IS NOT NULL ORDER BY r.work, r.n LIMIT 1",
                 [item],
                 |r| r.get(0),
             )
@@ -1361,12 +1366,12 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Each agent round of the item's work, oldest first: its number, its cell, and what the engine recorded it gave.
-fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
+/// Each agent round of the item's works, oldest first: its name, its cell, and what the engine recorded it gave.
+fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
-        "SELECT r.id, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.id",
+        "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -1374,12 +1379,21 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
     .into_iter()
     .map(|r| {
         (
-            r["id"].as_i64().unwrap(),
+            r["name"].as_str().unwrap().to_string(),
             r["cell"].as_str().unwrap().to_string(),
             db::put_back(e.db.conn(), &r["input"]),
         )
     })
     .collect()
+}
+
+/// The number the work's next round gets.
+fn next_round(tx: &db::rusqlite::Transaction<'_>, work: i64) -> Result<i64, db::Error> {
+    Ok(tx.query_row(
+        "SELECT coalesce(max(n), 0) + 1 FROM rounds WHERE work = ?1",
+        [work],
+        |r| r.get(0),
+    )?)
 }
 
 /// Whether a round's message gave the conditional input at an address, or only referred to it; none when it has none there.
@@ -1425,7 +1439,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     };
     for (id, cell, input) in &rounds {
         let m = input["message"].as_str().unwrap();
-        assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
+        assert!(m.starts_with(&format!("# {id} · cell {cell} · ")), "{m}");
     }
     let (first, second) = (&at("1"), &at("1a"));
     let (work, _, _) = state(&e, item).unwrap();
@@ -1460,8 +1474,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
     assert!(m.contains("- items: A piece of work to do"), "{m}");
     assert!(!m.contains("CREATE TABLE"), "{m}");
-    let design = rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
-    let acceptance = format!("R{design}·2a·acceptance");
+    let design = &rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
+    let acceptance = format!("{design}·2a·acceptance");
     assert_eq!(given(&at("3f"), &acceptance), Some(false), "{}", at("3f"));
     assert_eq!(given(&at("4"), &acceptance), Some(false), "{}", at("4"));
     assert_eq!(given(&at("5"), &acceptance), Some(true), "{}", at("5"));
@@ -1503,7 +1517,11 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert_eq!(kept("{\"type\":\"object\"%"), 1);
     let raw: String =
         e.db.conn()
-            .query_row("SELECT input FROM rounds WHERE id = ?1", [rounds[0].0], |r| r.get(0))
+            .query_row(
+                "SELECT input FROM rounds WHERE 'R' || work || '-' || n = ?1",
+                [&rounds[0].0],
+                |r| r.get(0),
+            )
             .unwrap();
     assert!(
         !raw.contains("The forms every agent's return shares.") && raw.contains("{\"content\":"),
@@ -1544,10 +1562,10 @@ fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compa
     assert_eq!(given(c, "format:common"), Some(true));
     assert_eq!(given(c, "rule:ground"), Some(true));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
-    let understanding = format!("R{}·1·understanding", rounds[0].0);
+    let understanding = format!("{}·1·understanding", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
-    assert!(m.contains(&format!("compacted in R{}", rounds[1].0)), "{m}");
+    assert!(m.contains(&format!("compacted in {}", rounds[1].0)), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1604,7 +1622,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (id, _, again) = &rounds[1];
     let m = again["message"].as_str().unwrap();
     assert!(
-        m.starts_with(&format!("# R{id} · cell 1\n\nYour return was sent back: "))
+        m.starts_with(&format!("# {id} · cell 1\n\nYour return was sent back: "))
             && m.ends_with("\nRewrite it (format:1).\n"),
         "{m}"
     );
@@ -1632,7 +1650,7 @@ fn failed_kinds(e: &Engine) -> Vec<String> {
     engine::query_json(
         e.db.conn(),
         "SELECT json_extract(rejected, '$.failed.kind') AS kind FROM rounds
-         WHERE json_extract(rejected, '$.failed') IS NOT NULL ORDER BY id",
+         WHERE json_extract(rejected, '$.failed') IS NOT NULL ORDER BY work, n",
         &[],
         100,
     )

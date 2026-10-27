@@ -35,7 +35,7 @@ use serde_json::Value;
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
 pub use steps::{NextRound, next_message, next_round};
-pub use work::{Item, Round, Work, json_col, query_json};
+pub use work::{Item, Round, RoundId, Work, json_col, query_json};
 
 use agent::Agents;
 use hub::GitHub;
@@ -57,7 +57,8 @@ pub enum Advance {
     Stopped,
 }
 
-/// Where the engine tells what the agent of a running round is doing: the work, the round and what it does.
+/// Where the engine tells what the agent of a running round is doing: the round's work, its number in the work, and
+/// what it does.
 pub type Activity = dyn Fn(i64, i64, &str);
 
 pub struct Engine {
@@ -239,8 +240,7 @@ impl Engine {
                         params![id, format!("stopped: {why}")],
                     )?;
                     tx.execute(
-                        "UPDATE design_cards SET status = 'replaced'
-                         WHERE status <> 'replaced' AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                        "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
                         [id],
                     )?;
                     let answer = serde_json::json!({
@@ -249,8 +249,7 @@ impl Engine {
                         "text": format!("No answer is needed: the work stopped, since {why}."),
                     });
                     tx.execute(
-                        "UPDATE owner_asks SET answer = ?2
-                         WHERE answer IS NULL AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                        "UPDATE owner_asks SET answer = ?2 WHERE answer IS NULL AND work = ?1",
                         params![id, answer.to_string()],
                     )?;
                     actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
@@ -671,38 +670,44 @@ impl Engine {
         })
     }
 
-    /// The newest round, and the rounds not ended.
-    fn rounds_mark(&self) -> Result<(i64, Vec<i64>), String> {
+    /// Each work's newest round, and the rounds not ended, as JSON lists of `[work, n]`.
+    fn rounds_mark(&self) -> Result<(String, String), String> {
         let conn = self.db.conn();
-        let newest: i64 = conn
-            .query_row("SELECT coalesce(max(id), 0) FROM rounds", [], |r| r.get(0))
+        let newest: String = conn
+            .query_row(
+                "SELECT coalesce(json_group_array(json_array(work, last)), '[]')
+                 FROM (SELECT work, max(n) AS last FROM rounds GROUP BY work)",
+                [],
+                |r| r.get(0),
+            )
             .map_err(|e| e.to_string())?;
-        let mut st = conn
-            .prepare("SELECT id FROM rounds WHERE ended_at IS NULL")
-            .map_err(|e| e.to_string())?;
-        let open = st
-            .query_map([], |r| r.get(0))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<i64>, _>>()
+        let open: String = conn
+            .query_row(
+                "SELECT coalesce(json_group_array(json_array(work, n)), '[]') FROM rounds WHERE ended_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
             .map_err(|e| e.to_string())?;
         Ok((newest, open))
     }
 
-    /// The rounds started since `mark`, and those open then that have ended since, with the cell of the last.
-    fn rounds_since(&self, mark: &(i64, Vec<i64>)) -> Result<(Vec<i64>, Option<String>), String> {
-        let open = serde_json::to_string(&mark.1).map_err(|e| e.to_string())?;
+    /// The rounds started since `mark`, and those open then that have ended since, in the order they started, with the
+    /// cell of the last.
+    fn rounds_since(&self, mark: &(String, String)) -> Result<(Vec<RoundId>, Option<String>), String> {
         let mut st = self
             .db
             .conn()
             .prepare(
-                "SELECT id, cell FROM rounds
-                 WHERE id > ?1 OR (ended_at IS NOT NULL AND id IN (SELECT value FROM json_each(?2)))
-                 ORDER BY id",
+                "SELECT r.work, r.n, r.cell FROM rounds r
+                 WHERE r.n > coalesce((SELECT value ->> 1 FROM json_each(?1) WHERE value ->> 0 = r.work), 0)
+                    OR (r.ended_at IS NOT NULL
+                        AND EXISTS (SELECT 1 FROM json_each(?2) WHERE value ->> 0 = r.work AND value ->> 1 = r.n))
+                 ORDER BY r.started_at, r.work, r.n",
             )
             .map_err(|e| e.to_string())?;
         let rows = st
-            .query_map(params![mark.0, open], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
+            .query_map(params![mark.0, mark.1], |r| {
+                Ok((RoundId::new(r.get(0)?, r.get(1)?), r.get::<_, Option<String>>(2)?))
             })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
@@ -718,7 +723,7 @@ impl Engine {
 pub struct Stepped {
     pub work: Option<i64>,
     pub started_item: Option<i64>,
-    pub rounds: Vec<i64>,
+    pub rounds: Vec<RoundId>,
     pub cell: Option<String>,
 }
 

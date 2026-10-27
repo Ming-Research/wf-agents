@@ -16,7 +16,7 @@ import { Loaded, OutcomeBadge } from '../components';
 import { numbered } from '../flow/CellPanel';
 import { type Flow, FlowContext } from '../flow/context';
 import { targetWords } from '../flow/words';
-import { cost, duration, time } from '../format';
+import { cost, duration, roundName, time } from '../format';
 import { getJson, getText } from '../http';
 import { Acceptance, Approaches, Deviation, Design, Field, Fold, Grounds, Measure, Understanding } from '../item/Shapes';
 import { empty, isObj, label, Labelled, type Obj, str, words } from '../labelled';
@@ -293,7 +293,7 @@ function runWords(d: RoundDetail, cell: CompiledCell | undefined): string {
 function Path({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
   const r = d.round;
   const cell = r.cell !== null ? f?.cell(r.cell) : undefined;
-  const at = rounds.findIndex((x) => x.id === r.id);
+  const at = rounds.findIndex((x) => x.n === r.n);
   const before = at > 0 ? rounds[at - 1] : undefined;
   const after = at >= 0 && at + 1 < rounds.length ? rounds[at + 1] : undefined;
   const target = r.transition !== null && cell !== undefined ? cell.rows.find((x) => x.name === r.transition)?.to : undefined;
@@ -305,8 +305,8 @@ function Path({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flo
           <span className="path-label">{t('path_from')}</span>
           <CellLink f={f} id={before.cell} />
           {before.transition !== null ? <RowChip row={before.transition} /> : null}
-          <RoundLink f={f} id={before.id}>
-            ← {t('round_short', { id: before.id })}
+          <RoundLink f={f} id={before.n}>
+            ← {roundName(d.work, before.n)}
           </RoundLink>
         </div>
       ) : null}
@@ -331,8 +331,8 @@ function Path({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flo
             (targetWords(target) ?? <CellLink f={f} id={target} />)
           ) : null}
           {after !== undefined ? (
-            <RoundLink f={f} id={after.id}>
-              {t('round_short', { id: after.id })} →
+            <RoundLink f={f} id={after.n}>
+              {roundName(d.work, after.n)} →
             </RoundLink>
           ) : null}
         </div>
@@ -340,8 +340,8 @@ function Path({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flo
         <div className="path-end">
           <span className="path-label">{t('path_next')}</span>
           <CellLink f={f} id={after.cell} />
-          <RoundLink f={f} id={after.id}>
-            {t('round_short', { id: after.id })} →
+          <RoundLink f={f} id={after.n}>
+            {roundName(d.work, after.n)} →
           </RoundLink>
         </div>
       ) : null}
@@ -435,18 +435,18 @@ export function atPath(value: JsonValue | null | undefined, path: string): JsonV
 /// session's own return produced, read from that return; none when neither has it.
 async function findHeld(address: string, d: RoundDetail, rounds: RoundSummary[], within: string): Promise<JsonValue | null> {
   const earlier = rounds
-    .filter((r) => r.id < d.round.id && r.line !== null && r.line === d.round.line)
+    .filter((r) => r.n < d.round.n && r.line !== null && r.line === d.round.line)
     .reverse()
     .slice(0, 16);
   for (const r of earlier) {
-    const x = await getJson<RoundDetail>(`/api/v1/rounds/${r.id}`);
+    const x = await getJson<RoundDetail>(roundUrl(d.work, r.n));
     const given = parseMessage(x.message ?? '').given.get(address);
     if (given !== undefined) return given;
   }
-  const m = /^R(\d+)·([^·]+)·(.+)$/.exec(address);
-  if (m !== null && m[2] !== 'engine') {
-    const x = await getJson<RoundDetail>(`/api/v1/rounds/${m[1]}`);
-    return atPath(unwrapped(x.output, within), m[3]) ?? null;
+  const m = /^R(\d+)-(\d+)·([^·]+)·(.+)$/.exec(address);
+  if (m !== null && m[3] !== 'engine') {
+    const x = await getJson<RoundDetail>(roundUrl(Number(m[1]), Number(m[2])));
+    return atPath(unwrapped(x.output, within), m[4]) ?? null;
   }
   return null;
 }
@@ -636,10 +636,18 @@ function Tool({ run, f }: { run: ToolRun; f: Flow | null }) {
   );
 }
 
-/// The tools a round asked for, and what they gave in the round that ran them, the next one.
-function ToolsAsked({ tools, next, f }: { tools: JsonValue[]; next: RoundSummary | undefined; f: Flow | null }) {
+/// The tools a round asked for, and what they gave in the round that ran them, the next one of the work.
+function ToolsAsked({ tools, work, next, f }: {
+  tools: JsonValue[];
+  work: number;
+  next: RoundSummary | undefined;
+  f: Flow | null;
+}) {
   const ran = next !== undefined && next.cell !== null && f?.cell(next.cell)?.kind === 'tool';
-  const detail = useResource<RoundDetail>(ran ? `round:${next.id}` : null, ran ? `/api/v1/rounds/${next.id}` : null);
+  const detail = useResource<RoundDetail>(
+    ran ? `round:${work}-${next.n}` : null,
+    ran ? roundUrl(work, next.n) : null,
+  );
   const runs = detail.data?.tool_runs ?? [];
   return (
     <div className="tools-asked">
@@ -653,8 +661,8 @@ function ToolsAsked({ tools, next, f }: { tools: JsonValue[]; next: RoundSummary
       {ran ? (
         <p className="muted">
           {t('tools_ran_in')}{' '}
-          <RoundLink f={f} id={next.id}>
-            {t('round_short', { id: next.id })}
+          <RoundLink f={f} id={next.n}>
+            {roundName(work, next.n)}
           </RoundLink>
         </p>
       ) : null}
@@ -780,7 +788,7 @@ function HandedBack({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; 
   if (out === null) return d.output !== null ? <Content value={d.output} /> : <p className="muted">{t('none')}</p>;
   const within = f?.g.within ?? 'outcome';
   const form = isObj(out[within]) ? (out[within] as Obj) : null;
-  const at = rounds.findIndex((x) => x.id === d.round.id);
+  const at = rounds.findIndex((x) => x.n === d.round.n);
   const next = at >= 0 ? rounds[at + 1] : undefined;
   const told = Array.isArray(out.tell_owner) ? out.tell_owner.filter((x) => !empty(x)) : [];
   const side = Array.isArray(out.side_reports) ? out.side_reports.filter((x) => !empty(x)) : [];
@@ -788,7 +796,7 @@ function HandedBack({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; 
     <>
       {typeof out.progress === 'string' && out.progress.trim() !== '' ? <Markdown text={out.progress} /> : null}
       {form !== null && Array.isArray(form.tools) ? (
-        <ToolsAsked tools={form.tools} next={next} f={f} />
+        <ToolsAsked tools={form.tools} work={d.work} next={next} f={f} />
       ) : form !== null && 'ask' in form ? (
         d.asks.length > 0 ? (
           d.asks.map((a) => <AskView key={a.id} a={a} />)
@@ -921,7 +929,13 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   );
 }
 
-export function RoundView({ id, rounds = [] }: { id: number; rounds?: RoundSummary[] }) {
-  const round = useResource<RoundDetail>(`round:${id}`, `/api/v1/rounds/${id}`);
+/// Where the interface gives a round in full: by its work and its number in the work.
+function roundUrl(work: number, n: number): string {
+  return `/api/v1/works/${work}/rounds/${n}`;
+}
+
+/// A round of a work, by its number in the work, with the work's rounds around it.
+export function RoundView({ work, n, rounds = [] }: { work: number; n: number; rounds?: RoundSummary[] }) {
+  const round = useResource<RoundDetail>(`round:${work}-${n}`, roundUrl(work, n));
   return <Loaded r={round}>{(d) => <Detail d={d} rounds={rounds} />}</Loaded>;
 }

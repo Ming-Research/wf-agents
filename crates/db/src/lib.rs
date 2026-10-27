@@ -32,6 +32,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0008.sql"),
     include_str!("../../../db/migrations/0009.sql"),
     include_str!("../../../db/migrations/0010.sql"),
+    include_str!("../../../db/migrations/0011.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -284,7 +285,9 @@ impl Db {
     }
 
     /// Brings the database to the version `schema` defines: creates it from `schema` when it is empty, or runs the
-    /// migrations from its version on; then makes the triggers that track changes afresh.
+    /// migrations from its version on; then makes the triggers that track changes afresh. A migration may make a table
+    /// afresh, which SQLite does with the foreign keys off: they are off while the migrations run, and every row that
+    /// points to another is checked before they commit.
     fn upgrade(&mut self, schema: &str, migrations: &[&str]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
         let at: i64 = self.conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -297,16 +300,31 @@ impl Db {
         let empty: bool = self
             .conn
             .query_row("SELECT count(*) = 0 FROM sqlite_schema", [], |r| r.get(0))?;
+        if at == 0 && !empty {
+            return Err(Error::Foreign);
+        }
+        // The setting cannot change within a transaction, so it is set around it, and put back whatever comes.
+        let keys: bool = self.conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+        self.conn.pragma_update(None, "foreign_keys", false)?;
+        let done = self.migrate(schema, migrations, at, version);
+        self.conn.pragma_update(None, "foreign_keys", keys)?;
+        done
+    }
+
+    fn migrate(&mut self, schema: &str, migrations: &[&str], at: i64, version: i64) -> Result<()> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         if at == 0 {
-            if !empty {
-                return Err(Error::Foreign);
-            }
             tx.execute_batch(schema)?;
         } else {
             for m in &migrations[at as usize - 1..] {
                 tx.execute_batch(m)?;
             }
+        }
+        let broken: i64 = tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))?;
+        if broken > 0 {
+            return Err(Error::Abort(format!(
+                "the migration to version {version} leaves {broken} rows pointing to rows that do not exist"
+            )));
         }
         track(&tx)?;
         tx.pragma_update(None, "user_version", version)?;
@@ -875,10 +893,8 @@ mod tests {
         );
     }
 
-    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
-    // and every row that points to them.
-    #[test]
-    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+    /// A database as it was at an earlier version: made at version 1 and migrated up to `version`.
+    fn at_version(version: i64) -> Db {
         let v1 = include_str!("../../../db/migrations/0001.sql");
         let mut old = Db {
             conn: Connection::open_in_memory().unwrap(),
@@ -891,14 +907,31 @@ mod tests {
         register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
         register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
         old.upgrade(v1, &[]).unwrap();
+        old.upgrade(v1, &MIGRATIONS[..version as usize - 1]).unwrap();
+        old
+    }
+
+    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
+    // and every row that points to them; each work's rounds are numbered from 1 in the order they were made.
+    #[test]
+    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+        let mut old = at_version(1);
         old.write(Actor::Engine, |tx| {
             let id = item(tx, "kept")?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')", [id])?;
-            tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', '{\"prompt\":\"p\"}', 'c', 1)",
-                [],
-            )?;
+            for _ in [1, 2] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')",
+                    [id],
+                )?;
+            }
+            // Rounds 1 and 3 are work 1's, round 2 is work 2's.
+            for (work, input) in [(1, "{\"prompt\":\"p\"}"), (2, "{}"), (1, "{\"prompt\":\"q\"}")] {
+                tx.execute(
+                    "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '1', ?2, 'c', 1)",
+                    params![work, input],
+                )?;
+            }
             tx.execute(
                 "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')",
                 [],
@@ -914,11 +947,15 @@ mod tests {
             )?;
             tx.execute("UPDATE works SET paused = 'asked the owner in card 3' WHERE id = 1", [])?;
             tx.execute(
-                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
+                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (3, 'gh', '{}', 1, 1)",
                 [],
             )?;
             tx.execute(
-                "UPDATE items SET acceptance = '[]', acceptance_round = 1 WHERE id = ?1",
+                "INSERT INTO interjections (work, speaker, text, delivered_round) VALUES (2, 'owner', 'x', 2)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE items SET acceptance = '[]', acceptance_round = 3 WHERE id = ?1",
                 [id],
             )?;
             Ok(())
@@ -927,11 +964,21 @@ mod tests {
         old.upgrade(SCHEMA, MIGRATIONS).unwrap();
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
-        let input: String = old
-            .conn()
-            .query_row("SELECT input FROM rounds WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(input, "{\"prompt\":\"p\"}");
+        let input = |work: i64, n: i64| -> String {
+            old.conn()
+                .query_row("SELECT input FROM rounds WHERE work = ?1 AND n = ?2", [work, n], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(input(1, 1), "{\"prompt\":\"p\"}");
+        assert_eq!(input(1, 2), "{\"prompt\":\"q\"}");
+        assert_eq!(input(2, 1), "{}");
+        let pair = |q: &str| -> (i64, i64) { old.conn().query_row(q, [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap() };
+        assert_eq!(pair("SELECT work, round FROM tool_runs"), (1, 2));
+        assert_eq!(pair("SELECT acceptance_work, acceptance_round FROM items"), (1, 2));
+        assert_eq!(pair("SELECT work, delivered_round FROM interjections"), (2, 1));
+        assert_eq!(pair("SELECT work, round FROM design_cards"), (1, 1));
         // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
         // its work goes on.
         let ids = |q: &str| -> Vec<i64> {
@@ -1043,7 +1090,8 @@ mod tests {
     // newest stays, and so does a card of another work.
     #[test]
     fn a_design_card_left_open_beside_a_newer_one_is_replaced() {
-        let mut db = Db::in_memory().unwrap();
+        // The database as it was at version 8, before the repair, and the repair alone run on it.
+        let mut db = at_version(8);
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
@@ -1070,8 +1118,6 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        // The database as it was at version 8, before the repair, and the repair alone run on it.
-        db.conn.pragma_update(None, "user_version", 8).unwrap();
         db.upgrade(SCHEMA, &MIGRATIONS[..8]).unwrap();
         let mut st = db
             .conn()

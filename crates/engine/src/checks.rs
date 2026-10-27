@@ -157,8 +157,7 @@ impl Ctx<'_> {
     fn ci_runs(&self, tool: &str) -> Result<Vec<Value>, String> {
         let rows = work::query_json(
             self.e.db.conn(),
-            "SELECT t.result FROM tool_runs t JOIN rounds r ON r.id = t.round
-             WHERE r.work = ?1 AND t.tool = ?2 AND t.result IS NOT NULL ORDER BY t.id DESC",
+            "SELECT result FROM tool_runs WHERE work = ?1 AND tool = ?2 AND result IS NOT NULL ORDER BY id DESC",
             &[&self.w.id, &tool],
             1000,
         )?;
@@ -174,8 +173,8 @@ impl Ctx<'_> {
         }
         let rows = work::query_json(
             self.e.db.conn(),
-            "SELECT coalesce(json_extract(t.args, '$.command'), json_extract(t.args, '$.sql')) AS given
-             FROM tool_runs t JOIN rounds r ON r.id = t.round WHERE r.work = ?1 AND t.tool IN ('gh', 'query')",
+            "SELECT coalesce(json_extract(args, '$.command'), json_extract(args, '$.sql')) AS given
+             FROM tool_runs WHERE work = ?1 AND tool IN ('gh', 'query')",
             &[&self.w.id],
             10_000,
         )?;
@@ -394,8 +393,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let chosen = v.and_then(Value::as_str).unwrap_or_default();
             let rulings = work::query_json(
                 c.e.db.conn(),
-                "SELECT c.rulings FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 ORDER BY c.id DESC",
+                "SELECT c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1 ORDER BY c.id DESC",
                 &[&c.item.id],
                 100,
             )?;
@@ -694,8 +692,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     c.e.db
                         .conn()
                         .query_row(
-                            "SELECT count(*) FROM tool_runs t JOIN rounds r ON r.id = t.round
-                         WHERE r.work = ?1 AND ?2 <> '' AND instr(t.result, ?2) > 0",
+                            "SELECT count(*) FROM tool_runs WHERE work = ?1 AND ?2 <> '' AND instr(result, ?2) > 0",
                             db::rusqlite::params![c.w.id, run],
                             |r| r.get(0),
                         )

@@ -10,10 +10,12 @@
 //! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
 //! and that the return is to be rewritten.
 //!
-//! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
-//! content; a value the engine reads or computes for a round is `R<round>·engine·<name>`, by the earliest round it
-//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`, `ask:<id>` (an ask of
-//! the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`.
+//! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
+//! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
+//! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`. A
+//! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
+//! names no round, and the engine never gives it again.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -23,7 +25,7 @@ use sha2::{Digest, Sha256};
 
 use crate::Engine;
 use crate::inputs::{Gathered, Origin, Part};
-use crate::work::{Item, Round, Work};
+use crate::work::{Item, Round, RoundId, Work};
 
 /// One conditional input of a message.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +50,7 @@ pub struct Message {
     pub conditional: Vec<Conditional>,
     /// The round a short message goes on from, a return sent back or a round cut off midway: the session holds
     /// everything that round was given, and only the interjections it was given are this round's.
-    pub continues: Option<i64>,
+    pub continues: Option<RoundId>,
 }
 
 impl Message {
@@ -105,8 +107,8 @@ fn canonical(v: &Value, out: &mut String) {
 }
 
 /// The round an address names, for an address of a round's value.
-pub fn round_of(address: &str) -> Option<i64> {
-    address.strip_prefix('R')?.split('·').next()?.parse().ok()
+pub fn round_of(address: &str) -> Option<RoundId> {
+    RoundId::parse(address.split('·').next()?)
 }
 
 /// The conditional inputs a round recorded, each as its address and hash; none for a round recorded before they
@@ -131,9 +133,9 @@ pub struct Held {
     /// The conditional inputs it was given or referred to, each as its address and the hash of its content.
     pub conditional: HashSet<(String, String)>,
     /// The rounds whose returns it holds: every value they produced is in the session under its address.
-    pub rounds: BTreeSet<i64>,
+    pub rounds: BTreeSet<RoundId>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
-    pub compacted: Option<i64>,
+    pub compacted: Option<RoundId>,
 }
 
 impl Held {
@@ -487,8 +489,8 @@ pub struct Context<'a> {
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
     pub item: &'a Item,
-    /// This round's number.
-    pub round: i64,
+    /// This round.
+    pub round: RoundId,
     /// Every round of the work so far, oldest first.
     pub rounds: &'a [Round],
     pub gathered: &'a [Gathered],
@@ -550,12 +552,12 @@ impl Context<'_> {
         let suffix = format!("·engine·{name}");
         m.registry
             .get(&hash(content))
-            .and_then(|known| known.iter().find(|a| a.ends_with(&suffix)))
+            .and_then(|known| known.iter().find(|a| a.ends_with(&suffix) && round_of(a).is_some()))
             .cloned()
-            .unwrap_or_else(|| format!("R{}{suffix}", self.round))
+            .unwrap_or_else(|| format!("{}{suffix}", self.round))
     }
 
-    fn cell_of_round(&self, id: i64) -> Option<String> {
+    fn cell_of_round(&self, id: RoundId) -> Option<String> {
         self.rounds
             .iter()
             .find(|r| r.id == id)
@@ -564,7 +566,11 @@ impl Context<'_> {
                 self.e
                     .db
                     .conn()
-                    .query_row("SELECT cell FROM rounds WHERE id = ?1", [id], |r| r.get(0))
+                    .query_row(
+                        "SELECT cell FROM rounds WHERE work = ?1 AND n = ?2",
+                        [id.work, id.n],
+                        |r| r.get(0),
+                    )
                     .ok()
             })
     }
@@ -573,7 +579,7 @@ impl Context<'_> {
     fn conditional_of(&self, m: &Conditionals<'_>, p: &Part) -> Vec<(String, Value)> {
         match &p.origin {
             Origin::Place { first, cell, path, .. } => {
-                vec![(m.earliest(format!("R{first}·{cell}·{path}"), &p.value), p.value.clone())]
+                vec![(m.earliest(format!("{first}·{cell}·{path}"), &p.value), p.value.clone())]
             }
             Origin::Config(n) => vec![(format!("config:{n}"), p.value.clone())],
             Origin::Recorded(n) | Origin::Engine(n) => vec![(self.computed(m, n, &p.value), p.value.clone())],
@@ -602,34 +608,34 @@ impl Context<'_> {
                         .into_iter()
                         .filter_map(|r| {
                             let a = r.get("acceptance").filter(|a| !empty(a))?.clone();
-                            let round = r["acceptance_round"].as_i64()?;
+                            let round = RoundId::new(r["acceptance_work"].as_i64()?, r["acceptance_round"].as_i64()?);
                             let path = match self.cell_of_round(round).as_deref() {
                                 Some("12") => "12·reply.new_acceptance".to_string(),
                                 Some(c) => format!("{c}·acceptance"),
                                 None => "acceptance".to_string(),
                             };
-                            Some((m.earliest(format!("R{round}·{path}"), &a), a))
+                            Some((m.earliest(format!("{round}·{path}"), &a), a))
                         })
                         .collect(),
                     // The problem as the engineer understood it, once research handed it in.
                     "item_problem" => rows
                         .into_iter()
                         .map(|r| {
-                            let researched: Option<i64> = self
+                            let researched: Option<RoundId> = self
                                 .e
                                 .db
                                 .conn()
                                 .query_row(
-                                    "SELECT r.id FROM rounds r JOIN works w ON w.id = r.work
+                                    "SELECT r.work, r.n FROM rounds r JOIN works w ON w.id = r.work
                                      WHERE w.item = ?1 AND r.cell = '1' AND r.transition IS NOT NULL
                                        AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
-                                     ORDER BY r.id DESC LIMIT 1",
+                                     ORDER BY r.work DESC, r.n DESC LIMIT 1",
                                     [self.item.id],
-                                    |x| x.get(0),
+                                    |x| Ok(RoundId::new(x.get(0)?, x.get(1)?)),
                                 )
                                 .ok();
                             let address = match researched {
-                                Some(k) => format!("R{k}·1·understanding.problem"),
+                                Some(k) => format!("{k}·1·understanding.problem"),
                                 None => format!("item:{}·problem", self.item.id),
                             };
                             (address, r["problem"].clone())
@@ -642,7 +648,7 @@ impl Context<'_> {
     }
 
     /// Why the cell's last return was sent back, when this round only rewrites it: the session holds everything else.
-    fn sent_back(&self) -> Option<(i64, String)> {
+    fn sent_back(&self) -> Option<(RoundId, String)> {
         let r = self.rounds.last()?;
         if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() {
             return None;
@@ -661,7 +667,7 @@ impl Context<'_> {
 
     /// The cell's last round, when the engine stopped in the middle of it and the session it ran in goes on: a
     /// session that handed in a return before is resumed, and holds what that round was given.
-    fn cut_off(&self) -> Option<i64> {
+    fn cut_off(&self) -> Option<RoundId> {
         let r = self.rounds.last()?;
         let here = r.cell.as_deref() == Some(self.cell.id.as_str()) && r.transition.is_none();
         let cut = r.rejected.as_ref().is_some_and(|x| x.get("interrupted").is_some());
@@ -679,12 +685,12 @@ impl Context<'_> {
                 let rej = r.rejected.clone().unwrap_or(Value::Null);
                 if rej.get("interrupted").is_some() {
                     out.push(format!(
-                        "R{} was cut off when the engine stopped: do its work again.",
+                        "{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
                 } else if let Some(f) = rej.get("failed").or(rej.get("error")) {
                     let what = f.get("what").and_then(Value::as_str).or(f.as_str()).unwrap_or_default();
-                    out.push(format!("R{} ended without a return ({what}): do its work again.", r.id));
+                    out.push(format!("{} ended without a return ({what}): do its work again.", r.id));
                 }
             }
             Some(r) => {
@@ -692,17 +698,15 @@ impl Context<'_> {
                 let from = r.cell.as_deref().unwrap_or_default();
                 let paused = here(&r) && c.rows.iter().any(|x| x.name == row && x.to == "@self");
                 if paused {
-                    out.push(format!("You paused in R{}: carry on.", r.id));
+                    out.push(format!("You paused in {}: carry on.", r.id));
                 } else {
                     let title = self.g.cell(from).map(|x| x.title.as_str()).unwrap_or_default();
-                    out.push(format!(
-                        "Came from cell {from} ({title}) by its row `{row}`, R{}.",
-                        r.id
-                    ));
+                    out.push(format!("Came from cell {from} ({title}) by its row `{row}`, {}.", r.id));
                     // Back from asking: the answer it brought.
                     if self.g.asking.iter().any(|a| a == from) {
-                        let since = earlier.map_or(0, |e| e.id);
-                        let answer = self.rounds.iter().rev().take_while(|x| x.id > since).find_map(|x| {
+                        let since = earlier.map(|e| e.id);
+                        let after = |x: &&Round| since.is_none_or(|s| x.id > s);
+                        let answer = self.rounds.iter().rev().take_while(after).find_map(|x| {
                             let cell = x.cell.as_deref()?;
                             let kind = self.g.cell(cell)?.kind.as_str();
                             let out = x.output.as_ref().filter(|_| x.transition.is_some())?;
@@ -715,7 +719,7 @@ impl Context<'_> {
                             Some((x.id, cell.to_string(), reply))
                         });
                         if let Some((id, cell, reply)) = answer {
-                            let a = m.add(m.earliest(format!("R{id}·{cell}·reply"), &reply), reply);
+                            let a = m.add(m.earliest(format!("{id}·{cell}·reply"), &reply), reply);
                             out.push(format!("The answer to what you asked: {a}."));
                         }
                     }
@@ -727,7 +731,7 @@ impl Context<'_> {
             && self.held.rounds.is_empty()
         {
             out.push(format!(
-                "Your session was compacted in R{k}: what this round needs is given again."
+                "Your session was compacted in {k}: what this round needs is given again."
             ));
         }
         if !interjections.is_empty() {
@@ -742,7 +746,7 @@ impl Context<'_> {
     /// The message. After a return sent back it only says why, and that the return is to be rewritten.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
-        let short = |text: String, prev: i64| Message {
+        let short = |text: String, prev: RoundId| Message {
             stored: Value::String(text.clone()),
             text,
             kept: Vec::new(),
@@ -751,14 +755,14 @@ impl Context<'_> {
         };
         if let Some((prev, reason)) = self.sent_back() {
             let text = format!(
-                "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
+                "# {} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
                 self.round, c.id, c.id
             );
             return short(text, prev);
         }
         if let Some(prev) = self.cut_off() {
             let text = format!(
-                "# R{} · cell {}\n\nR{prev} was cut off midway. First look at the worktree as it is now (files \
+                "# {} · cell {}\n\n{prev} was cut off midway. First look at the worktree as it is now (files \
                  changed, commits made), then go on with its work, and hand it in as format:{} says.\n",
                 self.round, c.id, c.id
             );
@@ -849,7 +853,7 @@ impl Context<'_> {
         let why = self.why(&mut m, &interjections);
 
         let mut out = Writer::default();
-        out.line(&format!("# R{} · cell {} · {}\n", self.round, c.id, c.title));
+        out.line(&format!("# {} · cell {} · {}\n", self.round, c.id, c.title));
         if !why.is_empty() {
             out.line(&why.join("\n"));
             out.line("");
@@ -1103,9 +1107,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
 mod tests {
     use super::*;
 
-    fn round(id: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
+    fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
-            id,
+            id: RoundId::new(1, n),
             cell: Some("1".into()),
             session: Some(1),
             input,
@@ -1136,8 +1140,11 @@ mod tests {
     fn the_same_content_is_one_hash_however_its_keys_were_written() {
         assert_eq!(hash(&json!({ "a": 1, "b": [2] })), hash(&json!({ "b": [2], "a": 1 })));
         assert_ne!(hash(&json!({ "a": 1 })), hash(&json!({ "a": 2 })));
-        assert_eq!(round_of("R28·4·end.test_changes[added]"), Some(28));
+        assert_eq!(round_of("R5-28·4·end.test_changes[added]"), Some(RoundId::new(5, 28)));
+        assert_eq!(RoundId::new(5, 28).to_string(), "R5-28");
         assert_eq!(round_of("rule:ground"), None);
+        // An address written before rounds were named by their work names no round.
+        assert_eq!(round_of("R28·4·end.test_changes[added]"), None);
     }
 
     // A session holds what it was given, referred to and handed back since its last compaction, and nothing from a
@@ -1159,15 +1166,16 @@ mod tests {
         let h = Held::of(&rounds);
         assert!(h.holds("rule:ground", &hash(&rule)));
         assert!(!h.holds("rule:ground", &hash(&json!("Facts first, then the rest."))));
-        assert!(h.holds("R3·2a·design", "any"));
-        assert!(!h.holds("R3·engine·project_guide", "any"));
+        assert!(h.holds("R1-3·2a·design", "any"));
+        assert!(!h.holds("R2-3·2a·design", "any"));
+        assert!(!h.holds("R1-3·engine·project_guide", "any"));
         assert!(!h.holds("ij:1", &hash(&json!("From the owner: x"))));
         let mut later = rounds.to_vec();
         later.push(round(5, json!({}), Some(json!({ "outcome": {} })), 1));
         let h = Held::of(&later);
         assert!(!h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R3·2a·design", "any"));
-        assert_eq!(h.compacted, Some(5));
+        assert!(!h.holds("R1-3·2a·design", "any"));
+        assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
     }
 
     // The same content copied from one place to another is one conditional input under the earliest round's address; a word
@@ -1177,34 +1185,44 @@ mod tests {
         let held = Held::default();
         let acceptance = json!([{ "id": "A1", "condition": "It works." }]);
         let registry = HashMap::from([
-            (hash(&acceptance), vec!["R25·12·reply.new_acceptance".to_string()]),
-            (hash(&json!("no")), vec!["R7·engine·adversarial".to_string()]),
+            (
+                hash(&acceptance),
+                vec![
+                    "R290·12·reply.new_acceptance".to_string(),
+                    "R4-25·12·reply.new_acceptance".to_string(),
+                ],
+            ),
+            (hash(&json!("no")), vec!["R4-7·engine·adversarial".to_string()]),
         ]);
         let mut m = Conditionals {
             held: &held,
             registry: &registry,
             list: Vec::new(),
         };
+        // An address written before rounds were named by their work is never given again.
         assert_eq!(
-            m.earliest("R30·2a·acceptance".into(), &acceptance),
-            "R25·12·reply.new_acceptance"
+            m.earliest("R4-30·2a·acceptance".into(), &acceptance),
+            "R4-25·12·reply.new_acceptance"
         );
         assert_eq!(
-            m.earliest("R9·3b·answer.verdict".into(), &json!("no")),
-            "R9·3b·answer.verdict"
-        );
-        assert_eq!(m.add("R9·engine·rethought".into(), json!("no")), "R9·engine·rethought");
-        assert_eq!(
-            m.add("R9·3b·answer.verdict".into(), json!("no")),
-            "R9·3b·answer.verdict"
+            m.earliest("R4-9·3b·answer.verdict".into(), &json!("no")),
+            "R4-9·3b·answer.verdict"
         );
         assert_eq!(
-            m.add("R30·2a·acceptance".into(), acceptance.clone()),
-            "R30·2a·acceptance"
+            m.add("R4-9·engine·rethought".into(), json!("no")),
+            "R4-9·engine·rethought"
         );
         assert_eq!(
-            m.add("R31·12·reply.new_acceptance".into(), acceptance),
-            "R30·2a·acceptance"
+            m.add("R4-9·3b·answer.verdict".into(), json!("no")),
+            "R4-9·3b·answer.verdict"
+        );
+        assert_eq!(
+            m.add("R4-30·2a·acceptance".into(), acceptance.clone()),
+            "R4-30·2a·acceptance"
+        );
+        assert_eq!(
+            m.add("R4-31·12·reply.new_acceptance".into(), acceptance),
+            "R4-30·2a·acceptance"
         );
         assert_eq!(m.list.len(), 3);
     }

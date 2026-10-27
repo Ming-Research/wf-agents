@@ -1,5 +1,6 @@
 //! What the interface hands out. Times are UTC milliseconds since the Unix epoch, as in the database; JSON the
-//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept.
+//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept. A round is
+//! given by its work and its number in the work, as the database keeps it, and named `R<work>-<n>`.
 
 use std::collections::BTreeMap;
 
@@ -25,7 +26,7 @@ pub struct StepTaken {
     /// When the round ended.
     pub at: i64,
     pub work: i64,
-    /// The rounds it started or ended, and the cell of the last of them.
+    /// The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
     pub rounds: Vec<i64>,
     pub cell: Option<String>,
 }
@@ -108,7 +109,7 @@ pub enum Event {
     Status { status: Box<Status> },
     /// A work started, moved, was paused, resumed or ended, or was said something to.
     Work { work: i64 },
-    /// A round started or ended, or ran a tool.
+    /// A round started or ended, or ran a tool: its work, and its number in the work.
     Round { work: i64, round: i64 },
     /// A design card was handed in, ruled or replaced.
     DesignCard { design_card: i64, work: Option<i64> },
@@ -120,8 +121,8 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
-    /// What the agent of a running round is doing now, as its command line reports it: a tool it uses, or what it
-    /// says.
+    /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
+    /// reports it: a tool it uses, or what it says.
     Activity {
         work: i64,
         round: i64,
@@ -153,7 +154,8 @@ pub enum WorkState {
 /// The round of a work that is running.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RunningRound {
-    pub id: i64,
+    /// Its number in the work.
+    pub n: i64,
     pub cell: Option<String>,
     pub started_at: i64,
 }
@@ -216,7 +218,8 @@ pub enum RoundOutcome {
 /// A round as a work's timeline shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundSummary {
-    pub id: i64,
+    /// Its number in its work.
+    pub n: i64,
     /// Its cell; none for a round that only answered an interjection.
     pub cell: Option<String>,
     /// The line whose session it ran in; none for the engine's own steps, tool cells and the owner.
@@ -242,6 +245,7 @@ pub struct RoundSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DesignCard {
     pub id: i64,
+    /// The round that handed it in: its number in the work.
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
@@ -258,6 +262,7 @@ pub struct DesignCard {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Replacement {
     pub design_card: i64,
+    /// The round that handed it in: its number in the work.
     pub round: i64,
     pub work: i64,
     /// The cell of that round, and the cell's title in the work's flow version.
@@ -274,7 +279,7 @@ pub struct Replacement {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct OwnerAsk {
     pub id: i64,
-    /// The round that put it to the owner.
+    /// The round that put it to the owner: its number in the work.
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
@@ -301,8 +306,8 @@ pub struct OwnerMessage {
     pub id: i64,
     /// Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
     pub engine: bool,
-    /// The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
-    /// written.
+    /// The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
+    /// engine's notice, when it was written.
     pub round: Option<i64>,
     pub cell: Option<String>,
     pub line: Option<String>,
@@ -377,7 +382,7 @@ pub struct Interjection {
     pub line: String,
     pub speaker: String,
     pub text: String,
-    /// The round it was handed in; none while it waits.
+    /// The round of the work it was handed in, by its number in the work; none while it waits.
     pub delivered_round: Option<i64>,
 }
 
@@ -423,7 +428,7 @@ pub struct RoundInput {
 /// One conditional input of an agent round's message.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundConditional {
-    /// Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+    /// Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
     pub address: String,
     /// The hash of its content, which tells two versions under one address apart.
     pub hash: String,
@@ -588,8 +593,10 @@ pub struct ItemDetail {
     pub problem: String,
     pub why: String,
     pub approach: Option<String>,
-    /// The locked acceptance, and the round that locked it; none until a first design passes its checks.
+    /// The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
+    /// design passes its checks.
     pub acceptance: Option<Value>,
+    pub acceptance_work: Option<i64>,
     pub acceptance_round: Option<i64>,
     /// The items it depends on, and the items that depend on it.
     pub depends_on: Vec<LinkedItem>,
@@ -612,6 +619,7 @@ pub struct ItemDetail {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Shown {
     pub work: i64,
+    /// The round that handed it back: its number in the work.
     pub round: i64,
     pub cell: String,
     /// The path of the return it is at, as the flow writes it.
@@ -677,7 +685,7 @@ pub struct CellInput {
     /// when the session does not hold it, and referred to by its address when it does.
     pub always: bool,
     pub of: CellInputOf,
-    /// The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+    /// The address it is given under, as the engine addresses it, with `‹work›`, `‹n›`, `‹id›`, `‹cell›` or `‹name›`
     /// standing for what is known only when the round runs; none for what the agent reads itself.
     pub address: Option<String>,
     /// For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells

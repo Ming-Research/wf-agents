@@ -9,7 +9,7 @@ use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledInput};
 use serde_json::{Map, Value, json};
 
-use crate::work::{self, Item, Work};
+use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, form_of, git};
 
 /// The most rows an input read from the database gives.
@@ -25,8 +25,8 @@ pub enum Origin {
     /// A place of a round's return: the round, its cell and the path, with the earliest round of the cell whose return
     /// gave the same value there.
     Place {
-        round: i64,
-        first: i64,
+        round: RoundId,
+        first: RoundId,
         cell: String,
         path: String,
     },
@@ -126,7 +126,7 @@ pub fn returns_holding(
     g: &CompiledGraph,
     cell: &str,
     path: &str,
-) -> Result<Vec<(i64, Value)>, String> {
+) -> Result<Vec<(RoundId, Value)>, String> {
     let Some(c) = g.cell(cell) else {
         return Ok(Vec::new());
     };
@@ -422,11 +422,11 @@ fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option
         let id = x["id"].as_i64().unwrap_or_default();
         let ended = x["ended"].as_str().unwrap_or("it reached the end of its graph");
         out.push(format!(
-            "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, with the cell, \
-             the row taken and what each said it did: query `SELECT id, cell, transition, json_extract(output, \
-             '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY id`; a round's whole return: `SELECT \
-             output FROM rounds WHERE id = <round>`; its design cards and asks of the owner: the views \
-             `item_design_cards` and `item_asks` with `work = {id}`.",
+            "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, R{id}-1 on, \
+             with the cell, the row taken and what each said it did: query `SELECT n, cell, transition, \
+             json_extract(output, '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY n`; the whole \
+             return of its round R{id}-<n>: `SELECT output FROM rounds WHERE work = {id} AND n = <n>`; its design \
+             cards and asks of the owner: the views `item_design_cards` and `item_asks` with `work = {id}`.",
             x["flow_version"],
             x["rounds"],
             x["at"].as_str().unwrap_or("?"),

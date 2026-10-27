@@ -22,7 +22,7 @@ import type {
 import { liveState, Loaded, OutcomeBadge } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
 import { savedWidth, WidthGrip } from '../flow/Panel';
-import { cost, duration, time } from '../format';
+import { cost, duration, roundName, time } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { reread, useActivity, useResource, useStatus } from '../live';
@@ -51,6 +51,7 @@ export function roundsShown(rounds: RoundSummary[], only: RoundsOnly | null): Ro
 /// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
 /// course: sent back, failed, cut off, running), what an agent's round cost and how long it took.
 function Timeline(props: {
+  work: number;
   rounds: RoundSummary[];
   g: CompiledGraph;
   /// Whether a round still open is one left over, not one running: the engine holds and runs nothing of this work.
@@ -67,11 +68,11 @@ function Timeline(props: {
           const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
           return (
             <tr
-              key={r.id}
-              className={`clickable${r.id === props.selected ? ' selected' : ''}`}
+              key={r.n}
+              className={`clickable${r.n === props.selected ? ' selected' : ''}`}
               onClick={() => props.onRound(r)}
             >
-              <td className="muted">#{r.id}</td>
+              <td className="muted">{roundName(props.work, r.n)}</td>
               <td className="nowrap">
                 <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
               </td>
@@ -284,11 +285,11 @@ function Paused({ d }: { d: WorkDetail }) {
   );
 }
 
-/// The link to a round, which opens it in the panel.
-function RoundLink({ round, onRound }: { round: number; onRound: (r: number) => void }) {
+/// The link to a round of the work, by its number in the work, which opens it in the panel.
+function RoundLink({ work, round, onRound }: { work: number; round: number; onRound: (r: number) => void }) {
   return (
     <button type="button" className="link" onClick={() => onRound(round)}>
-      {t('round_title', { id: round })}
+      {roundName(work, round)}
     </button>
   );
 }
@@ -302,7 +303,7 @@ function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) =
   const head = (c: DesignCard) => (
     <span className="work-item-head">
       <strong>{t('design_card_head', { id: c.id, status: words(c.status) })}</strong>
-      <RoundLink round={c.round} onRound={onRound} />
+      <RoundLink work={c.work} round={c.round} onRound={onRound} />
     </span>
   );
   return (
@@ -339,7 +340,7 @@ function Told({ m, onRound, onAsk }: { m: OwnerMessage; onRound: (r: number) => 
       <div className="msg-head">
         <span className="muted">{teller(m)}</span>
         {m.at !== null ? <span className="muted">{time(m.at)}</span> : null}
-        {m.round !== null ? <RoundLink round={m.round} onRound={onRound} /> : null}
+        {m.round !== null && m.work !== null ? <RoundLink work={m.work} round={m.round} onRound={onRound} /> : null}
         {m.read_at === null ? (
           <button
             type="button"
@@ -377,7 +378,7 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
     <span className="work-item-head">
       <strong>{t('ask_head', { id: a.id })}</strong>
       <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
-      <RoundLink round={a.round} onRound={onRound} />
+      <RoundLink work={a.work} round={a.round} onRound={onRound} />
     </span>
   );
   return (
@@ -411,7 +412,7 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
             <div key={x.id} className="boxed">
               <div className="muted">
                 #{x.id} {x.speaker} → {x.line} ·{' '}
-                {x.delivered_round !== null ? t('delivered', { round: x.delivered_round }) : t('waiting_delivery')}
+                {x.delivered_round !== null ? t('delivered', { round: roundName(x.work, x.delivered_round) }) : t('waiting_delivery')}
               </div>
               <pre className="j-text">{x.text}</pre>
             </div>
@@ -528,11 +529,12 @@ function Drawer({ d, g, r, go }: {
                 </div>
               ) : null}
               <Timeline
+                work={d.work.id}
                 rounds={shown}
                 g={g}
                 stale={status !== null && status.mode === 'hold' && status.stepping !== d.work.id}
                 selected={r.round}
-                onRound={(x) => onRound(x.id)}
+                onRound={(x) => onRound(x.n)}
               />
             </>
           ) : null}
@@ -551,7 +553,7 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
   if (!g || !v) return <p className="muted page">{t('none')}</p>;
-  const roundCell = r.round !== null ? (d.rounds.find((x) => x.id === r.round)?.cell ?? null) : null;
+  const roundCell = r.round !== null ? (d.rounds.find((x) => x.n === r.round)?.cell ?? null) : null;
   const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
   const model = chart(g, v);
   return (
@@ -571,10 +573,11 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
         cell={r.cell}
         onCell={(c) => go({ round: null, cell: c })}
         start={roundCell ?? d.work.at}
+        work={d.work.id}
         rounds={d.rounds}
         round={r.round}
         onRound={(x) => go({ round: x, cell: null })}
-        renderRound={(x) => <RoundView id={x} rounds={d.rounds} />}
+        renderRound={(x) => <RoundView work={d.work.id} n={x} rounds={d.rounds} />}
       />
     </>
   );

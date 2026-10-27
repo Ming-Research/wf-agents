@@ -142,7 +142,7 @@ struct WorkRow {
 
 /// What a work's summary needs of each of its rounds.
 struct Light {
-    id: i64,
+    n: i64,
     work: i64,
     cell: Option<String>,
     transition: Option<String>,
@@ -193,13 +193,13 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut st = conn.prepare(&format!(
-        "SELECT id, work, cell, transition, rejected, started_at, ended_at, json_extract(usage, '$.cost_usd')
-         FROM rounds WHERE work IN (SELECT w.id FROM works w {filter}) ORDER BY id"
+        "SELECT n, work, cell, transition, rejected, started_at, ended_at, json_extract(usage, '$.cost_usd')
+         FROM rounds WHERE work IN (SELECT w.id FROM works w {filter}) ORDER BY work, n"
     ))?;
     let mut rounds: HashMap<i64, Vec<Light>> = HashMap::new();
     let rows = st.query_map(params_from_iter(args), |r| {
         Ok(Light {
-            id: r.get(0)?,
+            n: r.get(0)?,
             work: r.get(1)?,
             cell: r.get(2)?,
             transition: r.get(3)?,
@@ -299,7 +299,7 @@ fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open: (i64,
             .rev()
             .find(|r| r.ended_at.is_none())
             .map(|r| RunningRound {
-                id: r.id,
+                n: r.n,
                 cell: r.cell.clone(),
                 started_at: r.started_at,
             }),
@@ -317,13 +317,8 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?)
     };
-    let asks = count(
-        "SELECT r.work, count(*) FROM owner_asks a JOIN rounds r ON r.id = a.round WHERE a.answer IS NULL GROUP BY r.work",
-    )?;
-    let design_cards = count(
-        "SELECT r.work, count(*) FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.status = 'open'
-         GROUP BY r.work",
-    )?;
+    let asks = count("SELECT work, count(*) FROM owner_asks WHERE answer IS NULL GROUP BY work")?;
+    let design_cards = count("SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work")?;
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
     for (w, rounds) in work_rows(conn, filter, args)? {
@@ -345,8 +340,9 @@ pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
     Ok(summaries(conn, flows, "", &[])?.into_iter().map(|(_, s)| s).collect())
 }
 
-const ROUND: &str = "SELECT r.id, r.cell, s.line, r.transition, r.rejected, r.started_at, r.ended_at, r.model,
-       json_extract(r.usage, '$.cost_usd'), r.compactions, (SELECT count(*) FROM tool_runs t WHERE t.round = r.id),
+const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.started_at, r.ended_at, r.model,
+       json_extract(r.usage, '$.cost_usd'), r.compactions,
+       (SELECT count(*) FROM tool_runs t WHERE t.work = r.work AND t.round = r.n),
        json_extract(r.output, '$.progress'),
        r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
        json_extract(r.input, '$.engine.not_applicable')
@@ -357,7 +353,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     let rejected = json(r.get(4)?);
     let ended_at: Option<i64> = r.get(6)?;
     Ok(RoundSummary {
-        id: r.get(0)?,
+        n: r.get(0)?,
         cell: r.get(1)?,
         line: r.get(2)?,
         outcome: outcome(transition.as_deref(), rejected.as_ref(), ended_at.is_some()),
@@ -375,15 +371,15 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
 }
 
 /// A design card, with the one that replaced it: the round that handed that one in, and that round's work.
-const DESIGN_CARD: &str = "SELECT c.id, c.round, r.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
-       n.round, nr.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph
-FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
-LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.id = n.round
-LEFT JOIN works nw ON nw.id = nr.work";
+const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
+       n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph
+FROM design_cards c JOIN works w ON w.id = c.work
+LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
+LEFT JOIN works nw ON nw.id = n.work";
 
-fn design_cards(conn: &Connection, flows: &Flows, filter: &str, id: i64) -> Result<Vec<DesignCard>> {
+fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<DesignCard>> {
     let mut st = conn.prepare(&format!("{DESIGN_CARD} {filter} ORDER BY c.id"))?;
-    let rows = st.query_map([id], |r| {
+    let rows = st.query_map(params_from_iter(args), |r| {
         let by: Option<i64> = r.get(7)?;
         let replaced = match (by, r.get::<_, Option<i64>>(8)?, r.get::<_, Option<i64>>(9)?) {
             (Some(design_card), Some(round), Some(work)) => Some(Replacement {
@@ -430,8 +426,8 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, id: i64) -> Resu
     Ok(out)
 }
 
-const ASK: &str = "SELECT a.id, a.round, r.work, w.item, a.body, a.answer
-FROM owner_asks a JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work";
+const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer
+FROM owner_asks a JOIN works w ON w.id = a.work";
 
 /// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
 /// compiled flow version keeps the kinds, not their groups.
@@ -467,9 +463,9 @@ fn ask_kinds(body: &Value) -> Vec<AskKind> {
         .collect()
 }
 
-fn asks(conn: &Connection, filter: &str, id: i64) -> Result<Vec<OwnerAsk>> {
+fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> {
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
-    let rows = st.query_map([id], |r| {
+    let rows = st.query_map(params_from_iter(args), |r| {
         let body = json(r.get(4)?).unwrap_or(Value::Null);
         Ok(OwnerAsk {
             id: r.get(0)?,
@@ -484,8 +480,8 @@ fn asks(conn: &Connection, filter: &str, id: i64) -> Result<Vec<OwnerAsk>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, r.work, w.item, i.title, m.text, m.read_at
-FROM owner_messages m JOIN rounds r ON r.id = m.round JOIN works w ON w.id = r.work
+const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at
+FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
 LEFT JOIN sessions s ON s.id = r.session LEFT JOIN items i ON i.id = w.item";
 
 fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
@@ -546,11 +542,11 @@ pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
     Ok(out)
 }
 
-fn interjections(conn: &Connection, filter: &str, id: i64) -> Result<Vec<Interjection>> {
+fn interjections(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Interjection>> {
     let mut st = conn.prepare(&format!(
         "SELECT id, work, line, speaker, text, delivered_round FROM interjections {filter} ORDER BY id"
     ))?;
-    let rows = st.query_map([id], |r| {
+    let rows = st.query_map(params_from_iter(args), |r| {
         Ok(Interjection {
             id: r.get(0)?,
             work: r.get(1)?,
@@ -569,9 +565,9 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         .into_iter()
         .next()
         .ok_or_else(|| Error::NotFound(format!("no work {id}")))?;
-    let mut st = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 ORDER BY r.id"))?;
+    let mut st = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 ORDER BY r.n"))?;
     let rounds = st.query_map([id], round_summary)?.collect::<rusqlite::Result<_>>()?;
-    let mut messages = messages_where(conn, "WHERE r.work = ?1", &[id])?;
+    let mut messages = messages_where(conn, "WHERE m.work = ?1", &[id])?;
     messages.extend(notices_where(conn, "WHERE n.work = ?1", &[id])?);
     messages.sort_by_key(|m| m.at.unwrap_or(0));
     Ok(WorkDetail {
@@ -583,10 +579,10 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         waiting: json(w.waiting).unwrap_or(Value::Null),
         recorded: json(w.recorded).unwrap_or(Value::Null),
         rounds,
-        design_cards: design_cards(conn, flows, "WHERE r.work = ?1", id)?,
-        asks: asks(conn, "WHERE r.work = ?1", id)?,
+        design_cards: design_cards(conn, flows, "WHERE c.work = ?1", &[id])?,
+        asks: asks(conn, "WHERE a.work = ?1", &[id])?,
         messages,
-        interjections: interjections(conn, "WHERE work = ?1", id)?,
+        interjections: interjections(conn, "WHERE work = ?1", &[id])?,
     })
 }
 
@@ -633,12 +629,12 @@ fn pointed(v: &Value, out: &mut Vec<String>) {
     }
 }
 
-fn tool_runs(conn: &Connection, data: &Path, round: i64) -> Result<Vec<ToolRun>> {
+fn tool_runs(conn: &Connection, data: &Path, work: i64, n: i64) -> Result<Vec<ToolRun>> {
     let mut st = conn.prepare(
         "SELECT id, tool, args, attempt, result, files, queued_at, started_at, ended_at FROM tool_runs
-         WHERE round = ?1 ORDER BY id",
+         WHERE work = ?1 AND round = ?2 ORDER BY id",
     )?;
-    let rows = st.query_map([round], |r| {
+    let rows = st.query_map([work, n], |r| {
         let result = json(r.get(4)?);
         let mut paths: Vec<String> = json(r.get(5)?)
             .and_then(|v| v.as_array().cloned())
@@ -671,10 +667,11 @@ fn tool_runs(conn: &Connection, data: &Path, round: i64) -> Result<Vec<ToolRun>>
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// A round in full. `data` is the data directory, under which the files its tools kept are found.
-pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<RoundDetail> {
+/// A round in full, by its work and its number in the work. `data` is the data directory, under which the files its
+/// tools kept are found.
+pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -> Result<RoundDetail> {
     let row = conn
-        .query_row(&format!("{ROUND} WHERE r.id = ?1"), [id], |r| {
+        .query_row(&format!("{ROUND} WHERE r.work = ?1 AND r.n = ?2"), [work, n], |r| {
             let line: Option<String> = r.get(2)?;
             let cli: Option<String> = r.get(15)?;
             let cli_session: Option<String> = r.get(16)?;
@@ -696,8 +693,8 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
             ))
         })
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("no round {id}")))?;
-    let (summary, work, flow_version, graph, session, config_commit, input, output, usage, rejected) = row;
+        .ok_or_else(|| Error::NotFound(format!("no round R{work}-{n}")))?;
+    let (summary, _, flow_version, graph, session, config_commit, input, output, usage, rejected) = row;
     // The record as the round was given it: each text it keeps once put back.
     let input = db::put_back(conn, &input);
     let cell = summary
@@ -775,7 +772,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         session,
         level,
         effort,
-        acceptance_before: acceptance_before(conn, id)?,
+        acceptance_before: acceptance_before(conn, work, n)?,
         limits,
         config_commit,
         message: input["message"]
@@ -789,10 +786,10 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         output,
         rejected,
         usage,
-        tool_runs: tool_runs(conn, data, id)?,
-        design_cards: design_cards(conn, flows, "WHERE c.round = ?1", id)?,
-        asks: asks(conn, "WHERE a.round = ?1", id)?,
-        interjections: interjections(conn, "WHERE delivered_round = ?1", id)?,
+        tool_runs: tool_runs(conn, data, work, n)?,
+        design_cards: design_cards(conn, flows, "WHERE c.work = ?1 AND c.round = ?2", &[work, n])?,
+        asks: asks(conn, "WHERE a.work = ?1 AND a.round = ?2", &[work, n])?,
+        interjections: interjections(conn, "WHERE work = ?1 AND delivered_round = ?2", &[work, n])?,
         round: summary,
     })
 }
@@ -830,15 +827,18 @@ fn level_of(levels: &BTreeMap<String, config::Level>, model: &str, effort: Optio
 }
 
 /// The acceptance a round's lock replaced, as the record of changes keeps the item before it; none when the round
-/// locked none, or locked the first.
-fn acceptance_before(conn: &Connection, round: i64) -> Result<Option<Value>> {
+/// locked none, or locked the first. The record keeps an item as it was written, and an item written before rounds
+/// were named by their work names its round by a number no round has now, so a round of then finds none.
+fn acceptance_before(conn: &Connection, work: i64, n: i64) -> Result<Option<Value>> {
     let before: Option<Option<String>> = conn
         .query_row(
             "SELECT json_extract(old_row, '$.acceptance') FROM changes
-             WHERE table_name = 'items' AND json_extract(new_row, '$.acceptance_round') = ?1
-               AND json_extract(old_row, '$.acceptance_round') IS NOT ?1
+             WHERE table_name = 'items' AND json_extract(new_row, '$.acceptance_work') = ?1
+               AND json_extract(new_row, '$.acceptance_round') = ?2
+               AND NOT (json_extract(old_row, '$.acceptance_work') IS ?1
+                        AND json_extract(old_row, '$.acceptance_round') IS ?2)
              ORDER BY id LIMIT 1",
-            [round],
+            [work, n],
             |r| r.get(0),
         )
         .optional()?;
@@ -993,8 +993,8 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         .get(&id)
         .map(|i| (*i).clone())
         .ok_or_else(|| Error::NotFound(format!("no item {id}")))?;
-    let (problem, why, approach, acceptance, acceptance_round) = conn.query_row(
-        "SELECT problem, why, approach, acceptance, acceptance_round FROM items WHERE id = ?1",
+    let (problem, why, approach, acceptance, acceptance_work, acceptance_round) = conn.query_row(
+        "SELECT problem, why, approach, acceptance, acceptance_work, acceptance_round FROM items WHERE id = ?1",
         [id],
         |r| {
             Ok((
@@ -1003,6 +1003,7 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
                 r.get::<_, Option<String>>(2)?,
                 json(r.get(3)?),
                 r.get::<_, Option<i64>>(4)?,
+                r.get::<_, Option<i64>>(5)?,
             ))
         },
     )?;
@@ -1022,6 +1023,7 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         why,
         approach,
         acceptance,
+        acceptance_work,
         acceptance_round,
         depends_on: all
             .links
@@ -1039,8 +1041,8 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         imported_from,
         imported_branch,
         imported_pr,
-        design_cards: design_cards(conn, flows, "WHERE w.item = ?1", id)?,
-        asks: asks(conn, "WHERE w.item = ?1", id)?,
+        design_cards: design_cards(conn, flows, "WHERE w.item = ?1", &[id])?,
+        asks: asks(conn, "WHERE w.item = ?1", &[id])?,
         shown: shown(conn, flows, id)?,
         item: summary,
     })
@@ -1087,9 +1089,9 @@ fn value_at(x: &Value, path: &str) -> Option<Value> {
 /// What the rounds of an item's works handed back that their flow versions show on the item, oldest first.
 fn shown(conn: &Connection, flows: &Flows, item: i64) -> Result<Vec<Shown>> {
     let mut st = conn.prepare(
-        "SELECT r.id, r.work, r.cell, r.output, w.flow_version, w.graph FROM rounds r JOIN works w ON w.id = r.work
+        "SELECT r.n, r.work, r.cell, r.output, w.flow_version, w.graph FROM rounds r JOIN works w ON w.id = r.work
          WHERE w.item = ?1 AND r.cell IS NOT NULL AND r.output IS NOT NULL AND r.transition IS NOT NULL
-         ORDER BY r.id",
+         ORDER BY r.work, r.n",
     )?;
     let rows = st.query_map([item], |r| {
         Ok((
@@ -1179,7 +1181,7 @@ mod tests {
             .clone();
         let data = std::env::temp_dir().join(format!("wf-agents-api-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&data);
-        for (dir, file, text) in [("logs", "run-1.log", "red"), ("tool-output", "round-2-1.txt", "long")] {
+        for (dir, file, text) in [("logs", "run-1.log", "red"), ("tool-output", "R1-2-1.txt", "long")] {
             std::fs::create_dir_all(data.join(dir)).unwrap();
             std::fs::write(data.join(dir).join(file), text).unwrap();
         }
@@ -1187,7 +1189,7 @@ mod tests {
             json!({ "prompt": "Do it", "inputs": [{ "what": first, "value": "v", "held": false }], "engine": {} });
         let result = json!([
             0,
-            format!("Too long to give here; saved to {}/tool-output/round-2-1.txt", "/old")
+            format!("Too long to give here; saved to {}/tool-output/R1-2-1.txt", "/old")
         ]);
         let mut db = Db::in_memory().unwrap();
         let json = compiled.json();
@@ -1205,24 +1207,24 @@ mod tests {
             run("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", &[])?;
             run("INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'engineer', 'claude', 's1')", &[])?;
             run(
-                "INSERT INTO rounds (work, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, '0', '{}', '{}', 'started', 'c', 10, 20)",
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 1, '0', '{}', '{}', 'started', 'c', 10, 20)",
                 &[],
             )?;
             let input = input.to_string();
             run(
-                "INSERT INTO rounds (work, cell, session, input, output, rejected, config_commit, model, usage, started_at, ended_at)
-                 VALUES (1, '1', 1, ?1, '{\"progress\":\"looked\"}', '{\"format\":\"no outcome\"}', 'c', 'm', '{\"cost_usd\":0.5}', 30, 40)",
+                "INSERT INTO rounds (work, n, cell, session, input, output, rejected, config_commit, model, usage, started_at, ended_at)
+                 VALUES (1, 2, '1', 1, ?1, '{\"progress\":\"looked\"}', '{\"format\":\"no outcome\"}', 'c', 'm', '{\"cost_usd\":0.5}', 30, 40)",
                 &[&input],
             )?;
             run(
-                "INSERT INTO rounds (work, cell, session, input, config_commit, started_at) VALUES (1, '1', 1, ?1, 'c', 50)",
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (1, 3, '1', 1, ?1, 'c', 50)",
                 &[&input],
             )?;
             let result = result.to_string();
             run(
-                "INSERT INTO tool_runs (round, tool, args, attempt, result, files, queued_at)
-                 VALUES (2, 'gh', '{}', 1, ?1, '[\"/old/logs/run-1.log\", \"/old/logs/gone.log\"]', 35)",
+                "INSERT INTO tool_runs (work, round, tool, args, attempt, result, files, queued_at)
+                 VALUES (1, 2, 'gh', '{}', 1, ?1, '[\"/old/logs/run-1.log\", \"/old/logs/gone.log\"]', 35)",
                 &[&result],
             )?;
             Ok(())
@@ -1235,7 +1237,10 @@ mod tests {
     fn a_work_says_where_it_stands_and_what_each_round_came_to() {
         let mut s = setup("work");
         s.db.write(Actor::Engine, |tx| {
-            tx.execute("INSERT INTO owner_messages (round, text) VALUES (2, 'told')", [])?;
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (1, 2, 'told')",
+                [],
+            )?;
             tx.execute(
                 "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 waits.', 45), (NULL, 'Halted.', 46)",
                 [],
@@ -1253,7 +1258,7 @@ mod tests {
         assert_eq!(w.stage, cell.stage);
         assert_eq!((w.rounds, w.sent_back, w.failed), (3, 1, 0));
         assert_eq!((w.started_at, w.last_at, w.cost_usd), (Some(10), Some(50), 0.5));
-        assert_eq!(w.running.as_ref().map(|r| r.id), Some(3));
+        assert_eq!(w.running.as_ref().map(|r| r.n), Some(3));
 
         let d = work(s.db.conn(), &cache, 1).unwrap();
         let outcomes: Vec<RoundOutcome> = d.rounds.iter().map(|r| r.outcome).collect();
@@ -1272,14 +1277,18 @@ mod tests {
         assert_eq!(work(s.db.conn(), &cache, 9), Err(Error::NotFound("no work 9".into())));
 
         // A round recorded before messages were gives its prompt as its message, and its inputs.
-        let r = round(s.db.conn(), &cache, &s.data, 2).unwrap();
+        let r = round(s.db.conn(), &cache, &s.data, 1, 2).unwrap();
         assert_eq!(r.message.as_deref(), Some("Do it"));
         assert_eq!(r.inputs[0].from, cell.inputs[0].from);
         assert!(r.conditional.is_empty() && r.call.is_none());
         assert_eq!(r.session.as_ref().map(|x| x.cli_session.as_str()), Some("s1"));
         let files: Vec<&str> = r.tool_runs[0].files.iter().map(|f| f.file.as_str()).collect();
-        assert_eq!(files, ["logs/run-1.log", "tool-output/round-2-1.txt"]);
-        assert_eq!(file(&s.data, "tool-output", "round-2-1.txt", 100).unwrap(), "long");
+        assert_eq!(files, ["logs/run-1.log", "tool-output/R1-2-1.txt"]);
+        assert_eq!(file(&s.data, "tool-output", "R1-2-1.txt", 100).unwrap(), "long");
+        assert_eq!(
+            round(s.db.conn(), &cache, &s.data, 2, 2),
+            Err(Error::NotFound("no round R2-2".into()))
+        );
         assert!(
             file(&s.data, "logs", "run-1.log", 2)
                 .unwrap()
@@ -1299,10 +1308,10 @@ mod tests {
         let mut s = setup("message");
         let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
         let input = json!({
-            "message": "# R4 · cell 1 · Research",
+            "message": "# R1-4 · cell 1 · Research",
             "conditional": [
                 { "address": "rule:ground", "hash": "h1", "given": true },
-                { "address": "R2·1·understanding", "hash": "h2", "given": false },
+                { "address": "R1-2·1·understanding", "hash": "h2", "given": false },
             ],
             "call": {
                 "command": ["claude", "-p", "--effort", "high"],
@@ -1317,18 +1326,18 @@ mod tests {
         let failed = json!({ "failed": { "kind": "transient", "what": "API Error: 529 Overloaded" } });
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO rounds (work, cell, session, input, rejected, config_commit, started_at, ended_at)
-                 VALUES (1, '1', 1, ?1, ?2, 'c', 60, 70)",
+                "INSERT INTO rounds (work, n, cell, session, input, rejected, config_commit, started_at, ended_at)
+                 VALUES (1, 4, '1', 1, ?1, ?2, 'c', 60, 70)",
                 [input.to_string(), failed.to_string()],
             )?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', ?1, 'c', 80)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 5, '1', ?1, 'c', 80)",
                 [step.to_string()],
             )?;
-            // Round 2 locked the first acceptance, and round 4 a new one in its place.
+            // R1-2 locked the first acceptance, and R1-4 a new one in its place.
             for (acceptance, round) in [(r#"[{"id":"A1"}]"#, 2), (r#"[{"id":"A2"}]"#, 4)] {
                 tx.execute(
-                    "UPDATE items SET acceptance = ?1, acceptance_round = ?2 WHERE id = 1",
+                    "UPDATE items SET acceptance = ?1, acceptance_work = 1, acceptance_round = ?2 WHERE id = 1",
                     db::rusqlite::params![acceptance, round],
                 )?;
             }
@@ -1336,21 +1345,21 @@ mod tests {
         })
         .unwrap();
         let cache = Flows::default();
-        let r = round(s.db.conn(), &cache, &s.data, 4).unwrap();
-        assert_eq!(r.message.as_deref(), Some("# R4 · cell 1 · Research"));
+        let r = round(s.db.conn(), &cache, &s.data, 1, 4).unwrap();
+        assert_eq!(r.message.as_deref(), Some("# R1-4 · cell 1 · Research"));
         assert_eq!(
             r.conditional
                 .iter()
                 .map(|m| (m.address.as_str(), m.given))
                 .collect::<Vec<_>>(),
-            [("rule:ground", true), ("R2·1·understanding", false)]
+            [("rule:ground", true), ("R1-2·1·understanding", false)]
         );
         assert_eq!(r.call.as_ref().unwrap()["session"]["resumed"], "s1");
         assert_eq!((r.level.as_deref(), r.effort.as_deref()), (Some("3"), Some("high")));
         assert_eq!(r.acceptance_before, Some(json!([{ "id": "A1" }])));
         assert_eq!(r.round.outcome, RoundOutcome::Failed);
         assert_eq!(r.round.why.as_deref(), Some("transient: API Error: 529 Overloaded"));
-        let step = round(s.db.conn(), &cache, &s.data, 5).unwrap();
+        let step = round(s.db.conn(), &cache, &s.data, 1, 5).unwrap();
         assert_eq!(step.message, None);
         assert_eq!((step.level, step.acceptance_before), (None, None));
         assert_eq!(step.inputs[0].what, cell.inputs[0].what);
@@ -1407,11 +1416,11 @@ mod tests {
         let mut s = setup("replaced");
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO design_cards (round, body, status) VALUES (2, '[]', 'open')",
+                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 2, '[]', 'open')",
                 [],
             )?;
             tx.execute(
-                "INSERT INTO design_cards (round, body, status) VALUES (3, '[]', 'open')",
+                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 3, '[]', 'open')",
                 [],
             )?;
             tx.execute(
@@ -1475,8 +1484,8 @@ mod tests {
         .to_string();
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO rounds (work, cell, session, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, '1', 1, '{}', ?1, 'done', 'c', 90, 91)",
+                "INSERT INTO rounds (work, n, cell, session, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 4, '1', 1, '{}', ?1, 'done', 'c', 90, 91)",
                 [&ret],
             )?;
             Ok(())

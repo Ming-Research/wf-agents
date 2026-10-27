@@ -11,7 +11,7 @@ import { type ReactNode, useEffect, useRef } from 'react';
 
 import type { CellDiff, CellInput, CompiledCell, CompiledInput, GraphView, Named, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
-import { time } from '../format';
+import { roundName, time } from '../format';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 import { Changes } from './Changes';
@@ -83,7 +83,7 @@ const TAB_NAMES: Record<CellTab, Key> = {
 };
 
 /// What the engine fills in each round, in the placeholder's style: a description between angle quotes, or the parts
-/// of an address (`‹round›`, `‹id›`, `‹cell›`, `‹name›`) known only when the round runs.
+/// of an address (`‹work›`, `‹n›`, `‹id›`, `‹cell›`, `‹name›`) known only when the round runs.
 function Filled({ text }: { text: string }) {
   return (
     <>
@@ -397,14 +397,14 @@ function Table({ c, highlight }: { c: CompiledCell; highlight: number[] }) {
 }
 
 /// The work's rounds at the cell, newest first; a badge only for what is not the usual course, as in the work's list.
-function RoundsHere({ rounds, onRound }: { rounds: RoundSummary[]; onRound: (r: RoundSummary) => void }) {
+function RoundsHere({ work, rounds, onRound }: { work: number; rounds: RoundSummary[]; onRound: (r: RoundSummary) => void }) {
   if (rounds.length === 0) return <p className="fmt">{t('no_rounds')}</p>;
   return (
     <table className="list mini">
       <tbody>
         {[...rounds].reverse().map((r) => (
-          <tr key={r.id} className="clickable" onClick={() => onRound(r)}>
-            <td className="muted">#{r.id}</td>
+          <tr key={r.n} className="clickable" onClick={() => onRound(r)}>
+            <td className="muted">{roundName(work, r.n)}</td>
             <td className="clip">
               {r.outcome !== 'took' ? (
                 <>
@@ -450,7 +450,8 @@ export function CellPanel(props: {
   c: CompiledCell;
   /// Rows to point out, such as those of the shared circle the panel was opened from.
   rows?: number[];
-  /// On a work's page, the work's rounds at this cell.
+  /// On a work's page, the work and its rounds at this cell.
+  work?: number;
   rounds?: RoundSummary[];
   onRound?: (r: RoundSummary) => void;
   /// When two flows are compared, what changed in this cell.
@@ -459,11 +460,14 @@ export function CellPanel(props: {
   tab: CellTab | null;
   onTab: (tab: CellTab) => void;
 }) {
-  const { c, rows = [], rounds, onRound, diff, tab: chosen, onTab } = props;
+  const { c, rows = [], work, rounds, onRound, diff, tab: chosen, onTab } = props;
   const f = useFlow();
   const view = f.cellView(c.id);
   const agent = c.kind === 'agent';
-  const tabs = cellTabs(c, { rounds: rounds !== undefined && onRound !== undefined, diff: diff != null });
+  const tabs = cellTabs(c, {
+    rounds: work !== undefined && rounds !== undefined && onRound !== undefined,
+    diff: diff != null,
+  });
   const tab = cellTab(tabs, chosen);
   const table = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
@@ -486,7 +490,9 @@ export function CellPanel(props: {
         ))}
       </div>
       {tab === 'changes' && diff ? <Changes d={diff} /> : null}
-      {tab === 'rounds' && rounds && onRound ? <RoundsHere rounds={rounds} onRound={onRound} /> : null}
+      {tab === 'rounds' && work !== undefined && rounds && onRound ? (
+        <RoundsHere work={work} rounds={rounds} onRound={onRound} />
+      ) : null}
       {tab === 'inputs' ? agent ? <AgentInputs c={c} /> : <StepInputs c={c} /> : null}
       {tab === 'returns' ? (
         <>

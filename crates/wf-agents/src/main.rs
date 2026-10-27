@@ -568,14 +568,15 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
             }
             api::Next::Step(work) => {
                 let s = e.step_work(work)?;
+                let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
                 (e.say)(&format!(
-                    "the next round of work {work}, as the owner asked: rounds {:?}",
-                    s.rounds
+                    "the next round of work {work}, as the owner asked: {}",
+                    names.join(", ")
                 ));
                 last = Some(api::StepTaken {
                     at: db::now(),
                     work,
-                    rounds: s.rounds,
+                    rounds: s.rounds.iter().filter(|r| r.work == work).map(|r| r.n).collect(),
                     cell: s.cell,
                 });
                 control.stepped();

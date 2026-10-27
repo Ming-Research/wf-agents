@@ -17,7 +17,7 @@ export type StepTaken = {
  */
 at: number, work: number, 
 /**
- * The rounds it started or ended, and the cell of the last of them.
+ * The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
  */
 rounds: Array<number>, cell: string | null, };
 
@@ -131,7 +131,11 @@ export type WorkState = "running" | "ready" | "asking" | "waiting" | "paused" | 
 /**
  * The round of a work that is running.
  */
-export type RunningRound = { id: number, cell: string | null, started_at: number, };
+export type RunningRound = {
+/**
+ * Its number in the work.
+ */
+n: number, cell: string | null, started_at: number, };
 
 /**
  * A work as a list shows it: what it works on, where it stands and what it has cost.
@@ -182,7 +186,11 @@ export type RoundOutcome = "running" | "took" | "sent_back" | "failed" | "interr
 /**
  * A round as a work's timeline shows it.
  */
-export type RoundSummary = { id: number, 
+export type RoundSummary = {
+/**
+ * Its number in its work.
+ */
+n: number,
 /**
  * Its cell; none for a round that only answered an interjection.
  */
@@ -211,7 +219,11 @@ not_asked: string | null, };
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.
  */
-export type DesignCard = { id: number, round: number, work: number, item: number | null, 
+export type DesignCard = { id: number,
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number, item: number | null,
 /**
  * open, ruled or replaced.
  */
@@ -224,7 +236,11 @@ replaced: Replacement | null, };
 /**
  * The design card that replaced another: the round that handed it in, at which cell and when.
  */
-export type Replacement = { design_card: number, round: number, work: number, 
+export type Replacement = { design_card: number,
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number,
 /**
  * The cell of that round, and the cell's title in the work's flow version.
  */
@@ -244,9 +260,9 @@ changed: string | null, };
  */
 export type OwnerAsk = { id: number, 
 /**
- * The round that put it to the owner.
+ * The round that put it to the owner: its number in the work.
  */
-round: number, work: number, item: number | null, body: JsonValue, 
+round: number, work: number, item: number | null, body: JsonValue,
 /**
  * The kind of each point it asks about, in order, with the kind's group.
  */
@@ -276,8 +292,8 @@ export type OwnerMessage = { id: number,
  */
 engine: boolean, 
 /**
- * The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
- * written.
+ * The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
+ * engine's notice, when it was written.
  */
 round: number | null, cell: string | null, line: string | null, at: number | null, work: number | null, item: number | null, title: string | null, text: string, 
 /**
@@ -340,7 +356,7 @@ export type Marked = { marked: number, };
  */
 export type Interjection = { id: number, work: number, line: string, speaker: string, text: string, 
 /**
- * The round it was handed in; none while it waits.
+ * The round of the work it was handed in, by its number in the work; none while it waits.
  */
 delivered_round: number | null, };
 
@@ -382,7 +398,7 @@ from: Array<Src>, };
  */
 export type RoundConditional = { 
 /**
- * Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+ * Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
  */
 address: string, 
 /**
@@ -551,9 +567,10 @@ export type LinkedItem = { item: ItemSummary, needs: string, };
  */
 export type ItemDetail = { item: ItemSummary, problem: string, why: string, approach: string | null, 
 /**
- * The locked acceptance, and the round that locked it; none until a first design passes its checks.
+ * The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
+ * design passes its checks.
  */
-acceptance: JsonValue | null, acceptance_round: number | null, 
+acceptance: JsonValue | null, acceptance_work: number | null, acceptance_round: number | null,
 /**
  * The items it depends on, and the items that depend on it.
  */
@@ -576,7 +593,11 @@ shown: Array<Shown>, };
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
  */
-export type Shown = { work: number, round: number, cell: string, 
+export type Shown = { work: number,
+/**
+ * The round that handed it back: its number in the work.
+ */
+round: number, cell: string,
 /**
  * The path of the return it is at, as the flow writes it.
  */
@@ -646,7 +667,7 @@ export type CellInput = {
  */
 always: boolean, of: CellInputOf, 
 /**
- * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+ * The address it is given under, as the engine addresses it, with `‹work›`, `‹n›`, `‹id›`, `‹cell›` or `‹name›`
  * standing for what is known only when the round runs; none for what the agent reads itself.
  */
 address: string | null, 

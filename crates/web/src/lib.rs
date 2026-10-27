@@ -123,7 +123,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/next", get(next_round))
         .route("/api/v1/works/{id}/step", post(step))
         .route("/api/v1/works/{id}/resume", post(resume))
-        .route("/api/v1/rounds/{id}", get(round))
+        .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/flows", get(flows))
         .route("/api/v1/flows/sources", get(flow_sources))
         .route("/api/v1/flows/at", get(flow_at))
@@ -261,8 +261,9 @@ async fn work(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::W
     read(&app, move |c, a| api::work(c, &a.flows, id)).await.map(Json)
 }
 
-async fn round(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::RoundDetail>, Fail> {
-    read(&app, move |c, a| api::round(c, &a.flows, &a.data, id))
+/// A round, by its work and its number in the work.
+async fn round(State(app): State<App>, Path((work, n)): Path<(i64, i64)>) -> Result<Json<api::RoundDetail>, Fail> {
+    read(&app, move |c, a| api::round(c, &a.flows, &a.data, work, n))
         .await
         .map(Json)
 }
