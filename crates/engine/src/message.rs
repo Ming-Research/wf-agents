@@ -242,6 +242,88 @@ fn lean(schema: &Value) -> Value {
     }
 }
 
+/// How long, as compact JSON, a part of a schema must be for the formats to give it once when it repeats.
+const LARGE: usize = 300;
+
+/// A schema with each large part it repeats given once, under `$defs`, and referred to by `$ref` wherever it
+/// repeats, the longest first: a field several forms share, such as the kinds of ask under each role an agent may
+/// ask, is written once.
+fn once(schema: Value) -> Value {
+    let mut s = schema;
+    let mut defs = Map::new();
+    loop {
+        let mut seen: HashMap<String, (usize, String, Value)> = HashMap::new();
+        repeats(&s, "part", true, &mut seen);
+        let Some((key, (_, name, part))) = seen
+            .into_iter()
+            .filter(|(k, (n, _, _))| *n > 1 && k.len() >= LARGE)
+            .max_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| b.0.cmp(&a.0)))
+        else {
+            break;
+        };
+        let mut id = name.clone();
+        let mut i = 2;
+        while defs.contains_key(&id) {
+            id = format!("{name}_{i}");
+            i += 1;
+        }
+        refer(&mut s, &key, &json!({ "$ref": format!("#/$defs/{id}") }));
+        defs.insert(id, part);
+    }
+    if let (Value::Object(o), false) = (&mut s, defs.is_empty()) {
+        o.insert("$defs".into(), Value::Object(defs));
+    }
+    s
+}
+
+/// Counts every object in a schema by its canonical text, with the name of the field it describes; the root is not
+/// counted.
+fn repeats(v: &Value, name: &str, root: bool, seen: &mut HashMap<String, (usize, String, Value)>) {
+    match v {
+        Value::Object(o) => {
+            if !root {
+                let mut key = String::new();
+                canonical(v, &mut key);
+                seen.entry(key).or_insert_with(|| (0, name.to_string(), v.clone())).0 += 1;
+            }
+            for (k, x) in o {
+                // A part is named by the field it describes: what holds fields, items or alternatives keeps its name.
+                let structural = matches!(k.as_str(), "properties" | "items" | "oneOf" | "anyOf");
+                repeats(x, if structural { name } else { k }, false, seen);
+            }
+        }
+        Value::Array(xs) => {
+            for x in xs {
+                repeats(x, name, false, seen);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Puts `with` in place of every object whose canonical text is `key`.
+fn refer(v: &mut Value, key: &str, with: &Value) {
+    match v {
+        Value::Object(o) => {
+            let mut text = String::new();
+            canonical(&Value::Object(o.clone()), &mut text);
+            if text == key {
+                *v = with.clone();
+                return;
+            }
+            for x in o.values_mut() {
+                refer(x, key, with);
+            }
+        }
+        Value::Array(xs) => {
+            for x in xs {
+                refer(x, key, with);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn quoted(names: &[String]) -> String {
     names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
 }
@@ -313,11 +395,12 @@ pub fn common_format(g: &CompiledGraph) -> String {
     format!(
         "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
          the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
-         also holds {every}{leaves}. Each field, as JSON Schema; no object holds fields it does not list:\n\n{json}",
+         also holds {every}{leaves}. Each field, as JSON Schema; no object holds fields it does not list, and a part \
+         used in more than one place is under `$defs`:\n\n{json}",
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),
-        json = lean(&Value::Object(schema)),
+        json = once(lean(&Value::Object(schema))),
     )
 }
 
@@ -360,7 +443,7 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
         title = cell.title,
         w = g.within,
         others = others.join(", "),
-        json = lean(&own),
+        json = once(lean(&own)),
     )
 }
 
@@ -1047,6 +1130,13 @@ mod tests {
             assert!(common.contains(t), "{t}");
         }
         assert!(common.contains("leaves out `progress`"), "{common}");
+        // The kinds of ask, the same under every role asked, are written once.
+        assert_eq!(
+            common.matches("The existing architecture or design has a flaw").count(),
+            1,
+            "{common}"
+        );
+        assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
         let four = cell_format(&g, g.cell("4").unwrap());
         assert!(
             four.contains("`tools` (of ci, ci_before, measure, gh, query)"),
