@@ -304,8 +304,7 @@ fn setup(name: &str) -> Setup {
     write(
         &data,
         "install.toml",
-        &format!(
-            r#"
+        r#"
 [owner]
 language = "English"
 [items]
@@ -316,7 +315,6 @@ heavy = "builds"
 poll_interval = 60
 [machines.hosts.here]
 slots = 1
-worktrees = "{}"
 [agents.clis.claude]
 kind = "claude"
 command = "claude"
@@ -330,8 +328,6 @@ allow = ["pr view"]
 max_rows = 10
 timeout_ms = 1000
 "#,
-            root.join("worktrees").display()
-        ),
     );
     write(
         &data,

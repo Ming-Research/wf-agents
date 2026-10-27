@@ -646,8 +646,8 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let hosts = &e.config.config.install.machines.hosts;
-    let (machine, host) = hosts.iter().next().ok_or("the configuration names no machine")?;
-    let fresh = host.worktrees.join(format!("{}-{}", item.project, w.id));
+    let machine = hosts.keys().next().ok_or("the configuration names no machine")?;
+    let fresh = config::worktrees(&e.data).join(format!("{}-{}", item.project, w.id));
     if let Some(parent) = fresh.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }

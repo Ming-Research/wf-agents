@@ -293,7 +293,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     "main": project.main,
                     "checkout": project.checkout,
                     "merge_commit": merged,
-                    "worktrees": ctx.data.join("worktrees"),
+                    "worktrees": config::worktrees(&ctx.data),
                 }),
             )?;
         }

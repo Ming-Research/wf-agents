@@ -29,6 +29,14 @@ Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as er
 compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it).
 
+## Installing
+
+The program is installed on its own, never in the data directory: build the page (`npm ci` and `npm run build` in
+`client/`), then `cargo build --release`, and copy `target/release/wf-agents` to a directory on the `PATH`, such as
+`~/.local/bin`; the `build` workflow's artifact is the same binary for macOS. The data directory, named by `--data` or
+`WF_AGENTS_DATA`, holds the configuration, the database, the files the database refers to, and the works' worktrees
+under `worktrees/`, which its git leaves out.
+
 ## The agents' own configuration
 
 The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for

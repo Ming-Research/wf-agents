@@ -88,8 +88,6 @@ pub struct Machines {
 pub struct Host {
     /// How many works may run on it at once.
     pub slots: u32,
-    /// The directory each work's worktree is made in.
-    pub worktrees: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -585,6 +583,12 @@ pub fn database(dir: &Path) -> PathBuf {
     dir.join("db").join("wf-agents.sqlite")
 }
 
+/// The directory each work's worktree is made in: `worktrees/` in the data directory, which the data directory's git
+/// leaves out.
+pub fn worktrees(dir: &Path) -> PathBuf {
+    dir.join("worktrees")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,7 +607,6 @@ poll_interval = 300
 
 [machines.hosts.laptop]
 slots = 2
-worktrees = "/tmp/worktrees"
 
 [agents.clis.claude]
 kind = "claude"
