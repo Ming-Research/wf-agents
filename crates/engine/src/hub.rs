@@ -68,6 +68,10 @@ pub trait GitHub {
     /// Runs a gh command, as agents hand it in, with the engine's credentials, in the work's worktree so that it is
     /// about the project's repository; gives its exit code and output.
     fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure>;
+    /// The whole log of a check's job, as gh gives it.
+    fn job_log(&self, _repo: &str, _check: &CheckRun) -> Result<String, Failure> {
+        Err(Failure::other("no job logs here"))
+    }
 }
 
 /// GitHub through the gh CLI.
@@ -180,7 +184,7 @@ impl Gh {
                     if std::fs::create_dir_all(&self.logs).is_ok() && std::fs::write(&path, &log).is_ok() {
                         c.log_path = Some(path.display().to_string());
                     }
-                    c.log_tail = Some(tail(&log, 60));
+                    c.log_tail = Some(tail(&clean_log(&log), 60));
                 }
             }
             out.push(c);
@@ -193,6 +197,80 @@ impl Gh {
 pub fn tail(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// A job's log as gh gives it, as a reader wants it: without the job, the step and the time gh puts before every
+/// line ("job<TAB>step<TAB>2026-10-27T09:47:49.0473549Z "), and without the escapes that colour the text.
+pub fn clean_log(log: &str) -> String {
+    log.lines().map(clean_line).collect::<Vec<_>>().join("\n")
+}
+
+fn clean_line(line: &str) -> String {
+    let line = line.trim_start_matches('\u{feff}');
+    let mut parts = line.splitn(3, '\t');
+    // The log's first line has a byte order mark before its time.
+    let text = match (parts.next(), parts.next(), parts.next()) {
+        (Some(_), Some(_), Some(rest)) => rest.trim_start_matches('\u{feff}'),
+        _ => line,
+    };
+    let text = match text.split_once(' ') {
+        Some((stamp, rest)) if is_timestamp(stamp) => rest,
+        _ if is_timestamp(text) => "",
+        _ => text,
+    };
+    without_escapes(text)
+}
+
+/// Whether a word is a time as GitHub writes one in logs: 2026-10-27T09:47:49.0473549Z.
+fn is_timestamp(w: &str) -> bool {
+    let b = w.as_bytes();
+    b.len() >= 20
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && w.ends_with('Z')
+}
+
+/// A text without its terminal escapes: ESC [ ... a letter. gh writes the escape character of a job's log as the two
+/// characters "^[", so "^[[1m" is an escape too.
+fn without_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let escape = match c {
+            '\u{1b}' => true,
+            '^' if chars.peek() == Some(&'[') => {
+                chars.next();
+                true
+            }
+            _ => false,
+        };
+        if !escape {
+            out.push(c);
+            continue;
+        }
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            for x in chars.by_ref() {
+                if ('@'..='~').contains(&x) {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The run and the job a check's link names: .../actions/runs/<run>/job/<job>.
+fn run_and_job(link: &str) -> Option<(String, String)> {
+    let (_, rest) = link.split_once("/actions/runs/")?;
+    let mut parts = rest.split('/');
+    let run = parts.next()?.to_string();
+    (parts.next()? == "job").then_some(())?;
+    let job = parts.next()?.split(['?', '#']).next()?.to_string();
+    Some((run, job))
 }
 
 impl GitHub for Gh {
@@ -248,6 +326,12 @@ impl GitHub for Gh {
         self.jobs(repo, &run)
     }
 
+    fn job_log(&self, repo: &str, check: &CheckRun) -> Result<String, Failure> {
+        let (run, job) = run_and_job(&check.run)
+            .ok_or_else(|| Failure::other(format!("no run and job in the check's link: {}", check.run)))?;
+        self.run(&["run", "view", &run, "-R", repo, "--log", "--job", &job])
+    }
+
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         let run = self.finished_run(repo, sha, workflow, None)?;
         let id = run["databaseId"].as_i64().unwrap_or_default().to_string();
@@ -301,4 +385,29 @@ pub fn delete_ref(worktree: &Path, refname: &str) -> Result<(), Failure> {
     crate::git::git(worktree, &["push", "-q", "origin", &format!(":{refname}")])
         .map(|_| ())
         .map_err(Failure::network)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_job_log_loses_what_gh_puts_before_each_line_and_its_colours() {
+        let log = "\u{feff}check\tTest\t2026-10-27T09:47:49.0473549Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed\n\
+                   check\tTest\t2026-10-27T09:47:49.0475850Z \n\
+                   plain line";
+        assert_eq!(clean_log(log), "error: test failed\n\nplain line");
+        // As gh gives a job's log, with the escape character written "^[".
+        let real = "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)";
+        assert_eq!(
+            clean_log(real),
+            "     Running unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)"
+        );
+        let link = "https://github.com/o/r/actions/runs/40483126002/job/118000000001";
+        assert_eq!(
+            run_and_job(link),
+            Some(("40483126002".to_string(), "118000000001".to_string()))
+        );
+        assert_eq!(run_and_job("https://github.com/o/r/pull/3"), None);
+    }
 }

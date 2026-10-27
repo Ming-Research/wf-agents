@@ -1,5 +1,5 @@
-//! The compiled flow: every graph with what its cells share expanded, each cell's return schema, how each agent
-//! gets each input and rule, and the rows. The engine runs on this, and stores it in `flow_versions` with its
+//! The compiled flow: every graph with what its cells share expanded, each cell's return schema, the inputs and rules
+//! each agent's cell is given, and the rows. The engine runs on this, and stores it in `flow_versions` with its
 //! digest; it reads it back to take a work on.
 
 use std::collections::BTreeMap;
@@ -7,15 +7,19 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use ts_rs::TS;
 
 use crate::check::Analysis;
 use crate::field::{Field, segment};
-use crate::format::{Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Kind, Named, PromptBy, Rule, Src};
+use crate::format::{
+    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, ReadBy, Rounds, Rule,
+    Src,
+};
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
 pub const COMPILED: &str = "wf-agents compiled 1";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct Compiled {
     pub format: String,
     pub engine: EngineNames,
@@ -28,7 +32,7 @@ pub struct Compiled {
     pub stats: Vec<Stats>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ToolUse {
     pub name: String,
     pub runs: String,
@@ -43,7 +47,7 @@ pub struct Stats {
     pub places: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledGraph {
     pub name: String,
     pub start: String,
@@ -56,10 +60,18 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
+    /// How every agent's return is written, which the forms every return shares say once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write: Vec<String>,
+    /// What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
+    /// version stored before the flow said it in this form, which runs by the section of the flow built into the
+    /// engine.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "stored_rounds")]
+    pub rounds: Option<Rounds>,
     pub cells: Vec<CompiledCell>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInterject {
     pub name: String,
     pub desc: String,
@@ -67,34 +79,25 @@ pub struct CompiledInterject {
     pub from: Vec<Named>,
 }
 
-/// How an agent's cell gets an input or a rule: its line's session already holds it on every way to the cell, or
-/// the engine gives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Held {
-    Session,
-    Given,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
-    /// For an agent's cell; none for one it reads itself.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub held: Option<Held>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A rule of the flow an agent's cell is given, by its name.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RuleUse {
     pub name: String,
-    pub held: Held,
+    /// Given to every agent's cell of the cell's line, not named by the cell itself.
+    #[serde(default)]
+    pub shared: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledRow {
     pub name: String,
     #[serde(rename = "if")]
@@ -107,6 +110,9 @@ pub struct CompiledRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
     pub waits: bool,
+    /// The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
+    #[serde(default)]
+    pub pauses: bool,
     pub interject: bool,
     pub main: bool,
     /// A row every agent's cell has.
@@ -115,7 +121,7 @@ pub struct CompiledRow {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledCell {
     pub id: String,
     /// engine, agent, tool or owner.
@@ -134,9 +140,7 @@ pub struct CompiledCell {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     pub inputs: Vec<CompiledInput>,
-    /// For an agent's cell: how it gets the project's rules, which every agent is given.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_rules: Option<Held>,
+    /// The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleUse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -155,6 +159,12 @@ pub struct CompiledCell {
     pub checks: Vec<Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub handoff: Vec<String>,
+    /// Paths of the return the owner's page shows on the item the work is on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<String>,
+    /// Places of the return a role reads outside this flow, through the database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_by: Vec<ReadBy>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
 }
@@ -285,6 +295,7 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
         Atom::Has(p) => !values(p).is_empty(),
         Atom::Is(p, vs) | Atom::AnyOf(p, vs) => hit(p, vs),
         Atom::NoneOf(p, vs) => !hit(p, vs),
+        Atom::SentBack(_) | Atom::Failed(_) => false,
     }
 }
 
@@ -664,25 +675,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
     let schemas = Schemas {
         text: &g.source.enum_text,
     };
-    let held = |c: &Cell, i: usize| -> Option<Held> {
-        if c.kind != CellKind::Agent {
-            return None;
-        }
-        let x = &c.inputs[i];
-        if x.from.iter().all(|s| *s == Src::Itself) {
-            return None;
-        }
-        let places = x.from.iter().all(|s| matches!(s, Src::Place(..)));
-        let session = places && a.held.get(&(g.at[&c.id], i)).copied().unwrap_or(false);
-        Some(if session { Held::Session } else { Held::Given })
-    };
-    let rule = |ci: usize, r: Option<String>| {
-        if a.rule_held.get(&(ci, r)).copied().unwrap_or(false) {
-            Held::Session
-        } else {
-            Held::Given
-        }
-    };
     let mut cells = Vec::new();
     for (ci, c) in g.cells.iter().enumerate() {
         if c.kind == CellKind::Agent {
@@ -703,22 +695,23 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             inputs: c
                 .inputs
                 .iter()
-                .enumerate()
-                .map(|(i, x)| CompiledInput {
+                .map(|x| CompiledInput {
                     id: x.id.clone(),
                     what: x.what.clone(),
                     from: x.from.clone(),
                     maybe: x.maybe,
-                    held: held(c, i),
                 })
                 .collect(),
-            project_rules: (c.kind == CellKind::Agent).then(|| rule(ci, None)),
             rules: c
                 .rules
                 .iter()
                 .map(|r| RuleUse {
                     name: r.clone(),
-                    held: rule(ci, Some(r.clone())),
+                    shared: g
+                        .flow
+                        .rules
+                        .iter()
+                        .any(|x| &x.name == r && c.line.as_ref().is_some_and(|l| x.lines.contains(l))),
                 })
                 .collect(),
             prompt: c.prompt.clone(),
@@ -736,15 +729,22 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     actions: r.actions.clone(),
                     counts: r.counts.clone(),
                     waits: r.waits,
+                    pauses: false,
                     interject: r.interject,
                     main: r.main,
                     common: r.common,
                     note: r.note.clone(),
                 })
+                .chain(match (&g.flow.rounds, c.kind) {
+                    (Some(r), CellKind::Agent) => no_return_rows(r),
+                    _ => Vec::new(),
+                })
                 .collect(),
             always: c.always.clone(),
             checks: c.checks.clone(),
             handoff: c.handoff.clone(),
+            shown: c.shown.clone(),
+            read_by: c.read_by.clone(),
             inenums: c.inenums.clone(),
         });
     }
@@ -771,7 +771,75 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
+        write: f.agent_common.returns.write.clone(),
+        rounds: match &f.rounds {
+            Some(r) => Some(rounds(r, &cells)?),
+            None => None,
+        },
         cells,
     };
     Ok((out, stats))
+}
+
+/// The rounds section as written, once every agent's cell can have a shared row of each kind's name.
+fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
+    ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    for c in cells {
+        let mut seen = std::collections::BTreeSet::new();
+        for row in &c.rows {
+            ensure!(
+                seen.insert(&row.name),
+                "a row of cell {} has the name of a shared row the rounds section gives: {}",
+                c.id,
+                row.name
+            );
+        }
+    }
+    Ok(r.clone())
+}
+
+/// The shared rows every agent's cell has for a round that ends in no return it takes, as the rounds section says:
+/// a return sent back runs the cell again, and so many in a row pause the work first; a failed run of each kind
+/// runs it again once the cause passes, or after a wait, or once the owner lets the paused work go on.
+fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
+    let row = |name: &str, atom: Atom, note: &str| CompiledRow {
+        name: name.to_string(),
+        conditions: vec![atom],
+        to: "@self".to_string(),
+        sets: BTreeMap::new(),
+        actions: Vec::new(),
+        counts: None,
+        waits: false,
+        pauses: false,
+        interject: false,
+        main: false,
+        common: true,
+        note: Some(note.to_string()),
+    };
+    let mut out = vec![
+        CompiledRow {
+            pauses: true,
+            ..row(
+                "sent_back_too_often",
+                Atom::SentBack(Some(r.sent_back.pause_after)),
+                &r.sent_back.pause,
+            )
+        },
+        row("sent_back", Atom::SentBack(None), &r.sent_back.desc),
+    ];
+    for k in &r.failed.kinds {
+        out.push(CompiledRow {
+            waits: k.handle == Handle::Wait,
+            pauses: k.handle == Handle::Pause,
+            ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
+        });
+    }
+    out
+}
+
+/// The rounds section of a stored flow version; none when it was stored in a form this engine no longer reads, so
+/// that the version stays readable and runs by the section of the flow built into the engine.
+fn stored_rounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Rounds>, D::Error> {
+    let v = Option::<Value>::deserialize(d)?;
+    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }

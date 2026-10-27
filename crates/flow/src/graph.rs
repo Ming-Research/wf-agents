@@ -5,9 +5,9 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::field::{Field, Resolved, Shapes, by_id, head, is_path, resolve};
+use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, Role, Source, Src,
+    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, ReadBy, Role, Source, Src,
 };
 
 macro_rules! ensure {
@@ -105,6 +105,10 @@ pub(crate) struct Cell {
     pub always: Vec<Always>,
     pub checks: Vec<Check>,
     pub handoff: Vec<String>,
+    /// What the owner's page shows on the item: the owner reads it there.
+    pub shown: Vec<String>,
+    /// What a role reads outside this flow.
+    pub read_by: Vec<ReadBy>,
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
     pub by_id: BTreeMap<String, usize>,
     /// What the rows switch on: the output and, as fields named `@<id>`, the inputs read by id.
@@ -133,7 +137,6 @@ pub(crate) struct Graph<'s> {
     pub block: Vec<usize>,
     pub entries: Vec<BTreeSet<usize>>,
     pub block_names: Vec<String>,
-    pub lines: Vec<String>,
     /// The key of every path a cell's rows, actions and checks name.
     pub akeys: HashMap<(usize, String), String>,
     out_keys: RefCell<HashMap<(usize, String), Option<String>>>,
@@ -189,11 +192,14 @@ impl Cell {
         out
     }
 
-    /// The paths read on every return: what the cell always does and checks, and what it hands off.
+    /// The paths read on every return: what the cell always does and checks, what it hands off, and what the owner
+    /// reads on the item.
     pub fn readers(&self, out: &mut Vec<String>) {
         out.extend(self.always.iter().map(|x| x.at.clone()));
         out.extend(self.checks.iter().filter_map(|x| x.at.clone()));
         out.extend(self.handoff.iter().cloned());
+        out.extend(self.shown.iter().cloned());
+        out.extend(self.read_by.iter().map(|x| x.at.clone()));
     }
 
     /// The paths a row itself reads, besides what every return reads.
@@ -285,6 +291,14 @@ impl<'s> Graph<'s> {
         );
         let rule_names: BTreeSet<&str> = flow.rules.iter().map(|r| r.name.as_str()).collect();
         ensure!(rule_names.len() == flow.rules.len(), "two rules with one name");
+        for r in &flow.rules {
+            ensure!(
+                r.lines.iter().all(|l| flow.sessions.lines.iter().any(|x| &x.name == l)),
+                "a rule given to no such line: {} {:?}",
+                r.name,
+                r.lines
+            );
+        }
         let stage_names: BTreeSet<&str> = flow.stages.list.iter().map(|s| s.name.as_str()).collect();
         ensure!(stage_names.len() == flow.stages.list.len(), "two stages with one name");
 
@@ -514,6 +528,12 @@ impl<'s> Graph<'s> {
                 let own = r.conditions.contains(&Atom::Own);
                 ensure!(agent || !own, "only an agent has an own answer to tell apart: {nid}");
                 ensure!(
+                    !r.conditions.iter().any(Atom::about_no_return),
+                    "a row switches on a return sent back or a failed run, which only the shared rows the rounds \
+                     section gives have: {nid} {}",
+                    r.name
+                );
+                ensure!(
                     to != "@asker" || asked.contains(&idx(nid)?),
                     "only a cell that is asked answers the one that asked: {nid} {}",
                     r.name
@@ -552,7 +572,7 @@ impl<'s> Graph<'s> {
                 !asked.contains(&i) || rows.iter().any(|r| r.to == "@asker"),
                 "a cell that is asked does not answer: {nid}"
             );
-            let main: Vec<Field> = n
+            let mut main: Vec<Field> = n
                 .out
                 .iter()
                 .flatten()
@@ -563,6 +583,8 @@ impl<'s> Graph<'s> {
             let mut say = String::new();
             let mut always = n.always.clone().unwrap_or_default();
             let mut checks = n.checks.clone().unwrap_or_default();
+            let mut shown = n.shown.clone().unwrap_or_default();
+            let mut read_by: Vec<ReadBy> = Vec::new();
             if agent {
                 for f in &common.out {
                     let field = shapes.field(f, &tools, &my_roles)?;
@@ -573,6 +595,8 @@ impl<'s> Graph<'s> {
                 forms = ret.forms.iter().filter(|f| has_form(n, f)).cloned().collect();
                 say = say_of(&forms);
                 always.extend(common.always.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
+                shown.extend(common.shown.iter().filter(|p| !gone.contains(head(p))).cloned());
+                read_by.extend(common.read_by.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
                 checks.extend(
                     common
                         .checks
@@ -581,15 +605,46 @@ impl<'s> Graph<'s> {
                         .cloned(),
                 );
             }
+            // What an agent writes for the owner to read on the item is in the owner's language; the rest of its
+            // return is in English, as the return's description says.
+            if agent && !common.shown_say.is_empty() {
+                for p in &shown {
+                    add_to_desc(&mut main, p, &common.shown_say);
+                    ensure!(
+                        add_to_desc(&mut out, p, &common.shown_say),
+                        "a place shown on the item that the return does not have: {nid} {p}"
+                    );
+                }
+            }
+            for x in &read_by {
+                ensure!(
+                    flow.asking.roles.iter().any(|r| r.name == x.role),
+                    "a field read by no role an agent may ask: {nid} {} {}",
+                    x.at,
+                    x.role
+                );
+            }
             let line = n.line.clone();
-            let rules = n.rules.clone().unwrap_or_default();
+            let own_rules = n.rules.clone().unwrap_or_default();
             ensure!(agent || line.is_none(), "only an agent is on a line: {nid}");
-            ensure!(agent || rules.is_empty(), "only an agent is given rules: {nid}");
-            let distinct: BTreeSet<&String> = rules.iter().collect();
+            ensure!(agent || own_rules.is_empty(), "only an agent is given rules: {nid}");
+            let distinct: BTreeSet<&String> = own_rules.iter().collect();
             ensure!(
-                rules.iter().all(|r| rule_names.contains(r.as_str())) && distinct.len() == rules.len(),
-                "no such rule, or one twice: {nid} {rules:?}"
+                own_rules.iter().all(|r| rule_names.contains(r.as_str())) && distinct.len() == own_rules.len(),
+                "no such rule, or one twice: {nid} {own_rules:?}"
             );
+            // The rules every cell of the line is given come first; a cell does not name one of them again.
+            let shared: Vec<String> = flow
+                .rules
+                .iter()
+                .filter(|r| line.as_ref().is_some_and(|l| r.lines.contains(l)))
+                .map(|r| r.name.clone())
+                .collect();
+            ensure!(
+                own_rules.iter().all(|r| !shared.contains(r)),
+                "a cell names a rule every cell of its line is given: {nid} {own_rules:?}"
+            );
+            let rules: Vec<String> = shared.iter().chain(&own_rules).cloned().collect();
             ensure!(
                 line.as_ref().is_none_or(|l| lines.contains(l)),
                 "no such line: {nid} {line:?}"
@@ -635,6 +690,8 @@ impl<'s> Graph<'s> {
                 always,
                 checks,
                 handoff: n.handoff.clone().unwrap_or_default(),
+                shown,
+                read_by,
                 inenums,
                 by_id,
                 sw: Vec::new(),
@@ -774,7 +831,6 @@ impl<'s> Graph<'s> {
             block,
             entries,
             block_names,
-            lines,
             akeys: HashMap::new(),
             out_keys: RefCell::new(HashMap::new()),
         };
@@ -983,8 +1039,6 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         .replace("{na}", n.na.as_deref().unwrap_or(""));
     let mut inputs = n.inputs.clone();
     inputs.extend(g.inputs.iter().cloned());
-    let mut always = n.always.clone().unwrap_or_default();
-    always.extend(na.map(|x| x.always.clone()));
     Ok(Node {
         id: id.clone(),
         kind: NodeKind::Agent,
@@ -998,9 +1052,10 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         prompt_by: None,
         out: Some(na.map(|x| vec![x.out.clone()]).unwrap_or_default()),
         cases: Some(rows),
-        always: Some(always),
+        always: n.always.clone(),
         checks: None,
         handoff: None,
+        shown: n.shown.clone(),
         inenums: n.inenums.clone(),
         asks: None,
         about: n.about.clone(),

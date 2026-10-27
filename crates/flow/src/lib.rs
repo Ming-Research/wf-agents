@@ -11,8 +11,10 @@
 //!   cell that waits for an answer gets it, and every loop of states passes a row that counts or waits;
 //! - every return each cell's output allows, in every state: exactly one row holds, and nothing in it is dropped;
 //! - every row from one block into another goes to one of that block's entries;
-//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is; and
-//!   whether an agent's session already holds each input and rule it is given.
+//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is.
+//!
+//! What an agent's session already holds is not worked out here: the engine decides it as it runs, from what each
+//! session was given and handed back.
 
 mod bits;
 mod check;
@@ -29,8 +31,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use compiled::{
-    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, Held, RuleUse,
-    Stats, ToolUse, found_at, valid,
+    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
+    ToolUse, found_at, valid,
 };
 pub use run::Position;
 
@@ -49,6 +51,9 @@ pub const FLOW: &str = include_str!("../../../flow/flow.json");
 pub struct Context {
     /// Every table and view of the database, with its columns.
     pub relations: BTreeMap<String, BTreeSet<String>>,
+    /// Each table and view agents can read, with the first line of what it holds, in the order the schema defines
+    /// them: the index a tool that reads the database lists in its description.
+    pub tables: Vec<(String, String)>,
 }
 
 /// Everything wrong with a flow.
@@ -75,7 +80,15 @@ fn fail(p: impl Into<String>) -> Error {
 const BY: [&str; 3] = ["item", "work", "project"];
 
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
-    let source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
+    let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
+    // A tool that reads the database says in its description what it reads: each table and view with the first
+    // line of what it holds. It comes with the return formats, once in a session.
+    for t in &mut source.tools {
+        if let Some(lead) = &t.tables {
+            let lines: Vec<String> = cx.tables.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
+            t.desc = format!("{}\n\n{lead}\n{}", t.desc, lines.join("\n"));
+        }
+    }
     if source.format != FORMAT {
         return Err(fail(format!(
             "flow.json is not in the format {FORMAT}: {}",
@@ -158,13 +171,13 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
             for r in &c.rows {
                 actions.extend(r.actions.iter().map(Do::name).map(str::to_string));
             }
+            // What is done every time is an action; a view would read a field without anything being done with it.
             for x in &c.always {
                 match (&x.view, &x.action) {
-                    (Some(v), None) => relations.push((v.clone(), None, format!("{} always at {}", c.id, x.at))),
                     (None, Some(d)) => {
                         actions.insert(d.clone());
                     }
-                    _ => problems.push(format!("{}: always at {} names one view or one action", c.id, x.at)),
+                    _ => problems.push(format!("{}: always at {} names one action, and no view", c.id, x.at)),
                 }
             }
             checks.extend(c.checks.iter().map(|x| x.check.clone()));

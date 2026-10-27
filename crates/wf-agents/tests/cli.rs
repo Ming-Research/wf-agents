@@ -53,7 +53,6 @@ heavy = "builds"
 poll_interval = 60
 [machines.hosts.here]
 slots = 1
-worktrees = "/tmp"
 [agents.clis.claude]
 kind = "claude"
 command = "claude"
