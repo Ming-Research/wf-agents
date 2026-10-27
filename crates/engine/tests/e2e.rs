@@ -722,6 +722,277 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
+fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
+    let dir = root.join("elsewhere");
+    if !dir.exists() {
+        let origin = root.join("origin.git");
+        git(
+            root,
+            &["clone", "-q", &origin.to_string_lossy(), &dir.to_string_lossy()],
+        );
+    }
+    git(&dir, &["fetch", "-q", "origin", "main"]);
+    git(&dir, &["reset", "-q", "--hard", "origin/main"]);
+    for (f, text) in files {
+        write(&dir, f, text);
+    }
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", message]);
+    git(&dir, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+/// Merges main as it now is into a worktree's branch.
+fn merge_main(wt: &Path) {
+    git(wt, &["fetch", "-q", "origin", "main"]);
+    git(wt, &["merge", "-q", "--no-edit", "origin/main"]);
+}
+
+/// The rounds of a cell that ended, in order, each with the row it took and why it was sent back.
+fn ended_at(e: &Engine, item: i64, cell: &str) -> Vec<(Option<String>, Option<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 AND r.cell = ?2 AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
+            )
+            .unwrap();
+    st.query_map(params![item, cell], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// Steps the engine until the item's work is at the cell.
+fn step_to(e: &mut Engine, item: i64, cell: &str) {
+    for _ in 0..40 {
+        if state(e, item).is_some_and(|(_, at, _)| at == cell) {
+            return;
+        }
+        e.step(None).unwrap();
+    }
+    panic!("the work did not come to {cell}");
+}
+
+fn worktree_of(e: &Engine, work: i64) -> PathBuf {
+    let wt: String =
+        e.db.conn()
+            .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    PathBuf::from(wt)
+}
+
+/// Gives the work a design card that matched the design paths at the head given: the card is put on the work's
+/// latest round that recorded the head it left, which is made to have left that head.
+fn card_at(e: &Engine, work: i64, head: &str) {
+    e.db.write(Actor::Engine, |tx| {
+        let round: i64 = tx.query_row(
+            "SELECT max(n) FROM rounds WHERE work = ?1 AND json_extract(input, '$.engine.head_after') IS NOT NULL",
+            [work],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?3) WHERE work = ?1 AND n = ?2",
+            params![work, round, head],
+        )?;
+        tx.execute(
+            "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
+            [work, round],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Implementing as `scripts` has it, except that the first round, after committing the feature with the files in
+/// `own`, merges main moved on by the files in `main` before it asks for ci on the merge.
+fn implementing_over_a_merge(
+    root: PathBuf,
+    own: &'static [(&'static str, &'static str)],
+    main: &'static [(&'static str, &'static str)],
+) -> Script {
+    Box::new(move |r: &Request, n: usize| {
+        let wt = &r.worktree;
+        if n == 1 {
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            for (f, text) in own {
+                write(wt, f, text);
+            }
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            main_moves_on(&root, main, "Main moves on");
+            merge_main(wt);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } }]);
+            return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+        }
+        let head = git(wt, &["rev-parse", "HEAD"]);
+        (
+            Vec::new(),
+            vec![
+                ("outcome.head", json!(head)),
+                (
+                    "outcome.conditions",
+                    json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }]),
+                ),
+            ],
+        )
+    })
+}
+
+// What a merge of main brings in is not the work's own change: a cell that may not change the design paths takes a
+// return whose round merged main with changes to them, and a work with a design card hands in no new one for the
+// changes to the design paths that a merge of main brought in after the card.
+#[test]
+fn a_merge_of_main_is_not_the_works_own_design_change() {
+    let s = setup("merge-main");
+    let mut agents = scripts();
+    let root = s.root.clone();
+    agents.insert(
+        "2b",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 1 {
+                main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
+                merge_main(&r.worktree);
+            }
+            (vec![("outcome.better", "no")], Vec::new())
+        }),
+    );
+    agents.insert(
+        "4",
+        implementing_over_a_merge(
+            s.root.clone(),
+            &[],
+            &[("design/later.md", "Decision: main's later one.\n")],
+        ),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "4");
+    let at_2b = ended_at(&e, item, "2b");
+    assert_eq!(at_2b.len(), 1, "{at_2b:?}\n{}", said.borrow().join("\n"));
+    assert!(at_2b[0].0.is_some(), "{at_2b:?}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    card_at(&e, work, &git(&wt, &["rev-parse", "HEAD"]));
+    for _ in 0..10 {
+        if ended_at(&e, item, "4")
+            .iter()
+            .any(|(t, why)| t.as_deref() == Some("done") || why.is_some())
+        {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let at_4 = ended_at(&e, item, "4");
+    assert!(at_4.iter().all(|(_, why)| why.is_none()), "{at_4:?}\n{log}");
+    assert!(
+        at_4.iter().any(|(t, _)| t.as_deref() == Some("done")),
+        "{at_4:?}\n{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A cell's own change to the design paths is still sent back when its round also merged main, and the reason names
+// only its own: the files it changed, and the commits an earlier attempt of it left, never main's.
+#[test]
+fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
+    let s = setup("own-beside-merge");
+    let mut agents = scripts();
+    let root = s.root.clone();
+    agents.insert(
+        "2b",
+        Box::new(move |r: &Request, n: usize| {
+            let wt = &r.worktree;
+            if n == 1 {
+                write(wt, "design/sneaked.md", "Decision: not here.\n");
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Sneak a decision in"]);
+                main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
+                merge_main(wt);
+            }
+            if n == 3 {
+                let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
+                git(wt, &["revert", "--no-edit", sha.trim()]);
+            }
+            (vec![("outcome.better", "no")], Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    for _ in 0..40 {
+        if ended_at(&e, item, "2b").iter().any(|(t, _)| t.is_some()) {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let rounds = ended_at(&e, item, "2b");
+    assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
+    let first = rounds[0].1.clone().unwrap_or_default();
+    assert!(
+        first.contains("this round changed the design paths: design/sneaked.md"),
+        "{first}"
+    );
+    assert!(!first.contains("design/main.md"), "{first}");
+    let second = rounds[1].1.clone().unwrap_or_default();
+    assert!(
+        second.contains("an earlier attempt of this cell") && second.contains("Sneak a decision in"),
+        "{second}"
+    );
+    assert!(!second.contains("Main's decision"), "{second}");
+    assert!(!second.contains("design/main.md"), "{second}");
+    assert!(rounds[2].0.is_some(), "{rounds:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work with a design card hands in a new one for the design paths it changed itself after the card, and for a
+// design path it had changed that main changed too and a merge brought in; not for one only main changed.
+#[test]
+fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
+    let s = setup("both-changed");
+    let mut agents = scripts();
+    agents.insert(
+        "4",
+        implementing_over_a_merge(
+            s.root.clone(),
+            &[("design/own.md", "Decision: the work's own.\n")],
+            &[
+                ("design/overview.md", "# The overview\nThe design.\n"),
+                ("design/main.md", "Decision: main's.\n"),
+            ],
+        ),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    write(
+        &wt,
+        "design/overview.md",
+        "# Overview\nThe design.\nThe work's decision.\n",
+    );
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "The work's decision"]);
+    card_at(&e, work, &git(&wt, &["rev-parse", "HEAD"]));
+    for _ in 0..10 {
+        if ended_at(&e, item, "4").iter().any(|(_, why)| why.is_some()) {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let why = ended_at(&e, item, "4")
+        .into_iter()
+        .find_map(|(_, why)| why)
+        .unwrap_or_default();
+    assert!(
+        why.contains("the design paths changed since the last design card (design/overview.md, design/own.md)"),
+        "{why}\n{log}"
+    );
+    assert!(!why.contains("design/main.md"), "{why}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The advisor is the engineer with a higher model: an item's advisor round runs on the level one above the item's,
 // with that level's command line and model.
 #[test]

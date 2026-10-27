@@ -63,7 +63,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -
                 Some(h) => h,
                 None => git::fork_point(wt, &project.main)?,
             };
-            let changed = git::changed(wt, &base, "HEAD")?;
+            let changed = git::own_changes(wt, &project.main, &base, "HEAD")?;
             s(if changed.iter().any(|f| git::under(f, &project.design_paths)) {
                 "changed"
             } else {
@@ -258,7 +258,7 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
     let Some(head) = card.head else {
         return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
     };
-    let since = git::changed(wt, &head, "HEAD")?;
+    let since = git::own_changes(wt, &project.main, &head, "HEAD")?;
     Ok(since.iter().any(|f| git::under(f, &project.design_paths)).then(|| {
         format!(
             "a new design card: the design tree changed after the owner confirmed design card {}",
