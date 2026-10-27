@@ -58,6 +58,16 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   if (v === null) return [];
   if (part === 'row') return [rowWords(v as unknown as CompiledRow, known)];
   if (part === 'input') return [inputWords(v as unknown as CompiledInput)];
+  const o = typeof v === 'object' && !Array.isArray(v) ? (v as { [k: string]: JsonValue }) : null;
+  if (o && part === 'field') {
+    const kind = String(o.kind ?? '');
+    const values = Array.isArray(o.values) && o.values.length > 0 ? ` (${o.values.map((x) => (Array.isArray(x) ? x[0] : x)).join(', ')})` : '';
+    return [`${kind}${o.optional ? ', optional' : ''}${values}: ${String(o.desc ?? '')}`];
+  }
+  if (o && part === 'always') return [`\`${String(o.at)}\` → \`${String(o.do ?? o.view ?? '')}\``];
+  if (o && part === 'check') return [`\`${String(o.check)}\`${o.at ? ` on \`${String(o.at)}\`` : ''}`];
+  if (o && part === 'rule' && Array.isArray(o.text)) return [String(o.desc ?? ''), ...o.text.map(String)];
+  if (o && part === 'counter') return [String(o.desc ?? '')];
   if (part === 'prompt' || part === 'handoff' || part === 'shown' || part === 'row_order' || part === 'asking') return lines(v);
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return [String(v)];
   return [JSON.stringify(v, null, 1)];
