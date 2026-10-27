@@ -416,7 +416,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
 fn init(d: &Path) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     // The compile of the flow is the slow part of the check, and where `create` refuses anyway it is left out.
-    if !engine::database::exists(d) {
+    if engine::database::exists(d) {
         engine::compile_for(&committed.config)?;
     }
     let path = engine::database::create(d)?;
