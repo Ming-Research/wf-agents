@@ -29,8 +29,8 @@ enum Command {
     /// The configuration in the data directory.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Makes the database in the data directory, once. It is the only command that makes one: every other command
-    /// opens the database that is there, and fails when there is none.
+    /// Makes the database in the data directory, once. It is the only command that makes one: every command that
+    /// works on the database, the engine included, opens the one that is there, and fails when there is none.
     Init,
     /// Checks the design tree of the repository here: its nodes, depth and decisions at HEAD, and how many more than
     /// at the fork point given. A project names it as its design_check.

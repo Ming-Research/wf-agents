@@ -276,7 +276,8 @@ fn init_makes_the_database_once() {
 }
 
 // `init` makes nothing in a place that is not a data directory: a path that is not there, a directory that is not
-// a git repository, a repository with no commit, and one whose committed configuration is not valid.
+// a git repository, a repository with no commit, one whose committed configuration is not valid, and one whose
+// configuration reads but does not fit the flow, which the engine would refuse to start on.
 #[test]
 fn init_refuses_a_place_that_is_not_a_data_directory() {
     let absent = temp("init-absent");
@@ -288,16 +289,26 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
     let broken = temp("init-broken");
     write_config(&broken, "nonsense = 1\n");
     commit_all(&broken);
-    for dir in [&plain, &uncommitted, &broken] {
+    let off_flow = temp("init-off-flow");
+    write_config(&off_flow, INSTALL);
+    std::fs::write(
+        off_flow.join("projects/p.toml"),
+        PROJECT.replace("fixes = 5", "nonsense = 5"),
+    )
+    .unwrap();
+    commit_all(&off_flow);
+    for dir in [&plain, &uncommitted, &broken, &off_flow] {
         let before = entries(dir);
         let out = wf(dir, "init");
         assert!(failed(&out), "init in {}: {:?}", dir.display(), out.status);
         assert_eq!(entries(dir), before, "{}", dir.display());
     }
+    let out = wf(&off_flow, "init");
+    assert!(stderr(&out).contains("the flow has no counter nonsense"), "{}", stderr(&out));
     let out = wf(&absent, "init");
     assert!(failed(&out), "init in {}: {:?}", absent.display(), out.status);
     assert!(!absent.exists());
-    for dir in [&plain, &uncommitted, &broken] {
+    for dir in [&plain, &uncommitted, &broken, &off_flow] {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
