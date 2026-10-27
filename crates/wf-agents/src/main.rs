@@ -4,9 +4,10 @@ mod owner;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
@@ -28,11 +29,18 @@ enum Command {
     #[command(subcommand)]
     Config(ConfigCommand),
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
-    /// appears in the data directory.
+    /// appears in the data directory. The owner's page is served beside it, on the loopback address.
     Run {
-        /// Takes one pass only: carries out the outbox, starts what can start, and takes each work one step.
+        /// Takes one pass only, without the page: carries out the outbox, starts what can start, and takes each work
+        /// one step.
         #[arg(long)]
         once: bool,
+        /// How the engine starts dispatching; the owner can switch it on the page while it runs.
+        #[arg(long, value_enum, default_value_t = RunMode::Run)]
+        mode: RunMode,
+        /// The port of the owner's page on the loopback address.
+        #[arg(long, default_value_t = 7480)]
+        port: u16,
     },
     /// Items: what to do.
     #[command(subcommand)]
@@ -97,6 +105,27 @@ enum Command {
     Anomalies,
     /// The time and cost of each work, or of one work's rounds by cell.
     Cost { work: Option<i64> },
+}
+
+/// How the engine dispatches.
+#[derive(Clone, Copy, ValueEnum)]
+enum RunMode {
+    /// Takes every work as far as it can, pass after pass.
+    Run,
+    /// Takes one step, one round of one work, each time the owner asks for one on the page.
+    Step,
+    /// Starts nothing: no round, no tool, no outbox action; the page stays up.
+    Hold,
+}
+
+impl From<RunMode> for api::Mode {
+    fn from(m: RunMode) -> api::Mode {
+        match m {
+            RunMode::Run => api::Mode::Run,
+            RunMode::Step => api::Mode::Step,
+            RunMode::Hold => api::Mode::Hold,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -256,7 +285,7 @@ fn print(r: Result<String, String>) -> Result<(), String> {
 fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) => Ok(()),
-        Command::Run { once } => run(d, once),
+        Command::Run { once, mode, port } => run(d, once, mode.into(), port),
         Command::Item(ItemCommand::Add {
             project,
             title,
@@ -351,8 +380,38 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
     }
 }
 
-/// Runs the engine on the data directory with `claude -p` and the gh CLI.
-fn run(d: &Path, once: bool) -> Result<(), String> {
+/// How the engine stands, for the page.
+fn status(
+    e: &mut engine::Engine,
+    asked: api::Asked,
+    last: Option<&api::StepTaken>,
+    started_at: i64,
+) -> Result<api::Status, String> {
+    let slots: i64 = e
+        .config
+        .config
+        .install
+        .machines
+        .hosts
+        .values()
+        .map(|h| i64::from(h.slots))
+        .sum();
+    Ok(api::Status {
+        mode: asked.mode,
+        stepping: asked.step,
+        last_step: last.cloned(),
+        slots_used: slots - e.free_slots()?,
+        slots,
+        flow_version: e.flow_now,
+        config_commit: e.config.commit.clone(),
+        language: e.config.config.install.owner.language.clone(),
+        started_at,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+/// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it.
+fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
     let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
@@ -361,10 +420,68 @@ fn run(d: &Path, once: bool) -> Result<(), String> {
         e.tick()?;
         return Ok(());
     }
+    let started_at = db::now();
+    let bus = Arc::new(api::Bus::new(started_at));
+    let events = Arc::clone(&bus);
+    e.db.on_commit(Box::new(move |conn, rows| {
+        for ev in api::events(conn, rows) {
+            events.publish(ev);
+        }
+    }))
+    .map_err(|x| x.to_string())?;
+    let control = Arc::new(api::Control::new(mode));
+    let first = status(&mut e, control.asked(), None, started_at)?;
+    bus.publish(api::Event::Status { status: first });
+    let port = web::start(web::Options {
+        data: d.to_path_buf(),
+        db: config::database(d),
+        port,
+        bus: Arc::clone(&bus),
+        control: Arc::clone(&control),
+    })?;
+    let shown = format!("{mode:?}").to_lowercase();
+    (e.say)(&format!(
+        "the page is at http://127.0.0.1:{port}/; the engine starts in {shown} mode"
+    ));
     // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
     let stop = d.join("stop");
     let _ = std::fs::remove_file(&stop);
-    e.run(&|| stop.exists(), Duration::from_secs(10))?;
+    let idle = Duration::from_secs(10);
+    let mut last: Option<api::StepTaken> = None;
+    // The work the last single step took; the next goes on from it, so every work gets its turn.
+    let mut after: Option<i64> = None;
+    while !stop.exists() {
+        let asked = control.asked();
+        e.reload_config();
+        let now = status(&mut e, asked, last.as_ref(), started_at)?;
+        bus.publish(api::Event::Status { status: now });
+        match asked.next() {
+            api::Next::Pass => {
+                if !e.tick()? {
+                    control.wait(asked, idle);
+                }
+            }
+            api::Next::Step => {
+                let s = e.step(after)?;
+                after = s.work.or(after);
+                let what = match (s.work, s.started_item) {
+                    (Some(w), Some(i)) => format!("started work {w} on item {i}"),
+                    (Some(w), None) => format!("took a step of work {w}"),
+                    (None, _) => "found no work with a step to take".to_string(),
+                };
+                (e.say)(&format!("single step: {what}; rounds {:?}", s.rounds));
+                last = Some(api::StepTaken {
+                    at: db::now(),
+                    work: s.work,
+                    started_item: s.started_item,
+                    rounds: s.rounds,
+                    cell: s.cell,
+                });
+                control.stepped();
+            }
+            api::Next::Wait => control.wait(asked, idle),
+        }
+    }
     let _ = std::fs::remove_file(&stop);
     eprintln!("{} stopped: {} exists", db::now() / 1000, stop.display());
     Ok(())
