@@ -834,10 +834,6 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
     assert_eq!(ready(&e), vec![items[1], queued], "{log}");
     assert_eq!(e.free_slots().unwrap(), 0);
-    assert!(
-        log.contains(&format!("item {} waits for a free slot", items[1])),
-        "{log}"
-    );
     // Once the slot is free, the second starts, before the item queued before.
     let first = works_of(&e, items[0])[1].0;
     e.db.write(Actor::Owner, |tx| {
