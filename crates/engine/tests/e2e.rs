@@ -784,7 +784,7 @@ fn worktree_of(e: &Engine, work: i64) -> PathBuf {
 
 /// Gives the work a design card that matched the design paths at the head given: the card is put on the work's
 /// latest round that recorded the head it left, which is made to have left that head.
-fn card_at(e: &Engine, work: i64, head: &str) {
+fn card_at(e: &mut Engine, work: i64, head: &str) {
     e.db.write(Actor::Engine, |tx| {
         let round: i64 = tx.query_row(
             "SELECT max(n) FROM rounds WHERE work = ?1 AND json_extract(input, '$.engine.head_after') IS NOT NULL",
@@ -873,7 +873,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     assert!(at_2b[0].0.is_some(), "{at_2b:?}");
     let (work, _, _) = state(&e, item).unwrap();
     let wt = worktree_of(&e, work);
-    card_at(&e, work, &git(&wt, &["rev-parse", "HEAD"]));
+    card_at(&mut e, work, &git(&wt, &["rev-parse", "HEAD"]));
     for _ in 0..10 {
         if ended_at(&e, item, "4")
             .iter()
@@ -973,7 +973,7 @@ fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
     );
     git(&wt, &["add", "-A"]);
     git(&wt, &["commit", "-q", "-m", "The work's decision"]);
-    card_at(&e, work, &git(&wt, &["rev-parse", "HEAD"]));
+    card_at(&mut e, work, &git(&wt, &["rev-parse", "HEAD"]));
     for _ in 0..10 {
         if ended_at(&e, item, "4").iter().any(|(_, why)| why.is_some()) {
             break;
