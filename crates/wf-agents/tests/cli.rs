@@ -304,7 +304,11 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
         assert_eq!(entries(dir), before, "{}", dir.display());
     }
     let out = wf(&off_flow, "init");
-    assert!(stderr(&out).contains("the flow has no counter nonsense"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("the flow has no counter nonsense"),
+        "{}",
+        stderr(&out)
+    );
     let out = wf(&absent, "init");
     assert!(failed(&out), "init in {}: {:?}", absent.display(), out.status);
     assert!(!absent.exists());
