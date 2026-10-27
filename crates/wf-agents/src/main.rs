@@ -65,9 +65,13 @@ enum Command {
         all: bool,
     },
     /// One ask of the owner in full, with its answer.
-    Ask { id: i64 },
+    Ask {
+        /// The ask's number, as `wf-agents asks` lists it.
+        id: i64,
+    },
     /// Answers an ask of the owner.
     Answer {
+        /// The ask to answer, by its number.
         ask: i64,
         /// The answer.
         #[arg(long)]
@@ -86,9 +90,13 @@ enum Command {
         all: bool,
     },
     /// One design card in full, with its rulings.
-    DesignCard { id: i64 },
+    DesignCard {
+        /// The design card's number, as `wf-agents design-cards` lists it.
+        id: i64,
+    },
     /// Rules on a design card.
     Rule {
+        /// The design card to rule on, by its number.
         design_card: i64,
         /// Confirm or disagree.
         #[arg(long)]
@@ -136,6 +144,7 @@ enum Command {
     /// The message the work's next agent round would be sent, built as the engine builds it, with nothing run or
     /// recorded.
     Message {
+        /// The work whose next round to show.
         work: i64,
         /// As JSON: the message, and each conditional input it gives or refers to, as a round records them.
         #[arg(long)]
@@ -177,8 +186,10 @@ impl From<RunMode> for api::Mode {
 /// What a new item is.
 #[derive(clap::Args)]
 struct AddItem {
+    /// The project the item belongs to, as the configuration names it.
     #[arg(long)]
     project: String,
+    /// What to do, as an action, within the length the configuration allows.
     #[arg(long)]
     title: String,
     /// What cannot be done or is wrong.

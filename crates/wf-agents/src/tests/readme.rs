@@ -28,11 +28,12 @@ pub(super) const CONVENTION: &str = "a command line is a code span on one line, 
 
 // What the README's section on the data directory lists. This list is a copy: it keeps the README from losing an
 // entry, and does not notice a path the engine starts to write.
-const DATA_DIRECTORY: [&str; 10] = [
+const DATA_DIRECTORY: [&str; 11] = [
     "install.toml",
     "shared/",
     "projects/",
     "rules/",
+    "agents/",
     "db/",
     "logs/",
     "tool-output/",
@@ -302,9 +303,9 @@ fn a_wrong_readme_is_reported_as_what_is_wrong_with_it() {
     let missing = text(&["wf-agents queue put"], &[]);
     let expected = ["wf-agents queue put: never written"];
     assert_eq!(problems(&missing, &root), expected);
-    // `wf-agents cards` stays in the text, and is not `wf-agents card`.
-    let confused = text(&["wf-agents card"], &[]);
-    let expected = ["wf-agents card: never written"];
+    // `wf-agents asks` stays in the text, and is not `wf-agents ask`.
+    let confused = text(&["wf-agents ask"], &[]);
+    let expected = ["wf-agents ask: never written"];
     assert_eq!(problems(&confused, &root), expected);
     let no_such_subcommand = text(&[], &["wf-agents queue add"]);
     let expected = ["wf-agents queue add: no subcommand add"];

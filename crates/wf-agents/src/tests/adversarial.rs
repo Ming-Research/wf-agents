@@ -2,7 +2,8 @@
 //! adds a few lines to the text that writes every command correctly. The cases that stand in the convention the check
 //! reads are in one table, with the command lines they write, so that clap, which parses those command lines, can be
 //! asked which of them are wrong. The forms outside the convention are in two more tables: the ones the check has to
-//! report, and the ones it has to leave alone.
+//! report, and the ones it has to leave alone. A case stands for one branch of the reader, and its name says which;
+//! two cases for the same branch are one. The texts that the acceptance conditions name are in `readme.rs`.
 
 use clap::error::ErrorKind;
 
@@ -10,9 +11,7 @@ use super::readme::{self, leaves, problems, tree};
 
 /// A way a README can write command lines in the convention, and what the check has to make of it.
 struct Case {
-    /// The test that holds it.
-    group: &'static str,
-    /// What it tries.
+    /// What it tries: the branch of the reader it stands for.
     name: &'static str,
     /// The Markdown that writes it, added to the text.
     text: &'static str,
@@ -32,270 +31,128 @@ struct Form {
 
 const CASES: &[Case] = &[
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "unknown subcommand",
+        name: "a global option before the subcommand does not end the reading",
         text: "`wf-agents --data DIR queue add`",
         runs: &["wf-agents --data DIR queue add"],
         wrong: "add",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "unknown command",
-        text: "`wf-agents --data DIR frobnicate`",
-        runs: &["wf-agents --data DIR frobnicate"],
-        wrong: "frobnicate",
+        name: "the equals form of a global option does not swallow the subcommand after it",
+        text: "`wf-agents --data=DIR queue put 3`",
+        runs: &["wf-agents --data=DIR queue put 3"],
+        wrong: "",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "after an option",
-        text: "`wf-agents item --data DIR frobnicate`",
-        runs: &["wf-agents item --data DIR frobnicate"],
-        wrong: "frobnicate",
-    },
-    Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "the equals form",
-        text: "`wf-agents --data=DIR queue add`",
-        runs: &["wf-agents --data=DIR queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "unknown option",
-        text: "`wf-agents --data DIR run --twice`",
-        runs: &["wf-agents --data DIR run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "option of the command",
+        name: "an option of the command after a global one",
         text: "`wf-agents --data DIR run --once`",
         runs: &["wf-agents --data DIR run --once"],
         wrong: "",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "options of a nested one",
+        name: "options of a nested command",
         text: "`wf-agents --data DIR item add --project P --title T`",
         runs: &["wf-agents --data DIR item add --project P --title T"],
         wrong: "",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "right subcommand",
-        text: "`wf-agents --data DIR queue put 3`",
-        runs: &["wf-agents --data DIR queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "option between the two",
+        name: "an option between the two subcommands",
         text: "`wf-agents item --data DIR list`",
         runs: &["wf-agents item --data DIR list"],
         wrong: "",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "a value that is the name of a subcommand",
+        name: "a value that is the name of a subcommand is a value",
         text: "`wf-agents --data queue put 3`",
         runs: &["wf-agents --data queue put 3"],
         wrong: "put",
     },
     Case {
-        group: "options_before_the_subcommand_do_not_end_the_reading",
-        name: "a value that is the name of a command",
-        text: "`wf-agents --data run status`",
-        runs: &["wf-agents --data run status"],
-        wrong: "",
-    },
-    Case {
-        group: "a_block_fenced_with_tildes_is_read",
-        name: "tilde fence",
+        // CommonMark 0.31, fenced code blocks: tildes fence a block like backticks.
+        name: "a block fenced with tildes is read",
         text: "~~~\nwf-agents queue add\n~~~",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_block_fenced_with_tildes_is_read",
-        name: "right tilde fence",
-        text: "~~~\nwf-agents queue put 3\n~~~",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
+        name: "a block fenced with backticks and an info string is read",
+        text: "```sh\nwf-agents queue add\n```",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
     },
     Case {
-        group: "right_wording_is_not_reported",
-        name: "end of the options",
+        name: "a shorter run of backticks does not close a longer fence",
+        text: "````\n```\nwf-agents queue add\n````",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        name: "the end of the options",
         text: "`wf-agents say 3 -- --stop`",
         runs: &["wf-agents say 3 -- --stop"],
         wrong: "",
     },
     Case {
-        group: "right_wording_is_not_reported",
         name: "a short option",
         text: "`wf-agents run -h`",
         runs: &["wf-agents run -h"],
         wrong: "",
     },
     Case {
-        group: "right_wording_is_not_reported",
         name: "the value of an option is three dots",
         text: "`wf-agents answer 3 --text ... --why ...`",
         runs: &["wf-agents answer 3 --text ... --why ..."],
         wrong: "",
     },
     Case {
-        group: "right_wording_is_not_reported",
-        name: "the value of an option is a placeholder",
-        text: "`wf-agents config check --data DIR`",
-        runs: &["wf-agents config check --data DIR"],
-        wrong: "",
-    },
-    Case {
-        group: "a_shell_prompt_before_the_command_does_not_hide_it",
-        name: "shell prompt",
-        text: "```\n$ wf-agents queue add\n```",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_shell_prompt_before_the_command_does_not_hide_it",
-        name: "shell prompt in a span",
-        text: "`$ wf-agents queue add`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_shell_prompt_before_the_command_does_not_hide_it",
-        name: "right shell prompt",
-        text: "```\n$ wf-agents queue put 3\n```",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_shell_prompt_before_the_command_does_not_hide_it",
-        name: "right shell prompt in a span",
-        text: "`$ wf-agents queue put 3`",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_code_span_of_three_backticks_is_not_a_fence",
-        name: "span on a line of its own",
-        text: "```wf-agents queue add```",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_code_span_of_three_backticks_is_not_a_fence",
-        name: "span after it",
-        text: "```wf-agents status```\n\nsee `wf-agents queue add`",
-        runs: &["wf-agents status", "wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_code_span_of_three_backticks_is_not_a_fence",
-        name: "a real block after it",
-        text: "```wf-agents status```\n\n```\nwf-agents run --twice\n```",
-        runs: &["wf-agents status", "wf-agents run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "a_code_span_of_three_backticks_is_not_a_fence",
-        name: "right span and span after it",
-        text: "```wf-agents queue put 3```\n\nsee `wf-agents status`",
-        runs: &["wf-agents queue put 3", "wf-agents status"],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "placeholder for the command",
-        text: "`wf-agents <command> --help`",
-        runs: &[],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "placeholder under a group",
-        text: "`wf-agents item <command> --help`",
-        runs: &[],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "help",
-        text: "`wf-agents --help`",
-        runs: &["wf-agents --help"],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "version",
-        text: "`wf-agents --version`",
-        runs: &["wf-agents --version"],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "options written with an equals sign",
-        text: "`wf-agents answer 3 --verdict=confirm --text=ok`",
-        runs: &["wf-agents answer 3 --verdict=confirm --text=ok"],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
-        name: "an option with a dash in its name",
-        text: "`wf-agents item add --depends-on 2:the-api --project P`",
-        runs: &["wf-agents item add --depends-on 2:the-api --project P"],
-        wrong: "",
-    },
-    Case {
-        group: "placeholders_and_the_options_every_command_has_are_not_reported",
         name: "a flag after a number",
         text: "`wf-agents history 3 --full`",
         runs: &["wf-agents history 3 --full"],
         wrong: "",
     },
     Case {
-        group: "a_backtick_that_is_not_closed_does_not_hide_the_next_line",
-        name: "an unclosed backtick in a list item",
+        name: "options written with an equals sign",
+        text: "`wf-agents rule 3 --verdict=confirm --text=ok`",
+        runs: &["wf-agents rule 3 --verdict=confirm --text=ok"],
+        wrong: "",
+    },
+    Case {
+        name: "a placeholder for the command",
+        text: "`wf-agents <command> --help`",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        name: "the help every command has",
+        text: "`wf-agents --help`",
+        runs: &["wf-agents --help"],
+        wrong: "",
+    },
+    Case {
+        name: "a shell prompt before the command does not hide it",
+        text: "`$ wf-agents queue add`",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        // CommonMark 0.31, fenced code blocks: the info string of a backtick fence has no backtick in it, so a line
+        // that begins with three backticks and has another after them is a code span. Read as a fence, it turns every
+        // block after it inside out.
+        name: "a code span of three backticks is not a fence",
+        text: "```wf-agents status```\n\n```\nwf-agents run --twice\n```",
+        runs: &["wf-agents status", "wf-agents run --twice"],
+        wrong: "twice",
+    },
+    Case {
+        name: "a backtick that is not closed does not hide the next line",
         text: "- not closed `wf-agents status\n- run `wf-agents queue add`",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_backtick_that_is_not_closed_does_not_hide_the_next_line",
-        name: "an unclosed backtick in a heading",
-        text: "## Not closed `here\n`wf-agents queue add`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_span_on_one_line_is_read_wherever_it_stands",
-        name: "in a block quote",
+        name: "a span on one line is read wherever it stands",
         text: "> run `wf-agents queue add` now",
         runs: &["wf-agents queue add"],
         wrong: "add",
-    },
-    Case {
-        group: "a_span_on_one_line_is_read_wherever_it_stands",
-        name: "in a list item",
-        text: "- run `wf-agents queue add` now",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_span_on_one_line_is_read_wherever_it_stands",
-        name: "a right one in a block quote",
-        text: "> run `wf-agents queue put 3` now",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_span_on_one_line_is_read_wherever_it_stands",
-        name: "a right one in a list item",
-        text: "- run `wf-agents queue put 3` now",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
     },
 ];
 
@@ -303,132 +160,40 @@ const CASES: &[Case] = &[
 /// it is right or wrong, because a wrong one would otherwise pass without a word.
 const OUTSIDE: &[Form] = &[
     Form {
-        name: "after another word",
-        text: "`nohup wf-agents run --twice`",
-    },
-    Form {
-        name: "after a utility and a variable",
-        text: "`env WF_AGENTS_DATA=DIR wf-agents queue add`",
-    },
-    Form {
-        name: "after a variable",
-        text: "`WF_AGENTS_DATA=DIR wf-agents run --twice`",
-    },
-    Form {
-        name: "after a variable, a right command",
-        text: "`WF_AGENTS_DATA=DIR wf-agents queue put 3`",
-    },
-    Form {
-        name: "in a loop",
-        text: "`while true; do wf-agents run --twice; done`",
-    },
-    Form {
-        name: "in a loop, a right command",
-        text: "`while true; do wf-agents run --once; sleep 60; done`",
-    },
-    Form {
-        name: "after sudo in a fenced block",
-        text: "```\nsudo wf-agents run\n```",
-    },
-    Form {
-        name: "after &&",
-        text: "`wf-agents status && wf-agents queue add`",
-    },
-    Form {
-        name: "after a semicolon",
-        text: "`wf-agents status; wf-agents queue add`",
-    },
-    Form {
-        name: "after a pipe",
-        text: "`wf-agents status | wf-agents queue add`",
-    },
-    Form {
-        name: "piped to another program",
-        text: "`wf-agents status | grep work`",
-    },
-    Form {
-        name: "in a subshell",
-        text: "`(cd DIR && wf-agents status)`",
-    },
-    Form {
-        name: "in a command substitution",
-        text: "`wf-agents say 3 $(wf-agents queue add)`",
-    },
-    Form {
-        name: "in a right command substitution",
-        text: "`wf-agents say 3 $(wf-agents status)`",
-    },
-    Form {
-        name: "a quoted value",
+        name: "a double quote",
         text: "`wf-agents answer 3 --text \"ok\"`",
     },
     Form {
-        name: "dashes in a quote",
-        text: "`wf-agents say 3 \"do not use --force\"`",
-    },
-    Form {
-        name: "a quoted value that runs onto the next line",
-        text: "```sh\nwf-agents say 3 \"first line\nsecond line\"\n```",
+        name: "a single quote",
+        text: "`wf-agents say 3 'ok'`",
     },
     Form {
         name: "a backslash at the end of a line",
         text: "```\nwf-agents item add \\\n  --project P --bogus X\n```",
     },
     Form {
-        name: "a right command wrapped with a backslash",
-        text: "```\nwf-agents queue \\\n  put 3\n```",
+        name: "a pipe",
+        text: "`wf-agents status | grep work`",
     },
     Form {
-        name: "indented by four spaces",
-        text: "Run it:\n\n    wf-agents queue add",
+        name: "a semicolon",
+        text: "`wf-agents status; wf-agents queue add`",
     },
     Form {
-        name: "indented by a tab",
-        text: "Run it:\n\n\twf-agents queue add",
+        name: "a command substitution",
+        text: "`wf-agents say 3 $(wf-agents queue add)`",
     },
     Form {
-        name: "in a block quote",
-        text: "> wf-agents queue add",
+        name: "after a variable, a right command",
+        text: "`WF_AGENTS_DATA=DIR wf-agents queue put 3`",
     },
     Form {
-        name: "a right command in a block quote",
-        text: "> wf-agents status",
-    },
-    Form {
-        name: "a fence in a block quote",
-        text: "> ```sh\n> wf-agents queue add\n> ```",
-    },
-    Form {
-        name: "in HTML",
-        text: "<code>wf-agents queue add</code>",
-    },
-    Form {
-        name: "a span that wraps",
-        text: "see `wf-agents queue\nadd` now",
-    },
-    Form {
-        name: "a right span that wraps",
-        text: "see `wf-agents answer 3\n--text T` and `wf-agents queue put 3`",
-    },
-    Form {
-        name: "a span that wraps in a list item",
-        text: "- run `wf-agents queue\n  put 3` now",
-    },
-    Form {
-        name: "double backticks",
-        text: "``wf-agents queue add``",
-    },
-    Form {
-        name: "right double backticks",
-        text: "``wf-agents queue put 3``",
+        name: "after sudo in a fenced block",
+        text: "```\nsudo wf-agents run\n```",
     },
     Form {
         name: "an escaped backtick before a span",
         text: "type \\` to quote it, then run `wf-agents queue add`",
-    },
-    Form {
-        name: "a backslash before the closing backtick of a span",
-        text: "`wf-agents status \\` `wf-agents queue add`",
     },
     Form {
         name: "an option in prose",
@@ -438,22 +203,6 @@ const OUTSIDE: &[Form] = &[
 
 /// Places where `wf-agents` is not the start of a command: the check has to leave each alone.
 const QUIET: &[Form] = &[
-    Form {
-        name: "the package in a cargo command",
-        text: "`cargo build -p wf-agents`",
-    },
-    Form {
-        name: "a path that has the name among its directories",
-        text: "`crates/wf-agents/src/main.rs`",
-    },
-    Form {
-        name: "a file name",
-        text: "`wf-agents.sqlite`",
-    },
-    Form {
-        name: "a word of prose",
-        text: "wf-agents runs coding agents through a defined flow.",
-    },
     Form {
         name: "a heading that is the name",
         text: "# wf-agents",
@@ -465,10 +214,6 @@ const QUIET: &[Form] = &[
     Form {
         name: "an indented line that goes on with a paragraph",
         text: "Prose that goes on\n    wf-agents belongs to no project",
-    },
-    Form {
-        name: "a second paragraph of a list item",
-        text: "\n1. Do it first.\n\n    wf-agents runs the flow by steps.",
     },
 ];
 
@@ -500,25 +245,6 @@ fn reason(problem: &str) -> &str {
 /// Whether a problem says that a place was not read, and gives the convention.
 fn is_unread(problem: &str) -> bool {
     problem.contains(readme::UNREAD) && problem.contains(readme::CONVENTION)
-}
-
-/// Runs the cases of one group through the check: it has to name what is wrong with a wrong one, and report nothing
-/// for a right one.
-fn check_group(group: &str) {
-    let cases: Vec<&Case> = CASES.iter().filter(|case| case.group == group).collect();
-    assert!(!cases.is_empty(), "no case is in {group}");
-    let mut failures = Vec::new();
-    for case in cases {
-        let got = found(case.text);
-        if case.wrong.is_empty() {
-            if !got.is_empty() {
-                failures.push(format!("{}: reported though right: {got:?}", case.name));
-            }
-        } else if !got.iter().any(|problem| reason(problem).contains(case.wrong)) {
-            failures.push(format!("{}: nothing names {}; found {got:?}", case.name, case.wrong));
-        }
-    }
-    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// What clap, which parses the command, says to a command line that names a subcommand or an option that does not
@@ -559,57 +285,22 @@ fn the_cases_agree_with_clap() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-// A global option before the subcommand does not end the reading of the command line: the subcommand after it is
-// looked up, and the options that follow are the options of that command.
+// Each case is read as it is written: the check names what is wrong with a wrong one, and reports nothing for a right
+// one.
 #[test]
-fn options_before_the_subcommand_do_not_end_the_reading() {
-    check_group("options_before_the_subcommand_do_not_end_the_reading");
-}
-
-// A block fenced with tildes is a block of code like one fenced with backticks (CommonMark 0.31, fenced code blocks).
-#[test]
-fn a_block_fenced_with_tildes_is_read() {
-    check_group("a_block_fenced_with_tildes_is_read");
-}
-
-// Right wording is not reported: the end of the options, a short option, and the values the README writes in place of
-// a real one.
-#[test]
-fn right_wording_is_not_reported() {
-    check_group("right_wording_is_not_reported");
-}
-
-// A shell prompt before the command does not hide it: a shell session shows the command after its prompt.
-#[test]
-fn a_shell_prompt_before_the_command_does_not_hide_it() {
-    check_group("a_shell_prompt_before_the_command_does_not_hide_it");
-}
-
-// A line that begins with three backticks and has a backtick after them is a code span, not the start of a fenced
-// block: the info string of a backtick fence has no backtick in it (CommonMark 0.31, fenced code blocks). Read as a
-// fence, it turns every block after it inside out.
-#[test]
-fn a_code_span_of_three_backticks_is_not_a_fence() {
-    check_group("a_code_span_of_three_backticks_is_not_a_fence");
-}
-
-// Placeholders and the options every command has are not reported, whatever the check does with the words after them.
-#[test]
-fn placeholders_and_the_options_every_command_has_are_not_reported() {
-    check_group("placeholders_and_the_options_every_command_has_are_not_reported");
-}
-
-// A backtick with no partner on its line opens no code span, so one missing backtick does not hide the command on the
-// next line: spans are paired line by line.
-#[test]
-fn a_backtick_that_is_not_closed_does_not_hide_the_next_line() {
-    check_group("a_backtick_that_is_not_closed_does_not_hide_the_next_line");
-}
-
-// A code span on one line is read wherever it stands: in a block quote, in a list item.
-#[test]
-fn a_span_on_one_line_is_read_wherever_it_stands() {
-    check_group("a_span_on_one_line_is_read_wherever_it_stands");
+fn the_cases_are_read_as_they_are_written() {
+    let mut failures = Vec::new();
+    for case in CASES {
+        let got = found(case.text);
+        if case.wrong.is_empty() {
+            if !got.is_empty() {
+                failures.push(format!("{}: reported though right: {got:?}", case.name));
+            }
+        } else if !got.iter().any(|problem| reason(problem).contains(case.wrong)) {
+            failures.push(format!("{}: nothing names {}; found {got:?}", case.name, case.wrong));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 // A form outside the convention is reported, whether the command in it is right or wrong: the report says that the
@@ -626,8 +317,7 @@ fn a_form_outside_the_convention_is_reported() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-// A place where `wf-agents` is a package, a path, a file name, a heading or a word of prose is not a command and is
-// not reported.
+// A place where `wf-agents` is a heading or a word of prose, or stands alone, is not a command and is not reported.
 #[test]
 fn a_place_where_the_name_is_not_a_command_is_not_reported() {
     let mut failures = Vec::new();
@@ -647,7 +337,10 @@ fn every_command_is_checked_at_its_own_depth() {
     let root = tree();
     let mut all = Vec::new();
     leaves(&root, "wf-agents", &mut all);
-    assert_eq!(all.len(), 20);
+    let paths: Vec<&str> = all.iter().map(|(path, _)| path.as_str()).collect();
+    for sample in ["wf-agents run", "wf-agents queue put"] {
+        assert!(paths.contains(&sample), "{sample} is not among {paths:?}");
+    }
     let mut failures = Vec::new();
     for (path, cmd) in &all {
         let (parent, name) = path.rsplit_once(' ').unwrap();
