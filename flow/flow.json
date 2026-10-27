@@ -5255,6 +5255,10 @@
               "check": "blind_findings_carried"
             }
           ],
+          "shown": [
+            "columns[not_applicable].reason",
+            "withdrawn.reason"
+          ],
           "inenums": {
             "deliver": "deliver_kind",
             "tree": "tree_state"
@@ -5378,6 +5382,9 @@
               "at": "columns[findings].evidence",
               "check": "evidence_holds"
             }
+          ],
+          "shown": [
+            "columns[not_applicable].reason"
           ]
         },
         {
@@ -6802,6 +6809,10 @@
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
             }
+          ],
+          "shown": [
+            "main[flaky]",
+            "main[known_red]"
           ]
         },
         {

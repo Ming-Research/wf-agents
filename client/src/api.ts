@@ -52,7 +52,7 @@ flow_version: number,
 /**
  * The configuration commit the engine runs with.
  */
-config_commit: string,
+config_commit: string, 
 /**
  * When the engine started.
  */
@@ -392,7 +392,7 @@ export type ApiError = { error: string, };
  */
 export type FlowView = { graphs: Array<GraphView>, };
 
-export type GraphView = { name: string,
+export type GraphView = { name: string, 
 /**
  * Each cell, in the order the graph has them.
  */
@@ -401,21 +401,21 @@ cells: Array<CellView>, };
 /**
  * One cell, as the flow page explains it.
  */
-export type CellView = { id: string,
+export type CellView = { id: string, 
 /**
  * For each row of its transition table, in order, the cells the row can lead to: its target, or the cells a
  * target the engine keeps track of (`@self`, `@caller`, `@asker`, `@stopped`) can be.
  */
-targets: Array<Array<string>>,
+targets: Array<Array<string>>, 
 /**
  * Every row of every cell that can lead here, in the order of the cells and of their rows.
  */
-entered_from: Array<RowRef>,
+entered_from: Array<RowRef>, 
 /**
  * What a round of the cell is given: for an agent's cell, every material, each with its origin and address;
  * for any other cell, the sources of its inputs.
  */
-materials: Array<Material>,
+materials: Array<Material>, 
 /**
  * What the cell hands back, with whatever reads each field.
  */
@@ -435,12 +435,12 @@ export type Origin = "line" | "start" | "outside" | "either" | "itself";
 /**
  * One material a round of a cell is given.
  */
-export type Material = { origin: Origin, of: MaterialOf,
+export type Material = { origin: Origin, of: MaterialOf, 
 /**
  * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
  * standing for what is known only when the round runs; none for what the agent reads itself.
  */
-address: string | null,
+address: string | null, 
 /**
  * For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
  * it can be.
@@ -455,19 +455,19 @@ export type MaterialOf = { "kind": "input", input: number, source: number, } | {
 /**
  * What a cell hands back, as a tree of fields.
  */
-export type Returns = {
+export type Returns = { 
 /**
  * For an agent's cell: the field its return holds exactly one form in.
  */
-within: string | null,
+within: string | null, 
 /**
  * For an agent's cell: the forms it may hand in, its own answer first.
  */
-forms: Array<ReturnForm>,
+forms: Array<ReturnForm>, 
 /**
  * The fields every return holds: for an agent's cell those beside the form, for any other cell all of them.
  */
-every: Array<Field>,
+every: Array<Field>, 
 /**
  * What reads the return as a whole.
  */
@@ -476,15 +476,15 @@ used_by: Array<Use>, };
 /**
  * One form an agent's return may hold.
  */
-export type ReturnForm = {
+export type ReturnForm = { 
 /**
  * The form's field, such as `ask` or `tools`; none for the cell's own answer.
  */
-field: string | null,
+field: string | null, 
 /**
  * The form's fields: the own answer's fields, or the one field the form is.
  */
-fields: Array<Field>,
+fields: Array<Field>, 
 /**
  * What reads that a return is this form: the rows whose condition is the cell's own answer.
  */
@@ -498,31 +498,31 @@ export type FieldKind = "text" | "integer" | "number" | "boolean" | "enum" | "ob
 /**
  * A field of a return, with whatever reads it.
  */
-export type Field = { name: string,
+export type Field = { name: string, 
 /**
  * Its path as the flow writes it, such as `end.test_changes[added].catches`.
  */
-path: string, kind: FieldKind,
+path: string, kind: FieldKind, 
 /**
  * For a list, the kind of its items.
  */
-item: FieldKind | null, desc: string | null, optional: boolean,
+item: FieldKind | null, desc: string | null, optional: boolean, 
 /**
  * For a list, the fewest items it holds.
  */
-min: number | null,
+min: number | null, 
 /**
  * For one of a fixed set of values: each value, with what it means when the flow says.
  */
-values: Array<[string, string | null]>, used_by: Array<Use>,
+values: Array<[string, string | null]>, used_by: Array<Use>, 
 /**
  * The fields of an object, or of the objects a list holds.
  */
-fields: Array<Field>,
+fields: Array<Field>, 
 /**
  * For one of several shapes: the field whose value says which, and what reads that field.
  */
-disc: string | null, disc_used_by: Array<Use>,
+disc: string | null, disc_used_by: Array<Use>, 
 /**
  * For one of several shapes: the fields every shape has, and each shape.
  */
@@ -531,11 +531,11 @@ common: Array<Field>, branches: Array<Branch>, };
 /**
  * One of the shapes a field may take.
  */
-export type Branch = {
+export type Branch = { 
 /**
  * The value of the field that says which shape it is.
  */
-value: string,
+value: string, 
 /**
  * Its path as the flow writes it, such as `result[green]`.
  */
@@ -551,15 +551,15 @@ export type Use = { "kind": "input", cell: string, input: number, } | { "kind": 
  */
 export type FlowDiff = { graphs: Array<GraphDiff>, };
 
-export type GraphDiff = { name: string,
+export type GraphDiff = { name: string, 
 /**
  * Whether the graph was added or removed whole, or changed.
  */
-status: ChangeKind,
+status: ChangeKind, 
 /**
  * What changed in the graph apart from its cells: its start and end, its rules, the interjection, the counters.
  */
-changes: Array<Change>,
+changes: Array<Change>, 
 /**
  * Each cell added, removed or changed, in the order of the newer flow, the removed ones last.
  */
@@ -570,7 +570,7 @@ cells: Array<CellDiff>, };
  */
 export type ChangeKind = "added" | "removed" | "changed";
 
-export type CellDiff = { id: string,
+export type CellDiff = { id: string, 
 /**
  * Its title in the newer flow, or in the older one for a cell removed.
  */
@@ -584,16 +584,16 @@ export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "need
 /**
  * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
  */
-export type Change = { part: Part,
+export type Change = { part: Part, 
 /**
  * Which one of the part: an input's text, a rule's or a row's name, a field's path, a check's name; empty for
  * a part a cell has one of.
  */
-key: string,
+key: string, 
 /**
  * What it was; none for what was added.
  */
-before: JsonValue | null,
+before: JsonValue | null, 
 /**
  * What it is; none for what was removed.
  */
@@ -602,7 +602,7 @@ after: JsonValue | null, };
 /**
  * A project's checkout, where the flow can be read at a git ref.
  */
-export type FlowSource = { project: string, checkout: string,
+export type FlowSource = { project: string, checkout: string, 
 /**
  * Its branches, the most recently committed first.
  */
@@ -611,11 +611,11 @@ refs: Array<string>, };
 /**
  * The flow as `flow/flow.json` is at a git ref of a project's checkout, compiled by the flow's compiler.
  */
-export type FlowAt = { project: string,
+export type FlowAt = { project: string, 
 /**
  * The ref as it was asked for, and the commit it names.
  */
-rev: string, commit: string, digest: string,
+rev: string, commit: string, digest: string, 
 /**
  * The stored flow version with the same digest, when there is one.
  */
@@ -799,9 +799,14 @@ export type Do = string | DoAt;
 export type DoAt = { at: string, do: string, };
 
 /**
- * What the engine does every time a cell returns a place: shows it in a view, or carries out an action.
+ * What the engine does every time a cell's return holds a place: the place that sets it off, and the action. The
+ * flow names only actions here; a flow version stored before may name a view instead, which did nothing.
  */
-export type Always = { at: string, view: string | null, do: string | null, };
+export type Always = { 
+/**
+ * The place of the return whose presence sets the action off.
+ */
+at: string, view: string | null, do: string | null, };
 
 /**
  * A check the engine makes on a return, on a place of it or on the whole.

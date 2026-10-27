@@ -43,3 +43,6 @@ engine starts dispatching, and the page switches it while `run` runs: `run` take
 takes one round each time the owner asks for one on the page, and `hold` starts nothing, which is how the page is
 looked at against a copy of the data. `npm run dev` in `client/` serves the page from its sources and passes the
 interface's requests to a running `wf-agents run`.
+
+The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
+with git and compiled, nothing written), and compares two of them, so that a change to the flow is reviewed there.

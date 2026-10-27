@@ -246,7 +246,7 @@ export function FlowScreen(props: FlowScreenProps) {
     const at = rounds?.find((r) => r.id === now.round)?.cell;
     if (at) {
       setPicked(`c:${at}`);
-      chartRef.current?.focus(at, true);
+      chartRef.current?.focus(at);
     }
   }, [now, rounds]);
   return (

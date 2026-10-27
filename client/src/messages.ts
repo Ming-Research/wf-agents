@@ -127,7 +127,7 @@ const messages = {
   depended_on_by: 'Depended on by',
   item_shown: 'Research, design and progress',
   item_shown_note:
-    "What the works' rounds handed back that the flow marks as shown on the item: research and design, each round's progress, side reports and follow-ups.",
+    "What the works' rounds handed back that the flow marks as shown on the item, work by work and round by round.",
   shown_at: 'cell {cell}',
   works: 'Works',
   none: 'None.',

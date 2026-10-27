@@ -2,6 +2,8 @@ Decision: `flow/flow.json` is the only definition of the flow, written in Englis
 
 Decision: The flow is compiled by the Rust crate `flow`, which the engine and the command line both use: it expands the shared rows, the gates and the asking block, builds each cell's return schema for each line, and runs every check on the flow (formats and names, every state the engine can be in is reached, each possible return takes exactly one row, every recorded value is read, every loop has a counter, every input has a source, every rule is used, the samples match); the expanded flow and its hash are stored as a flow version, because a flow that fails a check must never reach a running work.
 
+Decision: A field of a return counts as read when a cell's input, a row, a check, an action or the cell's handoff reads it, or when the cell marks it as shown on the item, which the owner's page then shows; what a cell does every time it returns is an action, never a database view the field is written into, because the owner reads the item, while a view named only as a note let a field nothing reads pass the check that every field is read.
+
 Decision: A work is pinned to the flow version it started with and runs on it to the end; a new version applies only to works started after it, because changing the flow under a running work could leave it in a cell or a state the new flow no longer has.
 
 Rejected:
