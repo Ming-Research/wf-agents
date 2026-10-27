@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary } from './api';
+import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary, Status, WorkSummary } from './api';
+import { controls, course } from './components';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
-import { addHops, lengthenLast, pathOf, type Route as Routed } from './graph/flowLayout';
+import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
@@ -59,6 +60,77 @@ describe('the addresses', () => {
     // A tab or a choice of rounds the page does not know is the work's rounds, all of them.
     expect(parse('/works/3', '?tab=x&only=y')).toEqual(work);
     expect(href(work)).toBe('/works/3');
+  });
+});
+
+describe('how a work goes on', () => {
+  const work = (extra: Partial<WorkSummary>): WorkSummary => ({
+    id: 5,
+    item: 1,
+    title: 't',
+    project: 'p',
+    graph: 'engineer',
+    flow_version: 2,
+    at: '16',
+    at_title: 'Owner',
+    stage: null,
+    state: 'ready',
+    paused: null,
+    paused_by: null,
+    ended: null,
+    waits: null,
+    answered: null,
+    branch: null,
+    pr: null,
+    started_at: null,
+    last_at: null,
+    rounds: 0,
+    sent_back: 0,
+    failed: 0,
+    running: null,
+    cost_usd: 0,
+    open_asks: 0,
+    open_design_cards: 0,
+    ...extra,
+  });
+  const status = (extra: Partial<Status>): Status => ({
+    paused: false,
+    running: null,
+    stepping: null,
+    last_step: null,
+    slots: 1,
+    slots_used: 0,
+    flow_version: 2,
+    config_commit: 'c',
+    started_at: 0,
+    version: 'v',
+    halt: null,
+    ...extra,
+  });
+
+  it('keeps what holds a work back apart from what it waits for, and offers what does something', () => {
+    // Paused by the owner and waiting for an answer: both; Continue, and no Step while it waits.
+    const both = course(
+      work({ state: 'paused', paused: 'the owner paused it', paused_by: 'owner', waits: { kind: 'answer', ask: 6 } }),
+      status({}),
+    );
+    expect([both.held, both.waits]).toEqual(['you', { kind: 'answer', ask: 6 }]);
+    expect(controls(both, status({}))).toEqual({ pause: false, resume: true, step: false, canStep: true });
+    // Every work paused: held back with them all, Step offered, no Continue of its own.
+    const all = course(work({}), status({ paused: true }));
+    expect(all.held).toBe('all');
+    expect(controls(all, status({ paused: true }))).toEqual({ pause: false, resume: false, step: true, canStep: true });
+    // Going on by itself, its round running: Pause only; once paused, it pauses after the round.
+    const on = course(work({}), status({ running: 5 }));
+    expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);
+    expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5 })).running).toBe('pausing');
+    expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5, stepping: 5 })).running).toBe('step');
+    // Stopped by the engine on an older flow version: Continue and Step, which wait for the round under way.
+    const stopped = course(work({ paused: 'cell 4: no', paused_by: 'engine', flow_version: 1 }), status({}));
+    expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
+    expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, resume: true, step: true, canStep: false });
+    // An ended work goes on no more.
+    expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
   });
 });
 
@@ -226,10 +298,10 @@ describe('the chart of a flow', () => {
     expect(c.groups.map((g) => g.id)).toEqual(['stage:queued', 'stage:build', ASKING, 'stage:done']);
   });
 
-  it('draws the rows every agent cell shares as one circle beside it, numbered, those back to itself too', () => {
+  it('draws the rows every agent cell shares as one circle beside it, those back to itself too, with no label', () => {
     expect(sharedRows(graph.cells[1])).toEqual([0, 3, 4]);
     expect(node('k:a')?.rows).toEqual([0, 3, 4]);
-    expect(edge('c:a->k:a')).toMatchObject({ label: '', numbers: [[0, 0], [3, 3], [4, 4]] });
+    expect(edge('c:a->k:a')).toMatchObject({ label: '', numbers: [] });
     expect(edge('c:a->c:t')).toBeUndefined();
     expect(runs([0, 3, 4, 5, 6, 8])).toEqual([[0, 0], [3, 6], [8, 8]]);
   });
@@ -250,13 +322,33 @@ describe('the chart of a flow', () => {
       ],
       width: 60,
     });
+    // The arrow to the shared circle has no label at all, numbered or not.
     const shared = c.edges.find((e) => e.id === 'c:a->k:a');
-    expect(shared && labelSize(shared, true)).toEqual({ width: 3 * 16 + 2 * 2 + 12, height: 20 });
+    expect(shared && labelSize(shared, true)).toBeNull();
     expect(shared && labelSize(shared, false)).toBeNull();
   });
 
-  it('lights up every arrow of a row from its source to its target', () => {
-    expect(related(c.edges, 'c:t->o:r:t')).toEqual(new Set(['c:t->o:r:t', 'i:t:a->c:a']));
+  it("keeps an arrow's label on its own line", () => {
+    const route = (label: { x: number; y: number }) => ({
+      points: [
+        { x: 100, y: 100 },
+        { x: 100, y: 300 },
+        { x: 160, y: 300 },
+      ],
+      label: { ...label, width: 40, height: 20 },
+      hops: [],
+    });
+    // Where elkjs put it on the line, it stays.
+    expect(onLine(route({ x: 80, y: 190 })).label).toEqual({ x: 80, y: 190, width: 40, height: 20 });
+    // Left at a stage box's corner, it goes to the middle of the longest piece.
+    expect(onLine(route({ x: 0, y: 0 })).label).toEqual({ x: 80, y: 190, width: 40, height: 20 });
+  });
+
+  it('lights up only the arrow pointed at, with its other half through the circles into the same cell', () => {
+    // The asking part answers back into each cell that asked: pointing at the way into a lights that way alone.
+    expect(related(c.edges, 'i:q:a->c:a')).toEqual(new Set(['i:q:a->c:a', 'c:q->o:a:q']));
+    expect(related(c.edges, 'c:q->o:b:q')).toEqual(new Set(['c:q->o:b:q', 'i:q:b->c:b']));
+    expect(related(c.edges, 'c:t->o:r:t')).toEqual(new Set(['c:t->o:r:t']));
     expect(related(c.edges, 'c:a->c:b')).toEqual(new Set(['c:a->c:b']));
     expect(related(c.edges, 'r:tree:a->c:a')).toEqual(new Set(['r:tree:a->c:a']));
     expect(related(c.edges, null).size).toBe(0);
@@ -290,9 +382,19 @@ describe('the chart of a flow', () => {
       round(6, 'b', 'failed', null),
       round(7, 'b', 'running', null),
     ];
-    const o = overlays(rounds, 'b');
-    expect(o.get('a')).toEqual({ rounds: 3, sentBack: 1, failed: 0, running: false, current: false });
-    expect(o.get('b')).toEqual({ rounds: 2, sentBack: 0, failed: 1, running: true, current: true });
+    const o = overlays(rounds, 'b', { running: true, held: null });
+    expect(o.get('a')).toEqual({ rounds: 3, sentBack: 1, failed: 0, running: false, current: false, held: null });
+    expect(o.get('b')).toEqual({ rounds: 2, sentBack: 0, failed: 1, running: true, current: true, held: null });
+    // A round left open while the engine runs nothing of the work does not run; a work held back says why at its cell.
+    const held = overlays(rounds, 'b', { running: false, held: 'paused by you' });
+    expect(held.get('b')).toEqual({
+      rounds: 2,
+      sentBack: 0,
+      failed: 1,
+      running: false,
+      current: true,
+      held: 'paused by you',
+    });
     const w = taken(c, graph, rounds);
     expect(w.get('c:s->c:a')).toBe(1);
     expect(w.get('c:a->k:a')).toBe(1);

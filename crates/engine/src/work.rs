@@ -22,6 +22,8 @@ pub struct Work {
     pub pushed_head: Option<String>,
     pub paused: Option<String>,
     pub ended: Option<String>,
+    /// Who paused it, `owner` or `engine`, while it is paused.
+    pub paused_by: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +109,7 @@ impl Work {
         let mut w = conn
             .query_row(
                 "SELECT id, item, flow_version, graph, at, resume_at, waiting, recorded, machine, worktree, branch, pr,
-                        pushed_head, paused, ended
+                        pushed_head, paused, ended, paused_by
                  FROM works WHERE id = ?1",
                 [id],
                 |r| {
@@ -133,6 +135,7 @@ impl Work {
                         pushed_head: r.get(12)?,
                         paused: r.get(13)?,
                         ended: r.get(14)?,
+                        paused_by: r.get(15)?,
                     })
                 },
             )

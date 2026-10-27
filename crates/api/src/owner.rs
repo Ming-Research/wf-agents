@@ -1,6 +1,6 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, and letting a paused work go on. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it
-//! goes on.
+//! design card, pausing a work and letting a paused work go on, and letting every work the owner paused go on. Each is
+//! written as the owner, so `changes` records it as theirs, and the engine reads it as it goes on.
 
 use db::rusqlite::{OptionalExtension, params};
 use db::{Actor, Db};
@@ -167,6 +167,51 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
     Ok(format!("design card {design_card} ruled"))
 }
 
+/// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself until the owner
+/// lets it go on, by itself or with every work the owner paused. Why is the owner's words, or that the owner paused it.
+pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String> {
+    let found: Option<(Option<String>, Option<String>)> = db
+        .conn()
+        .query_row("SELECT paused, ended FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+        .map_err(sql)?;
+    match found {
+        None => return Err(format!("no work {work}")),
+        Some((_, Some(_))) => return Err(format!("work {work} has ended")),
+        Some((Some(_), None)) => return Err(format!("work {work} is paused already")),
+        Some((None, None)) => {}
+    }
+    let why = why
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .unwrap_or(db::PAUSED_BY_OWNER);
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1",
+            params![work, why],
+        )?;
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(format!("work {work} pauses"))
+}
+
+/// Lets every work the owner paused go on, as the owner's Start all does beside letting the engine start works again;
+/// a work the engine paused stays paused until the owner lets it go on by itself.
+pub fn start_all(db: &mut Db) -> Result<String, String> {
+    let n = db
+        .write(Actor::Owner, |tx| {
+            Ok(tx.execute(
+                "UPDATE works SET paused = NULL, paused_by = NULL WHERE paused_by = 'owner' AND ended IS NULL",
+                [],
+            )?)
+        })
+        .map_err(sql)?;
+    Ok(format!("{n} works paused by the owner go on"))
+}
+
 /// Lets a paused work go on: its cell runs again. The engine closes a round the pause left open, with the reason.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
     let paused: Option<Option<String>> = db
@@ -180,7 +225,7 @@ pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
         Some(Some(_)) => {}
     }
     db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
+        tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
         Ok(())
     })
     .map_err(sql)?;
@@ -224,17 +269,64 @@ mod tests {
         let mut db = setup();
         assert!(resume(&mut db, 1).is_err());
         db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE works SET paused = 'cell 13: no' WHERE id = 1", [])?;
+            tx.execute(
+                "UPDATE works SET paused = 'cell 13: no', paused_by = 'engine' WHERE id = 1",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();
         assert_eq!(resume(&mut db, 1).unwrap(), "work 1 goes on");
-        let paused: Option<String> = db
+        let paused: (Option<String>, Option<String>) = db
             .conn()
-            .query_row("SELECT paused FROM works WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT paused, paused_by FROM works WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
-        assert_eq!(paused, None);
+        assert_eq!(paused, (None, None));
         assert!(resume(&mut db, 9).is_err());
+    }
+
+    // The owner pauses a work that goes on, once; Start all lets go on the works the owner paused, and not one the
+    // engine paused.
+    #[test]
+    fn the_owner_pauses_a_work_and_start_all_lets_go_on_only_the_owner_s() {
+        let mut db = setup();
+        let paused = |db: &Db, id: i64| -> (Option<String>, Option<String>) {
+            db.conn()
+                .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [id], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap()
+        };
+        assert_eq!(pause(&mut db, 1, None).unwrap(), "work 1 pauses");
+        assert_eq!(
+            paused(&db, 1),
+            (Some(db::PAUSED_BY_OWNER.to_string()), Some("owner".to_string()))
+        );
+        assert!(pause(&mut db, 1, None).is_err());
+        assert!(pause(&mut db, 9, None).is_err());
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '4')",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE works SET paused = 'cell 4: no', paused_by = 'engine' WHERE id = 2",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(start_all(&mut db).unwrap(), "1 works paused by the owner go on");
+        assert_eq!(paused(&db, 1), (None, None));
+        assert_eq!(
+            paused(&db, 2),
+            (Some("cell 4: no".to_string()), Some("engine".to_string()))
+        );
+        // The owner's words, when given, say why.
+        pause(&mut db, 1, Some("Wait for the release.")).unwrap();
+        assert_eq!(paused(&db, 1).0.as_deref(), Some("Wait for the release."));
     }
 
     // The owner answers an ask once; a second answer is refused.

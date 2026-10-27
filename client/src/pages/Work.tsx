@@ -1,10 +1,12 @@
 // A work, under its row in the list of works (which holds its facts): the state machine of the flow version it is
 // pinned to, filling the rest of the window, with what the work did on it: the cell it is at ringed, each cell it
-// visited with its rounds and the rounds sent back or failed, the arrows it took standing out. A window over the left
-// of the chart, whose width drags, has three tabs: its rounds, under its next round while the engine holds; its design
-// cards, the one waiting for the owner's ruling first with its controls; and its messages, the asks waiting for the
-// owner's answer first with their forms, then what its agents and the engine told the owner. A round opens in the
-// panel with its cell brought into view, a cell with its rounds.
+// visited with its rounds and the rounds sent back or failed, the arrows it took standing out, the cell a round runs
+// at pulsing and the cell a work held back stands at marked. A window over the left of the chart, whose width and
+// height drag, has three tabs: its rounds, under how it goes on (with the owner's Pause and Continue) and, while it
+// does not go on by itself, its next round with the Step that runs it; its design cards, the one waiting for the
+// owner's ruling first with its controls; and its messages, the asks waiting for the owner's answer first with their
+// forms, then what its agents and the engine told the owner. A round opens in the panel with its cell brought into
+// view, a cell with its rounds.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -19,14 +21,15 @@ import type {
   RoundSummary,
   WorkDetail,
 } from '../api';
-import { liveState, Loaded, OutcomeBadge } from '../components';
+import { controls, course, Loaded, OutcomeBadge } from '../components';
+import { Controls, held, runningWords, takeoverWords, useActions, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
-import { savedWidth, WidthGrip } from '../flow/Panel';
+import { Grip, savedSize } from '../flow/Panel';
 import { cost, duration, roundName, time } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
-import { reread, useActivity, useResource, useStatus } from '../live';
-import { href, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
+import { useActivity, useResource, useStatus } from '../live';
+import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, DesignCardView, words } from './Decide';
 import { markRead } from './Messages';
@@ -96,76 +99,122 @@ function Timeline(props: {
   );
 }
 
-/// The work's next round while the engine holds: what it will be, the button that runs it, and while it runs, how long
-/// it has run and what the agent is doing; when it ends, its round opens.
-function Next({ d, onRound, onCard, onAsk }: {
+/// How the work goes on, at the top of its rounds: whether a round of it runs (how long, and what the agent is doing),
+/// what holds it back and what it waits for, with where the owner gives it, and the owner's Pause and Continue; on an
+/// older flow version, that it is taken over when it goes on.
+function Going({ d, onCard, onAsk }: {
   d: WorkDetail;
-  onRound: (r: number) => void;
   /// Open the design card, or the ask, the work waits for, in its tab of the window.
   onCard: (id: number) => void;
   onAsk: (id: number) => void;
 }) {
   const status = useStatus();
   const w = d.work;
+  const a = useActions(w, status, false);
+  const { c } = a;
   const activity = useActivity(w.id);
-  const asked = useRef(false);
-  // When the owner pressed the button: until the round asked for has ended, the button says it is starting.
-  const [pressed, setPressed] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const stepping = status?.stepping === w.id;
-  const can =
-    status !== null &&
-    status.mode === 'hold' &&
-    status.halt === null &&
-    status.stepping === null &&
-    // A work that waits is asked too: its next round says what it waits for, or, once that came, is offered.
-    (liveState(w, status) === 'ready' || w.state === 'waiting');
-  const next = useResource<NextRound>(`work:${w.id}`, can ? `/api/v1/works/${w.id}/next` : null);
+  const runs = c.running !== null;
   useEffect(() => {
-    if (!stepping) return;
+    if (!runs) return;
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(tick);
-  }, [stepping]);
-  // The round asked for has ended: open it.
-  const last = status?.last_step;
-  useEffect(() => {
-    if (!asked.current || stepping || !last || last.work !== w.id) return;
-    asked.current = false;
-    const r = last.rounds[last.rounds.length - 1];
-    if (r !== undefined) onRound(r);
-  }, [stepping, last, w.id, onRound]);
-  if (stepping) {
-    const since = w.running?.started_at ?? null;
-    return (
-      <section className="next">
-        <div className="next-head">
-          <strong>{t('next_running')}</strong>
-          {since !== null ? <span className="muted">{duration(now - since)}</span> : null}
+  }, [runs]);
+  if (c.over) return null;
+  const why = held(c, w);
+  const since = w.running?.started_at ?? null;
+  const head = runs
+    ? runningWords(c)
+    : why !== null
+      ? c.held === 'engine'
+        ? t('course_stopped')
+        : t('course_paused')
+      : c.waits !== null
+        ? waitsWords(c.waits)
+        : t('state_ready');
+  const waits = c.waits;
+  return (
+    <section className={`next going${c.held === 'engine' ? ' paused' : ''}`}>
+      <div className="next-head">
+        <strong>{head}</strong>
+        {runs && since !== null ? <span className="muted">{duration(now - since)}</span> : null}
+        <Controls a={a} w={w} status={status} onStep={null} />
+      </div>
+      {c.held === 'engine' && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
+      {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
+      {c.held === 'all' && !runs ? <p className="muted">{t('course_note_all')}</p> : null}
+      {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}
+      {waits?.kind === 'ruling' ? (
+        <div>
+          <button type="button" className="decide-button" onClick={() => onCard(waits.design_card)}>
+            {t('next_rule_card', { id: waits.design_card })}
+          </button>
         </div>
+      ) : null}
+      {waits?.kind === 'answer' ? (
+        <div>
+          <button type="button" className="decide-button" onClick={() => onAsk(waits.ask)}>
+            {t('next_answer_ask', { id: waits.ask })}
+          </button>
+        </div>
+      ) : null}
+      {waits?.kind === 'items' ? (
+        <p>
+          {waits.items.map((i) => (
+            <Link key={i} to={`/items/${i}`} className="chip">
+              #{i}
+            </Link>
+          ))}
+        </p>
+      ) : null}
+      {!runs && waits === null && w.answered !== null ? (
+        <p className="muted">{t('course_answered', { id: w.answered })}</p>
+      ) : null}
+      {c.outdated ? <p className="warn">{takeoverWords(w, status)}</p> : null}
+      {runs ? (
         <ol className="next-activity">
-          {activity.map((a, i) => (
-            <li key={i}>{a.what}</li>
+          {activity.map((x, i) => (
+            <li key={i}>{x.what}</li>
           ))}
         </ol>
-      </section>
-    );
-  }
-  if (!can) return null;
-  const n = next.data;
-  const starting = pressed !== null && !(last !== null && last !== undefined && last.work === w.id && last.at >= pressed);
-  const kind =
-    n === undefined
-      ? ''
-      : n.not_asked !== null
-        ? t('next_kind_not_asked')
-        : n.kind === 'agent'
-          ? t('next_kind_agent', { line: n.line ?? '' })
-        : n.kind === 'engine'
-          ? t('next_kind_engine', { step: n.step ?? '' })
-          : n.kind === 'tool'
-            ? t('next_kind_tool')
-            : t('next_kind_owner');
+      ) : null}
+      {a.error !== null ? <p className="bad">{t('request_failed', { error: a.error })}</p> : null}
+    </section>
+  );
+}
+
+/// The work's next round while it does not go on by itself and waits for nothing: what it will be, and the Step that
+/// runs exactly that round; when the round ends, it opens, in the work that took this one over when it was on an older
+/// flow version. A work on an older flow version has no next round of its own: Step takes it over.
+function Next({ d, onRound, onCard, onAsk }: {
+  d: WorkDetail;
+  onRound: (r: number) => void;
+  onCard: (id: number) => void;
+  onAsk: (id: number) => void;
+}) {
+  const status = useStatus();
+  const w = d.work;
+  const c = course(w, status);
+  const can = controls(c, status);
+  const asked = useRef(false);
+  // When the owner pressed Step: until the round asked for has ended, the button says it is starting.
+  const [pressed, setPressed] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const preview = can.step && !c.outdated;
+  const next = useResource<NextRound>(`work:${w.id}`, preview ? `/api/v1/works/${w.id}/next` : null);
+  const stepping = status?.stepping === w.id;
+  // The round asked for has ended: open it, where it ran.
+  const last = status?.last_step;
+  useEffect(() => {
+    if (!asked.current || stepping || !last || last.asked !== w.id) return;
+    asked.current = false;
+    const r = last.rounds[last.rounds.length - 1] ?? null;
+    if (last.work !== w.id) navigate(workHref(last.work, { round: r }));
+    else if (r !== null) onRound(r);
+  }, [stepping, last, w.id, onRound]);
+  if (!can.step) return null;
+  const starting =
+    pressed !== null && !(last !== null && last !== undefined && last.asked === w.id && last.at >= pressed);
   const run = () => {
     setError(null);
     setPressed(Date.now());
@@ -176,6 +225,44 @@ function Next({ d, onRound, onCard, onAsk }: {
       setError(e instanceof Error ? e.message : String(e));
     });
   };
+  const button = (note: string, ready: boolean) => (
+    <div className="next-run">
+      <button
+        type="button"
+        className="next-button"
+        onClick={run}
+        disabled={!ready || starting || !can.canStep}
+        title={can.canStep ? undefined : t('work_step_later')}
+      >
+        {starting ? t('next_starting') : t('work_step')}
+      </button>
+      <span className="muted">{note}</span>
+    </div>
+  );
+  if (c.outdated) {
+    return (
+      <section className="next">
+        <div className="next-head">
+          <strong>{t('next_title')}</strong>
+        </div>
+        {button(t('step_takeover_note', { now: status?.flow_version ?? '' }), true)}
+        {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+      </section>
+    );
+  }
+  const n = next.data;
+  const kind =
+    n === undefined
+      ? ''
+      : n.not_asked !== null
+        ? t('next_kind_not_asked')
+        : n.kind === 'agent'
+          ? t('next_kind_agent', { line: n.line ?? '' })
+          : n.kind === 'engine'
+            ? t('next_kind_engine', { step: n.step ?? '' })
+            : n.kind === 'tool'
+              ? t('next_kind_tool')
+              : t('next_kind_owner');
   const note =
     n === undefined
       ? ''
@@ -241,45 +328,7 @@ function Next({ d, onRound, onCard, onAsk }: {
           <pre className="j-text next-message">{n.message}</pre>
         </details>
       ) : null}
-      <div className="next-run">
-        <button type="button" className="next-button" onClick={run} disabled={n === undefined || starting}>
-          {starting ? t('next_starting') : t('next_run')}
-        </button>
-        <span className="muted">{note}</span>
-      </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </section>
-  );
-}
-
-/// Why the work is paused, and the button that lets it go on, once the owner confirms the cell that runs again.
-function Paused({ d }: { d: WorkDetail }) {
-  const w = d.work;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const go = () => {
-    const cell = `${w.at}${w.at_title ? ` (${w.at_title})` : ''}`;
-    if (!window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
-    setBusy(true);
-    setError(null);
-    postJson(`/api/v1/works/${w.id}/resume`, {}).then(
-      () => reread('works', `work:${w.id}`),
-      (e: unknown) => {
-        setBusy(false);
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
-  };
-  return (
-    <section className="next paused">
-      <strong>{t('paused_title')}</strong>
-      <p className="prose">{w.paused}</p>
-      <div className="next-run">
-        <button type="button" className="decide-button" onClick={go} disabled={busy}>
-          {t('resume')}
-        </button>
-        <span className="muted">{t('resume_note', { cell: w.at })}</span>
-      </div>
+      {button(note, n !== undefined)}
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
     </section>
   );
@@ -424,10 +473,12 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
 }
 
 const DRAWER_KEY = 'wf-agents.drawer-width';
+const DRAWER_HEIGHT_KEY = 'wf-agents.drawer-height';
 const DRAWER_MIN = 300;
+const DRAWER_MIN_HEIGHT = 120;
 
-/// The window over the left of the chart: its tabs, the rounds (under why the work paused and its next round), the
-/// design cards and the messages; its width drags by its right edge.
+/// The window over the left of the chart: its tabs, the rounds (under how the work goes on and its next round), the
+/// design cards and the messages; its width drags by its right edge, its height by its bottom edge.
 function Drawer({ d, g, r, go }: {
   d: WorkDetail;
   g: CompiledGraph;
@@ -436,7 +487,8 @@ function Drawer({ d, g, r, go }: {
 }) {
   const status = useStatus();
   const [open, setOpen] = useState(true);
-  const [width, setWidth] = useState<number | null>(() => savedWidth(DRAWER_KEY, DRAWER_MIN));
+  const [width, setWidth] = useState<number | null>(() => savedSize(DRAWER_KEY, DRAWER_MIN));
+  const [height, setHeight] = useState<number | null>(() => savedSize(DRAWER_HEIGHT_KEY, DRAWER_MIN_HEIGHT));
   // What to bring into view once its tab is shown: the design card or the ask the owner was sent to; else a tab shows
   // from its top.
   const want = useRef<string | null>(null);
@@ -475,7 +527,12 @@ function Drawer({ d, g, r, go }: {
     },
   ];
   const shown = roundsShown(d.rounds, r.only);
-  const style = open && width !== null ? { width: `min(${width}px, calc(100vw - 32px))` } : undefined;
+  const style = open
+    ? {
+        ...(width !== null ? { width: `min(${width}px, calc(100vw - 32px))` } : {}),
+        ...(height !== null ? { height: `min(${height}px, calc(100% - 80px))` } : {}),
+      }
+    : undefined;
   return (
     <div className={`drawer${open ? '' : ' drawer-closed'}`} style={style}>
       <div className="drawer-head">
@@ -516,7 +573,7 @@ function Drawer({ d, g, r, go }: {
         <div className="drawer-body" role="tabpanel" ref={body}>
           {r.tab === 'rounds' ? (
             <>
-              {d.work.paused !== null ? <Paused d={d} /> : null}
+              <Going d={d} onCard={onCard} onAsk={onAsk} />
               <Next d={d} onRound={onRound} onCard={onCard} onAsk={onAsk} />
               {r.only !== null ? (
                 <div className="rounds-only">
@@ -532,7 +589,7 @@ function Drawer({ d, g, r, go }: {
                 work={d.work.id}
                 rounds={shown}
                 g={g}
-                stale={status !== null && status.mode === 'hold' && status.stepping !== d.work.id}
+                stale={status !== null && status.running !== d.work.id}
                 selected={r.round}
                 onRound={(x) => onRound(x.n)}
               />
@@ -543,19 +600,30 @@ function Drawer({ d, g, r, go }: {
         </div>
       ) : null}
       {open ? (
-        <WidthGrip side="right" min={DRAWER_MIN} storage={DRAWER_KEY} label={t('drawer_grip')} onWidth={setWidth} />
+        <>
+          <Grip edge="right" min={DRAWER_MIN} storage={DRAWER_KEY} label={t('drawer_grip')} onSize={setWidth} />
+          <Grip
+            edge="bottom"
+            min={DRAWER_MIN_HEIGHT}
+            storage={DRAWER_HEIGHT_KEY}
+            label={t('drawer_height_grip')}
+            onSize={setHeight}
+          />
+        </>
       ) : null}
     </div>
   );
 }
 
 function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
+  const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
   if (!g || !v) return <p className="muted page">{t('none')}</p>;
   const roundCell = r.round !== null ? (d.rounds.find((x) => x.n === r.round)?.cell ?? null) : null;
   const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
   const model = chart(g, v);
+  const c = course(d.work, status);
   return (
     <>
       <Drawer d={d} g={g} r={r} go={go} />
@@ -565,7 +633,7 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
         view={v}
         legend="work"
         marks={{
-          overlays: overlays(d.rounds, d.work.at),
+          overlays: overlays(d.rounds, d.work.at, { running: c.running !== null, held: held(c, d.work) }),
           taken: taken(model, g, d.rounds),
           added: new Set(),
           changed: new Set(),

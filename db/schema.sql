@@ -236,11 +236,16 @@ CREATE TABLE works (
   pr INTEGER,
   -- The head last pushed; the next push is checked against it. Read by: cells 7, 9, 13 and 18.
   pushed_head TEXT,
-  -- Why the owner or the architect paused the work; NULL while it runs. Read by: the engine; the slots view.
+  -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
+  -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
   paused TEXT,
   -- Why the work was stopped before its end cell, for example because its item was cancelled; NULL otherwise.
   -- Read by: the engine; the status view.
-  ended TEXT
+  ended TEXT,
+  -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
+  -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
+  -- Read by: the engine, when the owner lets works go on; the owner's interface.
+  paused_by TEXT CHECK (paused_by IN ('owner', 'engine'))
 ) STRICT;
 
 CREATE TABLE sessions (

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use api::{Bus, Control, Event, Mode};
+use api::{Bus, Control, Event};
 
 struct Server {
     port: u16,
@@ -22,7 +22,7 @@ fn serve(name: &str) -> Server {
     let path = dir.join("db/wf-agents.sqlite");
     db::Db::open(&path).unwrap();
     let bus = Arc::new(Bus::new(5));
-    let control = Arc::new(Control::new(Mode::Hold));
+    let control = Arc::new(Control::default());
     let port = web::start(web::Options {
         data: dir.clone(),
         db: path,
@@ -110,35 +110,70 @@ fn it_serves_its_own_address_and_refuses_other_sites() {
 }
 
 #[test]
-fn the_owner_switches_between_running_and_holding_and_runs_one_work_s_next_round() {
+fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     let s = serve("mode");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", [])?;
+        tx.execute(
+            "UPDATE works SET paused = 'cell 1: no', paused_by = 'engine' WHERE id = 2",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let paused_by = |db: &db::Db, id: i64| -> Option<String> {
+        db.conn()
+            .query_row("SELECT paused_by FROM works WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    };
+    s.bus.publish(Event::Status {
+        status: Box::new(status()),
+    });
     assert_eq!(
         post(
             s.port,
-            "/api/v1/engine/mode",
-            "mode=run",
+            "/api/v1/engine/start",
+            "start",
             "application/x-www-form-urlencoded"
         )
         .0,
         415
     );
-    assert_eq!(s.control.asked().mode, Mode::Hold);
-    // While the engine holds, the owner runs the next round of one work, once at a time.
+    // Every work starts paused; the owner runs one work's round, once at a time.
+    assert!(s.control.asked().paused);
     assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 202);
     assert_eq!(s.control.asked().step, Some(3));
     assert_eq!(post(s.port, "/api/v1/works/4/step", "{}", "application/json").0, 409);
     s.control.stepped();
-    assert_eq!(
-        post(s.port, "/api/v1/engine/mode", r#"{"mode":"run"}"#, "application/json").0,
-        204
+    // The owner pauses one work, and Start all lets it go on with every work, but not the one the engine paused.
+    let (status, done) = post(s.port, "/api/v1/works/1/pause", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert_eq!(paused_by(&db, 1).as_deref(), Some("owner"));
+    assert_eq!(post(s.port, "/api/v1/works/1/pause", "{}", "application/json").0, 422);
+    let (status, done) = post(s.port, "/api/v1/engine/start", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(!s.control.asked().paused);
+    assert_eq!(paused_by(&db, 1), None);
+    assert_eq!(paused_by(&db, 2).as_deref(), Some("engine"));
+    // A work that does not go on by itself is stepped while the others go on; the status says what the owner asked.
+    assert_eq!(post(s.port, "/api/v1/works/2/step", "{}", "application/json").0, 202);
+    let here = format!("127.0.0.1:{}", s.port);
+    let (_, now) = get(s.port, "/api/v1/status", &here, "");
+    assert!(
+        now.contains(r#""paused":false"#) && now.contains(r#""stepping":2"#),
+        "{now}"
     );
-    assert_eq!(s.control.asked().mode, Mode::Run);
-    assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 409);
-    // Single step is no mode.
-    assert_eq!(
-        post(s.port, "/api/v1/engine/mode", r#"{"mode":"step"}"#, "application/json").0,
-        422
-    );
+    s.control.stepped();
+    assert_eq!(post(s.port, "/api/v1/engine/pause", "{}", "application/json").0, 204);
+    assert!(s.control.asked().paused);
+    assert!(s.bus.status().is_some_and(|x| x.paused));
     // What a work's next round would be is answered by the engine's loop, which this test plays.
     let control = std::sync::Arc::clone(&s.control);
     let loop_ = std::thread::spawn(move || {
@@ -156,6 +191,23 @@ fn the_owner_switches_between_running_and_holding_and_runs_one_work_s_next_round
     assert_eq!(status, 422, "{body}");
     assert!(body.contains("work 9 has no next round"), "{body}");
     let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+/// The engine's status as its loop tells it before the owner asks anything.
+fn status() -> api::Status {
+    api::Status {
+        paused: true,
+        running: None,
+        stepping: None,
+        last_step: None,
+        slots: 1,
+        slots_used: 0,
+        flow_version: 1,
+        config_commit: "c".into(),
+        started_at: 1,
+        version: "v".into(),
+        halt: None,
+    }
 }
 
 /// A flow of two engine steps, as the database keeps a compiled flow.
@@ -304,7 +356,10 @@ fn the_owner_answers_and_rules_on_the_page() {
     );
     // A paused work goes on; one that is not paused is refused.
     db.write(db::Actor::Engine, |tx| {
-        tx.execute("UPDATE works SET paused = 'cell 13: no' WHERE id = 1", [])?;
+        tx.execute(
+            "UPDATE works SET paused = 'cell 13: no', paused_by = 'engine' WHERE id = 1",
+            [],
+        )?;
         Ok(())
     })
     .unwrap();

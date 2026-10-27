@@ -131,7 +131,7 @@ async function layPart(
       };
       // A loop back to its own cell is given room for both its ends to show beside the ring.
       const loop = e.sources[0] === e.targets[0];
-      routes.set(e.id, lengthenLast(route, loop ? 2 * STRAIGHT : STRAIGHT));
+      routes.set(e.id, lengthenLast(onLine(route), loop ? 2 * STRAIGHT : STRAIGHT));
     }
     for (const k of n.children ?? []) collect(k);
   };
@@ -140,6 +140,42 @@ async function layPart(
 }
 
 const shift = (b: Box, dx: number, dy: number): Box => ({ ...b, x: b.x + dx, y: b.y + dy });
+
+/// How far a point is from the straight piece from `a` to `b`.
+function distance(x: number, y: number, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = dx * dx + dy * dy;
+  const k = len === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len));
+  return Math.hypot(x - (a.x + k * dx), y - (a.y + k * dy));
+}
+
+/// A route whose label sits on its own line. elkjs leaves the label of some arrows inside a stage box where it gave
+/// it no place, at the box's corner over the stage's name; such a label, away from every piece of its arrow, is put
+/// on the middle of the arrow's longest straight piece.
+export function onLine(r: Route): Route {
+  const l = r.label;
+  if (l === null || r.points.length < 2) return r;
+  const cx = l.x + l.width / 2;
+  const cy = l.y + l.height / 2;
+  let longest = 0;
+  let at = 0;
+  let near = Infinity;
+  for (let i = 0; i + 1 < r.points.length; i++) {
+    const a = r.points[i];
+    const b = r.points[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len > longest) {
+      longest = len;
+      at = i;
+    }
+    near = Math.min(near, distance(cx, cy, a, b));
+  }
+  if (near <= Math.max(l.width, l.height) / 2 + 12) return r;
+  const a = r.points[at];
+  const b = r.points[at + 1];
+  return { ...r, label: { ...l, x: (a.x + b.x) / 2 - l.width / 2, y: (a.y + b.y) / 2 - l.height / 2 } };
+}
 
 /// Whether a box, grown by `pad` on each side, touches the straight piece from `a` to `b`.
 function touches(box: Box, a: Point, b: Point, pad: number): boolean {

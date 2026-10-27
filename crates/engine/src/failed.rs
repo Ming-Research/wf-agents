@@ -132,7 +132,10 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
     let item = e.item_of(w)?;
     let text = format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title);
     e.db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE works SET paused = ?2 WHERE id = ?1", params![w.id, why])?;
+        tx.execute(
+            "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
+            params![w.id, why],
+        )?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;

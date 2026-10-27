@@ -8,7 +8,7 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useR
 
 import type { CompiledGraph, GraphView } from '../api';
 import { t } from '../text';
-import { FlowSvg, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import { FlowSvg, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { type Laid, layoutChart } from './flowLayout';
 import { chart as build, MAIN } from './flowModel';
 import { type Covered, type Rect, Viewer, type ViewerHandle } from './Viewer';
@@ -102,8 +102,16 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
               {t('legend_current')}
             </li>
             <li>
-              <BadgeSwatch k="fc-b-running" text="●" />
+              <Swatch>
+                <rect className="fc-ring fc-ring-running" x="4" y="3" width="26" height="12" rx="3" />
+              </Swatch>
               {t('legend_running')}
+            </li>
+            <li>
+              <Swatch>
+                <HeldMark x={8} y={0} why={t('legend_held')} />
+              </Swatch>
+              {t('legend_held')}
             </li>
             <li>
               <BadgeSwatch k="fc-b-rounds" text="3" />

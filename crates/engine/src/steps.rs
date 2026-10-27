@@ -390,8 +390,16 @@ pub struct NextRound {
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     let w = e.work(work)?;
-    if w.ended.is_some() || w.paused.is_some() || e.done(&w)? {
-        return Err(format!("work {work} has no next round: it is ended, paused or done"));
+    if w.ended.is_some() || e.done(&w)? {
+        return Err(format!("work {work} has no next round: it is ended or done"));
+    }
+    // A paused work's next round is the one the owner's step runs; a work on an older flow version is taken over
+    // instead of taking a step.
+    if w.flow_version != e.flow_now {
+        return Err(format!(
+            "work {work} is on flow version {}, older than {}: when it goes on, a new work takes its item over",
+            w.flow_version, e.flow_now
+        ));
     }
     let g = e.graph_of(&w)?;
     let cell = g

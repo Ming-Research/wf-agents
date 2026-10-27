@@ -177,7 +177,6 @@ function CellShape({ n, cell, box, lines, marks }: {
   const badges: ReactNode[] = [];
   if (o) {
     const items: Array<[string, string, string]> = [];
-    if (o.running) items.push(['fc-b-running', '●', t('chart_running')]);
     if (o.rounds > 0) items.push(['fc-b-rounds', String(o.rounds), t('chart_rounds', { n: o.rounds })]);
     if (o.sentBack > 0) items.push(['fc-b-back', `↩${o.sentBack}`, t('chart_sent_back', { n: o.sentBack })]);
     if (o.failed > 0) items.push(['fc-b-failed', `✕${o.failed}`, t('chart_failed', { n: o.failed })]);
@@ -203,14 +202,14 @@ function CellShape({ n, cell, box, lines, marks }: {
       <title>{marks.overlays && !o ? `${name}: ${t('chart_unvisited')}` : name}</title>
       {o?.current ? (
         <rect
-          className="fc-ring"
+          className={o.running ? 'fc-ring fc-ring-running' : 'fc-ring'}
           x={box.x - RING}
           y={box.y - RING}
           width={box.width + 2 * RING}
           height={box.height + 2 * RING}
           rx={round ? (box.height + 2 * RING) / 2 : 8}
         >
-          <title>{`${name}: ${t('chart_current')}`}</title>
+          <title>{`${name}: ${t('chart_current')}${o.running ? `; ${t('chart_running')}` : ''}`}</title>
         </rect>
       ) : null}
       <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={round ? box.height / 2 : 3} />
@@ -227,7 +226,21 @@ function CellShape({ n, cell, box, lines, marks }: {
           {mark}
         </text>
       ) : null}
+      {o?.current && o.held !== null ? <HeldMark x={box.x - RING - 4} y={box.y - 10} why={o.held} /> : null}
       {badges}
+    </g>
+  );
+}
+
+/// The mark of a work held back at the cell it is at, the next to run and where it goes on: two bars, as a pause is
+/// drawn, saying why on hovering.
+export function HeldMark({ x, y, why }: { x: number; y: number; why: string }) {
+  return (
+    <g className="fc-held">
+      <title>{why}</title>
+      <rect x={x} y={y} width={18} height={18} rx={9} />
+      <rect className="fc-held-bar" x={x + 5.5} y={y + 5} width={2.5} height={8} rx={0.5} />
+      <rect className="fc-held-bar" x={x + 10} y={y + 5} width={2.5} height={8} rx={0.5} />
     </g>
   );
 }

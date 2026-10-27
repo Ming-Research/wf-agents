@@ -226,7 +226,9 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
     if (!c) continue;
     e.rows.sort((a, b) => a - b);
     e.label = e.kind === 'shared' ? '' : [...new Set(e.rows.map((i) => c.rows[i].name))].join(', ');
-    e.numbers = c.rows.length > 1 ? runs(e.rows) : [];
+    // The arrow to the shared circle carries no numbers either: the circle says on hovering which rows it carries,
+    // and the cell's panel numbers them.
+    e.numbers = e.kind !== 'shared' && c.rows.length > 1 ? runs(e.rows) : [];
   }
   const groups: ChartGroup[] = [];
   const seen = new Set<string>();
@@ -240,32 +242,50 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
   return { nodes: [...nodes.values()], edges: [...edges.values()], groups, parts: partList };
 }
 
-/// The arrows that draw the same rows as an arrow, by their cell and their places in its transition table: the row
-/// from its source to its target, the circles on its way to another part of the chart included. An arrow of a rule or
-/// the interjection is only itself; none for none.
+/// The arrows that light up with the arrow under the pointer: itself and, when it is one half of a row drawn through a
+/// circle beside the cell it leaves and one beside the cell it enters, the other half, into the same cell; nothing
+/// else, so that a row drawn into several cells, such as one going back to whichever cell asked, lights only where it
+/// is pointed at. None for none.
 export function related(edges: ChartEdge[], id: string | null): Set<string> {
   const e = id === null ? undefined : edges.find((x) => x.id === id);
   if (e === undefined) return new Set();
-  if (e.cell === null) return new Set([e.id]);
-  return new Set(edges.filter((x) => x.cell === e.cell && x.rows.some((r) => e.rows.includes(r))).map((x) => x.id));
+  const lit = new Set([e.id]);
+  if (e.cell === null) return lit;
+  let other: string | null = null;
+  if (e.target.startsWith('o:') && e.target.endsWith(`:${e.cell}`)) {
+    const t = e.target.slice(2, -(e.cell.length + 1));
+    other = `i:${e.cell}:${t}->c:${t}`;
+  } else if (e.source === `i:${e.cell}:${e.target.slice(2)}`) {
+    const t = e.target.slice(2);
+    other = `c:${e.cell}->o:${t}:${e.cell}`;
+  }
+  if (other !== null && edges.some((x) => x.id === other)) lit.add(other);
+  return lit;
 }
 
-/// What a work did at a cell.
+/// What a work did at a cell, and at the cell it is at, whether a round runs there now and why the work is held back
+/// there.
 export type Overlay = {
   rounds: number;
   sentBack: number;
   failed: number;
   running: boolean;
   current: boolean;
+  held: string | null;
 };
 
-/// What the work's rounds did at each cell; `at` is the cell the work is at.
-export function overlays(rounds: RoundSummary[], at: string | null): Map<string, Overlay> {
+/// How the work goes on now at the cell it is at: whether the engine runs a round of it, and why it is held back, if
+/// it is.
+export type Now = { running: boolean; held: string | null };
+
+/// What the work's rounds did at each cell; `at` is the cell the work is at, where it goes on as `now` says. A round
+/// still open is running only while the engine runs it.
+export function overlays(rounds: RoundSummary[], at: string | null, now: Now): Map<string, Overlay> {
   const out = new Map<string, Overlay>();
   const get = (cell: string) => {
     let o = out.get(cell);
     if (!o) {
-      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false };
+      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false, held: null };
       out.set(cell, o);
     }
     return o;
@@ -276,9 +296,13 @@ export function overlays(rounds: RoundSummary[], at: string | null): Map<string,
     o.rounds += 1;
     if (r.outcome === 'sent_back') o.sentBack += 1;
     if (r.outcome === 'failed' || r.outcome === 'interrupted') o.failed += 1;
-    if (r.outcome === 'running') o.running = true;
   }
-  if (at !== null) get(at).current = true;
+  if (at !== null) {
+    const o = get(at);
+    o.current = true;
+    o.running = now.running;
+    o.held = now.held;
+  }
   return out;
 }
 

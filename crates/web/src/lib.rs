@@ -13,7 +13,7 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use api::{ApiError, Bus, Control, Envelope, Event, Flows, SetMode, Sources};
+use api::{ApiError, Bus, Control, Envelope, Event, Flows, Sources};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
@@ -116,12 +116,14 @@ pub fn start(o: Options) -> Result<u16, String> {
 fn router(app: App) -> Router {
     Router::new()
         .route("/api/v1/status", get(status))
-        .route("/api/v1/engine/mode", post(set_mode))
+        .route("/api/v1/engine/pause", post(pause_all))
+        .route("/api/v1/engine/start", post(start_all))
         .route("/api/v1/events", get(events))
         .route("/api/v1/works", get(works))
         .route("/api/v1/works/{id}", get(work))
         .route("/api/v1/works/{id}/next", get(next_round))
         .route("/api/v1/works/{id}/step", post(step))
+        .route("/api/v1/works/{id}/pause", post(pause))
         .route("/api/v1/works/{id}/resume", post(resume))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/flows", get(flows))
@@ -216,7 +218,7 @@ where
 }
 
 async fn status(State(app): State<App>) -> Result<Json<api::Status>, Fail> {
-    app.bus.status().map(Json).ok_or_else(|| {
+    app.bus.status().map(|s| Json(app.control.status(s))).ok_or_else(|| {
         Fail::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "the engine has not said how it stands yet",
@@ -224,12 +226,33 @@ async fn status(State(app): State<App>) -> Result<Json<api::Status>, Fail> {
     })
 }
 
-async fn set_mode(State(app): State<App>, Json(m): Json<SetMode>) -> StatusCode {
-    app.control.set_mode(m.mode);
+/// Tells every open page how the engine stands now that the owner asked something of it: before the engine's loop
+/// does, which it does only between two steps.
+fn tell_status(app: &App) {
+    if let Some(s) = app.bus.status() {
+        app.bus.publish(Event::Status {
+            status: Box::new(app.control.status(s)),
+        });
+    }
+}
+
+/// Pauses every work: a round under way ends first, and nothing starts after it.
+async fn pause_all(State(app): State<App>) -> StatusCode {
+    app.control.set_paused(true);
+    tell_status(&app);
     StatusCode::NO_CONTENT
 }
 
-/// Runs the next round of one work while the engine holds: one real round.
+/// Lets every work go on: the works the owner paused go on, as written as the owner, and the engine starts works on
+/// ready items as slots free; a work the engine paused stays paused.
+async fn start_all(State(app): State<App>) -> Result<Json<api::Done>, Fail> {
+    let done = decide(&app, api::start_all).await?;
+    app.control.set_paused(false);
+    tell_status(&app);
+    Ok(done)
+}
+
+/// Runs one round of one work that does not go on by itself: one real round.
 async fn step(State(app): State<App>, Path(id): Path<i64>) -> Result<StatusCode, Fail> {
     app.control
         .ask_step(id)
@@ -407,6 +430,11 @@ async fn rule(
     Json(r): Json<api::Ruling>,
 ) -> Result<Json<api::Done>, Fail> {
     decide(&app, move |db| api::rule(db, id, &r)).await
+}
+
+/// Pauses a work, as the owner, as the command line does: a round of it under way ends first.
+async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::pause(db, id, None)).await
 }
 
 /// Lets a paused work go on, as the owner, as the command line does; the engine is woken to go on.

@@ -987,11 +987,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the flow moves to a new version, a work running on the old one stops, saying why, and its item gets a new
-// work at once: it takes over the branch, the worktree and the pull request, and its cell 1 is told what exists. An
-// item whose works ended can be queued again.
+// When the flow moves to a new version, a work on the old one is not taken over when the engine starts: the owner
+// still answers its asks. Once it goes on, it stops, saying why, and its item gets a new work at once: it takes over
+// the branch, the worktree and the pull request, its cell 1 is told what exists, and what the owner answered stays
+// the owner's answer. An item whose works ended can be queued again.
 #[test]
-fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() {
+fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     let s = setup("version");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..80 {
@@ -1014,10 +1015,36 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
         Ok(())
     })
     .unwrap();
+    // It put two asks to the owner.
+    let asks: Vec<i64> =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [old], |r| r.get(0))?;
+            let mut asks = Vec::new();
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\": \"owner\"}')",
+                    [old, round],
+                )?;
+                asks.push(tx.last_insert_rowid());
+            }
+            Ok(asks)
+        })
+        .unwrap();
     drop(e);
     let (mut e, said) = engine(&s, scripts());
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}");
+    assert_eq!(works.len(), 1, "{works:?}");
+    assert_eq!(works[0].5, None);
+    let answer = api::Answer {
+        text: "Keep the old name.".into(),
+        why: None,
+        reply: None,
+    };
+    api::answer(&mut e.db, asks[0], &answer).unwrap();
+    let first = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(
         works[0]
             .5
@@ -1026,8 +1053,17 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
         "{works:?}"
     );
     let new = works[1].0;
-    assert_eq!(works[1].1, "0");
-    e.step(None).unwrap();
+    assert_eq!((first.work, first.started_item), (Some(new), Some(item)), "{log}");
+    let by = |e: &Engine, ask: i64| -> String {
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let works = works_of(&e, item);
@@ -1119,11 +1155,7 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     assert!(told.ends_with("is paused: cell 1: the return does not fit"), "{told}");
     // An earlier engine paused without closing the round; the owner lets the work go on.
     let earlier = open_round(&mut e);
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let (ended, why) = rejected(&e, earlier);
@@ -1257,11 +1289,15 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
         .unwrap();
     drop(e);
     let (mut e, said) = engine(&s, scripts());
-    let log = said.borrow().join("\n");
     let ready = |e: &Engine| -> Vec<i64> {
         let mut st = e.db.conn().prepare("SELECT item FROM ready_items").unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
+    // Nothing is taken over as the engine starts; both are as soon as works go on, before the item queued before.
+    assert_eq!(works_of(&e, items[0]).len(), 1);
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
     // The first takes the slot; the second waits ahead of the item queued before.
     assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
     assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
@@ -1351,11 +1387,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(why.starts_with("3 returns of cell 1 in a row were sent back"), "{why}");
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [id])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
         e.tick().unwrap();
     }
@@ -1592,16 +1624,18 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     .unwrap();
     f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
     let (digest, text) = (f.digest(), f.json());
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
-            params![digest, text],
-        )?;
-        let v = tx.last_insert_rowid();
-        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
-        Ok(())
-    })
-    .unwrap();
+    // The engine runs that flow, so that the work on it is not taken over.
+    e.flow_now =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
+                params![digest, text],
+            )?;
+            let v = tx.last_insert_rowid();
+            tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+            Ok(v)
+        })
+        .unwrap();
     for _ in 0..6 {
         e.tick().unwrap();
         if state(&e, item).unwrap().2.is_some() {
@@ -1809,11 +1843,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     assert_eq!(told(&s, "is paused"), 1);
     assert_eq!(failed_kinds(&e), ["prompt_too_long"]);
     assert_eq!(sent_back(&e), 0);
-    e.db.write(db::Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
     for _ in 0..5 {
         e.tick().unwrap();
         if state(&e, item).unwrap().1 != "1" {
@@ -1824,5 +1854,204 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Who paused a work, while it is paused.
+fn paused_by(e: &Engine, work: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT paused_by FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+// A work the owner pauses while its round runs stops at the end of that round: the round ends as usual and the work
+// moves on, then takes no step by itself until the owner lets it go on. While the round runs, the engine says whose
+// round it is.
+#[test]
+fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
+    let s = setup("pause_round");
+    let mut scripts = scripts();
+    let path = config::database(&s.data);
+    // The owner pauses the work on the page while the round of cell 1 runs.
+    scripts.insert(
+        "1",
+        Box::new(move |_: &Request, _: usize| {
+            let mut db = db::Db::open(&path).unwrap();
+            let work: i64 = db
+                .conn()
+                .query_row("SELECT id FROM works WHERE ended IS NULL", [], |r| r.get(0))
+                .unwrap();
+            api::pause(&mut db, work, None).unwrap();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let busy = Rc::new(RefCell::new(Vec::new()));
+    let seen = busy.clone();
+    e.busy = Box::new(move |w| seen.borrow_mut().push(w));
+    let first = e.step(None).unwrap();
+    e.step(first.work).unwrap();
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER), "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = '1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(took.is_some(), "{log}");
+    assert_eq!(*busy.borrow(), [Some(work), None, Some(work), None]);
+    // Paused, it takes no step by itself.
+    let n = rounds_count(&e);
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    assert_eq!(rounds_count(&e), n);
+    // Once the owner lets it go on, it does.
+    api::resume(&mut e.db, work).unwrap();
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    assert_eq!(rounds_count(&e), n + 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start all lets go on the works the owner paused, and leaves paused a work the engine paused for a
+// problem, until the owner lets that one go on by itself.
+#[test]
+fn start_all_leaves_a_work_the_engine_paused() {
+    let s = setup("start_all");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let n = rounds_count(&e);
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    assert_eq!(api::start_all(&mut e.db).unwrap(), "1 works paused by the owner go on");
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    assert_eq!(rounds_count(&e), n + 1);
+    e.pause(work, "cell 1a: the return does not fit").unwrap();
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert_eq!(api::start_all(&mut e.db).unwrap(), "0 works paused by the owner go on");
+    let log = said.borrow().join("\n");
+    assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
+    assert_eq!(
+        state(&e, item).unwrap().2.as_deref(),
+        Some("cell 1a: the return does not fit")
+    );
+    api::resume(&mut e.db, work).unwrap();
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's step runs exactly one round of a paused work, which stays paused in the owner's hands. A work the
+// engine paused is taken into them: its cell runs again, counting afresh as once the owner lets a work go on, and it
+// stays paused by the owner.
+#[test]
+fn a_step_runs_one_round_of_a_paused_work_which_stays_paused() {
+    let s = setup("step_paused");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let (_, before, _) = state(&e, item).unwrap();
+    let stepped = e.step_work(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        (stepped.work, stepped.rounds.len()),
+        (Some(work), 1),
+        "{stepped:?}\n{log}"
+    );
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_ne!(at, before, "{log}");
+    assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER));
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    e.pause(work, "cell 1a: the return does not fit").unwrap();
+    let stepped = e.step_work(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.rounds.len(), 1, "{stepped:?}\n{log}");
+    assert_eq!(state(&e, item).unwrap().2.as_deref(), Some(db::PAUSED_BY_OWNER));
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    let lifted: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE table_name = 'works' AND actor = 'owner'
+             AND json_extract(old_row, '$.paused_by') = 'engine' AND json_extract(new_row, '$.paused') IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(lifted, 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work's pause, and who paused it, are kept when the engine stops and starts again: a paused work takes no step by
+// itself after the restart.
+#[test]
+fn a_work_s_pause_is_kept_across_a_restart() {
+    let s = setup("pause_restart");
+    let (mut e, _, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, Some("Wait for the release.")).unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(state(&e, item).unwrap().2.as_deref(), Some("Wait for the release."));
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    assert_eq!(e.step(None).unwrap().work, None);
+    api::resume(&mut e.db, work).unwrap();
+    e.pause(work, "cell 1: the return does not fit").unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert_eq!(e.step(None).unwrap().work, None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A paused work on an older flow version is not taken over while nothing makes it go on; the owner's step takes it
+// over, runs the first round of the new work, and leaves the new work paused in the owner's hands.
+#[test]
+fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
+    let s = setup("step_takeover");
+    let (mut e, said, item) = start(&s, scripts());
+    let first = e.step(None).unwrap();
+    let old = first.work.unwrap();
+    e.step(first.work).unwrap();
+    api::pause(&mut e.db, old, None).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+            [],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![old, v])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(e.step(None).unwrap().work, None);
+    assert_eq!(works_of(&e, item).len(), 1);
+    let stepped = e.step_work(old).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert!(
+        works[0]
+            .5
+            .as_deref()
+            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
+        "{works:?}"
+    );
+    let new = works[1].0;
+    assert_eq!((stepped.work, stepped.started_item), (Some(new), Some(item)));
+    let cells: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT cell FROM rounds WHERE work = ?1 ORDER BY n")
+                .unwrap();
+        st.query_map([new], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(cells, ["0"]);
+    assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
+    assert_eq!(e.step(Some(new)).unwrap().work, None);
     let _ = std::fs::remove_dir_all(&s.root);
 }

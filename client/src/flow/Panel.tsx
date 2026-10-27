@@ -1,18 +1,20 @@
 // The panel that floats over the right side of a chart while something on it is open: its title and who does it,
-// a way back to what it showed before, a close button (Escape closes it too), and its left edge to drag to set its
-// width, which this browser keeps. The window over a work's chart on the left drags its width the same way, by its
-// right edge.
+// a way back to what it showed before, a close button (Escape closes it too), its left edge to drag to set its width
+// and its bottom edge to set its height, which this browser keeps. The window over a work's chart on the left drags
+// its width the same way, by its right edge, and its height by its bottom edge.
 
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { t } from '../text';
 
 const WIDTH_KEY = 'wf-agents.panel-width';
+const HEIGHT_KEY = 'wf-agents.panel-height';
 const PANEL_MIN = 320;
+const PANEL_MIN_HEIGHT = 160;
 
-/// A floating window's width as the owner dragged it, kept in this browser where it lets the page keep it; none for
-/// the window's own width.
-export function savedWidth(key: string, min: number): number | null {
+/// A floating window's width or height as the owner dragged it, kept in this browser where it lets the page keep it;
+/// none for the window's own.
+export function savedSize(key: string, min: number): number | null {
   try {
     const n = Number.parseInt(localStorage.getItem(key) ?? '', 10);
     return Number.isFinite(n) && n >= min ? n : null;
@@ -21,16 +23,16 @@ export function savedWidth(key: string, min: number): number | null {
   }
 }
 
-/// The edge of a floating window that drags its width: the left edge of a window on the right of the chart, the right
-/// edge of one on its left. The width is kept in this browser when the drag ends; a double click gives the window its
-/// own width again.
-export function WidthGrip({ side, min, storage, label, onWidth }: {
-  side: 'left' | 'right';
+/// The edge of a floating window that drags its size: the left edge of a window on the right of the chart and the right
+/// edge of one on its left drag its width, the bottom edge of either its height, from its top. The size is kept in
+/// this browser when the drag ends; a double click gives the window its own size again.
+export function Grip({ edge, min, storage, label, onSize }: {
+  edge: 'left' | 'right' | 'bottom';
   min: number;
-  /// The key the width is kept under.
+  /// The key the size is kept under.
   storage: string;
   label: string;
-  onWidth: (width: number | null) => void;
+  onSize: (size: number | null) => void;
 }) {
   const grip = (e: Press<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -39,18 +41,25 @@ export function WidthGrip({ side, min, storage, label, onWidth }: {
     const box = el.parentElement?.getBoundingClientRect();
     const right = box?.right ?? window.innerWidth;
     const left = box?.left ?? 0;
+    const top = box?.top ?? 0;
     el.setPointerCapture(e.pointerId);
     const move = (ev: PointerEvent) =>
-      onWidth(Math.max(min, Math.round(side === 'left' ? right - ev.clientX : ev.clientX - left)));
+      onSize(
+        Math.max(
+          min,
+          Math.round(edge === 'left' ? right - ev.clientX : edge === 'right' ? ev.clientX - left : ev.clientY - top),
+        ),
+      );
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
       try {
-        const w = el.parentElement?.getBoundingClientRect().width;
-        if (w) localStorage.setItem(storage, String(Math.round(w)));
+        const r = el.parentElement?.getBoundingClientRect();
+        const size = edge === 'bottom' ? r?.height : r?.width;
+        if (size) localStorage.setItem(storage, String(Math.round(size)));
       } catch {
-        // The width is kept only where the browser lets it be.
+        // The size is kept only where the browser lets it be.
       }
     };
     el.addEventListener('pointermove', move);
@@ -58,7 +67,7 @@ export function WidthGrip({ side, min, storage, label, onWidth }: {
     el.addEventListener('pointercancel', up);
   };
   const reset = () => {
-    onWidth(null);
+    onSize(null);
     try {
       localStorage.removeItem(storage);
     } catch {
@@ -67,9 +76,9 @@ export function WidthGrip({ side, min, storage, label, onWidth }: {
   };
   return (
     <div
-      className={`width-grip width-grip-${side}`}
+      className={edge === 'bottom' ? 'height-grip' : `width-grip width-grip-${edge}`}
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={edge === 'bottom' ? 'horizontal' : 'vertical'}
       aria-label={label}
       title={label}
       onPointerDown={grip}
@@ -91,7 +100,8 @@ export function Panel(props: {
   ref?: Ref<HTMLElement>;
 }) {
   const { title, who, back, onBack, onClose, shown, children, ref } = props;
-  const [width, setWidth] = useState<number | null>(() => savedWidth(WIDTH_KEY, PANEL_MIN));
+  const [width, setWidth] = useState<number | null>(() => savedSize(WIDTH_KEY, PANEL_MIN));
+  const [height, setHeight] = useState<number | null>(() => savedSize(HEIGHT_KEY, PANEL_MIN_HEIGHT));
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -104,8 +114,22 @@ export function Panel(props: {
     return () => document.removeEventListener('keydown', key);
   }, [onClose]);
   return (
-    <aside className="panel" ref={ref} style={width !== null ? { width: `min(${width}px, calc(100vw - 24px))` } : undefined}>
-      <WidthGrip side="left" min={PANEL_MIN} storage={WIDTH_KEY} label={t('panel_grip')} onWidth={setWidth} />
+    <aside
+      className="panel"
+      ref={ref}
+      style={{
+        ...(width !== null ? { width: `min(${width}px, calc(100vw - 24px))` } : {}),
+        ...(height !== null ? { height: `min(${height}px, calc(100% - 20px))`, bottom: 'auto' } : {}),
+      }}
+    >
+      <Grip edge="left" min={PANEL_MIN} storage={WIDTH_KEY} label={t('panel_grip')} onSize={setWidth} />
+      <Grip
+        edge="bottom"
+        min={PANEL_MIN_HEIGHT}
+        storage={HEIGHT_KEY}
+        label={t('panel_height_grip')}
+        onSize={setHeight}
+      />
       <div className="panel-head">
         {back !== null ? (
           <button type="button" className="panel-back" onClick={onBack}>

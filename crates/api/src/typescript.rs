@@ -21,7 +21,6 @@ pub fn typescript() -> String {
     let decls = [
         decl::<serde_json::Value>(&cfg),
         // The interface.
-        decl::<Mode>(&cfg),
         decl::<StepTaken>(&cfg),
         decl::<NextRound>(&cfg),
         decl::<Status>(&cfg),
@@ -29,6 +28,8 @@ pub fn typescript() -> String {
         decl::<Event>(&cfg),
         decl::<WorkState>(&cfg),
         decl::<RunningRound>(&cfg),
+        decl::<PausedBy>(&cfg),
+        decl::<Waits>(&cfg),
         decl::<WorkSummary>(&cfg),
         decl::<RoundOutcome>(&cfg),
         decl::<RoundSummary>(&cfg),
@@ -59,7 +60,6 @@ pub fn typescript() -> String {
         decl::<LinkedItem>(&cfg),
         decl::<ItemDetail>(&cfg),
         decl::<Shown>(&cfg),
-        decl::<SetMode>(&cfg),
         decl::<ApiError>(&cfg),
         // The flow page.
         decl::<FlowView>(&cfg),

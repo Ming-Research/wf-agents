@@ -16,8 +16,8 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     AskKind, DesignCard, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
-    KeptFile, LinkedItem, OwnerAsk, OwnerMessage, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
-    RoundSummary, RunningRound, Session, Shown, ToolRun, WorkDetail, WorkState, WorkSummary,
+    KeptFile, LinkedItem, OwnerAsk, OwnerMessage, PausedBy, Replacement, RoundConditional, RoundDetail, RoundInput,
+    RoundOutcome, RoundSummary, RunningRound, Session, Shown, ToolRun, Waits, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +138,7 @@ struct WorkRow {
     pushed_head: Option<String>,
     paused: Option<String>,
     ended: Option<String>,
+    paused_by: Option<String>,
 }
 
 /// What a work's summary needs of each of its rounds.
@@ -166,7 +167,7 @@ impl Light {
 fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, Vec<Light>)>> {
     let mut st = conn.prepare(&format!(
         "SELECT w.id, w.item, i.title, i.project, w.flow_version, w.graph, w.at, w.resume_at, w.waiting, w.recorded,
-                w.machine, w.worktree, w.branch, w.pr, w.pushed_head, w.paused, w.ended
+                w.machine, w.worktree, w.branch, w.pr, w.pushed_head, w.paused, w.ended, w.paused_by
          FROM works w LEFT JOIN items i ON i.id = w.item {filter} ORDER BY w.id"
     ))?;
     let works: Vec<WorkRow> = st
@@ -189,6 +190,7 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
                 pushed_head: r.get(14)?,
                 paused: r.get(15)?,
                 ended: r.get(16)?,
+                paused_by: r.get(17)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -245,19 +247,88 @@ fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState 
     if rounds.iter().any(|r| r.ended_at.is_none()) {
         return WorkState::Running;
     }
-    let waits = match (cell, rounds.last()) {
-        (Some(c), Some(r)) => {
-            r.cell.as_deref() == Some(c.id.as_str())
-                && r.transition
-                    .as_ref()
-                    .is_some_and(|t| c.rows.iter().any(|x| &x.name == t && x.waits))
-        }
-        _ => false,
-    };
-    if waits { WorkState::Waiting } else { WorkState::Ready }
+    if waiting_row(cell, rounds).is_some() {
+        WorkState::Waiting
+    } else {
+        WorkState::Ready
+    }
 }
 
-fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open: (i64, i64)) -> WorkSummary {
+/// The row that waits which the work's last round took at the cell the work is at, when it took one.
+fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&'r str> {
+    let (c, r) = (cell?, rounds.last()?);
+    let t = r.transition.as_deref()?;
+    (r.cell.as_deref() == Some(c.id.as_str()) && c.rows.iter().any(|x| x.name == t && x.waits)).then_some(t)
+}
+
+/// What a work waits for, as the engine judges it, read from the database alone, never from the kind of cell it is
+/// at: the owner's answer to the ask it put, at a cell that asks; at a row that waits, the items its item depends on
+/// that are not merged, then the owner's ruling on its design card waiting for one, else the row. A paused work is
+/// said to wait too, so that the owner sees both. Beside it, the ask whose answer came at the cell that asked, which
+/// the work's next step takes in.
+fn waits(
+    conn: &Connection,
+    w: &WorkRow,
+    rounds: &[Light],
+    g: Option<&CompiledGraph>,
+) -> Result<(Option<Waits>, Option<i64>)> {
+    if w.ended.is_some() {
+        return Ok((None, None));
+    }
+    let cell = g.and_then(|g| g.cell(&w.at));
+    if cell.is_some_and(is_ask) {
+        let open = rounds
+            .iter()
+            .rev()
+            .find(|r| r.ended_at.is_none() && r.cell.as_deref() == Some(w.at.as_str()));
+        let Some(r) = open else { return Ok((None, None)) };
+        let ask: Option<(i64, bool)> = conn
+            .query_row(
+                "SELECT id, answer IS NOT NULL FROM owner_asks WHERE work = ?1 AND round = ?2 ORDER BY id DESC LIMIT 1",
+                [r.work, r.n],
+                |x| Ok((x.get(0)?, x.get(1)?)),
+            )
+            .optional()?;
+        return Ok(match ask {
+            Some((ask, false)) => (Some(Waits::Answer { ask }), None),
+            Some((ask, true)) => (None, Some(ask)),
+            None => (None, None),
+        });
+    }
+    let Some(row) = waiting_row(cell, rounds) else {
+        return Ok((None, None));
+    };
+    let mut st = conn.prepare(
+        "SELECT item FROM waited_items WHERE work = ?1 AND merged IS NULL AND cancelled IS NULL ORDER BY item",
+    )?;
+    let items: Vec<i64> = st.query_map([w.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    if !items.is_empty() {
+        return Ok((Some(Waits::Items { items }), None));
+    }
+    let card: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1",
+            [w.id],
+            |x| x.get(0),
+        )
+        .optional()?;
+    let waits = match card {
+        Some(design_card) => Waits::Ruling { design_card },
+        None => Waits::Row {
+            cell: w.at.clone(),
+            row: row.to_string(),
+        },
+    };
+    Ok((Some(waits), None))
+}
+
+fn summary(
+    w: &WorkRow,
+    rounds: &[Light],
+    g: Option<&CompiledGraph>,
+    open: (i64, i64),
+    (waits, answered): (Option<Waits>, Option<i64>),
+) -> WorkSummary {
     let cell = g.and_then(|g| g.cell(&w.at));
     // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at,
     // which is where it goes back to, or else the last cell with a stage it had a round at (the rounds are in order).
@@ -284,9 +355,20 @@ fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open: (i64,
         at: w.at.clone(),
         at_title: cell.map(|c| c.title.clone()),
         stage,
-        state: state(w, rounds, g),
+        // A work at a cell that asks whose ask was answered waits no more: its next step takes the answer in.
+        state: match state(w, rounds, g) {
+            WorkState::Asking if waits.is_none() => WorkState::Ready,
+            s => s,
+        },
         paused: w.paused.clone(),
+        paused_by: match w.paused_by.as_deref() {
+            Some("owner") => Some(PausedBy::Owner),
+            Some(_) => Some(PausedBy::Engine),
+            None => None,
+        },
         ended: w.ended.clone(),
+        waits,
+        answered,
         branch: w.branch.clone(),
         pr: w.pr,
         started_at: rounds.first().map(|r| r.started_at),
@@ -329,7 +411,13 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
             asks.get(&w.id).copied().unwrap_or(0),
             design_cards.get(&w.id).copied().unwrap_or(0),
         );
-        let s = summary(&w, &rounds, g.as_ref(), open);
+        let done = matches!(state(&w, &rounds, g.as_ref()), WorkState::Done | WorkState::Ended);
+        let waits = if done {
+            (None, None)
+        } else {
+            waits(conn, &w, &rounds, g.as_ref())?
+        };
+        let s = summary(&w, &rounds, g.as_ref(), open, waits);
         out.push((w, s));
     }
     Ok(out)
@@ -1306,6 +1394,64 @@ mod tests {
             Err(Error::NotFound(_))
         ));
         assert!(matches!(file(&s.data, "db", "x", 100), Err(Error::NotFound(_))));
+    }
+
+    // What a work waits for comes from what is open, never from the kind of cell it is at: at a cell that asks, the
+    // ask still unanswered, and once answered the work is ready and says the answer is in; at a row that waits, the
+    // items its item depends on. A paused work says both who paused it and what it waits for.
+    #[test]
+    fn a_work_says_what_it_waits_for_from_what_is_open() {
+        let mut s = setup("waits");
+        let g = s.compiled.graph("engineer").unwrap();
+        let asking = g.cells.iter().find(|c| is_ask(c)).unwrap().id.clone();
+        let (waiting, row) = g
+            .cells
+            .iter()
+            .find_map(|c| c.rows.iter().find(|r| r.waits).map(|r| (c.id.clone(), r.name.clone())))
+            .unwrap();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', ?1), (1, 1, 'engineer', ?2)",
+                [&asking, &waiting],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 1, ?1, '{}', 'c', 60)",
+                [&asking],
+            )?;
+            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 1, '{\"to\": \"owner\"}')", [])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (3, 1, ?1, '{}', '{}', ?2, 'c', 60, 70)",
+                [&waiting, &row],
+            )?;
+            tx.execute("UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = 3", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let cache = Flows::default();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(
+            (ws[1].state, &ws[1].waits, ws[1].answered),
+            (WorkState::Asking, &Some(Waits::Answer { ask: 1 }), None)
+        );
+        assert_eq!(
+            (ws[2].state, ws[2].paused_by, &ws[2].waits),
+            (
+                WorkState::Paused,
+                Some(PausedBy::Owner),
+                &Some(Waits::Items { items: vec![2] })
+            )
+        );
+        s.db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE owner_asks SET answer = '{\"text\": \"yes\"}' WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(
+            (ws[1].state, &ws[1].waits, ws[1].answered),
+            (WorkState::Ready, &None, Some(1))
+        );
     }
 
     // A round recorded with its message gives each conditional input, given or referred to, and the call; a step's inputs,

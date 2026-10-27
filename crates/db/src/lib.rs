@@ -34,6 +34,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0010.sql"),
     include_str!("../../../db/migrations/0011.sql"),
     include_str!("../../../db/migrations/0012.sql"),
+    include_str!("../../../db/migrations/0013.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -82,6 +83,10 @@ pub fn ruling_confirms(ruling: &serde_json::Value, decisions: usize) -> bool {
 pub fn ruling_disagrees(ruling: &serde_json::Value) -> bool {
     ruling_verdicts(ruling).iter().any(|(_, v, _)| v == "disagree")
 }
+
+/// Why a work is paused when the owner paused it without saying why: its Pause on the page, and the round it asked
+/// for of a work the engine had paused, which takes the work into the owner's hands.
+pub const PAUSED_BY_OWNER: &str = "the owner paused it";
 
 #[derive(Debug)]
 pub enum Error {
@@ -1215,5 +1220,57 @@ mod tests {
         assert!(ruling_disagrees(
             &serde_json::json!({ "verdict": "disagree", "text": "no" })
         ));
+    }
+
+    // A work paused before its pause said who paused it is the owner's when the owner's change paused it, and the
+    // engine's otherwise; a work that goes on says no one.
+    #[test]
+    fn a_work_paused_before_says_who_paused_it() {
+        let mut old = Db {
+            conn: Connection::open_in_memory().unwrap(),
+            writer: Arc::new(Mutex::new(None)),
+            watch: Arc::default(),
+            listener: None,
+        };
+        old.conn.pragma_update(None, "foreign_keys", true).unwrap();
+        register(&old.conn, "wf_tx", &old.writer, |w| w.tx).unwrap();
+        register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
+        register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
+        old.upgrade(include_str!("../../../db/migrations/0001.sql"), &[])
+            .unwrap();
+        // The database as it was at version 12, the version before works said who paused them.
+        old.upgrade(SCHEMA, &MIGRATIONS[..11]).unwrap();
+        old.write(Actor::Engine, |tx| {
+            let id = item(tx, "paused")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for _ in 0..3 {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')",
+                    [id],
+                )?;
+            }
+            tx.execute("UPDATE works SET paused = 'cell 1: no' WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE works SET paused = 'later' WHERE id = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let mut st = old.conn().prepare("SELECT paused_by FROM works ORDER BY id").unwrap();
+        let by: Vec<Option<String>> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(by, [Some("engine".to_string()), Some("owner".to_string()), None]);
+        // The migration's own change is not recorded as a writer's.
+        let n: i64 = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE json_extract(new_row, '$.paused_by') IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
     }
 }

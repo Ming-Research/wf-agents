@@ -9,22 +9,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-/// How the engine dispatches: what it starts, and when.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    /// It takes every work as far as it can, pass after pass.
-    Run,
-    /// It starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
-    /// asks for on the work's page.
-    Hold,
-}
-
-/// The next round of a work the owner asked for while the engine held, and what it came to.
+/// The round of a work the owner asked for, and what it came to.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StepTaken {
     /// When the round ended.
     pub at: i64,
+    /// The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
+    /// item over, when the asked work was on an older flow version.
+    pub asked: i64,
     pub work: i64,
     /// The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
     pub rounds: Vec<i64>,
@@ -61,8 +53,13 @@ pub struct NextRound {
 /// The engine as it runs now, and what the page needs of the installation.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Status {
-    pub mode: Mode,
-    /// While the engine holds: the work whose next round the owner asked for, while it is under way.
+    /// Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
+    /// though a work's round the owner asks for runs.
+    pub paused: bool,
+    /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
+    /// before the pause, unless the owner asked for it.
+    pub running: Option<i64>,
+    /// The work whose round the owner asked for, until that round has ended.
     pub stepping: Option<i64>,
     /// The last round the owner asked for since the engine started.
     pub last_step: Option<StepTaken>,
@@ -160,6 +157,31 @@ pub struct RunningRound {
     pub started_at: i64,
 }
 
+/// Who paused a work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PausedBy {
+    /// The owner, on the page or the command line: Start all lets it go on.
+    Owner,
+    /// The engine, for a problem the owner looks at before letting it go on: a step that could not be taken, or
+    /// returns sent back too often.
+    Engine,
+}
+
+/// What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Waits {
+    /// The owner's answer to an ask, which the owner also gives for the architect.
+    Answer { ask: i64 },
+    /// The owner's ruling on a design card.
+    Ruling { design_card: i64 },
+    /// The items its item depends on, until each is merged.
+    Items { items: Vec<i64> },
+    /// What the row it took waits for, when it is none of these: the cell and the row, which its next round explains.
+    Row { cell: String, row: String },
+}
+
 /// A work as a list shows it: what it works on, where it stands and what it has cost.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct WorkSummary {
@@ -176,9 +198,14 @@ pub struct WorkSummary {
     pub at_title: Option<String>,
     pub stage: Option<String>,
     pub state: WorkState,
-    /// Why it was paused, or ended before its end.
+    /// Why it was paused, and who paused it; why it ended before its end.
     pub paused: Option<String>,
+    pub paused_by: Option<PausedBy>,
     pub ended: Option<String>,
+    /// What it waits for before it goes on by itself.
+    pub waits: Option<Waits>,
+    /// The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
+    pub answered: Option<i64>,
     pub branch: Option<String>,
     pub pr: Option<i64>,
     /// When its first round started, and when its last round started or ended.
@@ -637,12 +664,6 @@ pub struct Shown {
     /// The path of the return it is at, as the flow writes it.
     pub path: String,
     pub value: Value,
-}
-
-/// The owner's ask to switch the engine's mode.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
-pub struct SetMode {
-    pub mode: Mode,
 }
 
 /// Why a request failed.

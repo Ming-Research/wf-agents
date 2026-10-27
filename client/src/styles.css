@@ -150,8 +150,12 @@ main {
   background: var(--good);
 }
 
-.dot-hold {
+.dot-paused {
   background: var(--muted);
+}
+
+.dot-pausing {
+  background: var(--warn);
 }
 
 button {
@@ -163,45 +167,22 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: 1px solid var(--line);
+}
+
+/* The switch of every work, plainly a button in the bar. */
+.engine-switch {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
   border-radius: 7px;
-  padding: 3px 10px;
+  padding: 3px 12px;
   cursor: pointer;
+  font-weight: 600;
 }
 
-.engine-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  width: 320px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
-  padding: 10px;
-  display: grid;
-  gap: 8px;
-}
-
-.engine-panel p {
-  margin: 0;
-}
-
-.engine-mode {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-}
-
-.engine-mode-on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+.engine-switch:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 button.link {
@@ -1237,6 +1218,41 @@ svg.fc {
   stroke-width: 2.5;
 }
 
+/* The ring of the cell a round runs at breathes, calmly, so that the eye finds it; still for who asks for less
+   motion. */
+.fc-ring-running {
+  stroke: var(--good);
+  animation: fc-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes fc-breathe {
+  0%,
+  100% {
+    stroke-opacity: 1;
+    stroke-width: 2.5;
+  }
+
+  50% {
+    stroke-opacity: 0.35;
+    stroke-width: 5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-ring-running {
+    animation: none;
+  }
+}
+
+/* The cell a work held back stands at: two bars, as a pause is drawn. */
+.fc-held > rect:first-of-type {
+  fill: var(--warn);
+}
+
+.fc-held .fc-held-bar {
+  fill: #fff;
+}
+
 .fc-unvisited {
   opacity: 0.55;
 }
@@ -1282,10 +1298,6 @@ svg.fc {
 
 .fc-b-failed rect {
   fill: var(--bad);
-}
-
-.fc-b-running rect {
-  fill: var(--good);
 }
 
 .fc-edge {
@@ -1439,16 +1451,23 @@ svg.fc {
   padding: 16px;
 }
 
+/* The plain arrow over the chart's empty space, the pointing finger over what a click or hovering does something
+   with, and the grabbing hand only while the button is down to move it. */
 .viewer {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   background: var(--bg);
 }
 
-.viewer.dragging {
+.viewer [data-edge] {
+  cursor: pointer;
+}
+
+.viewer.dragging,
+.viewer.dragging * {
   cursor: grabbing;
 }
 
@@ -1726,6 +1745,8 @@ summary > .work-item-head {
 
 /* The drawer's parts follow one another and keep their height: a grid squeezed them onto each other. */
 .drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 8px;
   display: flex;
@@ -1782,12 +1803,44 @@ table.list.mini td.nowrap {
     top: 35%;
     left: 8px;
     right: 8px;
+    bottom: 10px !important;
     width: auto !important;
+    height: auto !important;
   }
 
-  .width-grip {
+  .width-grip,
+  .height-grip {
     display: none;
   }
+}
+
+/* The bottom edge of a floating window that drags its height. */
+
+.height-grip {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -6px;
+  height: 12px;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.height-grip::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.height-grip:hover::after {
+  background: var(--accent);
 }
 
 /* The edge of a floating window that drags its width. */
@@ -1944,9 +1997,8 @@ ul.bl {
   font-size: 13.5px;
 }
 
+/* The task, under its heading: the whole block is the message as sent, so nothing else marks it. */
 .prompt {
-  border-left: 3px solid var(--accent);
-  padding: 2px 0 2px 10px;
   display: grid;
   gap: 6px;
 }
@@ -2398,7 +2450,7 @@ summary.works-label {
 }
 
 /* Both lists of works have the same columns at the same widths; the item takes what is left, at least about 280px:
-   the other columns take 1116px, and a narrower window scrolls the lists sideways. */
+   the other columns take 1296px, and a narrower window scrolls the lists sideways. */
 
 .works-scroll {
   overflow-x: auto;
@@ -2406,7 +2458,7 @@ summary.works-label {
 
 .works-table {
   table-layout: fixed;
-  min-width: 1400px;
+  min-width: 1580px;
 }
 
 .works-table .w-id {
@@ -2414,7 +2466,17 @@ summary.works-label {
 }
 
 .works-table .w-state {
-  width: 240px;
+  width: 280px;
+}
+
+.works-table .w-control {
+  width: 140px;
+}
+
+.works-table td.control-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
 }
 
 .works-table .w-at {
@@ -2729,6 +2791,43 @@ tr.acc-removed td {
   border: 1px solid currentcolor;
   border-radius: 8px;
   font-size: 11.5px;
+}
+
+/* A work stopped by the engine for a problem the owner looks at, apart from one the owner paused. */
+.state-stopped {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad);
+}
+
+/* What a work waits for, which goes on by itself once it comes. */
+.chip.waits {
+  color: var(--running);
+  text-decoration: none;
+}
+
+/* The owner's Pause, Continue and Step of a work, in its row and its window. */
+.controls {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.next-head .controls {
+  margin-left: auto;
+}
+
+.control {
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.control:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .timeline td.nowrap {

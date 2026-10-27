@@ -10,7 +10,7 @@ Decision: A design card that replaces an earlier one of its work says, in a sent
 
 Decision: The owner rules on each decision of a design card, confirming it, disagreeing with it saying why, or choosing another of its approaches, and sends the verdicts on all of them in one ruling; the card is confirmed only when every decision is, and the decisions disagreed with reach the work each with the approach chosen and why, instead of one verdict on the whole card, because a card holds several decisions and the owner may disagree with one of them only.
 
-Decision: A work is pinned to the flow version it started with, and is never moved onto another; when the flow moves to a new version, the works still running on an older one stop and their items start again on the new one (design/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, and a work that ran on to its end would follow a flow that is no longer the flow.
+Decision: A work is pinned to the flow version it started with, and is never moved onto another; when the flow moves to a new version, a work on an older one stops when it next goes on and its item starts again on the new one (design/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, and a work that ran on to its end would follow a flow that is no longer the flow.
 
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.

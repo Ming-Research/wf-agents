@@ -274,13 +274,10 @@ pub fn resume(data: &Path, work: i64) -> Result<String, String> {
     api::resume(&mut db, work)
 }
 
-pub fn pause(data: &Path, work: i64, why: Option<&str>) -> Result<(), String> {
-    open(data)?
-        .write(Actor::Owner, |tx| {
-            tx.execute("UPDATE works SET paused = ?2 WHERE id = ?1", params![work, why])?;
-            Ok(())
-        })
-        .map_err(sql)
+/// Pauses a work, as the page does, saying why.
+pub fn pause(data: &Path, work: i64, why: &str) -> Result<String, String> {
+    let mut db = open(data)?;
+    api::pause(&mut db, work, Some(why))
 }
 
 /// Prints rows as a table, one line per row, each value cut to `width`.

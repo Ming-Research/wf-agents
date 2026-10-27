@@ -4,18 +4,18 @@
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
 /**
- * How the engine dispatches: what it starts, and when.
- */
-export type Mode = "run" | "hold";
-
-/**
- * The next round of a work the owner asked for while the engine held, and what it came to.
+ * The round of a work the owner asked for, and what it came to.
  */
 export type StepTaken = { 
 /**
  * When the round ended.
  */
-at: number, work: number, 
+at: number, 
+/**
+ * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
+ * item over, when the asked work was on an older flow version.
+ */
+asked: number, work: number, 
 /**
  * The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
  */
@@ -63,9 +63,19 @@ ask: number | null, };
 /**
  * The engine as it runs now, and what the page needs of the installation.
  */
-export type Status = { mode: Mode, 
+export type Status = { 
 /**
- * While the engine holds: the work whose next round the owner asked for, while it is under way.
+ * Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
+ * though a work's round the owner asks for runs.
+ */
+paused: boolean, 
+/**
+ * The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
+ * before the pause, unless the owner asked for it.
+ */
+running: number | null, 
+/**
+ * The work whose round the owner asked for, until that round has ended.
  */
 stepping: number | null, 
 /**
@@ -138,6 +148,16 @@ export type RunningRound = {
 n: number, cell: string | null, started_at: number, };
 
 /**
+ * Who paused a work.
+ */
+export type PausedBy = "owner" | "engine";
+
+/**
+ * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+ */
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
+
+/**
  * A work as a list shows it: what it works on, where it stands and what it has cost.
  */
 export type WorkSummary = { id: number, 
@@ -154,9 +174,17 @@ graph: string, flow_version: number,
  */
 at: string, at_title: string | null, stage: string | null, state: WorkState, 
 /**
- * Why it was paused, or ended before its end.
+ * Why it was paused, and who paused it; why it ended before its end.
  */
-paused: string | null, ended: string | null, branch: string | null, pr: number | null, 
+paused: string | null, paused_by: PausedBy | null, ended: string | null, 
+/**
+ * What it waits for before it goes on by itself.
+ */
+waits: Waits | null, 
+/**
+ * The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
+ */
+answered: number | null, branch: string | null, pr: number | null, 
 /**
  * When its first round started, and when its last round started or ended.
  */
@@ -616,11 +644,6 @@ round: number, cell: string,
  * The path of the return it is at, as the flow writes it.
  */
 path: string, value: JsonValue, };
-
-/**
- * The owner's ask to switch the engine's mode.
- */
-export type SetMode = { mode: Mode, };
 
 /**
  * Why a request failed.
