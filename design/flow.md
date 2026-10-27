@@ -12,5 +12,11 @@ Decision: The owner rules on each decision of a design card, confirming it, disa
 
 Decision: A work is pinned to the flow version it started with, and is never moved onto another; when the flow moves to a new version, a work on an older one stops when it next goes on and its item starts again on the new one (design/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, and a work that ran on to its end would follow a flow that is no longer the flow.
 
+Decision: The flow has two graphs, the engineer's, which a work on an item runs, and the architect's, which each wake of the one architect runs, and they meet only through the database: a question to the architect, a side report and a design card become matters in the architect's queue, and the architect acts on the works with its tools, instead of one graph or a row from one graph into the other, because the architect runs for a long time over every work at once, while each work runs on its own, and the compiler checks each graph on its own.
+
+Decision: The architect's graph is the port of the design the owner approved before wf-agents existed, cell for cell and row for row (twenty-six cells, eighty-two rows, as many states as that design had), written in the flow's present form; where wf-agents decided otherwise (items own no item, the dispatch queue, design cards ruled per decision, the owner's two names for what the owner is put before), the port follows wf-agents, and every such choice was put to the owner with the page, instead of a new design, because the owner approved that design and a port that changes what a cell decides would be a different flow.
+
+Decision: Rules every graph shares are written once, at the top of the flow, each naming the lines of any graph it is given to, and a graph's own rules after them, instead of each graph repeating a rule, because the general rules hold for the architect as for the engineers, and a rule written twice drifts.
+
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.
