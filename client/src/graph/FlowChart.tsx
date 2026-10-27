@@ -69,7 +69,7 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
   const rules = g.cells.some((c) => (c.rules ?? []).length > 0);
   const flags = g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject));
   return (
-    <details className="legend" open>
+    <details className="legend">
       <summary>{t('legend')}</summary>
       <ul>
         {styles.map((s) => (

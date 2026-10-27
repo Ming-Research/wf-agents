@@ -16,7 +16,7 @@ const LINES = ['engineer', 'review', 'adversarial', 'advisor', 'architect'];
 /// The style a cell is drawn in: its line's for an agent's round, `fresh` for one on no line, else its kind's.
 export function styleOf(c: CompiledCell): string {
   if (c.kind === 'agent') {
-    if (c.line === null) return 'fresh';
+    if (c.line == null) return 'fresh';
     return LINES.includes(c.line) ? `line-${c.line}` : 'line-other';
   }
   return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';

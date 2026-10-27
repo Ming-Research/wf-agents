@@ -30,7 +30,7 @@ export function Section({ title, note, children, id }: { title: string; note?: R
 export function who(c: CompiledCell, firstOfLine: boolean): string {
   const parts: string[] = [];
   if (c.kind === 'agent') {
-    if (c.line === null) parts.push(t('who_agent_fresh'));
+    if (c.line == null) parts.push(t('who_agent_fresh'));
     else {
       parts.push(t('who_agent', { line: c.line }));
       parts.push(firstOfLine ? t('who_starts') : t('who_continues'));
@@ -119,7 +119,8 @@ function AgentInputs({ c }: { c: CompiledCell }) {
   const materials = view?.materials ?? [];
   const itself = materials.filter((m) => m.origin === 'itself' && m.of.kind === 'input');
   const prompt = c.prompt ?? [];
-  const shared = (c.forms ?? []).filter((x) => x.field !== null).map((x) => `\`${x.field}\``);
+  // The own answer's form names no field: the compiled flow leaves the key out.
+  const shared = (c.forms ?? []).filter((x) => x.field != null).map((x) => `\`${x.field}\``);
   const enums = c.prompt_by ? (c.inenums?.[c.prompt_by.by] ?? []) : [];
   return (
     <Section title={t('sec_inputs')}>
@@ -427,6 +428,6 @@ export function CellPanel(props: {
 
 /// The words under a cell's title, with whether it is the first cell of its line, which starts the line's session.
 export function cellWho(cells: CompiledCell[], c: CompiledCell): string {
-  const first = cells.find((x) => x.kind === 'agent' && x.line !== null && x.line === c.line);
+  const first = cells.find((x) => x.kind === 'agent' && x.line != null && x.line === c.line);
   return who(c, first?.id === c.id);
 }

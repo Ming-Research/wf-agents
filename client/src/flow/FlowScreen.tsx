@@ -115,7 +115,7 @@ export function FlowScreen(props: FlowScreenProps) {
         trail.open(s);
         if (s.kind === 'cell') {
           setPicked(`c:${s.cell}`);
-          chartRef.current?.focus(s.cell);
+          window.setTimeout(() => chartRef.current?.focus(s.cell), 0);
         }
       }),
     // `trail.open` keeps no state of its own between renders.
@@ -155,12 +155,14 @@ export function FlowScreen(props: FlowScreenProps) {
     // Only when the comparison changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diff]);
+  // Brings a cell into view once the panel that opens with it is drawn, so that the panel does not cover it.
+  const into = (cell: string, keep: boolean) => window.setTimeout(() => chartRef.current?.focus(cell, keep), 0);
   const onPick = (p: Pick) => {
     switch (p.kind) {
       case 'cell':
         setPicked(`c:${p.cell}`);
         trail.open({ kind: 'cell', cell: p.cell });
-        chartRef.current?.focus(p.cell, true);
+        into(p.cell, true);
         break;
       case 'rule':
         setPicked(`r:${p.rule}:${p.cell}`);
@@ -177,12 +179,12 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'out':
         setPicked(`c:${p.to}`);
         trail.open({ kind: 'cell', cell: p.to }, { kind: 'cell', cell: p.cell });
-        chartRef.current?.focus(p.to);
+        into(p.to, false);
         break;
       case 'in':
         setPicked(`c:${p.from}`);
         trail.open({ kind: 'cell', cell: p.from }, { kind: 'cell', cell: p.cell });
-        chartRef.current?.focus(p.from);
+        into(p.from, false);
         break;
     }
   };

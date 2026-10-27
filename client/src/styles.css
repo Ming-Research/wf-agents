@@ -105,7 +105,8 @@ main {
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  z-index: 10;
+  /* Above the panel that floats over a chart, so that what the bar opens is seen. */
+  z-index: 40;
   flex-wrap: wrap;
 }
 
