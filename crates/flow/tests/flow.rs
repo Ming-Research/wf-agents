@@ -7,6 +7,7 @@ const FLOW: &str = include_str!("../../../flow/flow.json");
 fn context() -> flow::Context {
     flow::Context {
         relations: db::relations(db::SCHEMA).unwrap(),
+        tables: db::index_of(db::SCHEMA).unwrap(),
     }
 }
 

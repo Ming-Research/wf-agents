@@ -18,7 +18,14 @@ use serde_json::{Value, json};
 /// How many returns of a cell in a row the flow sends back before it pauses the work.
 fn pause_after() -> usize {
     let relations = db::relations(db::SCHEMA).unwrap();
-    let f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+    let f = flow::compile(
+        flow::FLOW,
+        &flow::Context {
+            relations,
+            tables: db::index_of(db::SCHEMA).unwrap(),
+        },
+    )
+    .unwrap();
     f.graph(engine::ENGINEER)
         .unwrap()
         .rounds
@@ -667,17 +674,21 @@ fn a_message_gives_each_material_once_in_a_session() {
         assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
     }
     let (first, second) = (&at("1"), &at("1a"));
-    for a in ["format:common", "format:1", "rule:ground", "db:tables"] {
+    for a in ["format:common", "format:1", "rule:ground"] {
         assert_eq!(given(first, a), Some(true), "{a}");
     }
-    for a in ["format:common", "rule:ground", "db:tables"] {
+    for a in ["format:common", "rule:ground"] {
         assert_eq!(given(second, a), Some(false), "{a}");
     }
     assert_eq!(given(second, "format:1a"), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
     let m = first["message"].as_str().unwrap();
-    assert!(m.contains("### db:tables"), "{m}");
+    // The index of the database is in the query tool's description, which the return formats give.
+    assert!(!m.contains("db:tables"), "{m}");
+    assert!(given(first, "db:tables").is_none());
+    // The formats name the owner's language; the engine writes the configured one beside it.
+    assert!(m.contains("`owner.language` (English)"), "{m}");
     assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
     assert!(m.contains("- items: A piece of work to do"), "{m}");
     assert!(!m.contains("CREATE TABLE"), "{m}");
@@ -767,7 +778,14 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     e.step(None).unwrap();
     let (work, _, _) = state(&e, item).unwrap();
     let relations = db::relations(db::SCHEMA).unwrap();
-    let mut f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+    let mut f = flow::compile(
+        flow::FLOW,
+        &flow::Context {
+            relations,
+            tables: db::index_of(db::SCHEMA).unwrap(),
+        },
+    )
+    .unwrap();
     f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
     let (digest, text) = (f.digest(), f.json());
     e.db.write(Actor::Engine, |tx| {

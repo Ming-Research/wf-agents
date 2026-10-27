@@ -1,5 +1,5 @@
 //! What the flow page shows of a compiled flow besides the flow itself: the cells each row can lead to and the rows
-//! that lead into each cell; what a round of each cell is given, each material with its origin and its address as
+//! that lead into each cell; what a round of each cell is given, each material with its source and its address as
 //! the engine addresses it; and each cell's return as a tree of fields, with whatever reads each field.
 //!
 //! A row's target the engine keeps track of is resolved to the cells it can be from the rows alone: `@caller` is a
@@ -14,8 +14,7 @@ use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
 use crate::{
-    Branch, CellView, Field, FieldKind, FlowView, GraphView, Material, MaterialOf, Origin, ReturnForm, Returns, RowRef,
-    Use,
+    Branch, CellView, Field, FieldKind, FlowView, GraphView, Material, MaterialOf, ReturnForm, Returns, RowRef, Use,
 };
 
 /// The targets the engine keeps track of, as rows and inputs name them.
@@ -24,9 +23,6 @@ const CALLER: &str = "@caller";
 const ASKER: &str = "@asker";
 const STOPPED: &str = "@stopped";
 const FROM: &str = "@from";
-
-/// The tool whose cells are given the index of the database, as the engine gives it.
-const QUERY: &str = "query";
 
 pub fn view(c: &Compiled) -> FlowView {
     FlowView {
@@ -303,40 +299,44 @@ impl<'a> Ways<'a> {
         for p in &c.shown {
             read(p, Use::Shown { cell: c.id.clone() }, &mut out);
         }
+        for x in &c.read_by {
+            let u = Use::Role {
+                cell: c.id.clone(),
+                role: x.role.clone(),
+            };
+            read(&x.at, u, &mut out);
+        }
         out
     }
 
-    /// What a round of `c` is given: for an agent's cell, what every round needs from the start, then the sources of
-    /// its inputs; for any other cell, the sources of its inputs.
+    /// What a round of `c` is given: for an agent's cell, the return formats and the rules with the settings they
+    /// name, then the sources of its inputs; for any other cell, the sources of its inputs.
     fn materials(&self, c: &CompiledCell, trees: &BTreeMap<&str, Returns>) -> Vec<Material> {
         let agent = c.kind == AGENT;
         let mut out = Vec::new();
-        let start = |of: MaterialOf, address: String| Material {
-            origin: Origin::Start,
+        let given = |of: MaterialOf, address: String| Material {
+            always: false,
             of,
             address: Some(address),
             cells: Vec::new(),
         };
         if agent {
-            out.push(start(MaterialOf::CommonFormat, "format:common".into()));
-            out.push(start(MaterialOf::CellFormat, format!("format:{}", c.id)));
-            out.push(start(MaterialOf::ProjectRules, "rule:‹name›".into()));
+            out.push(given(MaterialOf::CommonFormat, "format:common".into()));
+            out.push(given(MaterialOf::CellFormat, format!("format:{}", c.id)));
+            out.push(given(MaterialOf::ProjectRules, "rule:‹name›".into()));
             for r in &c.rules {
-                out.push(start(
+                out.push(given(
                     MaterialOf::Rule { name: r.name.clone() },
                     format!("rule:{}", r.name),
                 ));
             }
-            out.push(start(MaterialOf::Settings, "config:‹name›".into()));
-            if c.tools.iter().any(|t| t == QUERY) {
-                out.push(start(MaterialOf::Tables, "db:tables".into()));
-            }
+            out.push(given(MaterialOf::Settings, "config:‹name›".into()));
         }
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {
-                let (origin, address, cells) = self.source(c, s, trees);
+                let (address, cells) = self.source(c, s, trees);
                 out.push(Material {
-                    origin,
+                    always: *s == Src::Itself,
                     of: MaterialOf::Input { input: i, source: j },
                     address,
                     cells,
@@ -346,34 +346,25 @@ impl<'a> Ways<'a> {
         out
     }
 
-    /// Where a source of an input of `c` comes from, the address the engine gives what it holds under, and the
-    /// cells a place it reads can be in. The addresses are those the engine's message gives (`materials_of` in the
+    /// The address the engine gives what a source of an input of `c` holds under, and the cells a place it reads can
+    /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives (`materials_of` in the
     /// engine's message builder): a value a round produced is addressed by the round, the cell and the path; what
     /// the engine reads or computes for a round by the round and its name; the item, its cards and the
     /// interjections by their ids; and the locked acceptance and the researched problem by the round that wrote
     /// them.
-    fn source(
-        &self,
-        c: &CompiledCell,
-        s: &Src,
-        trees: &BTreeMap<&str, Returns>,
-    ) -> (Origin, Option<String>, Vec<String>) {
-        let computed = |name: &str| (Origin::Outside, Some(format!("R‹round›·engine·{name}")), Vec::new());
+    fn source(&self, c: &CompiledCell, s: &Src, trees: &BTreeMap<&str, Returns>) -> (Option<String>, Vec<String>) {
+        let at = |address: String| (Some(address), Vec::new());
         match s {
-            Src::Itself => (Origin::Itself, None, Vec::new()),
-            Src::Config(n) => (Origin::Start, Some(format!("config:{n}")), Vec::new()),
-            Src::Engine(n) | Src::Recorded(n) => computed(n),
+            Src::Itself => (None, Vec::new()),
+            Src::Config(n) => at(format!("config:{n}")),
+            Src::Engine(n) | Src::Recorded(n) => at(format!("R‹round›·engine·{n}")),
             Src::Db { relation, .. } => match relation.as_str() {
-                "item_body" => (Origin::Start, Some("item:‹id›".into()), Vec::new()),
-                "item_cards" | "parent_design_cards" => (Origin::Outside, Some("card:‹id›".into()), Vec::new()),
-                "waiting_interjections" => (Origin::Outside, Some("ij:‹id›".into()), Vec::new()),
-                "item_acceptance" => (Origin::Either, Some("R‹round›·‹cell›·acceptance".into()), Vec::new()),
-                "item_problem" => (
-                    Origin::Either,
-                    Some("R‹round›·1·understanding.problem".into()),
-                    Vec::new(),
-                ),
-                other => computed(other),
+                "item_body" => at("item:‹id›".into()),
+                "item_cards" | "parent_design_cards" => at("card:‹id›".into()),
+                "waiting_interjections" => at("ij:‹id›".into()),
+                "item_acceptance" => at("R‹round›·‹cell›·acceptance".into()),
+                "item_problem" => at("R‹round›·1·understanding.problem".into()),
+                other => at(format!("R‹round›·engine·{other}")),
             },
             Src::Place(at, path) => {
                 let cells = self.place(c, at, path, trees);
@@ -382,14 +373,7 @@ impl<'a> Ways<'a> {
                 } else {
                     format!("R‹round›·{at}·{path}")
                 };
-                let mine =
-                    |x: &String| c.line.is_some() && self.cell(x).is_some_and(|y| y.kind == AGENT && y.line == c.line);
-                let origin = match cells.iter().filter(|x| mine(x)).count() {
-                    0 => Origin::Outside,
-                    n if n == cells.len() => Origin::Line,
-                    _ => Origin::Either,
-                };
-                (origin, Some(address), cells)
+                (Some(address), cells)
             }
         }
     }
@@ -962,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn a_material_has_its_origin_and_address() {
+    fn a_material_has_its_address() {
         let v = super::graph(&graph());
         let b = cell(&v, "b");
         let input = |i: usize, s: usize| {
@@ -971,9 +955,8 @@ mod tests {
                 .find(|m| m.of == MaterialOf::Input { input: i, source: s })
                 .unwrap()
         };
-        assert_eq!(input(0, 0).origin, Origin::Outside);
         assert_eq!(input(0, 0).address.as_deref(), Some("R‹round›·a·design"));
-        assert_eq!(input(2, 0).origin, Origin::Start);
+        assert!(!input(2, 0).always);
         assert_eq!(input(2, 0).address.as_deref(), Some("item:‹id›"));
         assert!(
             b.materials
@@ -1007,7 +990,14 @@ mod tests {
     #[test]
     fn the_flow_explained_agrees_with_its_rows_and_inputs() {
         let relations = db::relations(db::SCHEMA).unwrap();
-        let c = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let c = flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations,
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap();
         let v = view(&c);
         for (g, gv) in c.graphs.iter().zip(&v.graphs) {
             for (cell, cv) in g.cells.iter().zip(&gv.cells) {

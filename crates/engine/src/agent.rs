@@ -469,7 +469,14 @@ mod tests {
     #[test]
     fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
         let relations = db::relations(db::SCHEMA).unwrap();
-        let f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let f = flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations,
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap();
         let g = f.graph(crate::ENGINEER).unwrap();
         let shapes: Vec<Value> = g
             .cells

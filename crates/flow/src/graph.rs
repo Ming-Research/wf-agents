@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, Role, Source, Src,
+    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, ReadBy, Role, Source, Src,
 };
 
 macro_rules! ensure {
@@ -107,6 +107,8 @@ pub(crate) struct Cell {
     pub handoff: Vec<String>,
     /// What the owner's page shows on the item: the owner reads it there.
     pub shown: Vec<String>,
+    /// What a role reads outside this flow.
+    pub read_by: Vec<ReadBy>,
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
     pub by_id: BTreeMap<String, usize>,
     /// What the rows switch on: the output and, as fields named `@<id>`, the inputs read by id.
@@ -197,6 +199,7 @@ impl Cell {
         out.extend(self.checks.iter().filter_map(|x| x.at.clone()));
         out.extend(self.handoff.iter().cloned());
         out.extend(self.shown.iter().cloned());
+        out.extend(self.read_by.iter().map(|x| x.at.clone()));
     }
 
     /// The paths a row itself reads, besides what every return reads.
@@ -567,6 +570,7 @@ impl<'s> Graph<'s> {
             let mut always = n.always.clone().unwrap_or_default();
             let mut checks = n.checks.clone().unwrap_or_default();
             let mut shown = n.shown.clone().unwrap_or_default();
+            let mut read_by: Vec<ReadBy> = Vec::new();
             if agent {
                 for f in &common.out {
                     let field = shapes.field(f, &tools, &my_roles)?;
@@ -578,6 +582,7 @@ impl<'s> Graph<'s> {
                 say = say_of(&forms);
                 always.extend(common.always.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
                 shown.extend(common.shown.iter().filter(|p| !gone.contains(head(p))).cloned());
+                read_by.extend(common.read_by.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
                 checks.extend(
                     common
                         .checks
@@ -596,6 +601,14 @@ impl<'s> Graph<'s> {
                         "a place shown on the item that the return does not have: {nid} {p}"
                     );
                 }
+            }
+            for x in &read_by {
+                ensure!(
+                    flow.asking.roles.iter().any(|r| r.name == x.role),
+                    "a field read by no role an agent may ask: {nid} {} {}",
+                    x.at,
+                    x.role
+                );
             }
             let line = n.line.clone();
             let rules = n.rules.clone().unwrap_or_default();
@@ -652,6 +665,7 @@ impl<'s> Graph<'s> {
                 checks,
                 handoff: n.handoff.clone().unwrap_or_default(),
                 shown,
+                read_by,
                 inenums,
                 by_id,
                 sw: Vec::new(),

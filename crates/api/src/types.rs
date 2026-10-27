@@ -460,7 +460,7 @@ pub struct CellView {
     pub targets: Vec<Vec<String>>,
     /// Every row of every cell that can lead here, in the order of the cells and of their rows.
     pub entered_from: Vec<RowRef>,
-    /// What a round of the cell is given: for an agent's cell, every material, each with its origin and address;
+    /// What a round of the cell is given: for an agent's cell, every material, each with its source and address;
     /// for any other cell, the sources of its inputs.
     pub materials: Vec<Material>,
     /// What the cell hands back, with whatever reads each field.
@@ -474,30 +474,12 @@ pub struct RowRef {
     pub row: usize,
 }
 
-/// Where a material an agent's round is given comes from, under the rule that each material is given once in a
-/// session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum Origin {
-    /// Written by the session's own line: its own returns, never given, only referred to.
-    Line,
-    /// Needed from the start: rules, the item, project settings, the database's index, the return formats; given
-    /// the first time the session needs them.
-    Start,
-    /// From outside: other lines' and the engine's outputs, tool results, replies, interjections; given when a
-    /// version the session does not hold appears.
-    Outside,
-    /// Written by this line or from outside, by the line of the round that wrote it, which is known only when the
-    /// round runs.
-    Either,
-    /// The agent reads it itself: it is no material.
-    Itself,
-}
-
 /// One material a round of a cell is given.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Material {
-    pub origin: Origin,
+    /// Given every time the cell is entered, as the instruction: what the agent reads itself. Every other material
+    /// is given when the session does not hold it, and referred to by its address when it does.
+    pub always: bool,
     pub of: MaterialOf,
     /// The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
     /// standing for what is known only when the round runs; none for what the agent reads itself.
@@ -519,8 +501,6 @@ pub enum MaterialOf {
     Rule { name: String },
     /// The project settings the project's rules name.
     Settings,
-    /// The index of the database's tables and views, for a cell that has the query tool.
-    Tables,
     /// The forms every agent's return shares.
     CommonFormat,
     /// The cell's own answer, and which of the shared forms the cell has.
@@ -629,6 +609,8 @@ pub enum Use {
     Handoff { cell: String },
     /// Shown on the item the work is on: the owner reads it there.
     Shown { cell: String },
+    /// Read outside this flow by a role, through the database.
+    Role { cell: String, role: String },
 }
 
 /// What changed from one compiled flow to another, graph by graph.
@@ -689,6 +671,7 @@ pub enum Part {
     Always,
     Handoff,
     Shown,
+    ReadBy,
     Inenum,
     Start,
     End,

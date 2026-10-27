@@ -937,13 +937,7 @@
           {
             "value": "not_applicable",
             "desc": "This column has nothing to do with this change",
-            "fields": [
-              {
-                "name": "reason",
-                "type": "text",
-                "desc": "Why it does not apply"
-              }
-            ]
+            "fields": []
           }
         ]
       },
@@ -1107,19 +1101,8 @@
     "pause_form": {
       "name": "pause",
       "type": "obj",
-      "desc": "Only when the engine asks you to pause: this round is not finished and its conclusion has not taken shape, so stop here for now. Write only how far you got, none of the conclusions this cell asks for; the engine notes the time and comes back to the same session to have you carry on, without giving the inputs again",
-      "fields": [
-        {
-          "name": "done",
-          "type": "text",
-          "desc": "What is done"
-        },
-        {
-          "name": "remaining",
-          "type": "text",
-          "desc": "What remains"
-        }
-      ]
+      "desc": "Only when the engine asks you to pause: this round is not finished and its conclusion has not taken shape, so stop here for now. Hand in an empty object and say how far you got in progress, with none of the conclusions this cell asks for; the engine notes the time and comes back to the same session to have you carry on, without giving the inputs again",
+      "fields": []
     },
     "progress_form": {
       "name": "progress",
@@ -1528,8 +1511,9 @@
     },
     {
       "name": "query",
-      "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, plans, design cards, rulings and the like. The tables are described in the rules you are given. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
+      "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, plans, design cards, rulings and the like. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition",
+      "tables": "The tables and views it reads, each with the first line of what it holds. To read one in full, with its columns and what each holds, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
         {
           "name": "sql",
@@ -2327,18 +2311,8 @@
           {
             "name": "redirect",
             "type": "obj",
-            "desc": "Hand this in after an interjection that might change what you do next: a disagreement with the design card, someone saying to change the approach, or what the work must deliver seeming to change; if you are unsure whether it changes, hand this in too. A disagreement with the design card must be handed in this way. Do not think here about where to go next: once you hand it in, a round of its own thinks it through. Write how far you got; answers to other speakers this round that only need an answer go here too. Hand in none of the conclusions this cell asks for",
+            "desc": "Hand this in after an interjection that might change what you do next: a disagreement with the design card, someone saying to change the approach, or what the work must deliver seeming to change; if you are unsure whether it changes, hand this in too. A disagreement with the design card must be handed in this way. Do not think here about where to go next: once you hand it in, a round of its own thinks it through. Say how far you got in progress; answers to other speakers this round that only need an answer go here. Hand in none of the conclusions this cell asks for",
             "fields": [
-              {
-                "name": "done",
-                "type": "text",
-                "desc": "What is done"
-              },
-              {
-                "name": "remaining",
-                "type": "text",
-                "desc": "What remains"
-              },
               {
                 "name": "answers",
                 "type": "list",
@@ -2426,12 +2400,15 @@
           }
         ],
         "shown": [
-          "progress",
-          "pause",
-          "redirect",
-          "side_reports"
+          "progress"
         ],
-        "shownSay": "Write it in the owner's language (the setting `owner.language`): the owner reads it on the item. Keep technical terms in their English original."
+        "shownSay": "Write it in the owner's language (the setting `owner.language`): the owner reads it on the item. Keep technical terms in their English original.",
+        "readBy": [
+          {
+            "at": "side_reports",
+            "role": "architect"
+          }
+        ]
       },
       "gate": {
         "tools": [
@@ -5066,7 +5043,7 @@
             "design_tree_review"
           ],
           "prompt": [
-            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn, with why. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
+            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "promptBy": {
             "by": "deliver",
@@ -5097,11 +5074,6 @@
                     "name": "fid",
                     "type": "text",
                     "desc": "The finding's number, as in the blind review"
-                  },
-                  {
-                    "name": "reason",
-                    "type": "text",
-                    "desc": "Why you withdraw it: where in the design or the reasons it is shown not to be a problem"
                   }
                 ]
               }
@@ -5256,10 +5228,6 @@
               "check": "blind_findings_carried"
             }
           ],
-          "shown": [
-            "columns[not_applicable].reason",
-            "withdrawn.reason"
-          ],
           "inenums": {
             "deliver": "deliver_kind",
             "tree": "tree_state"
@@ -5383,9 +5351,6 @@
               "at": "columns[findings].evidence",
               "check": "evidence_holds"
             }
-          ],
-          "shown": [
-            "columns[not_applicable].reason"
           ]
         },
         {
@@ -6676,20 +6641,12 @@
                 {
                   "value": "flaky",
                   "desc": "A check was red, and turned green when run again on the same commit",
-                  "fields": [
-                    {
-                      "$ref": "checks_required"
-                    }
-                  ]
+                  "fields": []
                 },
                 {
                   "value": "known_red",
                   "desc": "Every red check is in the table of known red checks",
-                  "fields": [
-                    {
-                      "$ref": "checks_required"
-                    }
-                  ]
+                  "fields": []
                 },
                 {
                   "value": "environment_changed",
@@ -6810,10 +6767,6 @@
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
             }
-          ],
-          "shown": [
-            "main[flaky]",
-            "main[known_red]"
           ]
         },
         {

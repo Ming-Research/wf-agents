@@ -51,6 +51,9 @@ pub const FLOW: &str = include_str!("../../../flow/flow.json");
 pub struct Context {
     /// Every table and view of the database, with its columns.
     pub relations: BTreeMap<String, BTreeSet<String>>,
+    /// Each table and view agents can read, with the first line of what it holds, in the order the schema defines
+    /// them: the index a tool that reads the database lists in its description.
+    pub tables: Vec<(String, String)>,
 }
 
 /// Everything wrong with a flow.
@@ -77,7 +80,15 @@ fn fail(p: impl Into<String>) -> Error {
 const BY: [&str; 3] = ["item", "work", "project"];
 
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
-    let source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
+    let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
+    // A tool that reads the database says in its description what it reads: each table and view with the first
+    // line of what it holds. It comes with the return formats, once in a session.
+    for t in &mut source.tools {
+        if let Some(lead) = &t.tables {
+            let lines: Vec<String> = cx.tables.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
+            t.desc = format!("{}\n\n{lead}\n{}", t.desc, lines.join("\n"));
+        }
+    }
     if source.format != FORMAT {
         return Err(fail(format!(
             "flow.json is not in the format {FORMAT}: {}",

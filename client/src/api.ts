@@ -412,7 +412,7 @@ targets: Array<Array<string>>,
  */
 entered_from: Array<RowRef>, 
 /**
- * What a round of the cell is given: for an agent's cell, every material, each with its origin and address;
+ * What a round of the cell is given: for an agent's cell, every material, each with its source and address;
  * for any other cell, the sources of its inputs.
  */
 materials: Array<Material>, 
@@ -427,15 +427,14 @@ returns: Returns, };
 export type RowRef = { cell: string, row: number, };
 
 /**
- * Where a material an agent's round is given comes from, under the rule that each material is given once in a
- * session.
- */
-export type Origin = "line" | "start" | "outside" | "either" | "itself";
-
-/**
  * One material a round of a cell is given.
  */
-export type Material = { origin: Origin, of: MaterialOf, 
+export type Material = {
+/**
+ * Given every time the cell is entered, as the instruction: what the agent reads itself. Every other material
+ * is given when the session does not hold it, and referred to by its address when it does.
+ */
+always: boolean, of: MaterialOf, 
 /**
  * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
  * standing for what is known only when the round runs; none for what the agent reads itself.
@@ -450,7 +449,7 @@ cells: Array<string>, };
 /**
  * What a material is.
  */
-export type MaterialOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "tables" } | { "kind": "common_format" } | { "kind": "cell_format" };
+export type MaterialOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "common_format" } | { "kind": "cell_format" };
 
 /**
  * What a cell hands back, as a tree of fields.
@@ -544,7 +543,7 @@ path: string, desc: string | null, used_by: Array<Use>, fields: Array<Field>, };
 /**
  * Something that reads a field of a return.
  */
-export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, } | { "kind": "shown", cell: string, };
+export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, } | { "kind": "shown", cell: string, } | { "kind": "role", cell: string, role: string, };
 
 /**
  * What changed from one compiled flow to another, graph by graph.
@@ -579,7 +578,7 @@ title: string, status: ChangeKind, changes: Array<Change>, };
 /**
  * The part of a cell or a graph a change is in.
  */
-export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
+export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "read_by" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
 
 /**
  * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
@@ -748,7 +747,11 @@ schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, chec
 /**
  * Paths of the return the owner's page shows on the item the work is on.
  */
-shown?: Array<string>, inenums?: { [key in string]: Array<[string, string]> }, };
+shown?: Array<string>,
+/**
+ * Places of the return a role reads outside this flow, through the database.
+ */
+read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
 
 export type CompiledInput = { id: string | null, what: string, from: Array<Src>, maybe: boolean, };
 
@@ -812,3 +815,13 @@ at: string, view: string | null, do: string | null, };
  * A check the engine makes on a return, on a place of it or on the whole.
  */
 export type Check = { at: string | null, check: string, };
+
+/**
+ * A place of a return a role reads outside this flow, through the database, such as the architect reading side
+ * reports: what the role does with it is not a cell of this flow.
+ */
+export type ReadBy = { at: string,
+/**
+ * The role that reads it, one of the roles an agent may ask.
+ */
+role: string, };

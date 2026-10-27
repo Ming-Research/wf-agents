@@ -531,14 +531,12 @@
       },
       {
        "verdict": "not_applicable",
-       "id": "outcome.columns.id",
-       "reason": "outcome.columns.reason"
+       "id": "outcome.columns.id"
       }
      ],
      "withdrawn": [
       {
-       "fid": "R2",
-       "reason": "outcome.withdrawn.reason"
+       "fid": "R2"
       }
      ]
     },
@@ -589,8 +587,7 @@
       },
       {
        "verdict": "not_applicable",
-       "id": "to_check",
-       "reason": "outcome.columns.reason"
+       "id": "to_check"
       }
      ]
     },

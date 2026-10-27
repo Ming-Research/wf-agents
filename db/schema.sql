@@ -492,10 +492,8 @@ CREATE VIEW work_followups AS
   WHERE r.cell IN ('4', '8') AND json_extract(r.output, '$.outcome.end.followup') IS NOT NULL;
 
 CREATE VIEW work_progress AS
-  -- What each round said it did, paused for or redirected to. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.progress') AS progress,
-    json_extract(r.output, '$.outcome.pause') AS pause, json_extract(r.output, '$.outcome.redirect') AS redirect,
-    r.ended_at
+  -- What each round said it did, how far a paused or redirected round got included. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.progress') AS progress, r.ended_at
   FROM rounds r
   WHERE r.output IS NOT NULL;
 
@@ -513,20 +511,6 @@ CREATE VIEW adversarial_directions AS
   FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.directions') d
   WHERE r.cell = '6';
 
-CREATE VIEW not_applicable_columns AS
-  -- Review columns answered not applicable, with the reasons. Read by: the owner's interface, to see which
-  -- columns do not fit the work.
-  SELECT r.work, r.id AS round, r.cell, json_extract(c.value, '$.id') AS col,
-    json_extract(c.value, '$.reason') AS reason
-  FROM rounds r, json_each(r.output, '$.outcome.columns') c
-  WHERE r.cell IN ('5a', '5b') AND json_extract(c.value, '$.verdict') = 'not_applicable';
-
-CREATE VIEW withdrawn_findings AS
-  -- Blind review findings the table review withdrew, with the reasons. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, json_extract(x.value, '$.fid') AS finding, json_extract(x.value, '$.reason') AS reason
-  FROM rounds r, json_each(r.output, '$.outcome.withdrawn') x
-  WHERE r.cell = '5a';
-
 CREATE VIEW advisor_rulings AS
   -- Disputes the fix took to the advisor, and the ruling it carried out. Read by: the owner's interface.
   SELECT r.work, r.id AS round, json_extract(x.value, '$.id') AS finding, json_extract(x.value, '$.ruling') AS ruling
@@ -539,12 +523,6 @@ CREATE VIEW not_applicable_answers AS
   SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.outcome.answer.why') AS why
   FROM rounds r
   WHERE json_extract(r.output, '$.outcome.answer.verdict') = 'not_applicable';
-
-CREATE VIEW flaky_reds AS
-  -- Checks that were red on main and green again on the same commit. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, json_extract(r.output, '$.main.checks') AS checks
-  FROM rounds r
-  WHERE r.cell = '10' AND json_extract(r.output, '$.main.kind') = 'flaky';
 
 CREATE VIEW known_red_counts AS
   -- How often main was red only on known red checks, by project. Read by: the owner's interface.

@@ -8,6 +8,7 @@ const FLOW: &str = include_str!("../../../flow/flow.json");
 fn context() -> flow::Context {
     flow::Context {
         relations: db::relations(db::SCHEMA).unwrap(),
+        tables: db::index_of(db::SCHEMA).unwrap(),
     }
 }
 
@@ -416,11 +417,14 @@ case!(
 );
 
 // Nothing dropped.
+case!(side_reports_no_role_reads, "nobody reads side_reports.kind", |v| {
+    obj(&mut graph(v)["agentCommon"]).remove("readBy");
+});
 case!(
-    a_withdrawn_finding_the_item_no_longer_shows,
-    "nobody reads withdrawn.reason",
+    a_field_read_by_no_role_an_agent_may_ask,
+    "read by no role an agent may ask",
     |v| {
-        node(v, "5a")["shown"] = json!(["columns[not_applicable].reason"]);
+        graph(v)["agentCommon"]["readBy"][0]["role"] = json!("nobody");
     }
 );
 case!(a_shown_place_the_return_does_not_have, "nope", |v| {

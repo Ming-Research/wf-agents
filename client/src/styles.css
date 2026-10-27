@@ -1351,19 +1351,6 @@ ul.bl {
   font-weight: 600;
 }
 
-.origin {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 10px;
-  display: grid;
-  gap: 4px;
-}
-
-.origin-h {
-  font-weight: 600;
-  font-size: 13px;
-}
-
 .srcs,
 .uses {
   display: flex;

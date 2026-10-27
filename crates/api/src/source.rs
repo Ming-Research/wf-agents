@@ -78,8 +78,10 @@ pub fn commit(checkout: &Path, rev: &str) -> Result<String> {
 pub fn compile_at(checkout: &Path, commit: &str) -> Result<Compiled> {
     let text = git(checkout, &["show", &format!("{commit}:flow/flow.json")])?;
     let schema = git(checkout, &["show", &format!("{commit}:db/schema.sql")])?;
-    let relations = db::relations(&schema).map_err(|e| Error::Invalid(format!("db/schema.sql at {commit}: {e}")))?;
-    flow::compile(&text, &flow::Context { relations })
+    let at = |e| Error::Invalid(format!("db/schema.sql at {commit}: {e}"));
+    let relations = db::relations(&schema).map_err(at)?;
+    let tables = db::index_of(&schema).map_err(at)?;
+    flow::compile(&text, &flow::Context { relations, tables })
         .map_err(|e| Error::Invalid(format!("flow/flow.json at {commit} does not compile:\n{e}")))
 }
 
@@ -142,7 +144,8 @@ mod tests {
         let (commit, c) = sources.at(&dir, "main").unwrap();
         assert_eq!(commit.len(), 40);
         let relations = db::relations(db::SCHEMA).unwrap();
-        let here = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let here = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
         assert_eq!(c.digest(), here.digest());
         // Asked again, the same commit is not compiled again.
         let (_, again) = sources.at(&dir, "HEAD").unwrap();

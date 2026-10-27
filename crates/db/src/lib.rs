@@ -21,7 +21,10 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 /// next 2 to 3, and so on. A change to `db/schema.sql` adds one in the same pull request. `db/migrations/0001.sql` is
 /// the schema as it was at version 1, from which a test migrates a database and compares it with one created from
 /// [`SCHEMA`].
-pub const MIGRATIONS: &[&str] = &[include_str!("../../../db/migrations/0002.sql")];
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("../../../db/migrations/0002.sql"),
+    include_str!("../../../db/migrations/0003.sql"),
+];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
@@ -451,6 +454,13 @@ pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
         out.push((name, first));
     }
     Ok(out)
+}
+
+/// What [`index`] gives for a schema, from the schema loaded into a database in memory.
+pub fn index_of(schema: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    let db = Connection::open_in_memory()?;
+    db.execute_batch(schema)?;
+    index(&db)
 }
 
 /// The query that gives one table's or view's definition in full, with its comments, for `<name>`.

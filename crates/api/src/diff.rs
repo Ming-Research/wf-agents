@@ -192,6 +192,7 @@ fn cell(gf: &CompiledGraph, from: &CompiledCell, gt: &CompiledGraph, to: &Compil
     by_name(&mut out, Part::Always, &always(from), &always(to));
     changed(&mut out, Part::Handoff, "", &from.handoff, &to.handoff);
     changed(&mut out, Part::Shown, "", &from.shown, &to.shown);
+    changed(&mut out, Part::ReadBy, "", &from.read_by, &to.read_by);
     let inenums =
         |c: &CompiledCell| -> Vec<(String, Value)> { c.inenums.iter().map(|(k, v)| (k.clone(), value(v))).collect() };
     by_name(&mut out, Part::Inenum, &inenums(from), &inenums(to));
@@ -272,7 +273,14 @@ mod tests {
 
     fn compiled() -> Compiled {
         let relations = db::relations(db::SCHEMA).unwrap();
-        flow::compile(flow::FLOW, &flow::Context { relations }).unwrap()
+        flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations,
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap()
     }
 
     #[test]

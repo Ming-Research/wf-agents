@@ -98,7 +98,8 @@ impl Engine {
         }
         let mut db = Db::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let relations = db::relations(db::SCHEMA).map_err(|e| e.to_string())?;
-        let compiled = flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())?;
+        let tables = db::index_of(db::SCHEMA).map_err(|e| e.to_string())?;
+        let compiled = flow::compile(flow::FLOW, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
         let problems = config.config.check(&compiled);
         if !problems.is_empty() {
             return Err(problems.join("\n"));

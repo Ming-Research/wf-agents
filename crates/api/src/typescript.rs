@@ -55,7 +55,6 @@ pub fn typescript() -> String {
         decl::<GraphView>(&cfg),
         decl::<CellView>(&cfg),
         decl::<RowRef>(&cfg),
-        decl::<Origin>(&cfg),
         decl::<Material>(&cfg),
         decl::<MaterialOf>(&cfg),
         decl::<Returns>(&cfg),
@@ -98,6 +97,7 @@ pub fn typescript() -> String {
         decl::<flow::format::DoAt>(&cfg),
         decl::<flow::format::Always>(&cfg),
         decl::<flow::format::Check>(&cfg),
+        decl::<flow::format::ReadBy>(&cfg),
     ];
     format!("{HEADER}\n{}\n", decls.join("\n\n"))
 }

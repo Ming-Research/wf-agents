@@ -12,7 +12,8 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, Rounds, Rule, Src,
+    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, ReadBy, Rounds, Rule,
+    Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -151,6 +152,9 @@ pub struct CompiledCell {
     /// Paths of the return the owner's page shows on the item the work is on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<String>,
+    /// Places of the return a role reads outside this flow, through the database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_by: Vec<ReadBy>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
 }
@@ -713,6 +717,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             checks: c.checks.clone(),
             handoff: c.handoff.clone(),
             shown: c.shown.clone(),
+            read_by: c.read_by.clone(),
             inenums: c.inenums.clone(),
         });
     }

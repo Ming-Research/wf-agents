@@ -675,11 +675,11 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
     };
     let red = reds(&required(&again));
     if red.is_empty() {
-        return Ok(json!({ "main": { "kind": "flaky", "checks": checks_json(&again) } }));
+        return Ok(json!({ "main": { "kind": "flaky" } }));
     }
     let known = known_red(e, &item.project)?;
     if red.iter().all(|c| known.contains(c)) {
-        return Ok(json!({ "main": { "kind": "known_red", "checks": checks_json(&again) } }));
+        return Ok(json!({ "main": { "kind": "known_red" } }));
     }
     let _ = git::git(&wt, &["fetch", "-q", "origin", &project.main]);
     let before = git::resolve(&wt, &format!("{merged}^1")).ok_or("main's commit before the merge is not known here")?;

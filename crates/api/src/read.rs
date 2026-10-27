@@ -861,7 +861,14 @@ mod tests {
 
     fn setup(name: &str) -> Setup {
         let relations = db::relations(db::SCHEMA).unwrap();
-        let compiled = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let compiled = flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations,
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap();
         let first = compiled.graph("engineer").unwrap().cell("1").unwrap().inputs[0]
             .what
             .clone();

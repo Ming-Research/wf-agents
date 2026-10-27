@@ -10,7 +10,7 @@
 //!
 //! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
 //! content; a value the engine reads or computes for a round is `R<round>·engine·<name>`, by the earliest round it
-//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `card:<id>`, `ij:<id>`, `db:tables`,
+//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `card:<id>`, `ij:<id>`,
 //! `format:common` and `format:<cell>`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -348,6 +348,19 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
     )
 }
 
+/// A return format with the value of each setting it names written beside the setting's name, such as the owner's
+/// language beside `owner.language`: the compiled flow can name a setting, never its value, which the configuration
+/// holds. The value is written as JSON writes it inside a string, since the format holds the schema as JSON.
+fn with_settings(e: &Engine, project: &str, text: String) -> String {
+    let mut out = text;
+    for (name, value) in e.config.config.named_settings(project, &out) {
+        let quoted = Value::String(value).to_string();
+        let inner = &quoted[1..quoted.len() - 1];
+        out = out.replace(&format!("`{name}`"), &format!("`{name}` ({inner})"));
+    }
+    out
+}
+
 /// What a message is built from.
 pub struct Context<'a> {
     pub e: &'a Engine,
@@ -602,10 +615,17 @@ impl Context<'_> {
             registry: self.registry,
             list: Vec::new(),
         };
-        // What every round needs from the start: the return formats, the rules and the settings they name, and what
-        // the query tool reads.
-        m.add("format:common".into(), Value::String(common_format(g)));
-        m.add(format!("format:{}", c.id), Value::String(cell_format(g, c)));
+        // What every round needs from the start: the return formats (the query tool's description in them lists the
+        // database's tables and views), with the value of each setting they name beside its name, and the rules and
+        // the settings they name.
+        m.add(
+            "format:common".into(),
+            Value::String(with_settings(e, &item.project, common_format(g))),
+        );
+        m.add(
+            format!("format:{}", c.id),
+            Value::String(with_settings(e, &item.project, cell_format(g, c))),
+        );
         let mut rules = Vec::new();
         let mut settings: Vec<(String, String)> = Vec::new();
         let project = e.config.config.projects.get(&item.project);
@@ -631,18 +651,6 @@ impl Context<'_> {
             .into_iter()
             .map(|(k, v)| m.add(format!("config:{k}"), Value::String(v)))
             .collect();
-        let query = c.tools.iter().any(|t| t == "query");
-        if query {
-            let index = db::index(e.db.conn()).unwrap_or_default();
-            let lines: Vec<String> = index.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
-            let text = format!(
-                "The tables and views the query tool reads, each with the first line of what it holds. To read one in \
-                 full, with its columns and what each holds, hand in the query tool with `{}`.\n\n{}",
-                db::DEFINITION,
-                lines.join("\n")
-            );
-            m.add("db:tables".into(), Value::String(text));
-        }
         // The inputs, each by the addresses of what it holds.
         let mut work_from = Vec::new();
         let mut interjections = Vec::new();
@@ -717,9 +725,6 @@ impl Context<'_> {
                 "- The settings the rules name, for this project: {}",
                 settings.join(", ")
             ));
-        }
-        if query {
-            push("- The tables and views the query tool reads: db:tables");
         }
         if let (Some(wt), Some(branch)) = (&w.worktree, &w.branch) {
             push(&format!(
@@ -875,7 +880,14 @@ mod tests {
 
     fn graph() -> CompiledGraph {
         let relations = db::relations(db::SCHEMA).unwrap();
-        let f = flow::compile(flow::FLOW, &flow::Context { relations }).unwrap();
+        let f = flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations,
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap();
         f.graph(crate::ENGINEER).unwrap().clone()
     }
 

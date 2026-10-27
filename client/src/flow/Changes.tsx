@@ -27,6 +27,7 @@ const PART: Record<Part, Key> = {
   always: 'part_always',
   handoff: 'part_handoff',
   shown: 'part_shown',
+  read_by: 'part_read_by',
   inenum: 'part_inenum',
   start: 'part_start',
   end: 'part_end',

@@ -240,7 +240,8 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
         None => db::SCHEMA.to_string(),
     };
     let relations = db::relations(&schema).map_err(|e| format!("the database definition: {e}"))?;
-    let compiled = flow::compile(&text, &flow::Context { relations }).map_err(|e| e.to_string())?;
+    let tables = db::index_of(&schema).map_err(|e| format!("the database definition: {e}"))?;
+    let compiled = flow::compile(&text, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
     for s in &compiled.stats {
         println!(
             "{}: {} cells, {} rows, {} states, {} output places",
@@ -258,7 +259,8 @@ fn data(dir: Option<&Path>) -> Result<&Path, String> {
 /// The flow this command runs, compiled against the database it creates.
 fn compiled() -> Result<flow::Compiled, String> {
     let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
-    flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())
+    let tables = db::index_of(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
+    flow::compile(flow::FLOW, &flow::Context { relations, tables }).map_err(|e| e.to_string())
 }
 
 fn config_check(dir: &Path) -> Result<(), String> {

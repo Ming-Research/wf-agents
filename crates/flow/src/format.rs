@@ -74,6 +74,9 @@ pub struct Tool {
     pub desc: String,
     /// What the engine does to run it.
     pub runs: String,
+    /// For a tool that reads the database: what leads the index of the tables and views it reads, which the
+    /// compiler adds to its description, one line for each with the first line of what it holds.
+    pub tables: Option<String>,
     /// What the agent hands in.
     #[serde(rename = "in")]
     pub input: Vec<RawField>,
@@ -377,6 +380,19 @@ pub struct AgentCommon {
     /// What the description of each field an agent's cell shows on the item adds: the language it is written in.
     #[serde(default, rename = "shownSay")]
     pub shown_say: String,
+    /// Places of every agent's return a role reads outside this flow, through the database.
+    #[serde(default, rename = "readBy")]
+    pub read_by: Vec<ReadBy>,
+}
+
+/// A place of a return a role reads outside this flow, through the database, such as the architect reading side
+/// reports: what the role does with it is not a cell of this flow.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ReadBy {
+    pub at: String,
+    /// The role that reads it, one of the roles an agent may ask.
+    pub role: String,
 }
 
 /// What one return of an agent holds: exactly one form, inside the field `in`, and every field of `every`.

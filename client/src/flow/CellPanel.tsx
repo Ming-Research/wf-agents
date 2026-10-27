@@ -6,7 +6,7 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CompiledCell, Material, Origin, RoundSummary } from '../api';
+import type { CellDiff, CompiledCell, Material, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
 import { circled } from '../graph/flowModel';
 import { time } from '../format';
@@ -42,13 +42,6 @@ export function who(c: CompiledCell, firstOfLine: boolean): string {
   if (c.stage) parts.push(t('who_stage', { stage: c.stage }));
   return parts.join(' · ');
 }
-
-const ORIGINS: Array<[Origin, Key, Key]> = [
-  ['line', 'origin_line', 'origin_line_note'],
-  ['start', 'origin_start', 'origin_start_note'],
-  ['outside', 'origin_outside', 'origin_outside_note'],
-  ['either', 'origin_either', 'origin_either_note'],
-];
 
 /// One material: what it is, where it comes from and its address.
 function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: boolean }) {
@@ -98,7 +91,6 @@ function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: bo
       const key: Record<string, Key> = {
         project_rules: 'mat_project_rules',
         settings: 'mat_settings',
-        tables: 'mat_tables',
         common_format: 'mat_common_format',
         cell_format: 'mat_cell_format',
       };
@@ -117,7 +109,8 @@ function AgentInputs({ c }: { c: CompiledCell }) {
   const f = useFlow();
   const view = f.cellView(c.id);
   const materials = view?.materials ?? [];
-  const itself = materials.filter((m) => m.origin === 'itself' && m.of.kind === 'input');
+  const itself = materials.filter((m) => m.always && m.of.kind === 'input');
+  const conditional = materials.filter((m) => !m.always);
   const prompt = c.prompt ?? [];
   // The own answer's form names no field: the compiled flow leaves the key out.
   const shared = (c.forms ?? []).filter((x) => x.field != null).map((x) => `\`${x.field}\``);
@@ -174,21 +167,11 @@ function AgentInputs({ c }: { c: CompiledCell }) {
       <div className="ig">
         <div className="il">{t('inputs_conditional')}</div>
         <p className="fmt">{t('inputs_conditional_note')}</p>
-        {ORIGINS.map(([origin, title, note]) => {
-          const list = materials.filter((m) => m.origin === origin);
-          if (list.length === 0) return null;
-          return (
-            <div key={origin} className="origin">
-              <div className="origin-h">{t(title)}</div>
-              <p className="fmt">{t(note)}</p>
-              <ul className="bl">
-                {list.map((m, i) => (
-                  <MaterialLine key={i} c={c} m={m} rules />
-                ))}
-              </ul>
-            </div>
-          );
-        })}
+        <ul className="bl">
+          {conditional.map((m, i) => (
+            <MaterialLine key={i} c={c} m={m} rules />
+          ))}
+        </ul>
       </div>
     </Section>
   );
@@ -398,6 +381,17 @@ export function CellPanel(props: {
             {(c.shown ?? []).map((p) => (
               <li key={p}>
                 <code>{p}</code>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+      {(c.read_by ?? []).length > 0 ? (
+        <Section title={t('sec_read_by')} note={t('read_by_note')}>
+          <ul className="bl">
+            {(c.read_by ?? []).map((x) => (
+              <li key={`${x.at}:${x.role}`}>
+                <code>{x.at}</code> · {t('use_role', { role: x.role })}
               </li>
             ))}
           </ul>
