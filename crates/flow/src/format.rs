@@ -277,6 +277,9 @@ pub struct Rule {
     pub name: String,
     pub desc: String,
     pub text: Vec<String>,
+    /// The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -403,6 +406,10 @@ pub struct Returns {
     pub join: String,
     /// How a field is named in `say`, with `{name}`.
     pub name: String,
+    /// How every return is written, said once in the forms every return shares: that only the return is read, and
+    /// how a field the owner reads is written.
+    #[serde(default)]
+    pub write: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

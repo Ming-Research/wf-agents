@@ -912,6 +912,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
         "format:1",
         "inputs:1",
         "rule:ground",
+        "rule:general",
+        "rule:engineering",
         workspace.as_str(),
     ] {
         assert_eq!(given(first, a), Some(true), "{a}");

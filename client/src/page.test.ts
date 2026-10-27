@@ -161,7 +161,7 @@ const graph: CompiledGraph = {
         row('tools', 't', { ...shared, main: true }),
         row('pause', '@self', shared),
       ],
-      { rules: [{ name: 'tree' }] },
+      { rules: [{ name: 'tree', shared: false }, { name: 'general', shared: true }] },
     ),
     cell('b', [row('ask', 'q', shared), row('done', 'z', { main: true }), row('back', 'a'), row('tools', 't', shared)], {
       line: 'review',
@@ -233,6 +233,8 @@ describe('the chart of a flow', () => {
 
   it('puts the rules beside the cells given them and the interjection beside the steps that take one', () => {
     expect(node('r:tree:a')).toMatchObject({ kind: 'rule', group: 'stage:build' });
+    // A rule every cell of a line is given is listed in the cell's inputs, not drawn beside it.
+    expect(node('r:general:a')).toBeUndefined();
     expect(edge('r:tree:a->c:a')?.kind).toBe('rule');
     expect(node('j:z')?.kind).toBe('interjection');
     expect(node('j:s')).toBeUndefined();

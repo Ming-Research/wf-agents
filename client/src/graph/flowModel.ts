@@ -193,9 +193,10 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
       }
     });
   }
-  // The rules beside the cells given them, and the interjection beside the engine's steps that take one.
+  // The rules beside the cells that name them (those every cell of a line is given are listed in each cell's inputs,
+  // not drawn), and the interjection beside the engine's steps that take one.
   for (const c of g.cells) {
-    for (const r of c.rules ?? []) {
+    for (const r of (c.rules ?? []).filter((x) => !x.shared)) {
       const id = `r:${r.name}:${c.id}`;
       node({ id, kind: 'rule', cell: c.id, other: r.name, rows: [] });
       edges.set(`${id}->${cellNode(c.id)}`, {

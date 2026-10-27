@@ -26,6 +26,8 @@ pub struct Request {
     pub prompt: String,
     /// What the return must be, as JSON Schema; the CLI is given only its envelope.
     pub schema: Value,
+    /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
+    pub refused: Vec<String>,
 }
 
 /// What a round came to.
@@ -84,6 +86,11 @@ pub fn command_line(r: &Request) -> Vec<String> {
     out.push(envelope(&r.schema).to_string());
     if let Some(e) = &r.effort {
         out.extend(["--effort".to_string(), e.clone()]);
+    }
+    // The line's permissions, after the CLI's own arguments: the CLI refuses what any rule of either refuses.
+    if !r.refused.is_empty() {
+        out.push("--disallowedTools".into());
+        out.extend(r.refused.iter().cloned());
     }
     match &r.resume {
         Some(s) => out.extend(["--resume".to_string(), s.clone()]),
@@ -585,9 +592,27 @@ mod tests {
             new_session: "s2".into(),
             prompt: "p".into(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
+            refused: config::Permissions::default().refused("engineer"),
         };
         let line = command_line(&r);
         assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
+        // Heavy work is refused on every line; an engineer may still edit and commit.
+        assert!(line.iter().any(|a| a == "Bash(cargo *)") && line.iter().any(|a| a == "Bash(npm run *)"));
+        assert!(
+            !line.iter().any(|a| a == "Edit" || a == "Bash(git commit *)"),
+            "{line:?}"
+        );
+        // The review and the advisor only read; the adversarial tester writes tests.
+        for l in ["review", "advisor"] {
+            let refused = config::Permissions::default().refused(l);
+            assert!(refused.iter().any(|a| a == "Edit") && refused.iter().any(|a| a == "Bash(git commit *)"));
+        }
+        assert!(
+            !config::Permissions::default()
+                .refused("adversarial")
+                .iter()
+                .any(|a| a == "Edit")
+        );
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
         // It reads no project instructions or settings by itself.
         assert!(line.windows(2).any(|w| w == ["--setting-sources", "user"]), "{line:?}");

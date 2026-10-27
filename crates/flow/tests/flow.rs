@@ -95,6 +95,43 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     );
 }
 
+// Every agent's cell is given the general rules and the project's design goal; every engineer's cell and the
+// advisor's are given the engineering standards; no cell has an input that only says to read something itself; and
+// the forms every return shares say how a return is written. A rule given to a line cannot be named by a cell again.
+#[test]
+fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    for cell in g.cells.iter().filter(|x| x.kind == "agent") {
+        let rules: Vec<(&str, bool)> = cell.rules.iter().map(|r| (r.name.as_str(), r.shared)).collect();
+        assert_eq!(rules[0], ("general", true), "{}", cell.id);
+        let engineer = matches!(cell.line.as_deref(), Some("engineer" | "advisor"));
+        assert_eq!(rules.contains(&("engineering", true)), engineer, "{}", cell.id);
+        assert!(
+            cell.inputs
+                .iter()
+                .any(|i| i.from == [flow::format::Src::Config("design_goal".into())]),
+            "{}",
+            cell.id
+        );
+        assert!(
+            !cell.inputs.iter().any(|i| i.from == [flow::format::Src::Itself]),
+            "{}",
+            cell.id
+        );
+    }
+    assert!(g.write.iter().any(|l| l.starts_with("Only your return is read")));
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let cells = v["flows"][0]["nodes"].as_array_mut().unwrap();
+    let four = cells.iter_mut().find(|n| n["id"] == "4").unwrap();
+    four["rules"] = serde_json::json!(["design_tree_writing", "engineering"]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("a cell names a rule every cell of its line is given: 4"),
+        "{e}"
+    );
+}
+
 // What the engine stores reads back as it was, with the same digest each time.
 #[test]
 fn the_compiled_flow_reads_back_with_a_stable_digest() {

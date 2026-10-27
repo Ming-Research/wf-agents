@@ -233,7 +233,7 @@ const messages = {
   sec_inputs: 'Inputs',
   inputs_always: 'Always: given every time the cell is entered',
   inputs_always_note:
-    'Given every time: what to do in this round, what to read itself, the addresses of the conditional inputs to work from by the number of each input, and which return format to hand in; the engine adds why the round happens. After a return sent back, only why it was sent back and that it is to be rewritten.',
+    'Given every time: what to do in this round, the addresses of the conditional inputs to work from by the number of each input, and which return format to hand in; the engine adds why the round happens. After a return sent back, only why it was sent back and that it is to be rewritten.',
   prompt_by: "By the engine's value {by}, the prompt adds:",
   inputs_itself: 'Read it yourself',
   inputs_work_from: 'Work from: each conditional input below, by its address, under the number of its input.',

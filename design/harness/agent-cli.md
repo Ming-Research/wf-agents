@@ -8,6 +8,8 @@ Decision: An agent asks for the GitHub and database query tools by handing in `t
 
 Decision: The command line reads only the settings of the agents' own configuration directory (`--setting-sources user` for `claude`), so it reads no project instructions or project settings by itself, such as the worktree's AGENTS.md, instead of reading them as a session started in a project directory does, because the engine gives the project's guide as a material once in a session, and a guide the command line reads by itself comes twice and comes back in every session whether the session needs it or not.
 
+Decision: What the agents of each line may not do on the machine is in the installation's configuration, with defaults, and every round's command line refuses it as tools and commands: no line runs heavy work (compiling, type checking, building, test suites, benchmarks, measurements: cargo, rustc, make, tsc, npm runs, npx and the like) or pushes, and the review and the advisor only read, editing no file and committing nothing, instead of the command line's arguments refusing a few commands for every line alike, because heavy work goes to CI however convenient running it here looks, and a role that only reads must not be able to change the work it reads.
+
 Rejected:
 - Starting the command line bare (`--bare`), which also reads no project instructions: rejected because it takes only an API key, not the account the owner logged in with.
 - A structured-output schema of a bare object: rejected because the model then handed in the nested objects as JSON strings, seen on three returns in a row.

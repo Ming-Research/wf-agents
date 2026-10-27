@@ -153,6 +153,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
+        refused: e.config.config.install.agents.permissions.refused(&line),
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the

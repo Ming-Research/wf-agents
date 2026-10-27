@@ -724,6 +724,10 @@ within: string,
  */
 asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
 /**
+ * How every agent's return is written, which the forms every return shares say once.
+ */
+write?: Array<string>, 
+/**
  * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
  * version stored before the flow said it in this form, which runs by the section of the flow built into the
  * engine.
@@ -736,7 +740,11 @@ export type Counter = { name: string, desc: string,
  */
 time?: boolean, };
 
-export type Rule = { name: string, desc: string, text: Array<string>, };
+export type Rule = { name: string, desc: string, text: Array<string>, 
+/**
+ * The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
+ */
+lines?: Array<string>, };
 
 export type CompiledInterject = { name: string, desc: string, text: Array<string>, from: Array<Named>, };
 
@@ -811,7 +819,11 @@ export type Src = [string, string] | "self" | { config: string } | { db: string,
 /**
  * A rule of the flow an agent's cell is given, by its name.
  */
-export type RuleUse = { name: string, };
+export type RuleUse = { name: string, 
+/**
+ * Given to every agent's cell of the cell's line, not named by the cell itself.
+ */
+shared: boolean, };
 
 export type PromptBy = { by: string, cases: { [key in string]: Array<string> }, };
 

@@ -1,8 +1,8 @@
 //! The message an agent's round is sent, and what the round's session already holds.
 //!
 //! A message is the round's inputs, of two kinds. The always inputs are given every time the cell is entered: what to
-//! do this round (the cell's task), what the agent reads itself, the addresses of the conditional inputs to work from
-//! by the number of each of the cell's inputs, why the round happens and which format to hand in. A conditional input
+//! do this round (the cell's task), the addresses of the conditional inputs to work from by the number of each of the
+//! cell's inputs, why the round happens and which format to hand in. A conditional input
 //! is anything worked on: a rule, the item, a setting, another cell's output, a tool's results, an interjection, a
 //! return format, what each numbered input is, the worktree. Each has an address, and is given only when the session
 //! does not hold it: one the session already holds, by its content, is only referred to; one that is new or changed
@@ -400,11 +400,17 @@ pub fn common_format(g: &CompiledGraph) -> String {
     } else {
         format!("; {}", leaves.join("; "))
     };
+    let write: String = g.write.iter().map(|l| format!("- {l}\n")).collect();
+    let write = if write.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nHow a return is written:\n{write}")
+    };
     format!(
         "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
          the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
-         also holds {every}{leaves}. Each field, as JSON Schema; no object holds fields it does not list, and a part \
-         used in more than one place is under `$defs`:\n\n{json}",
+         also holds {every}{leaves}.{write}\n\nEach field, as JSON Schema; no object holds fields it does not list, \
+         and a part used in more than one place is under `$defs`:\n\n{json}",
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),

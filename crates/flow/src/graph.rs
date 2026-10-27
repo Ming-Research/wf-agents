@@ -291,6 +291,14 @@ impl<'s> Graph<'s> {
         );
         let rule_names: BTreeSet<&str> = flow.rules.iter().map(|r| r.name.as_str()).collect();
         ensure!(rule_names.len() == flow.rules.len(), "two rules with one name");
+        for r in &flow.rules {
+            ensure!(
+                r.lines.iter().all(|l| flow.sessions.lines.iter().any(|x| &x.name == l)),
+                "a rule given to no such line: {} {:?}",
+                r.name,
+                r.lines
+            );
+        }
         let stage_names: BTreeSet<&str> = flow.stages.list.iter().map(|s| s.name.as_str()).collect();
         ensure!(stage_names.len() == flow.stages.list.len(), "two stages with one name");
 
@@ -617,14 +625,26 @@ impl<'s> Graph<'s> {
                 );
             }
             let line = n.line.clone();
-            let rules = n.rules.clone().unwrap_or_default();
+            let own_rules = n.rules.clone().unwrap_or_default();
             ensure!(agent || line.is_none(), "only an agent is on a line: {nid}");
-            ensure!(agent || rules.is_empty(), "only an agent is given rules: {nid}");
-            let distinct: BTreeSet<&String> = rules.iter().collect();
+            ensure!(agent || own_rules.is_empty(), "only an agent is given rules: {nid}");
+            let distinct: BTreeSet<&String> = own_rules.iter().collect();
             ensure!(
-                rules.iter().all(|r| rule_names.contains(r.as_str())) && distinct.len() == rules.len(),
-                "no such rule, or one twice: {nid} {rules:?}"
+                own_rules.iter().all(|r| rule_names.contains(r.as_str())) && distinct.len() == own_rules.len(),
+                "no such rule, or one twice: {nid} {own_rules:?}"
             );
+            // The rules every cell of the line is given come first; a cell does not name one of them again.
+            let shared: Vec<String> = flow
+                .rules
+                .iter()
+                .filter(|r| line.as_ref().is_some_and(|l| r.lines.contains(l)))
+                .map(|r| r.name.clone())
+                .collect();
+            ensure!(
+                own_rules.iter().all(|r| !shared.contains(r)),
+                "a cell names a rule every cell of its line is given: {nid} {own_rules:?}"
+            );
+            let rules: Vec<String> = shared.iter().chain(&own_rules).cloned().collect();
             ensure!(
                 line.as_ref().is_none_or(|l| lines.contains(l)),
                 "no such line: {nid} {line:?}"

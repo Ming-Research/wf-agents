@@ -60,6 +60,9 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
+    /// How every agent's return is written, which the forms every return shares say once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write: Vec<String>,
     /// What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
     /// version stored before the flow said it in this form, which runs by the section of the flow built into the
     /// engine.
@@ -89,6 +92,9 @@ pub struct CompiledInput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RuleUse {
     pub name: String,
+    /// Given to every agent's cell of the cell's line, not named by the cell itself.
+    #[serde(default)]
+    pub shared: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -696,7 +702,18 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     maybe: x.maybe,
                 })
                 .collect(),
-            rules: c.rules.iter().map(|r| RuleUse { name: r.clone() }).collect(),
+            rules: c
+                .rules
+                .iter()
+                .map(|r| RuleUse {
+                    name: r.clone(),
+                    shared: g
+                        .flow
+                        .rules
+                        .iter()
+                        .any(|x| &x.name == r && c.line.as_ref().is_some_and(|l| x.lines.contains(l))),
+                })
+                .collect(),
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
             forms: c.forms.clone(),
@@ -754,6 +771,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
+        write: f.agent_common.returns.write.clone(),
         rounds: match &f.rounds {
             Some(r) => Some(rounds(r, &cells)?),
             None => None,
