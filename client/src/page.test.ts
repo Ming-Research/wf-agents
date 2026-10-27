@@ -6,6 +6,7 @@ import { cost, duration } from './format';
 import { addHops, pathOf, type Route as Routed } from './graph/flowLayout';
 import { ASKING, chart, circled, MAIN, numbers, overlays, partsOf, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
+import { blocks } from './pages/Decide';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 
@@ -276,5 +277,30 @@ describe('the routes of arrows', () => {
     expect(down.hops).toEqual([[]]);
     expect(pathOf(across)).toBe('M 0 50 L 45 50 A 5 5 0 0 1 55 50 L 100 50');
     expect(pathOf(bent)).toBe('M 0 0 L 0 31 Q 0 40 9 40 L 40 40');
+  });
+});
+
+describe('an ask', () => {
+  it('keeps a command in its text as code, and the rest as prose', () => {
+    const what = [
+      'Please run a short probe on the Mac the engine runs on.',
+      '',
+      "python3 - <data dir> <<'EOF'",
+      'import fcntl, os, sys',
+      'fd = os.open(sys.argv[1], os.O_RDONLY)',
+      'EOF',
+      '',
+      'Expected: line 1 taken\u3002',
+      '',
+      '```',
+      'one line of code.',
+      '```',
+    ].join('\n');
+    expect(blocks(what)).toEqual([
+      { code: false, text: 'Please run a short probe on the Mac the engine runs on.' },
+      { code: true, text: "python3 - <data dir> <<'EOF'\nimport fcntl, os, sys\nfd = os.open(sys.argv[1], os.O_RDONLY)\nEOF" },
+      { code: false, text: 'Expected: line 1 taken\u3002' },
+      { code: true, text: 'one line of code.' },
+    ]);
   });
 });

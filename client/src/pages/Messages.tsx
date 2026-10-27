@@ -54,6 +54,9 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
         )}
       </div>
       <p className="msg-text">{m.text}</p>
+      {m.ask !== null && m.item !== null ? (
+        <Link to={`/items/${m.item}#ask-${m.ask}`}>{t('message_answer_ask', { id: m.ask })}</Link>
+      ) : null}
     </li>
   );
 }

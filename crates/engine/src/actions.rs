@@ -50,9 +50,18 @@ fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> 
 /// Tells the owner something: kept for the owner's interface in the same transaction, and written to the
 /// notifications log through the outbox.
 pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
+    tell(tx, work, None, text)
+}
+
+/// Tells the owner of a new ask of the owner, the notice naming the ask for the owner's interface to link to.
+pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
+    tell(tx, Some(work), Some(ask), text)
+}
+
+fn tell(tx: &Transaction<'_>, work: Option<i64>, ask: Option<i64>, text: &str) -> Result<(), String> {
     tx.execute(
-        "INSERT INTO engine_notices (work, text, at) VALUES (?1, ?2, ?3)",
-        params![work, text, db::now()],
+        "INSERT INTO engine_notices (work, ask, text, at) VALUES (?1, ?2, ?3, ?4)",
+        params![work, ask, text, db::now()],
     )
     .map_err(sql)?;
     outbox(tx, work, "notify", &json!({ "text": text }))

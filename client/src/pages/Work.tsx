@@ -175,6 +175,9 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
             {t('next_rule_card', { id: n.design_card })}
           </Link>
         ) : null}
+        {n.ask !== null && w.item !== null ? (
+          <Link to={`/items/${w.item}#ask-${n.ask}`}>{t('next_answer_ask', { id: n.ask })}</Link>
+        ) : null}
       </section>
     );
   }

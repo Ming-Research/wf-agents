@@ -661,6 +661,103 @@ fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The advisor is the engineer with a higher model: an item's advisor round runs on the level one above the item's,
+// with that level's command line and model.
+#[test]
+fn the_advisor_runs_one_level_above_the_item() {
+    let s = setup("advisor-level");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents.levels.m]\ndesc = \"one level up\"\ncli = \"claude\"\nmodel = \"m-up\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a level above"]);
+    let mut agents = scripts();
+    let implement = agents.remove("4").unwrap();
+    agents.insert(
+        "4",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 1 {
+                return (vec![("outcome", "ask"), ("outcome.ask", "advisor")], Vec::new());
+            }
+            implement(r, n - 1)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let advised = |e: &Engine| -> Option<(String, String)> {
+        e.db.conn()
+            .query_row(
+                "SELECT r.model, s.line FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
+                 WHERE w.item = ?1 AND s.line = 'advisor' ORDER BY r.id LIMIT 1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+    };
+    for _ in 0..60 {
+        if advised(&e).is_some() {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(advised(&e), Some(("m-up".to_string(), "advisor".to_string())), "{log}");
+    let engineer: String =
+        e.db.conn()
+            .query_row(
+                "SELECT r.model FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
+                 WHERE w.item = ?1 AND s.line = 'engineer' ORDER BY r.id LIMIT 1",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(engineer, "m", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While a work waits for the owner's answer to an ask, its next round offers no round: it says which ask; once the
+// ask is answered, the round that takes the answer is offered.
+#[test]
+fn an_ask_waiting_for_its_answer_offers_no_round() {
+    let s = setup("ask-wait");
+    let (mut e, _, item) = start(&s, scripts());
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let ask =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET at = '16' WHERE id = ?1", [work])?;
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '16', '{}', 'c', 1)",
+                [work],
+            )?;
+            let round = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO owner_asks (round, body) VALUES (?1, '{\"to\":\"owner\"}')",
+                [round],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!(
+        next.waits.as_deref(),
+        Some(format!("your answer to ask {ask}").as_str())
+    );
+    assert_eq!(next.ask, Some(ask));
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE owner_asks SET answer = '{\"by\":\"owner\",\"text\":\"done\"}' WHERE id = ?1",
+            [ask],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!((next.waits, next.ask), (None, None));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A value of one branch is the cell as its newest return left it: a conflict the full CI reported is in the fix
 // table only while the newest run of that cell still reports it.
 #[test]

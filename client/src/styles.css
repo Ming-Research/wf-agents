@@ -2136,3 +2136,21 @@ summary.works-label {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Code an agent wrote inside a text, such as a command for the owner to run. */
+
+.code-block {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: var(--code);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.ask-tried {
+  margin-top: 4px;
+}

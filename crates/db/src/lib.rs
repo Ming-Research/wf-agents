@@ -31,6 +31,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0007.sql"),
     include_str!("../../../db/migrations/0008.sql"),
     include_str!("../../../db/migrations/0009.sql"),
+    include_str!("../../../db/migrations/0010.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1069,9 +1070,9 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        // The database as it was at version 8, before the repair; the schema adds nothing since.
+        // The database as it was at version 8, before the repair, and the repair alone run on it.
         db.conn.pragma_update(None, "user_version", 8).unwrap();
-        db.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        db.upgrade(SCHEMA, &MIGRATIONS[..8]).unwrap();
         let mut st = db
             .conn()
             .prepare("SELECT status, replaced_by FROM design_cards ORDER BY id")

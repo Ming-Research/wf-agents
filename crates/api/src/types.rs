@@ -51,6 +51,8 @@ pub struct NextRound {
     pub waits: Option<String>,
     /// The design card it waits for the owner's ruling on, when it does.
     pub design_card: Option<i64>,
+    /// The ask of the owner it waits for an answer to, when it does.
+    pub ask: Option<i64>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.
@@ -279,6 +281,8 @@ pub struct OwnerMessage {
     pub text: String,
     /// When the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
+    /// For the engine's notice of a new ask of the owner: that ask.
+    pub ask: Option<i64>,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by

@@ -160,7 +160,10 @@ CREATE TABLE engine_notices (
   -- When the engine wrote it.
   at INTEGER NOT NULL,
   -- When the owner marked it read; NULL while it is unread. Read by: the owner's interface.
-  read_at INTEGER
+  read_at INTEGER,
+  -- When the notice is of a new ask of the owner: that ask, for the owner's interface to link to. Read by: the
+  -- owner's interface.
+  ask INTEGER REFERENCES owner_asks(id)
 ) STRICT;
 
 CREATE TABLE contents (

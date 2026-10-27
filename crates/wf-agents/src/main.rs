@@ -552,6 +552,7 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
                 tools: n.tools,
                 waits: n.waits,
                 design_card: n.design_card,
+                ask: n.ask,
             });
             let _ = answer.send(next);
         }

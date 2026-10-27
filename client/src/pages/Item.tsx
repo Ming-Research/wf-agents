@@ -265,7 +265,7 @@ function Detail({ d }: { d: ItemDetail }) {
       {d.asks.length > 0 ? (
         <Section title={t('asks')}>
           {d.asks.map((a) => (
-            <div key={a.id} className="boxed">
+            <div key={a.id} id={`ask-${a.id}`} className="boxed">
               <div className="muted">
                 {t('ask_head', { id: a.id })} · {a.answer === null ? t('ask_waits') : t('ask_answered')} ·{' '}
                 <Link to={`/works/${a.work}?round=${a.round}`}>{t('shown_from_round', { work: a.work, round: a.round })}</Link>

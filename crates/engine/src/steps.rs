@@ -97,12 +97,15 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
+    // The advisor runs one level above the item's: it is the engineer, with a higher model.
+    let line_of_cell = cell.line.clone().unwrap_or_else(|| "engineer".to_string());
+    let level_name = e.config.config.level_of_line(&item.level, &line_of_cell);
     let (level, cli) = e
         .config
         .config
-        .level(&item.level)
+        .level(&level_name)
         .map(|(l, c)| (l.clone(), c.clone()))
-        .ok_or_else(|| format!("item {}: no such level in the configuration: {}", item.id, item.level))?;
+        .ok_or_else(|| format!("item {}: no such level in the configuration: {}", item.id, level_name))?;
     let cli_name = level.cli.clone();
     let Composed {
         line,
@@ -377,6 +380,8 @@ pub struct NextRound {
     pub waits: Option<String>,
     /// The design card it waits for a ruling on, when it does.
     pub design_card: Option<i64>,
+    /// The ask of the owner it waits for an answer to, when it does.
+    pub ask: Option<i64>,
 }
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
@@ -402,6 +407,21 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     // A judgment that would take a row that waits records nothing new: the work waits for what the row says.
     let mut waits = None;
     let mut design_card = None;
+    let mut ask = None;
+    if matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect"))
+        && let Some(r) = work::open_round(e.db.conn(), w.id)?.filter(|r| r.cell.as_deref() == Some(cell.id.as_str()))
+    {
+        let asked: Option<(i64, Option<String>)> =
+            e.db.conn()
+                .query_row("SELECT id, answer FROM owner_asks WHERE round = ?1", [r.id], |x| {
+                    Ok((x.get(0)?, x.get(1)?))
+                })
+                .ok();
+        if let Some((id, None)) = asked {
+            waits = Some(format!("your answer to ask {id}"));
+            ask = Some(id);
+        }
+    }
     if cell.kind == "engine" && cell.step.is_none() && !cell.rows.is_empty() {
         let item = e.item_of(&w)?;
         let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
@@ -427,6 +447,7 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     Ok(NextRound {
         waits,
         design_card,
+        ask,
         tools,
         title: cell.title.clone(),
         kind: cell.kind.clone(),
@@ -861,6 +882,7 @@ fn ask(
         .filter(|x| x.value.is_some() && x.input.from.iter().all(|s| matches!(s, Src::Place(..))))
         .map(|x| json!({ "what": x.input.what, "value": x.value }))
         .collect();
+    let about = what_is_asked(&asked);
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
     let input = json!({ "inputs": recorded_inputs(&gathered) });
     let commit = e.config.commit.clone();
@@ -869,7 +891,7 @@ fn ask(
     } else {
         "the architect, for whom you answer in this version".to_string()
     };
-    let text = format!("Work {} on item {} ({}) asks {whom}: ask", w.id, item.id, item.title);
+    let text = format!("Work {} on item {} ({}) asks {whom}", w.id, item.id, item.title);
     let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
@@ -878,15 +900,47 @@ fn ask(
                 params![round, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
-            let note = json!({ "text": format!("{text} {id}") });
-            tx.execute(
-                "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'notify', ?2, ?3)",
-                params![w.id, note.to_string(), db::now()],
-            )?;
+            actions::notify_ask(tx, w.id, id, &format!("{text}{about} (ask {id})")).map_err(db::Error::Abort)?;
             Ok(id)
         })
         .map_err(sql)?;
     Ok(Advance::Waits(format!("ask {id} waits for the owner")))
+}
+
+/// What an ask is about, for the notice that tells the owner of it: the kind of its first point, in words, and the
+/// first sentence of what that point says; nothing when the ask holds no point.
+fn what_is_asked(asked: &[Value]) -> String {
+    let point = asked
+        .iter()
+        .find_map(|a| a["value"]["points"].as_array().and_then(|ps| ps.first()).cloned());
+    let Some(point) = point else { return String::new() };
+    let kind = point["kind"].as_str().unwrap_or_default().replace('_', " ");
+    let what = point["what"].as_str().unwrap_or_default();
+    format!(" ({kind}): {}", first_sentence(what))
+}
+
+/// The first sentence of a text, at most 200 characters: up to its first full stop, question or exclamation mark, or
+/// line break.
+pub fn first_sentence(text: &str) -> String {
+    let text = text.trim();
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\n' {
+            break;
+        }
+        out.push(c);
+        // The full stop, exclamation and question marks of Chinese and Japanese text end a sentence on their own.
+        let ends = matches!(c, '\u{3002}' | '\u{ff01}' | '\u{ff1f}')
+            || (matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|n| n.is_whitespace()));
+        if ends {
+            break;
+        }
+    }
+    if out.chars().count() > 200 {
+        out = out.chars().take(199).collect::<String>() + "…";
+    }
+    out
 }
 
 /// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since
@@ -948,6 +1002,19 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The notice of a new ask says its kind and the first sentence of what it asks.
+    #[test]
+    fn an_ask_is_told_by_its_kind_and_first_sentence() {
+        let asked = vec![json!({ "what": "w", "value": { "to": "owner", "points": [
+            { "kind": "blocked_by_permission", "what": "Please run a probe. Why: the lock.\n\npython3 - <<'EOF'\nEOF" }
+        ] } })];
+        assert_eq!(what_is_asked(&asked), " (blocked by permission): Please run a probe.");
+        assert_eq!(first_sentence("a\u{3002}b"), "a\u{3002}");
+        assert_eq!(first_sentence("Run it. Then paste"), "Run it.");
+        assert_eq!(first_sentence("v1.2 is out\nmore"), "v1.2 is out");
+        assert_eq!(what_is_asked(&[]), "");
+    }
 
     fn round(usage: Value) -> Round {
         Round {

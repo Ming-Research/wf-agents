@@ -54,7 +54,11 @@ waits: string | null,
 /**
  * The design card it waits for the owner's ruling on, when it does.
  */
-design_card: number | null, };
+design_card: number | null, 
+/**
+ * The ask of the owner it waits for an answer to, when it does.
+ */
+ask: number | null, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.
@@ -242,7 +246,11 @@ round: number | null, cell: string | null, line: string | null, at: number | nul
 /**
  * When the owner marked it read; none while it is unread.
  */
-read_at: number | null, };
+read_at: number | null, 
+/**
+ * For the engine's notice of a new ask of the owner: that ask.
+ */
+ask: number | null, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by

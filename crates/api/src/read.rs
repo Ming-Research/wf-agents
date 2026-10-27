@@ -431,12 +431,13 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             title: r.get(7)?,
             text: r.get(8)?,
             read_at: r.get(9)?,
+            ask: None,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
 
 /// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
@@ -458,6 +459,7 @@ pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
             text: r.get(4)?,
             at: Some(r.get(5)?),
             read_at: r.get(6)?,
+            ask: r.get(7)?,
         })
     })?;
     for n in notices {

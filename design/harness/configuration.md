@@ -12,3 +12,5 @@ Decision: A name in the configuration (a project, a level, a rule) is the refere
 
 Rejected:
 - Deep merging of tables and lists across extended files: rejected because what a setting ends up as would then depend on every file in the chain, while replacing whole values makes the last file that sets a value decide it.
+
+Decision: An item's level picks the command line, model and effort its agents run with, and the advisor runs at the level one above the item's (the next in the order of the levels' names, by number when they are numbers; the top level stays at the top), each round recording the model it ran on, instead of every line at the item's level, because the owner decided that the advisor is the engineer with a higher model, as the flow says: one level above the engineer.

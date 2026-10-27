@@ -225,11 +225,67 @@ function AnswerForm({ a, options }: { a: OwnerAsk; options: string[] }) {
   );
 }
 
-/// An ask of the owner as the owner reads and answers it.
+/// A text an agent wrote cut into its paragraphs, each prose or code: code is a block between ``` fences, or a
+/// paragraph of three lines or more none of which ends a sentence, such as a command to run.
+export function blocks(text: string): Array<{ code: boolean; text: string }> {
+  const out: Array<{ code: boolean; text: string }> = [];
+  text.split(/^```[^\n]*$/m).forEach((segment, i) => {
+    if (i % 2 === 1) {
+      const code = segment.replace(/^\n+|\n+$/g, '');
+      if (code !== '') out.push({ code: true, text: code });
+      return;
+    }
+    for (const para of segment.split(/\n[ \t]*\n/)) {
+      const p = para.replace(/^\n+|\n+$/g, '');
+      if (p.trim() === '') continue;
+      const lines = p.split('\n');
+      // A sentence ends with a full stop, an exclamation or a question mark, those of Chinese and Japanese too.
+      const ends = (l: string) => /[\u3002\uff01\uff1f.!?]\s*$/.test(l);
+      out.push({ code: lines.length >= 3 && !lines.some(ends), text: p });
+    }
+  });
+  return out;
+}
+
+/// A text an agent wrote, as it reads: prose paragraphs as prose, code kept as code.
+export function Written({ text }: { text: string }) {
+  return (
+    <>
+      {blocks(text).map((b, i) =>
+        b.code ? (
+          <pre key={i} className="code-block">
+            {b.text}
+          </pre>
+        ) : (
+          <p key={i} className="prose">
+            {b.text}
+          </p>
+        ),
+      )}
+    </>
+  );
+}
+
+/// What an ask holds: what the cells handed in, each with its points and its choice. The engine keeps them under
+/// `asked`, each with what it is and its value; an ask written as one is its own.
+function parts(body: Obj): Obj[] {
+  const asked = Array.isArray(body.asked)
+    ? body.asked
+        .filter(isObj)
+        .map((x) => x.value)
+        .filter((v): v is Obj => v !== undefined && isObj(v))
+    : [];
+  return asked.length > 0 ? asked : [body];
+}
+
+/// An ask of the owner as the owner reads and answers it: for each point, its kind in words, what it says (its code
+/// kept as code) and what was tried; the choice, when there is one, with the option recommended; then the answer, or
+/// the form to give it.
 export function AskView({ a }: { a: OwnerAsk }) {
   const body = isObj(a.body) ? a.body : {};
-  const points = Array.isArray(body.points) ? body.points.filter(isObj) : [];
-  const choice = isObj(body.choice) ? body.choice : null;
+  const held = parts(body);
+  const points = held.flatMap((x) => (Array.isArray(x.points) ? x.points.filter(isObj) : []));
+  const choice = held.map((x) => x.choice).find((c): c is Obj => c !== undefined && isObj(c)) ?? null;
   const options = choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [];
   const recommended = choice !== null ? str(choice.recommended) : '';
   const answer = a.answer !== null && isObj(a.answer) ? a.answer : null;
@@ -239,8 +295,13 @@ export function AskView({ a }: { a: OwnerAsk }) {
       {points.map((p, i) => (
         <div key={i} className="decision-fact">
           <span className="decision-label">{words(str(p.kind))}</span>
-          <p className="prose">{str(p.what)}</p>
-          {str(p.tried) !== '' ? <p className="prose muted">{t('ask_tried', { tried: str(p.tried) })}</p> : null}
+          <Written text={str(p.what)} />
+          {str(p.tried) !== '' ? (
+            <div className="ask-tried">
+              <span className="decision-label">{t('ask_tried_label')}</span>
+              <Written text={str(p.tried)} />
+            </div>
+          ) : null}
         </div>
       ))}
       {choice !== null ? (
@@ -264,10 +325,7 @@ export function AskView({ a }: { a: OwnerAsk }) {
             </tbody>
           </table>
           {choice.confidence !== undefined ? (
-            <Text
-              label={t('ask_confidence', { n: str(choice.confidence) })}
-              value={choice.confidence_why}
-            />
+            <Text label={t('ask_confidence', { n: str(choice.confidence) })} value={choice.confidence_why} />
           ) : null}
         </>
       ) : null}
@@ -278,7 +336,7 @@ export function AskView({ a }: { a: OwnerAsk }) {
             {t('ask_answer_by', { by: str(answer.by) })}
             {typeof answer.at === 'number' ? ` · ${time(answer.at)}` : ''}
           </span>
-          <p className="prose">{str(answer.text)}</p>
+          <Written text={str(answer.text)} />
         </div>
       ) : (
         <AnswerForm a={a} options={options.map((o) => str(o.name)).filter((o) => o !== '')} />

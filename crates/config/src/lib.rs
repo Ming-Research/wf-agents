@@ -95,7 +95,8 @@ pub struct Host {
 pub struct Agents {
     /// The CLIs agents run in, by name.
     pub clis: BTreeMap<String, Cli>,
-    /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with.
+    /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with; its advisor
+    /// runs at the level one above.
     pub levels: BTreeMap<String, Level>,
     /// What the agents of each line may not do on this machine.
     #[serde(default)]
@@ -669,6 +670,27 @@ impl Config {
         Some((l, self.install.agents.clis.get(&l.cli)?))
     }
 
+    /// The level one above the one named, in the order of the levels' names (by number when they are numbers); the
+    /// top level is its own level above. A name that is no level is given back as it is.
+    pub fn level_above(&self, name: &str) -> String {
+        let mut names: Vec<&String> = self.install.agents.levels.keys().collect();
+        names.sort_by_key(|n| (n.parse::<i64>().ok(), (*n).clone()));
+        match names.iter().position(|n| *n == name) {
+            Some(i) => names.get(i + 1).unwrap_or(&names[i]).to_string(),
+            None => name.to_string(),
+        }
+    }
+
+    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, every
+    /// other line at the item's.
+    pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
+        if line == "advisor" {
+            self.level_above(item_level)
+        } else {
+            item_level.to_string()
+        }
+    }
+
     /// The settings a rule's text names, as `` `owner.language` `` or `` `project.under_test` ``, each with its value
     /// for the project, so the agent given the rule is given what it says.
     pub fn named_settings(&self, project: &str, text: &str) -> Vec<(String, String)> {
@@ -842,6 +864,25 @@ asks = 9
             ..cli.clone()
         };
         assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
+    }
+
+    // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level
+    // above. The advisor runs one level above the item's, every other line at the item's.
+    #[test]
+    fn the_advisor_runs_one_level_up() {
+        let mut c = read(&files(&[])).unwrap();
+        let senior = c.install.agents.levels["senior"].clone();
+        c.install.agents.levels = ["1", "2", "10"]
+            .iter()
+            .map(|n| (n.to_string(), senior.clone()))
+            .collect();
+        assert_eq!(c.level_above("1"), "2");
+        assert_eq!(c.level_above("2"), "10");
+        assert_eq!(c.level_above("10"), "10");
+        assert_eq!(c.level_above("nine"), "nine");
+        assert_eq!(c.level_of_line("1", "advisor"), "2");
+        assert_eq!(c.level_of_line("1", "engineer"), "1");
+        assert_eq!(c.level_of_line("10", "advisor"), "10");
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.
