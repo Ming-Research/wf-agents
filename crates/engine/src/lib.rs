@@ -308,18 +308,21 @@ impl Engine {
         }))
     }
 
+    /// The first item of the queue waiting for a work to start.
+    fn next_ready(&self) -> Option<i64> {
+        self.db
+            .conn()
+            .query_row("SELECT item FROM ready_items LIMIT 1", [], |r| r.get(0))
+            .ok()
+    }
+
     /// One pass of the main loop: reads the configuration again, carries out the outbox, starts works on ready
     /// items while slots are free, and takes each active work one step. Gives whether anything moved.
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
         while self.free_slots()? > 0 {
-            let next: Option<i64> = self
-                .db
-                .conn()
-                .query_row("SELECT item FROM ready_items LIMIT 1", [], |r| r.get(0))
-                .ok();
-            let Some(item) = next else { break };
+            let Some(item) = self.next_ready() else { break };
             let id = self.create_work(item)?;
             (self.say)(&format!("work {id} started on item {item}"));
             moved = true;
@@ -335,15 +338,100 @@ impl Engine {
         Ok(moved)
     }
 
-    /// Runs the main loop until `stop` says to.
-    pub fn run(&mut self, stop: &dyn Fn() -> bool, idle: std::time::Duration) -> Result<(), String> {
-        while !stop() {
-            if !self.tick()? {
-                std::thread::sleep(idle);
+    /// Takes exactly one step, as single-step mode does: one round of one work, which is an agent's round, a step
+    /// of the engine's own, a run of a tool cell, or starting a work. It first carries out the outbox; then, when a
+    /// slot is free and an item is ready, it starts a work on that item and takes the work's first step; otherwise
+    /// it takes the next step of the first active work that has one, in the order of the works' ids, beginning
+    /// after `after` and going round to the lowest, so that every work gets its turn as in a pass. The outbox the
+    /// step filled is carried out after it.
+    pub fn step(&mut self, after: Option<i64>) -> Result<Stepped, String> {
+        self.reload_config();
+        actions::run_outbox(self)?;
+        let mark = self.rounds_mark()?;
+        if self.free_slots()? > 0
+            && let Some(item) = self.next_ready()
+        {
+            let id = self.create_work(item)?;
+            (self.say)(&format!("work {id} started on item {item}"));
+            self.advance(id)?;
+            actions::run_outbox(self)?;
+            let (rounds, cell) = self.rounds_since(&mark)?;
+            return Ok(Stepped {
+                work: Some(id),
+                started_item: Some(item),
+                rounds,
+                cell,
+            });
+        }
+        let (later, earlier): (Vec<i64>, Vec<i64>) = self
+            .active()?
+            .into_iter()
+            .partition(|id| after.is_some_and(|a| *id > a));
+        for id in later.into_iter().chain(earlier) {
+            self.advance(id)?;
+            let (rounds, cell) = self.rounds_since(&mark)?;
+            if !rounds.is_empty() {
+                actions::run_outbox(self)?;
+                return Ok(Stepped {
+                    work: Some(id),
+                    started_item: None,
+                    rounds,
+                    cell,
+                });
             }
         }
-        Ok(())
+        Ok(Stepped::default())
     }
+
+    /// The newest round, and the rounds not ended.
+    fn rounds_mark(&self) -> Result<(i64, Vec<i64>), String> {
+        let conn = self.db.conn();
+        let newest: i64 = conn
+            .query_row("SELECT coalesce(max(id), 0) FROM rounds", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let mut st = conn
+            .prepare("SELECT id FROM rounds WHERE ended_at IS NULL")
+            .map_err(|e| e.to_string())?;
+        let open = st
+            .query_map([], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<i64>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok((newest, open))
+    }
+
+    /// The rounds started since `mark`, and those open then that have ended since, with the cell of the last.
+    fn rounds_since(&self, mark: &(i64, Vec<i64>)) -> Result<(Vec<i64>, Option<String>), String> {
+        let open = serde_json::to_string(&mark.1).map_err(|e| e.to_string())?;
+        let mut st = self
+            .db
+            .conn()
+            .prepare(
+                "SELECT id, cell FROM rounds
+                 WHERE id > ?1 OR (ended_at IS NOT NULL AND id IN (SELECT value FROM json_each(?2)))
+                 ORDER BY id",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = st
+            .query_map(params![mark.0, open], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        let cell = rows.last().and_then(|(_, c)| c.clone());
+        Ok((rows.into_iter().map(|(id, _)| id).collect(), cell))
+    }
+}
+
+/// What one step came to: the work it took a step of, none when no work had a step to take; the item it started that
+/// work on, when it started it; the rounds it started or ended, and the cell of the last of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Stepped {
+    pub work: Option<i64>,
+    pub started_item: Option<i64>,
+    pub rounds: Vec<i64>,
+    pub cell: Option<String>,
 }
 
 /// The rows of a cell whose name is given.

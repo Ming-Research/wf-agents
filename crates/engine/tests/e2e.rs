@@ -498,6 +498,38 @@ fn an_item_goes_from_the_queue_to_main() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A single step runs exactly one round: starting the work is the first, and each later one is the next round of the
+// work that has a step to take.
+#[test]
+fn a_single_step_runs_exactly_one_round() {
+    let s = setup("step");
+    let (mut e, said, item) = start(&s, scripts());
+    let rounds = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .unwrap()
+    };
+    let first = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap_or_else(|| panic!("no work started:\n{log}"));
+    assert_eq!(first.work, Some(work), "{log}");
+    assert_eq!(first.started_item, Some(item));
+    assert_eq!(first.cell.as_deref(), Some("0"));
+    assert_eq!(rounds(&e), 1, "{log}");
+    assert_ne!(at, "0", "{log}");
+    let mut last = first.work;
+    for n in 2..=4 {
+        let next = e.step(last).unwrap();
+        let log = said.borrow().join("\n");
+        assert_eq!(next.work, Some(work), "{log}");
+        assert_eq!(next.started_item, None);
+        assert_eq!(next.rounds.len(), 1, "{next:?}\n{log}");
+        assert_eq!(rounds(&e), n, "{log}");
+        last = next.work;
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Three returns of a cell sent back in a row pause the work; once the owner lets it go on, it counts afresh.
 #[test]
 fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
