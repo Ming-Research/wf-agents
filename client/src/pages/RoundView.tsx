@@ -432,9 +432,21 @@ export function atPath(value: JsonValue | null | undefined, path: string): JsonV
   return v;
 }
 
-/// What an input already in the session held: given in an earlier round of the same session, or, for a value the
-/// session's own return produced, read from that return; none when neither has it.
-async function findHeld(address: string, d: RoundDetail, rounds: RoundSummary[], within: string): Promise<JsonValue | null> {
+/// What an input already in the session held: found by the hash the round's record names it with, as the round of the
+/// work that gave it gave it, or as the session's own return produced it; for a round recorded before its inputs had
+/// hashes, given in an earlier round of the same session under its address, or read from the return the address
+/// names. None when it is not found.
+async function findHeld(
+  address: string,
+  hash: string,
+  d: RoundDetail,
+  rounds: RoundSummary[],
+  within: string,
+): Promise<JsonValue | null> {
+  if (hash !== '') {
+    const url = `/api/v1/works/${d.work}/contents/${hash}?address=${encodeURIComponent(address)}`;
+    return getJson<JsonValue>(url).catch(() => null);
+  }
   const earlier = rounds
     .filter((r) => r.n < d.round.n && r.line !== null && r.line === d.round.line)
     .reverse()
@@ -452,16 +464,24 @@ async function findHeld(address: string, d: RoundDetail, rounds: RoundSummary[],
   return null;
 }
 
-/// An input the session already held, folded: what it holds is read from where the session got it when it is opened.
-function InSession({ address, d, rounds, f }: { address: string; d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
+/// An input the session already held, folded under `summary`: what it holds is read from where the session got it
+/// when it is opened.
+function InSession({ address, d, rounds, f, summary }: {
+  address: string;
+  d: RoundDetail;
+  rounds: RoundSummary[];
+  f: Flow | null;
+  summary?: ReactNode;
+}) {
   const [value, setValue] = useState<JsonValue | null | undefined>(undefined);
+  const hash = d.conditional.find((c) => c.address === address)?.hash ?? '';
   const toggle = (open: boolean) => {
     if (!open || value !== undefined) return;
-    findHeld(address, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));
+    findHeld(address, hash, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));
   };
   return (
     <details className="input-held" onToggle={(e) => toggle(e.currentTarget.open)}>
-      <summary className="muted">{t('input_open')}</summary>
+      <summary className={summary === undefined ? 'muted' : undefined}>{summary ?? t('input_open')}</summary>
       {value === undefined ? (
         <p className="muted">{t('loading')}</p>
       ) : value === null ? (
@@ -554,7 +574,19 @@ function AgentInputs({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[];
           </div>
         ) : null}
         {alsoHeld.length > 0 ? (
-          <p className="muted">{t('round_also_held', { names: alsoHeld.map((c) => addressWords(c.address)).join(', ') })}</p>
+          <div className="also-sent">
+            <span className="muted">{t('round_also_held')}</span>
+            {alsoHeld.map((c) => (
+              <InSession
+                key={c.address}
+                address={c.address}
+                d={d}
+                rounds={rounds}
+                f={f}
+                summary={addressWords(c.address)}
+              />
+            ))}
+          </div>
         ) : null}
       </section>
     </>

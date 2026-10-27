@@ -882,6 +882,102 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
     })
 }
 
+/// What a conditional input of one of a work's rounds holds, by the hash the round's record names it with, whether the
+/// round was given it or its session already held it: the content a round of the work gave under that hash, as its
+/// message gave it; or, for a value the session's own return produced and was never given, the value with that hash
+/// at the cell and path the address names in a return of the work. The hash finds it whatever round the address
+/// names, so an input of a round recorded before rounds were named by their work is found too.
+pub fn content(conn: &Connection, flows: &Flows, work: i64, hash: &str, address: &str) -> Result<Value> {
+    let missing = || Error::NotFound(format!("no content {hash} in work {work}"));
+    let mut st = conn.prepare("SELECT input FROM rounds WHERE work = ?1 AND instr(input, ?2) > 0 ORDER BY n")?;
+    let inputs: Vec<String> = st
+        .query_map(rusqlite::params![work, hash], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for text in inputs {
+        let Some(input) = json(Some(text)) else { continue };
+        // A round recorded before the conditional inputs were called so keeps them under `materials`.
+        let entries = input
+            .get("conditional")
+            .or_else(|| input.get("materials"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let given: Vec<&str> = entries
+            .iter()
+            .filter(|m| m["given"] == true)
+            .filter_map(|m| m["address"].as_str())
+            .collect();
+        let Some(at) = entries
+            .iter()
+            .find(|m| m["hash"] == hash && m["given"] == true)
+            .and_then(|m| m["address"].as_str())
+        else {
+            continue;
+        };
+        let record = db::put_back(conn, &input);
+        if let Some(text) = record["message"].as_str().and_then(|m| given_in(m, at, &given)) {
+            return Ok(as_given(text, hash));
+        }
+    }
+    // A value of the session's own return: at the cell and path its address names, in a return of the work.
+    let mut parts = address.splitn(3, '·');
+    let (Some(_), Some(cell), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(missing());
+    };
+    if !address.starts_with('R') || cell == "engine" {
+        return Err(missing());
+    }
+    let (version, graph): (i64, String) = conn
+        .query_row("SELECT flow_version, graph FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()?
+        .ok_or_else(missing)?;
+    let g = flows.graph(conn, version, &graph);
+    let agent = g.as_ref().and_then(|g| g.cell(cell)).is_some_and(|c| c.kind == "agent");
+    let mut st =
+        conn.prepare("SELECT output FROM rounds WHERE work = ?1 AND cell = ?2 AND output IS NOT NULL ORDER BY n DESC")?;
+    let outputs: Vec<String> = st
+        .query_map(rusqlite::params![work, cell], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for out in outputs {
+        let Some(ret) = json(Some(out)) else { continue };
+        let ret = match (&g, agent) {
+            (Some(g), true) => g.unwrap(&ret),
+            _ => ret,
+        };
+        if let Some(v) = value_at(&ret, path)
+            && flow::formats::hash(&v) == hash
+        {
+            return Ok(v);
+        }
+    }
+    Err(missing())
+}
+
+/// The text a message gave under an address, among the addresses it gave in the order it gave them: from that
+/// address's heading to the next given one's, or to the message's next part.
+fn given_in<'m>(message: &'m str, address: &str, given: &[&str]) -> Option<&'m str> {
+    let head = format!("\n### {address}\n");
+    let rest = &message[message.find(&head)? + head.len()..];
+    let end = given
+        .iter()
+        .skip_while(|a| **a != address)
+        .nth(1)
+        .and_then(|next| rest.find(&format!("\n### {next}\n")))
+        .or_else(|| rest.find("\n## "))
+        .unwrap_or(rest.len());
+    Some(rest[..end].trim_end_matches('\n'))
+}
+
+/// A content as a message gave it: what was given as JSON as that JSON, anything else as the text.
+fn as_given(text: &str, hash: &str) -> Value {
+    match serde_json::from_str::<Value>(text) {
+        Ok(v) if flow::formats::hash(&v) == hash => v,
+        _ => Value::String(text.to_string()),
+    }
+}
+
 /// The word a command line gives after a flag, such as the model after `--model`.
 fn flag(call: &Value, name: &str) -> Option<String> {
     let args = call["command"].as_array()?;
@@ -1702,6 +1798,41 @@ mod tests {
         );
         let own = json!({ "to": "owner", "points": [{ "kind": "split", "what": "z" }] });
         assert_eq!(ask_kinds(&own), [kind("split", Some("technical"))]);
+    }
+
+    // What a round held is found by the hash its record names it with: as the round of the work that gave it gave it,
+    // text or JSON; or, never given, as the session's own return produced it, though the address names a round by a
+    // number no round has now.
+    #[test]
+    fn a_held_input_is_found_by_its_hash() {
+        let mut s = setup("held");
+        let rule = json!("Facts first.\n\n- Check what you claim.");
+        let rows = json!([{ "a": 1 }]);
+        let design = json!("Keep one table.");
+        let message = format!(
+            "# R1-4 · cell 1 · Research\n\n## Given\n\n### rule:ground\n{}\n\n### R1-1·engine·rows\n{rows}\n\n## Task\n\nDo it.\n",
+            rule.as_str().unwrap()
+        );
+        let input = json!({ "message": message, "conditional": [
+            { "address": "rule:ground", "hash": flow::formats::hash(&rule), "given": true },
+            { "address": "R1-1·engine·rows", "hash": flow::formats::hash(&rows), "given": true },
+        ] });
+        let output = json!({ "outcome": { "design": design }, "progress": "p" });
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 4, '1', 1, ?1, ?2, 'done', 'c', 60, 70)",
+                [input.to_string(), output.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let cache = Flows::default();
+        let found = |v: &Value, address: &str| content(s.db.conn(), &cache, 1, &flow::formats::hash(v), address);
+        assert_eq!(found(&rule, "rule:ground"), Ok(rule.clone()));
+        assert_eq!(found(&rows, "R1-1·engine·rows"), Ok(rows.clone()));
+        assert_eq!(found(&design, "R353·1·design"), Ok(design.clone()));
+        assert!(matches!(found(&json!("never"), "rule:ground"), Err(Error::NotFound(_))));
     }
 
     #[test]

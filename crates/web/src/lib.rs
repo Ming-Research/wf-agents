@@ -126,6 +126,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/pause", post(pause))
         .route("/api/v1/works/{id}/resume", post(resume))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
+        .route("/api/v1/works/{id}/contents/{hash}", get(content))
         .route("/api/v1/flows", get(flows))
         .route("/api/v1/flows/sources", get(flow_sources))
         .route("/api/v1/flows/at", get(flow_at))
@@ -288,6 +289,23 @@ async fn work(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::W
 /// A round, by its work and its number in the work.
 async fn round(State(app): State<App>, Path((work, n)): Path<(i64, i64)>) -> Result<Json<api::RoundDetail>, Fail> {
     read(&app, move |c, a| api::round(c, &a.flows, &a.data, work, n))
+        .await
+        .map(Json)
+}
+
+#[derive(Deserialize)]
+struct Addressed {
+    address: String,
+}
+
+/// What a conditional input of one of a work's rounds holds, by the hash the round's record names it with and the
+/// address it was given or referred to under.
+async fn content(
+    State(app): State<App>,
+    Path((work, hash)): Path<(i64, String)>,
+    Query(q): Query<Addressed>,
+) -> Result<Json<serde_json::Value>, Fail> {
+    read(&app, move |c, a| api::content(c, &a.flows, work, &hash, &q.address))
         .await
         .map(Json)
 }

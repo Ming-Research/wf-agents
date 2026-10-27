@@ -6,8 +6,21 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{AskNeed, CompiledCell, CompiledGraph};
+
+/// The hash a content is known by, as a round's record names each conditional input it gave or referred to: SHA-256
+/// of its JSON with every object's keys in order, so that the same content is one conditional input however its keys
+/// were written.
+pub fn hash(v: &Value) -> String {
+    let mut s = String::new();
+    canonical(v, &mut s);
+    Sha256::digest(s.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
 
 /// A value as JSON with every object's keys in order, so that the same content is one text however its keys were
 /// written.

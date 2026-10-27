@@ -19,11 +19,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use flow::formats::canonical;
-pub use flow::formats::{cell_format, cell_inputs, common_format};
+pub use flow::formats::{cell_format, cell_inputs, common_format, hash};
 use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::Engine;
 use crate::inputs::{Gathered, Origin, Part};
@@ -65,17 +63,6 @@ impl Message {
                 .collect(),
         )
     }
-}
-
-/// The hash a content is known by: SHA-256 of its JSON with every object's keys in order, so that the same content is
-/// one conditional input however its keys were written.
-pub fn hash(v: &Value) -> String {
-    let mut s = String::new();
-    canonical(v, &mut s);
-    Sha256::digest(s.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// The round an address names, for an address of a round's value.

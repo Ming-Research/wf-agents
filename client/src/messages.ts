@@ -164,7 +164,7 @@ const messages = {
   round_task_same: 'the same every round at {cell}',
   round_itself: 'Reads itself: {names}',
   round_also_sent: 'Also sent now:',
-  round_also_held: 'Also in the session: {names}',
+  round_also_held: 'Also in the session:',
   round_told_owner: 'Told the owner',
   round_side_reports: 'Side reports',
   input_sent_now: 'sent now',
