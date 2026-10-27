@@ -98,8 +98,8 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
               {w.sent_back > 0 ? <span className="warn"> ↩{w.sent_back}</span> : null}
               {w.failed > 0 ? <span className="bad"> ✕{w.failed}</span> : null}
             </td>
-            <td>{time(w.started_at)}</td>
-            <td>{time(w.last_at)}</td>
+            <td className="nowrap">{time(w.started_at)}</td>
+            <td className="nowrap">{time(w.last_at)}</td>
             <td className="num">{cost(w.cost_usd)}</td>
             <td>{w.pr !== null ? `#${w.pr}` : ''}</td>
           </tr>

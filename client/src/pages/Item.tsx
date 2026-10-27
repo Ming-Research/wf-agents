@@ -70,6 +70,10 @@ const pathWords = (p: string) => {
   return w.charAt(0).toUpperCase() + w.slice(1);
 };
 
+/// How long a value shown on the item may be and still be open at first; a longer one opens on asking, so that the
+/// page first reads as a list of what was found and decided.
+const SHORT = 400;
+
 /// What the item's works found and decided, as the flow shows it on the item: where it stands now (the latest
 /// progress); each thing found or decided as it stands now, with the round that wrote it and the earlier versions folded
 /// under it; and every progress note, newest first. The rounds come in order, so the last of each is the newest.
@@ -92,7 +96,7 @@ function Shown({ d }: { d: ItemDetail }) {
         const now = all[all.length - 1];
         const before = all.slice(0, -1).reverse();
         return (
-          <details key={p} className="shown-path" open>
+          <details key={p} className="shown-path" open={JSON.stringify(now.value).length <= SHORT}>
             <summary>
               <strong>{pathWords(p)}</strong> <From x={now} />
             </summary>

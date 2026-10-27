@@ -208,7 +208,7 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
         marks={{ overlays: null, taken: null, added, changed }}
         cell={r.cell}
         onCell={(cell) => go({ ...r, cell }, true)}
-        start={null}
+        start={r.cell}
         diff={diff}
       />
     </>

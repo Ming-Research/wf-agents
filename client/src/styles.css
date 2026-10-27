@@ -1847,7 +1847,11 @@ summary.works-label {
 }
 
 .works-table .w-time {
-  width: 120px;
+  width: 140px;
+}
+
+.works-table td.nowrap {
+  white-space: nowrap;
 }
 
 .works-table .w-cost {

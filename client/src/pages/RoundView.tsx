@@ -256,7 +256,8 @@ function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
   );
 }
 
-/// What a step that was not an agent's came to, without the progress the sentence at the top already says.
+/// What a step that was not an agent's came to, without the progress the sentence at the top already says; folded then,
+/// since the sentence says it in words.
 function cameTo(output: RoundDetail['output']): RoundDetail['output'] {
   if (output === null || typeof output !== 'object' || Array.isArray(output) || typeof output.progress !== 'string') {
     return output;
@@ -294,7 +295,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
         </Section>
       ) : null}
       {output !== null ? (
-        <Section title={ran ? t('round_returned') : t('round_came_to')}>
+        <Section title={ran ? t('round_returned') : t('round_came_to')} open={ran || output === d.output}>
           <Json value={output} open={4} />
         </Section>
       ) : null}
