@@ -42,7 +42,11 @@ step: string | null,
  * For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
  * itself, and there is no message.
  */
-not_asked: string | null, };
+not_asked: string | null, 
+/**
+ * For a tool cell: what each tool the last round asked for will do, one line each.
+ */
+tools: Array<string>, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.
@@ -186,7 +190,11 @@ why: string | null, started_at: number, ended_at: number | null, model: string |
 /**
  * What the round said it did.
  */
-progress: string | null, };
+progress: string | null, 
+/**
+ * For a gate the engine answered itself, since the project does not have what it needs: that need.
+ */
+not_asked: string | null, };
 
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.
@@ -211,22 +219,63 @@ round: number, work: number, item: number | null, body: JsonValue,
 answer: JsonValue | null, };
 
 /**
- * What an agent told the owner in a return, needing no answer.
+ * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
  */
 export type OwnerMessage = { id: number, 
 /**
- * The round whose return holds it, its cell and line, and when it ended.
+ * Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
  */
-round: number, cell: string | null, line: string | null, at: number | null, work: number, item: number | null, title: string | null, text: string, 
+engine: boolean, 
+/**
+ * The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
+ * written.
+ */
+round: number | null, cell: string | null, line: string | null, at: number | null, work: number | null, item: number | null, title: string | null, text: string, 
 /**
  * When the owner marked it read; none while it is unread.
  */
 read_at: number | null, };
 
 /**
- * Which messages to the owner the owner marks read: those named, or every one unread.
+ * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
+ * `notices`), or every one unread.
  */
-export type MarkRead = { ids: Array<number>, all: boolean, };
+export type MarkRead = { ids: Array<number>, notices: Array<number>, all: boolean, };
+
+/**
+ * The owner's answer to an ask of the owner, as the page and the command line hand it in.
+ */
+export type Answer = { text: string, 
+/**
+ * For what the architect is asked: why it was decided this way.
+ */
+why?: string, 
+/**
+ * For what the architect is asked: the rest of the architect's reply (children, rest, waits).
+ */
+reply?: JsonValue, };
+
+/**
+ * The owner's ruling on a design card, as the page and the command line hand it in.
+ */
+export type Ruling = { 
+/**
+ * confirm or disagree.
+ */
+verdict: string, 
+/**
+ * What the ruling says.
+ */
+text: string, 
+/**
+ * The approach chosen instead of the one recommended: its name.
+ */
+option?: string, };
+
+/**
+ * What an answer or a ruling did, in words.
+ */
+export type Done = { done: string, };
 
 /**
  * How many messages a mark made read.
@@ -387,9 +436,13 @@ deliver: string, level: string, cancelled: string | null, state: ItemState,
  */
 queued: number | null, 
 /**
- * Its latest work, the cell that work is at, and its pull request.
+ * Its latest work and the cell that work is at.
  */
-work: number | null, at: string | null, pr: number | null, };
+work: number | null, at: string | null, 
+/**
+ * Its pull request: that of its latest work that has one, or the one it was imported with.
+ */
+pr: number | null, };
 
 /**
  * A dependency: `item` cannot finish until `depends_on` is done.

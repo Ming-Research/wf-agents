@@ -22,8 +22,7 @@ use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, Work};
 use crate::{Engine, form_of, git, values};
 
-/// The text a ruling on a design card is interjected with; a disagreement says so after it.
-pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
+pub use db::DESIGN_CARD_RULING;
 
 pub struct Ctx<'a> {
     pub e: &'a Engine,

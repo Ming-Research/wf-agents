@@ -6,42 +6,60 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { Compiled, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
-import { Json, Loaded, OutcomeBadge, Section } from '../components';
+import type { Compiled, CompiledGraph, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
+import { Loaded, OutcomeBadge, Section } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
-import { duration } from '../format';
+import { cost, duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { useActivity, useResource, useStatus } from '../live';
 import { href, navigate } from '../route';
 import { t } from '../text';
+import { AskView, DesignCardView, words } from './Decide';
 import { RoundView } from './RoundView';
 
-function Timeline(props: { rounds: RoundSummary[]; selected: number | null; onRound: (r: RoundSummary) => void }) {
+/// Who did a round's work: an agent, by its line; the engine, also for a gate it answered itself; the tools; the
+/// owner.
+function who(r: RoundSummary, g: CompiledGraph): string {
+  if (r.line !== null && r.not_asked === null) return r.line;
+  const kind = r.cell !== null ? g.cells.find((c) => c.id === r.cell)?.kind : undefined;
+  return kind === 'tool' ? t('round_by_tools') : kind === 'owner' ? t('round_by_owner') : t('round_by_engine');
+}
+
+/// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
+/// course: sent back, failed, cut off, running), what an agent's round cost and how long it took.
+function Timeline(props: {
+  rounds: RoundSummary[];
+  g: CompiledGraph;
+  selected: number | null;
+  onRound: (r: RoundSummary) => void;
+}) {
   if (props.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
   const newest = [...props.rounds].reverse();
   return (
     <table className="list timeline">
       <tbody>
-        {newest.map((r) => (
-          <tr
-            key={r.id}
-            className={`clickable${r.id === props.selected ? ' selected' : ''}`}
-            onClick={() => props.onRound(r)}
-          >
-            <td className="muted">#{r.id}</td>
-            <td>
-              <span className="cell-id">{r.cell ?? '–'}</span>
-            </td>
-            <td>
-              <OutcomeBadge outcome={r.outcome} />
-            </td>
-            <td className="clip" title={r.transition ?? r.why ?? ''}>
-              {r.transition ?? r.why ?? ''}
-            </td>
-            <td className="num muted">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
-          </tr>
-        ))}
+        {newest.map((r) => {
+          const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
+          return (
+            <tr
+              key={r.id}
+              className={`clickable${r.id === props.selected ? ' selected' : ''}`}
+              onClick={() => props.onRound(r)}
+            >
+              <td className="muted">#{r.id}</td>
+              <td className="nowrap">
+                <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
+              </td>
+              <td className="clip" title={what}>
+                {r.outcome !== 'took' ? <OutcomeBadge outcome={r.outcome} /> : null}{' '}
+                <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
+              </td>
+              <td className="num muted">{r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}</td>
+              <td className="num muted">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -54,6 +72,8 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
   const w = d.work;
   const activity = useActivity(w.id);
   const asked = useRef(false);
+  // When the owner pressed the button: until the round asked for has ended, the button says it is starting.
+  const [pressed, setPressed] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const stepping = status?.stepping === w.id;
@@ -90,6 +110,7 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
   }
   if (!can) return null;
   const n = next.data;
+  const starting = pressed !== null && !(last !== null && last !== undefined && last.work === w.id && last.at >= pressed);
   const kind =
     n === undefined
       ? ''
@@ -104,12 +125,26 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
             : t('next_kind_owner');
   const run = () => {
     setError(null);
+    setPressed(Date.now());
     asked.current = true;
     postJson(`/api/v1/works/${w.id}/step`, {}).catch((e: unknown) => {
       asked.current = false;
+      setPressed(null);
       setError(e instanceof Error ? e.message : String(e));
     });
   };
+  const note =
+    n === undefined
+      ? ''
+      : n.not_asked !== null
+        ? t('next_no_agent')
+        : n.kind === 'agent'
+          ? t('next_real')
+          : n.kind === 'tool'
+            ? t('next_tools_note')
+            : n.kind === 'owner'
+              ? t('next_owner_note')
+              : t('next_engine_note');
   return (
     <section className="next">
       <div className="next-head">
@@ -122,6 +157,13 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
       </div>
       {next.error !== null ? <p className="bad">{next.error}</p> : null}
       {n !== undefined && n.not_asked !== null ? <p className="prose">{n.not_asked}</p> : null}
+      {n !== undefined && n.tools.length > 0 ? (
+        <ul className="next-tools">
+          {n.tools.map((x, i) => (
+            <li key={i}>{x}</li>
+          ))}
+        </ul>
+      ) : null}
       {n?.message ? (
         <details>
           <summary>{t('next_message')}</summary>
@@ -129,10 +171,10 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
         </details>
       ) : null}
       <div className="next-run">
-        <button type="button" className="next-button" onClick={run} disabled={n === undefined}>
-          {t('next_run')}
+        <button type="button" className="next-button" onClick={run} disabled={n === undefined || starting}>
+          {starting ? t('next_starting') : t('next_run')}
         </button>
-        <span className="muted">{t(n !== undefined && n.not_asked !== null ? 'next_no_agent' : 'next_real')}</span>
+        <span className="muted">{note}</span>
       </div>
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
     </section>
@@ -140,7 +182,12 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
 }
 
 /// The work's rounds and records, in a drawer over the left of the chart.
-function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; onRound: (r: number) => void }) {
+function Drawer({ d, g, round, onRound }: {
+  d: WorkDetail;
+  g: CompiledGraph;
+  round: number | null;
+  onRound: (r: number) => void;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div className={`drawer${open ? '' : ' drawer-closed'}`}>
@@ -150,18 +197,23 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
       {open ? (
         <div className="drawer-body">
           <Next d={d} onRound={onRound} />
-          <Timeline rounds={d.rounds} selected={round} onRound={(r) => onRound(r.id)} />
+          <Timeline rounds={d.rounds} g={g} selected={round} onRound={(r) => onRound(r.id)} />
           {d.messages.length > 0 ? (
             <Section title={t('work_messages')} open={false}>
               {d.messages.map((m) => (
                 <div key={m.id} className="boxed">
                   <div className="muted">
-                    {m.cell !== null ? t('message_cell', { cell: m.cell }) : null} ·{' '}
-                    <button className="link" onClick={() => onRound(m.round)}>
-                      {t('round_title', { id: m.round })}
-                    </button>
+                    {m.cell !== null ? t('message_cell', { cell: m.cell }) : null}
+                    {m.round !== null ? (
+                      <>
+                        {' · '}
+                        <button className="link" onClick={() => (m.round !== null ? onRound(m.round) : undefined)}>
+                          {t('round_title', { id: m.round })}
+                        </button>
+                      </>
+                    ) : null}
                   </div>
-                  <pre className="j-text">{m.text}</pre>
+                  <p className="prose">{m.text}</p>
                 </div>
               ))}
             </Section>
@@ -176,8 +228,7 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
                       {t('round_title', { id: a.round })}
                     </button>
                   </div>
-                  <Json value={a.body} />
-                  {a.answer !== null ? <Json value={a.answer} /> : null}
+                  <AskView a={a} />
                 </div>
               ))}
             </Section>
@@ -192,8 +243,7 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
                       {t('round_title', { id: c.round })}
                     </button>
                   </div>
-                  <Json value={c.body} />
-                  <Json value={c.rulings} />
+                  <DesignCardView c={c} />
                 </div>
               ))}
             </Section>
@@ -235,7 +285,7 @@ function Body({ id, d, compiled, view, round, cell }: {
   const model = chart(g, v);
   return (
     <>
-      <Drawer d={d} round={round} onRound={(r) => go(r, null)} />
+      <Drawer d={d} g={g} round={round} onRound={(r) => go(r, null)} />
       <FlowScreen
         compiled={compiled}
         g={g}

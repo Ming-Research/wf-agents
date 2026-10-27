@@ -8,6 +8,7 @@ import { cost, time } from '../format';
 import { useResource } from '../live';
 import { Link } from '../route';
 import { t } from '../text';
+import { AskView, DesignCardView } from './Decide';
 
 type Row = { [key in string]: JsonValue };
 
@@ -70,6 +71,22 @@ const pathWords = (p: string) => {
   return w.charAt(0).toUpperCase() + w.slice(1);
 };
 
+/// A value that is a verdict with words, such as a measurement's ({verdict: "not_measured", why: "..."}), as a
+/// sentence ("Not measured: ..."); any other value as it is.
+function Value({ v }: { v: JsonValue }) {
+  if (isRow(v) && typeof v.verdict === 'string' && Object.values(v).every((x) => typeof x === 'string')) {
+    const rest = Object.entries(v)
+      .filter(([k]) => k !== 'verdict')
+      .map(([, x]) => String(x))
+      .join(' ');
+    return <p className="prose">{rest === '' ? pathWords(v.verdict) : `${pathWords(v.verdict)}: ${rest}`}</p>;
+  }
+  return <Json value={v} open={3} />;
+}
+
+/// What the item's works hand back that is not about the item: messages to the owner, already on the messages view.
+const NOT_FOUND = ['tell_owner'];
+
 /// How long a value shown on the item may be and still be open at first; a longer one opens on asking, so that the
 /// page first reads as a list of what was found and decided.
 const SHORT = 400;
@@ -78,7 +95,7 @@ const SHORT = 400;
 /// progress); each thing found or decided as it stands now, with the round that wrote it and the earlier versions folded
 /// under it; and every progress note, newest first. The rounds come in order, so the last of each is the newest.
 function Shown({ d }: { d: ItemDetail }) {
-  const values = d.shown.filter((x) => !empty(x.value));
+  const values = d.shown.filter((x) => !empty(x.value) && !NOT_FOUND.includes(x.path.split('.')[0]));
   if (values.length === 0) return <p className="muted">{t('none')}</p>;
   const progress = values.filter((x) => x.path === 'progress');
   const paths = [...new Set(values.filter((x) => x.path !== 'progress').map((x) => x.path))];
@@ -100,14 +117,14 @@ function Shown({ d }: { d: ItemDetail }) {
             <summary>
               <strong>{pathWords(p)}</strong> <From x={now} />
             </summary>
-            <Json value={now.value} open={3} />
+            <Value v={now.value} />
             {before.length > 0 ? (
               <details className="shown-before">
                 <summary className="muted">{t('shown_before', { n: before.length })}</summary>
                 {before.map((x) => (
                   <div key={x.round} className="shown-old">
                     <From x={x} />
-                    <Json value={x.value} />
+                    <Value v={x.value} />
                   </div>
                 ))}
               </details>
@@ -205,7 +222,6 @@ function Detail({ d }: { d: ItemDetail }) {
                   <td>{time(w.started_at)}</td>
                   <td className="num">{w.rounds}</td>
                   <td className="num">{cost(w.cost_usd)}</td>
-                  <td>{w.branch ?? ''}</td>
                   <td>{w.pr !== null ? `PR #${w.pr}` : ''}</td>
                   <td className="muted">{w.ended ?? ''}</td>
                 </tr>
@@ -230,20 +246,11 @@ function Detail({ d }: { d: ItemDetail }) {
         <Section title={t('design_cards')}>
           {d.design_cards.map((c) => (
             <div key={c.id} className="boxed">
-              <Facts
-                rows={[
-                  ['#', c.id],
-                  [t('col_state'), c.status],
-                  [
-                    t('round_title', { id: c.round }),
-                    <Link key="r" to={`/works/${c.work}?round=${c.round}`}>
-                      {t('work_title', { id: c.work })}
-                    </Link>,
-                  ],
-                ]}
-              />
-              <Json value={c.body} />
-              <Json value={c.rulings} />
+              <div className="muted">
+                {t('design_card_head', { id: c.id, status: c.status })} ·{' '}
+                <Link to={`/works/${c.work}?round=${c.round}`}>{t('shown_from_round', { work: c.work, round: c.round })}</Link>
+              </div>
+              <DesignCardView c={c} />
             </div>
           ))}
         </Section>
@@ -252,20 +259,11 @@ function Detail({ d }: { d: ItemDetail }) {
         <Section title={t('asks')}>
           {d.asks.map((a) => (
             <div key={a.id} className="boxed">
-              <Facts
-                rows={[
-                  ['#', a.id],
-                  [t('col_state'), a.answer === null ? t('ask_waits') : t('ask_answered')],
-                  [
-                    t('round_title', { id: a.round }),
-                    <Link key="r" to={`/works/${a.work}?round=${a.round}`}>
-                      {t('work_title', { id: a.work })}
-                    </Link>,
-                  ],
-                ]}
-              />
-              <Json value={a.body} />
-              {a.answer !== null ? <Json value={a.answer} /> : null}
+              <div className="muted">
+                {t('ask_head', { id: a.id })} · {a.answer === null ? t('ask_waits') : t('ask_answered')} ·{' '}
+                <Link to={`/works/${a.work}?round=${a.round}`}>{t('shown_from_round', { work: a.work, round: a.round })}</Link>
+              </div>
+              <AskView a={a} />
             </div>
           ))}
         </Section>

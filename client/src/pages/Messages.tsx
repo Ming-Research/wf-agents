@@ -1,5 +1,6 @@
-// What agents told the owner: messages that need no answer, unread first. The owner marks one read, or all of them;
-// read ones are shown on asking.
+// What agents and the engine told the owner: messages that need no answer, newest first. The engine's own notices (a
+// work stopped by a new flow version, a design card posted, every work halted until a limit resets) are marked as the
+// engine's. The owner marks one read, or all of them; read ones are shown on asking.
 
 import { useState } from 'react';
 
@@ -10,18 +11,25 @@ import { reread, useResource } from '../live';
 import { Link } from '../route';
 import { t } from '../text';
 
-/// Marks messages read: those named, or every one unread.
-async function markRead(body: { ids: number[] } | { all: true }): Promise<void> {
+/// Marks messages read: an agent's message or an engine's notice, or every one unread.
+async function markRead(body: { ids: number[] } | { notices: number[] } | { all: true }): Promise<void> {
   await postJson('/api/v1/messages/read', body);
   reread('messages');
 }
 
 function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void }) {
-  const who = [m.line, m.cell !== null ? t('message_cell', { cell: m.cell }) : null].filter((x) => x !== null).join(' · ');
+  const who = m.engine
+    ? t('message_engine')
+    : [m.line, m.cell !== null ? t('message_cell', { cell: m.cell }) : null].filter((x) => x !== null).join(' · ');
+  const work = m.work;
   return (
     <li className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
       <div className="msg-head">
-        <Link to={`/works/${m.work}?round=${m.round}`}>{t('work_title', { id: m.work })}</Link>
+        {work !== null ? (
+          <Link to={m.round !== null ? `/works/${work}?round=${m.round}` : `/works/${work}`}>
+            {t('work_title', { id: work })}
+          </Link>
+        ) : null}
         {m.item !== null ? (
           <Link to={`/items/${m.item}`} className="muted">
             #{m.item} {m.title ?? ''}
@@ -34,7 +42,9 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
             type="button"
             className="link"
             onClick={() => {
-              markRead({ ids: [m.id] }).catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
+              markRead(m.engine ? { notices: [m.id] } : { ids: [m.id] }).catch((e: unknown) =>
+                onError(e instanceof Error ? e.message : String(e)),
+              );
             }}
           >
             {t('message_mark_read')}
@@ -79,7 +89,7 @@ export function Messages() {
       ) : null}
       <ul className="msgs">
         {[...list].reverse().map((m) => (
-          <Message key={m.id} m={m} onError={setError} />
+          <Message key={`${m.engine ? 'e' : 'a'}${m.id}`} m={m} onError={setError} />
         ))}
       </ul>
     </div>

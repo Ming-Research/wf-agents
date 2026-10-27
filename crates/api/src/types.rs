@@ -45,6 +45,8 @@ pub struct NextRound {
     /// For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
     /// itself, and there is no message.
     pub not_asked: Option<String>,
+    /// For a tool cell: what each tool the last round asked for will do, one line each.
+    pub tools: Vec<String>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.
@@ -224,6 +226,8 @@ pub struct RoundSummary {
     pub tool_runs: i64,
     /// What the round said it did.
     pub progress: Option<String>,
+    /// For a gate the engine answered itself, since the project does not have what it needs: that need.
+    pub not_asked: Option<String>,
 }
 
 /// A design card, as the round that handed it in wrote it, with its rulings.
@@ -253,16 +257,19 @@ pub struct OwnerAsk {
     pub answer: Option<Value>,
 }
 
-/// What an agent told the owner in a return, needing no answer.
+/// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct OwnerMessage {
     pub id: i64,
-    /// The round whose return holds it, its cell and line, and when it ended.
-    pub round: i64,
+    /// Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
+    pub engine: bool,
+    /// The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
+    /// written.
+    pub round: Option<i64>,
     pub cell: Option<String>,
     pub line: Option<String>,
     pub at: Option<i64>,
-    pub work: i64,
+    pub work: Option<i64>,
     pub item: Option<i64>,
     pub title: Option<String>,
     pub text: String,
@@ -270,13 +277,49 @@ pub struct OwnerMessage {
     pub read_at: Option<i64>,
 }
 
-/// Which messages to the owner the owner marks read: those named, or every one unread.
+/// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
+/// `notices`), or every one unread.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct MarkRead {
     #[serde(default)]
     pub ids: Vec<i64>,
     #[serde(default)]
+    pub notices: Vec<i64>,
+    #[serde(default)]
     pub all: bool,
+}
+
+/// The owner's answer to an ask of the owner, as the page and the command line hand it in.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct Answer {
+    pub text: String,
+    /// For what the architect is asked: why it was decided this way.
+    #[serde(default)]
+    #[ts(optional)]
+    pub why: Option<String>,
+    /// For what the architect is asked: the rest of the architect's reply (children, rest, waits).
+    #[serde(default)]
+    #[ts(optional)]
+    pub reply: Option<Value>,
+}
+
+/// The owner's ruling on a design card, as the page and the command line hand it in.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct Ruling {
+    /// confirm or disagree.
+    pub verdict: String,
+    /// What the ruling says.
+    pub text: String,
+    /// The approach chosen instead of the one recommended: its name.
+    #[serde(default)]
+    #[ts(optional)]
+    pub option: Option<String>,
+}
+
+/// What an answer or a ruling did, in words.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Done {
+    pub done: String,
 }
 
 /// How many messages a mark made read.
@@ -447,9 +490,10 @@ pub struct ItemSummary {
     pub state: ItemState,
     /// Its place in the dispatch queue, lower first; none when it is not queued.
     pub queued: Option<f64>,
-    /// Its latest work, the cell that work is at, and its pull request.
+    /// Its latest work and the cell that work is at.
     pub work: Option<i64>,
     pub at: Option<String>,
+    /// Its pull request: that of its latest work that has one, or the one it was imported with.
     pub pr: Option<i64>,
 }
 

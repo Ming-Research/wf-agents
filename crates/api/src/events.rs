@@ -59,6 +59,10 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                     id,
                 ),
             }),
+            "engine_notices" => Some(Event::OwnerMessage {
+                message: id,
+                work: one(conn, "SELECT work FROM engine_notices WHERE id = ?1", id),
+            }),
             // The queue's key is the item.
             "items" | "dispatch_queue" => Some(Event::Item { item: Some(id) }),
             "item_links" => Some(Event::Item {

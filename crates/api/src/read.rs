@@ -348,7 +348,8 @@ pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
 const ROUND: &str = "SELECT r.id, r.cell, s.line, r.transition, r.rejected, r.started_at, r.ended_at, r.model,
        json_extract(r.usage, '$.cost_usd'), r.compactions, (SELECT count(*) FROM tool_runs t WHERE t.round = r.id),
        json_extract(r.output, '$.progress'),
-       r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage
+       r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
+       json_extract(r.input, '$.engine.not_applicable')
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
@@ -369,6 +370,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         compactions: r.get(9)?,
         tool_runs: r.get(10)?,
         progress: text(r, 11)?,
+        not_asked: r.get(21)?,
     })
 }
 
@@ -419,11 +421,12 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
     let rows = st.query_map(params_from_iter(args), |r| {
         Ok(OwnerMessage {
             id: r.get(0)?,
-            round: r.get(1)?,
+            engine: false,
+            round: Some(r.get(1)?),
             cell: r.get(2)?,
             line: r.get(3)?,
             at: r.get(4)?,
-            work: r.get(5)?,
+            work: Some(r.get(5)?),
             item: r.get(6)?,
             title: r.get(7)?,
             text: r.get(8)?,
@@ -433,9 +436,35 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// What agents told the owner, oldest first: those unread, or every one.
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at
+FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
+
+/// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
+/// every one.
 pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
-    messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])
+    let mut out = messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])?;
+    let unread = if all { "" } else { "WHERE n.read_at IS NULL" };
+    let mut st = conn.prepare(&format!("{NOTICE} {unread} ORDER BY n.id"))?;
+    let notices = st.query_map([], |r| {
+        Ok(OwnerMessage {
+            id: r.get(0)?,
+            engine: true,
+            round: None,
+            cell: None,
+            line: None,
+            work: r.get(1)?,
+            item: r.get(2)?,
+            title: r.get(3)?,
+            text: r.get(4)?,
+            at: Some(r.get(5)?),
+            read_at: r.get(6)?,
+        })
+    })?;
+    for n in notices {
+        out.push(n?);
+    }
+    out.sort_by_key(|m| m.at.unwrap_or(0));
+    Ok(out)
 }
 
 fn interjections(conn: &Connection, filter: &str, id: i64) -> Result<Vec<Interjection>> {
@@ -705,6 +734,9 @@ fn item_state(cancelled: bool, queued: bool, work: Option<&WorkSummary>) -> Item
     match work {
         _ if cancelled => ItemState::Cancelled,
         Some(w) if w.state == WorkState::Done => ItemState::Done,
+        // An item whose work stopped and that waits in the queue for a new work, such as one taking over after a new
+        // flow version, is queued.
+        Some(w) if w.state == WorkState::Ended && queued => ItemState::Queued,
         Some(w) if w.state == WorkState::Ended => ItemState::Stopped,
         Some(_) => ItemState::Working,
         None if queued => ItemState::Queued,
@@ -716,13 +748,19 @@ fn item_state(cancelled: bool, queued: bool, work: Option<&WorkSummary>) -> Item
 fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary>)> {
     let works = works(conn, flows)?;
     let mut latest: HashMap<i64, &WorkSummary> = HashMap::new();
+    // The item's pull request is that of its latest work that has one: a new work takes over the PR of the work before
+    // it before it records it as its own.
+    let mut prs: HashMap<i64, i64> = HashMap::new();
     for w in &works {
         if let Some(i) = w.item {
             latest.insert(i, w);
+            if let Some(pr) = w.pr {
+                prs.insert(i, pr);
+            }
         }
     }
     let mut st = conn.prepare(
-        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position
+        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
     )?;
     let items = st
@@ -730,6 +768,7 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
             let id: i64 = r.get(0)?;
             let cancelled: Option<String> = r.get(5)?;
             let queued: Option<f64> = r.get(6)?;
+            let imported_pr: Option<i64> = r.get(7)?;
             let w = latest.get(&id).copied();
             Ok(ItemSummary {
                 id,
@@ -742,7 +781,7 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 queued,
                 work: w.map(|w| w.id),
                 at: w.map(|w| w.at.clone()),
-                pr: w.and_then(|w| w.pr),
+                pr: prs.get(&id).copied().or(imported_pr),
             })
         })?
         .collect::<rusqlite::Result<_>>()?;

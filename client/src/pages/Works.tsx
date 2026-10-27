@@ -3,7 +3,7 @@
 // scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays. Both lists
 // have the same columns at the same widths, so that they read as one table.
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { WorkSummary } from '../api';
 import { Loaded, WorkBadge } from '../components';
@@ -28,8 +28,19 @@ function savedHeight(key: string): number {
   }
 }
 
+/// The time now, ticking every second while `ticking`, so that a running work's time goes on.
+function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [ticking]);
+  return now;
+}
+
 function Table({ works, selected }: { works: WorkSummary[]; selected: number | null }) {
-  const now = Date.now();
+  const now = useNow(works.some((w) => w.state === 'running'));
   return (
     <table className="list works-table">
       <colgroup>
@@ -77,14 +88,23 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
                 w.graph
               )}
             </td>
-            <td>
+            <td className="state-cell" title={w.paused ?? w.ended ?? undefined}>
               <WorkBadge state={w.state} />
               {w.state === 'running' && w.running ? (
-                <span className="muted"> {t('running_for', { time: duration(now - w.running.started_at) })}</span>
+                <span className="muted">
+                  {' '}
+                  {t('running_for', { time: duration(Math.max(0, now - w.running.started_at)) })}
+                </span>
               ) : null}
-              {w.open_asks > 0 ? <span className="warn"> {t('open_asks_n', { n: w.open_asks })}</span> : null}
+              {w.open_asks > 0 ? (
+                <span className="chip warn" title={t('open_asks_n', { n: w.open_asks })}>
+                  {t('open_asks_chip', { n: w.open_asks })}
+                </span>
+              ) : null}
               {w.open_design_cards > 0 ? (
-                <span className="warn"> {t('open_design_cards_n', { n: w.open_design_cards })}</span>
+                <span className="chip warn" title={t('open_design_cards_n', { n: w.open_design_cards })}>
+                  {t('open_design_cards_chip', { n: w.open_design_cards })}
+                </span>
               ) : null}
               {w.paused ? <div className="why">{w.paused}</div> : null}
               {w.ended ? <div className="why">{w.ended}</div> : null}

@@ -199,7 +199,7 @@ fn the_flow_page_reads_a_version_explained_and_compared() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
-// The page reads what agents told the owner, and the owner marks it read: one message, then the rest.
+// The page reads what agents and the engine told the owner, and the owner marks it read: one message, then the rest.
 #[test]
 fn the_owner_reads_messages_and_marks_them_read() {
     let s = serve("messages");
@@ -216,6 +216,10 @@ fn the_owner_reads_messages_and_marks_them_read() {
             [],
         )?;
         tx.execute("INSERT INTO owner_messages (round, text) VALUES (1, 'first'), (1, 'second')", [])?;
+        tx.execute(
+            "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 5)",
+            [],
+        )?;
         Ok(())
     })
     .unwrap();
@@ -224,6 +228,10 @@ fn the_owner_reads_messages_and_marks_them_read() {
     assert_eq!(status, 200, "{unread}");
     assert!(
         unread.contains(r#""text":"first""#) && unread.contains(r#""cell":"5a""#),
+        "{unread}"
+    );
+    assert!(
+        unread.contains(r#""engine":true,"round":null"#) && unread.contains(r#""text":"Work 1 stopped.""#),
         "{unread}"
     );
     let (status, marked) = post(s.port, "/api/v1/messages/read", r#"{"ids":[1]}"#, "application/json");
@@ -235,13 +243,53 @@ fn the_owner_reads_messages_and_marks_them_read() {
         "{unread}"
     );
     let (_, marked) = post(s.port, "/api/v1/messages/read", r#"{"all":true}"#, "application/json");
-    assert!(marked.ends_with(r#"{"marked":1}"#), "{marked}");
+    assert!(marked.ends_with(r#"{"marked":2}"#), "{marked}");
     let (_, every) = get(s.port, "/api/v1/messages?all=true", &here, "");
     assert!(
         every.contains(r#""text":"first""#) && every.contains(r#""text":"second""#),
         "{every}"
     );
     assert!(!every.contains(r#""read_at":null"#), "{every}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+// The owner answers an ask of the owner and rules on a design card on the page, as the command line would write them;
+// what cannot be done is refused with the reason.
+#[test]
+fn the_owner_answers_and_rules_on_the_page() {
+    let s = serve("decide");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '16')", [])?;
+        tx.execute(
+            "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '4', '{}', 'c', 1)",
+            [],
+        )?;
+        tx.execute("INSERT INTO owner_asks (round, body) VALUES (1, '{\"to\":\"owner\"}')", [])?;
+        tx.execute("INSERT INTO design_cards (round, body, status) VALUES (1, '[]', 'open')", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let answer = r#"{"text":"Chosen option: B."}"#;
+    let (status, done) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(done.ends_with(r#"{"done":"ask 1 answered"}"#), "{done}");
+    let (status, again) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
+    assert_eq!(status, 422, "{again}");
+    assert!(again.contains("answered already"), "{again}");
+    let ruling = r#"{"verdict":"disagree","text":"Keep the old name."}"#;
+    let (status, done) = post(s.port, "/api/v1/design-cards/1/rule", ruling, "application/json");
+    assert_eq!(status, 200, "{done}");
+    let said: String = db
+        .conn()
+        .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(said, "Ruling on design card 1: disagree. Keep the old name.");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

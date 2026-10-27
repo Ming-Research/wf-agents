@@ -1,5 +1,5 @@
-//! What the owner marks on the page: messages to the owner read. It is the one thing the interface writes to the
-//! database itself, as the owner; the engine never reads it.
+//! What the owner marks on the page: messages to the owner read, agents' messages and the engine's notices alike. It
+//! is written as the owner; the engine never reads it.
 
 use std::path::Path;
 
@@ -17,12 +17,19 @@ pub fn mark_read(db: &Path, m: &MarkRead) -> Result<Marked, Error> {
     let marked = conn
         .write(Actor::Owner, |tx| {
             if m.all {
-                return Ok(tx.execute("UPDATE owner_messages SET read_at = ?1 WHERE read_at IS NULL", [now])?);
+                let n = tx.execute("UPDATE owner_messages SET read_at = ?1 WHERE read_at IS NULL", [now])?;
+                return Ok(n + tx.execute("UPDATE engine_notices SET read_at = ?1 WHERE read_at IS NULL", [now])?);
             }
             let mut n = 0;
             for id in &m.ids {
                 n += tx.execute(
                     "UPDATE owner_messages SET read_at = ?1 WHERE id = ?2 AND read_at IS NULL",
+                    params![now, id],
+                )?;
+            }
+            for id in &m.notices {
+                n += tx.execute(
+                    "UPDATE engine_notices SET read_at = ?1 WHERE id = ?2 AND read_at IS NULL",
                     params![now, id],
                 )?;
             }
@@ -58,19 +65,25 @@ mod tests {
             for t in ["a", "b", "c"] {
                 tx.execute("INSERT INTO owner_messages (round, text) VALUES (1, ?1)", [t])?;
             }
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 1), (NULL, 'Halted.', 2)",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();
         let one = MarkRead {
             ids: vec![2, 2],
+            notices: vec![2],
             all: false,
         };
-        assert_eq!(mark_read(&path, &one).unwrap(), Marked { marked: 1 });
+        assert_eq!(mark_read(&path, &one).unwrap(), Marked { marked: 2 });
         let all = MarkRead {
             ids: Vec::new(),
+            notices: Vec::new(),
             all: true,
         };
-        assert_eq!(mark_read(&path, &all).unwrap(), Marked { marked: 2 });
+        assert_eq!(mark_read(&path, &all).unwrap(), Marked { marked: 3 });
         let unread: i64 = db
             .conn()
             .query_row("SELECT count(*) FROM owner_messages WHERE read_at IS NULL", [], |r| {
