@@ -1199,8 +1199,11 @@ mod tests {
         assert_eq!(n, 1);
     }
 
+    /// A way to open a database that exists.
+    type Open = fn(&Path) -> Result<Db>;
+
     /// The ways a database is opened to be used, each with a name for the failure message.
-    const OPENS: [(&str, fn(&Path) -> Result<Db>); 2] = [("open", Db::open), ("open_read_only", Db::open_read_only)];
+    const OPENS: [(&str, Open); 2] = [("open", Db::open), ("open_read_only", Db::open_read_only)];
 
     // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened; one older
     // than this wf-agents is not migrated by an open that only reads.
