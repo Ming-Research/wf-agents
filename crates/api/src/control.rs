@@ -1,6 +1,6 @@
-//! What the owner asks of the running engine (whether every work is paused, the round of one work, what that round
-//! would be), shared by the interface's handlers and the engine's loop, with the signal that wakes the loop at once
-//! when the owner asks; and the work whose round the engine runs now, which the page shows.
+//! What the owner asks of the running engine (whether every work is paused, the round of one work or of the architect,
+//! what a round would be), shared by the interface's handlers and the engine's loop, with the signal that wakes the
+//! loop at once when the owner asks; and the work whose round the engine runs now, which the page shows.
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -15,6 +15,9 @@ pub struct Asked {
     pub paused: bool,
     /// The work whose round the owner asked for, until the loop has taken it.
     pub step: Option<i64>,
+    /// Whether the owner asked for the architect's round, until the loop has taken it: the next round of the wake that
+    /// runs, or a wake started paused and its first round when the architect's queue would wake it.
+    pub architect: bool,
     /// How many times the owner asked what a work's next round would be: each ask wakes the loop.
     pub previews: u64,
     /// How many times the owner decided something the engine reads, such as an answer or a ruling: each wakes the
@@ -27,6 +30,8 @@ pub struct Asked {
 pub enum Next {
     /// The round of the one work the owner asked for, first.
     Step(i64),
+    /// The architect's round the owner asked for.
+    Architect,
     /// One step of the works that go on by themselves.
     Pass,
     /// Nothing, until the owner asks for something or the idle time passes.
@@ -37,6 +42,7 @@ impl Asked {
     pub fn next(self) -> Next {
         match (self.step, self.paused) {
             (Some(w), _) => Next::Step(w),
+            (None, _) if self.architect => Next::Architect,
             (None, false) => Next::Pass,
             (None, true) => Next::Wait,
         }
@@ -65,6 +71,7 @@ impl Default for Control {
             asked: Mutex::new(Asked {
                 paused: true,
                 step: None,
+                architect: false,
                 previews: 0,
                 woken: 0,
             }),
@@ -93,14 +100,35 @@ impl Control {
         if let Some(w) = a.step {
             return Err(format!("the round of work {w} asked for before is still under way"));
         }
+        if a.architect {
+            return Err("the architect's round asked for before is still under way".into());
+        }
         a.step = Some(work);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    /// Asks for the architect's round: the next round of the wake that runs, or, when none runs and its queue would
+    /// wake it, a wake started paused by the owner and its first round; only once the round asked for before has been
+    /// taken.
+    pub fn ask_step_architect(&self) -> Result<(), String> {
+        let mut a = lock(&self.asked);
+        if let Some(w) = a.step {
+            return Err(format!("the round of work {w} asked for before is still under way"));
+        }
+        if a.architect {
+            return Err("the architect's round asked for before is still under way".into());
+        }
+        a.architect = true;
         self.changed.notify_all();
         Ok(())
     }
 
     /// Says that the round asked for has been taken.
     pub fn stepped(&self) {
-        lock(&self.asked).step = None;
+        let mut a = lock(&self.asked);
+        a.step = None;
+        a.architect = false;
         self.changed.notify_all();
     }
 
@@ -166,6 +194,12 @@ mod tests {
         assert_eq!(c.asked().next(), Next::Step(4));
         c.stepped();
         c.set_paused(true);
+        assert_eq!(c.asked().next(), Next::Wait);
+        // The architect's round is asked for the same way, while every work is paused, once at a time.
+        c.ask_step_architect().unwrap();
+        assert!(c.ask_step_architect().is_err() && c.ask_step(5).is_err());
+        assert_eq!(c.asked().next(), Next::Architect);
+        c.stepped();
         assert_eq!(c.asked().next(), Next::Wait);
     }
 

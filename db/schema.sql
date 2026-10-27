@@ -264,18 +264,22 @@ CREATE TABLE works (
 
 CREATE TABLE sessions (
   -- The CLI session each line of a work runs in. A line keeps one session for the whole work and lets the CLI compact
-  -- it; after a compaction the engine gives the cell's rules and inputs again.
+  -- it; after a compaction the engine gives the cell's rules and inputs again. The architect's line goes on in one CLI
+  -- session across its wakes: each wake has a row of its own with the same cli_session, until a new policy ends it. A
+  -- cell on no line has a session of its own for each round, ended once the round has.
   -- Hidden from agents.
   -- Read by: the engine, to resume a line.
   id INTEGER PRIMARY KEY,
   work INTEGER NOT NULL REFERENCES works(id),
-  -- The line, for example engineer, review, adversarial or advisor.
+  -- The line, for example engineer, review, adversarial, advisor or architect; for a cell on no line, the cell.
   line TEXT NOT NULL,
   -- The CLI that started the session. Only that CLI can resume it, so this stays when the configuration changes.
   cli TEXT NOT NULL,
   -- The CLI's own id for the session, passed to it to resume.
   cli_session TEXT NOT NULL,
-  UNIQUE (work, line)
+  -- When the session was ended, so that the line's next round starts a new one; NULL while it goes on. A work's line
+  -- has at most one session going on. Read by: the engine, which resumes only a session not ended.
+  ended INTEGER
 ) STRICT;
 
 CREATE TABLE rounds (
@@ -460,9 +464,11 @@ CREATE TABLE architect_matters (
   -- a matter with. NULL for any other. Read by: the architect, through the matter's material.
   answers INTEGER REFERENCES architect_matters(id),
   -- Why the matter waits though picked: owner_ask while an ask of the owner the eighth question put holds it, approval
-  -- while changes the architect collected for it wait for the owner's approval; NULL while it does not.
+  -- while changes the architect collected for it wait for the owner's approval; NULL while it does not. A held matter
+  -- is handled at the round that held it, and the owner's answer comes back as a matter of its own.
   held TEXT CHECK (held IN ('owner_ask', 'approval')),
-  -- The ask of the owner that holds it. Read by: the engine, which queues the owner's answer as a matter of its own.
+  -- The ask of the owner that holds it; for changes held for approval, NULL until the wrap-up puts them to the owner.
+  -- Read by: the engine, which queues the owner's answer as a matter of its own.
   held_by INTEGER REFERENCES owner_asks(id),
   -- The architect's reply to an engineer's question, as engine_op reply handed it in, JSON; NULL until it replied.
   -- Read by: the engine, which takes it back unchanged to the work that asked.
@@ -472,7 +478,8 @@ CREATE TABLE architect_matters (
   handled_round INTEGER,
   CHECK ((work IS NULL) = (round IS NULL)),
   CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
-  CHECK ((held IS NULL) = (held_by IS NULL)),
+  CHECK (held IS NOT NULL OR held_by IS NULL),
+  CHECK (held IS NOT 'owner_ask' OR held_by IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n),
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -552,6 +559,8 @@ CREATE TABLE plan_budgets (
 CREATE INDEX item_links_by_depends_on ON item_links (depends_on);
 -- The works of an item.
 CREATE INDEX works_by_item ON works (item);
+-- The session each line of a work goes on in: one at most, among those not ended.
+CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NULL;
 -- The rounds of a work in order, which every input that names a returned field and the history read, are the
 -- primary key of rounds.
 -- The tools a round ran.

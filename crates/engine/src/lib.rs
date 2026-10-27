@@ -6,8 +6,11 @@
 //! outbox in that transaction and carried out after it, so a crash loses none. A round that ends in no return the
 //! cell takes is handled as the flow's rounds section says.
 //!
-//! In this version the engine and the session manager are one process on one machine, the owner answers for the
-//! architect, and the engine takes one work one step at a time: a long round of one work holds up the others.
+//! The architect's wakes run its graph on no item, one at a time and holding no slot, started when its queue of
+//! matters has one due ([`architect`]).
+//!
+//! In this version the engine and the session manager are one process on one machine, and the engine takes one work
+//! one step at a time: a long round of one work holds up the others.
 
 pub mod agent;
 pub mod database;
@@ -15,6 +18,8 @@ pub mod git;
 pub mod hub;
 
 mod actions;
+mod arch_changes;
+mod architect;
 mod changes;
 mod checks;
 mod failed;
@@ -44,6 +49,9 @@ use hub::GitHub;
 
 /// The graph works on items run.
 pub const ENGINEER: &str = "engineer";
+
+/// The graph the architect's wakes run, on no item.
+pub const ARCHITECT: &str = "architect";
 
 /// The engine's version: the commit it was built from, which every agent's round records.
 pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
@@ -234,6 +242,16 @@ impl Engine {
                 })
                 .map_err(|e| e.to_string())?;
             (self.say)(&format!("work {id} stopped: {why}"));
+            // A wake stopped leaves no hold of its own behind: the whole set straight and a policy being set are the
+            // wake's; the next wake asks its questions afresh.
+            if w.graph == ARCHITECT {
+                self.db
+                    .write(Actor::Engine, |tx| {
+                        tx.execute("DELETE FROM dispatch_holds WHERE reason IN ('tidying', 'policy')", [])?;
+                        Ok(())
+                    })
+                    .map_err(|e| e.to_string())?;
+            }
             if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
                 let held = w.paused.clone().filter(|_| w.paused_by.as_deref() == Some("owner"));
                 takeovers.push((id, item, held));
@@ -397,6 +415,19 @@ impl Engine {
         Item::load(self.db.conn(), id)
     }
 
+    /// The item a work is on; none for a wake of the architect, which is on no item.
+    pub fn subject(&self, w: &Work) -> Result<Option<Item>, String> {
+        match w.item {
+            Some(id) => Item::load(self.db.conn(), id).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The configuration of the project an item is in; none for no item, or a project the configuration lacks.
+    pub fn project_of_item(&self, item: Option<&Item>) -> Option<config::Project> {
+        item.and_then(|i| self.config.config.projects.get(&i.project).cloned())
+    }
+
     pub fn project_of(&self, w: &Work) -> Result<config::Project, String> {
         let item = self.item_of(w)?;
         self.config
@@ -509,8 +540,9 @@ impl Engine {
                 .and_then(|c| g.cell(c))
                 .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
         });
-        let text = match self.item_of(&w) {
-            Ok(item) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
+        let text = match self.subject(&w) {
+            Ok(Some(item)) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
+            Ok(None) => format!("Work {id} (a wake of the architect) is paused: {why}"),
             Err(_) => format!("Work {id} is paused: {why}"),
         };
         self.db
@@ -575,7 +607,8 @@ impl Engine {
         let mut holding = 0;
         for id in self.active()? {
             let w = self.work(id)?;
-            if !self.waiting(&w)? {
+            // A wake of the architect holds no slot.
+            if w.graph == ENGINEER && !self.waiting(&w)? {
                 holding += 1;
             }
         }
@@ -601,17 +634,67 @@ impl Engine {
         }))
     }
 
-    /// The first item of the queue waiting for a work to start.
+    /// The first item of the queue waiting for a work to start; none while a dispatch hold stops new works.
     fn next_ready(&self) -> Option<i64> {
+        let held: i64 = self
+            .db
+            .conn()
+            .query_row("SELECT count(*) FROM dispatch_holds", [], |r| r.get(0))
+            .unwrap_or(0);
+        if held > 0 {
+            return None;
+        }
         self.db
             .conn()
             .query_row("SELECT item FROM ready_items LIMIT 1", [], |r| r.get(0))
             .ok()
     }
 
+    /// A wake of the architect to start now: none runs, and its queue has a matter due once what the engine raises
+    /// itself is queued. Gives the wake started.
+    fn wake_due(&mut self) -> Result<Option<i64>, String> {
+        architect::queue_due(self)?;
+        if architect::running(self)?.is_some() || !architect::queue_has(self)? {
+            return Ok(None);
+        }
+        let id = architect::start(self, false)?;
+        (self.say)(&format!("work {id}: the architect wakes"));
+        Ok(Some(id))
+    }
+
+    /// The owner's step of the architect: the next round of the wake that runs, or, when none runs and its queue has
+    /// a matter due, a new wake started paused by the owner, and its first round. Nothing runs when the architect has
+    /// nothing to wake for.
+    pub fn step_architect(&mut self) -> Result<Stepped, String> {
+        self.reload_config();
+        actions::run_outbox(self)?;
+        if self.halted() {
+            return Ok(Stepped::default());
+        }
+        if let Some(id) = architect::running(self)? {
+            return self.step_work(id);
+        }
+        architect::queue_due(self)?;
+        if !architect::queue_has(self)? {
+            return Ok(Stepped::default());
+        }
+        let mark = self.rounds_mark()?;
+        let id = architect::start(self, true)?;
+        (self.say)(&format!("work {id}: the architect wakes, as the owner steps it"));
+        self.take_step(id, true)?;
+        actions::run_outbox(self)?;
+        let (rounds, cell) = self.rounds_since(&mark)?;
+        Ok(Stepped {
+            work: Some(id),
+            started_item: None,
+            rounds,
+            cell,
+        })
+    }
+
     /// One pass over every work: reads the configuration again, carries out the outbox, takes over the works that go
-    /// on on an older flow version, starts works on ready items while slots are free, and takes each active work one
-    /// step. Gives whether anything moved.
+    /// on on an older flow version, wakes the architect when a matter is due, starts works on ready items while slots
+    /// are free, and takes each active work one step. Gives whether anything moved.
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
@@ -621,6 +704,9 @@ impl Engine {
         let old = self.outdated()?;
         if !old.is_empty() {
             self.take_over(&old)?;
+            moved = true;
+        }
+        if self.wake_due()?.is_some() {
             moved = true;
         }
         while self.free_slots()? > 0 {
@@ -647,7 +733,8 @@ impl Engine {
     /// works that go on by themselves round by round, reading between two steps what the owner asked: one round of
     /// one work, which is an agent's round, a step of the engine's own, a run of a tool cell, or starting a work. It
     /// first carries out the outbox; then, when works that go on are on an older flow version, it takes them over and
-    /// takes the first step of the first new work, when one started; else, when a slot is free and an item is
+    /// takes the first step of the first new work, when one started; else, when no wake of the architect runs and a
+    /// matter is due for it, it starts a wake and takes its first step; else, when a slot is free and an item is
     /// ready, it starts a work on that item and takes the work's first step; otherwise it takes the next step of the
     /// first active work that has one, in the order of the works' ids, beginning after `after` and going round to the
     /// lowest, so that every work gets its turn as in a pass. The outbox the step filled is carried out after it.
@@ -671,6 +758,17 @@ impl Engine {
             return Ok(Stepped {
                 work: Some(new.unwrap_or(first)),
                 started_item,
+                rounds,
+                cell,
+            });
+        }
+        if let Some(id) = self.wake_due()? {
+            self.advance(id)?;
+            actions::run_outbox(self)?;
+            let (rounds, cell) = self.rounds_since(&mark)?;
+            return Ok(Stepped {
+                work: Some(id),
+                started_item: None,
                 rounds,
                 cell,
             });
@@ -813,6 +911,16 @@ pub fn compile_for(config: &config::Config) -> Result<Compiled, String> {
         return Err(problems.join("\n"));
     }
     Ok(compiled)
+}
+
+/// The line whose permissions an agent's cell runs with: its own, or for a cell on no line, the line of its graph's
+/// agents: the architect's in the architect's graph, which only reads, and the engineer's otherwise.
+pub fn line_of(g: &CompiledGraph, cell: &CompiledCell) -> String {
+    match &cell.line {
+        Some(l) => l.clone(),
+        None if g.name == ARCHITECT => ARCHITECT.to_string(),
+        None => ENGINEER.to_string(),
+    }
 }
 
 /// The rows of a cell whose name is given.

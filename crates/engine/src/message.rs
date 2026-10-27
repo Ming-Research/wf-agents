@@ -22,7 +22,8 @@
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
-//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`. A
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:architect` for where the architect works),
+//! `format:common`, `format:<cell>` and `inputs:<cell>`. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
 
@@ -32,9 +33,9 @@ pub use flow::formats::{cell_format, cell_inputs, common_format, hash};
 use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
 
-use crate::Engine;
 use crate::inputs::{GUIDE, Gathered, Origin, Part};
 use crate::work::{Item, Round, RoundId, Work};
+use crate::{ARCHITECT, Engine};
 
 /// One conditional input of a message.
 #[derive(Debug, Clone, PartialEq)]
@@ -364,7 +365,8 @@ pub struct Context<'a> {
     pub w: &'a Work,
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
-    pub item: &'a Item,
+    /// The item the work is on; none for a wake of the architect.
+    pub item: Option<&'a Item>,
     /// This round.
     pub round: RoundId,
     /// Every round of the work so far, oldest first.
@@ -600,6 +602,7 @@ impl Context<'_> {
                     "item_problem" => rows
                         .into_iter()
                         .map(|r| {
+                            let id = r["item"].as_i64().unwrap_or_default();
                             let researched: Option<RoundId> = self
                                 .e
                                 .db
@@ -609,13 +612,13 @@ impl Context<'_> {
                                      WHERE w.item = ?1 AND r.cell = '1' AND r.transition IS NOT NULL
                                        AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
                                      ORDER BY r.work DESC, r.n DESC LIMIT 1",
-                                    [self.item.id],
+                                    [id],
                                     |x| Ok(RoundId::new(x.get(0)?, x.get(1)?)),
                                 )
                                 .ok();
                             let address = match researched {
                                 Some(k) => format!("{k}·1·understanding.problem"),
-                                None => format!("item:{}·problem", self.item.id),
+                                None => format!("item:{id}·problem"),
                             };
                             (address, r["problem"].clone())
                         })
@@ -757,48 +760,63 @@ impl Context<'_> {
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
         // of each setting the formats and the rules name is written beside its name, and the kinds of question the
-        // project cannot meet are left out of the formats.
-        let project = e.config.config.projects.get(&item.project);
+        // project cannot meet are left out of the formats. A wake of the architect is on no project.
+        let named = item.map(|i| i.project.as_str()).unwrap_or_default();
+        let project = item.and_then(|i| e.config.config.projects.get(&i.project));
         let gone = kinds_left_out(g, project);
         self.give(
             &mut m,
             "format:common".into(),
-            Value::String(with_settings(e, &item.project, common_format(g, &gone), true)),
+            Value::String(with_settings(e, named, common_format(g, &gone), true)),
         );
         self.give(
             &mut m,
             format!("format:{}", c.id),
-            Value::String(with_settings(e, &item.project, cell_format(g, c, &gone), true)),
+            Value::String(with_settings(e, named, cell_format(g, c, &gone), true)),
         );
         let numbered = cell_inputs(c);
         if !numbered.is_empty() {
             self.give(&mut m, format!("inputs:{}", c.id), Value::String(numbered));
         }
+        // A project's own rules; the architect, over every project, is given each project's.
         let mut rules = Vec::new();
-        for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
+        let mut own: Vec<String> = Vec::new();
+        match project {
+            Some(p) => own.extend(p.rules.iter().cloned()),
+            None => {
+                for p in e.config.config.projects.values() {
+                    for r in &p.rules {
+                        if !own.contains(r) {
+                            own.push(r.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for name in own {
             let Some(text) = e.config.config.rules.get(&name) else {
                 continue;
             };
-            let text = with_settings(e, &item.project, text.trim().to_string(), false);
+            let text = with_settings(e, named, text.trim().to_string(), false);
             rules.push(self.give(&mut m, format!("rule:{name}"), Value::String(text)));
         }
         for r in &c.rules {
             if let Some(rule) = g.rules.iter().find(|x| x.name == r.name) {
                 let lines: Vec<String> = rule.text.iter().map(|t| format!("- {t}")).collect();
-                let text = with_settings(
-                    e,
-                    &item.project,
-                    format!("{}\n\n{}", rule.desc, lines.join("\n")),
-                    false,
-                );
+                let text = with_settings(e, named, format!("{}\n\n{}", rule.desc, lines.join("\n")), false);
                 rules.push(self.give(&mut m, format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        // A line the configuration keeps from changing anything only reads the worktree.
-        let line = c.line.clone().unwrap_or_else(|| "engineer".to_string());
+        // A line the configuration keeps from changing anything only reads the worktree. The architect works in a
+        // directory of its own, with every project's checkout to read.
+        let line = crate::line_of(g, c);
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
-        let workspace = workspace(w, project, read_only)
-            .map(|text| self.give(&mut m, format!("work:{}", w.id), Value::String(text)));
+        let workspace = if g.name == ARCHITECT {
+            Some(self.give(&mut m, "work:architect".into(), Value::String(architect_workspace(e))))
+        } else {
+            workspace(w, project, read_only)
+                .map(|text| self.give(&mut m, format!("work:{}", w.id), Value::String(text)))
+        };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full.
         let mut work_from = Vec::new();
@@ -961,6 +979,25 @@ impl Writer {
     }
 }
 
+/// Where the architect works, what `work:architect` gives: a directory of its own, in which it only reads, and every
+/// project's checkout, which it may read, each with the branch the flow calls main there.
+fn architect_workspace(e: &Engine) -> String {
+    let dir = crate::architect::workdir(&e.data);
+    let mut out = format!(
+        "Your working directory is {}, a directory of your own: you only read, and change and commit nothing, there or \
+         anywhere. You may read each project's checkout:",
+        dir.display()
+    );
+    for (name, p) in &e.config.config.projects {
+        out.push_str(&format!(
+            "\n- {name}: {}, whose main is the branch {}",
+            p.checkout.display(),
+            p.main
+        ));
+    }
+    out
+}
+
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
 /// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree. None for a work of no
 /// project the configuration knows.
@@ -988,8 +1025,15 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
 
 /// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
 /// at disputes only has none; one that looks at what changed has them all, since which columns a change concerns is
-/// not worked out in this version.
-pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &Item) -> Vec<(String, String)> {
+/// not worked out in this version. A work on no item reviews nothing.
+pub fn columns(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Vec<(String, String)> {
+    let Some(item) = item else { return Vec::new() };
     let rule = |name: &str| {
         g.rules
             .iter()

@@ -1,9 +1,10 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! design card, pausing a work and letting a paused work go on, and letting every work the owner paused go on. Each is
-//! written as the owner, so `changes` records it as theirs, and the engine reads it as it goes on.
+//! written as the owner, so `changes` records it as theirs, and the engine reads it as it goes on. What the owner says
+//! to the architect is `db::say_to_architect`.
 
-use db::rusqlite::{OptionalExtension, params};
-use db::{Actor, Db};
+use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
 use crate::{Answer, Ruling};
@@ -12,8 +13,154 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Answers an ask of the owner that waits for an answer. For what the architect is asked, the answer is also the
-/// architect's reply.
+/// The option the owner chose, for an ask of the architect's that offers options: given with the answer, until the
+/// answer has a field of its own for it, as `reply.choice`.
+fn choice_of(a: &Answer) -> Option<String> {
+    a.reply
+        .as_ref()
+        .and_then(|r| r.get("choice"))
+        .and_then(Value::as_str)
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+}
+
+/// The numbers of the changes the owner approved, for the architect's ask of its changes: given with the answer, until
+/// the answer has a field of its own for them, as `reply.approved`.
+fn approved_of(a: &Answer) -> Vec<i64> {
+    a.reply
+        .as_ref()
+        .and_then(|r| r.get("approved"))
+        .and_then(Value::as_array)
+        .map(|xs| xs.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default()
+}
+
+/// Answers an ask the architect put, by its kind: the owner's view of a study or approval of a policy, with the option
+/// chosen; the changes approved, all, some (naming which) or none (saying why), which come back to the architect's
+/// queue as a matter of their own and let go the matters held for them; and an answer to what the architect asked,
+/// which comes back as a matter of its own when the ask held no wake.
+fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<String, String> {
+    let at = db::now();
+    let text = a.text.trim();
+    let kind = body["kind"].as_str().unwrap_or_default();
+    match kind {
+        "study" | "policy_approval" => {
+            let offered: Vec<&str> = body["choices"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c[0].as_str())
+                .collect();
+            let chosen = choice_of(a)
+                .filter(|c| offered.contains(&c.as_str()))
+                .ok_or_else(|| format!("the answer chooses one of: {}", offered.join(", ")))?;
+            let answer = json!({ "by": "owner", "at": at, "choice": chosen, "text": text });
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
+                    params![ask, answer.to_string()],
+                )?;
+                Ok(())
+            })
+            .map_err(sql)?;
+        }
+        "changes" => {
+            let changes = body["changes"].as_array().cloned().unwrap_or_default();
+            let numbers: Vec<i64> = changes.iter().filter_map(|c| c["n"].as_i64()).collect();
+            let chosen = choice_of(a).unwrap_or_default();
+            let approved: Vec<i64> = match chosen.as_str() {
+                "approve_all" => numbers.clone(),
+                "approve_none" => Vec::new(),
+                "approve_some" => {
+                    let mut some = approved_of(a);
+                    some.sort_unstable();
+                    some.dedup();
+                    if some.is_empty() || some.iter().any(|n| !numbers.contains(n)) {
+                        return Err(format!(
+                            "approving some names which, by their numbers among {numbers:?}"
+                        ));
+                    }
+                    some
+                }
+                _ => {
+                    return Err(
+                        "the answer approves all, some or none: approve_all, approve_some or approve_none".into(),
+                    );
+                }
+            };
+            if approved.len() < numbers.len() && text.is_empty() {
+                return Err("what is not approved says why".into());
+            }
+            let answer = json!({ "by": "owner", "at": at, "choice": chosen, "approved": approved, "text": text });
+            let m = Matter {
+                kind: "owner_approved".into(),
+                what: format!(
+                    "The owner approved {} of the {} changes you collected",
+                    approved.len(),
+                    numbers.len()
+                ),
+                body: json!({ "ask": ask, "changes": changes, "approved": approved, "why": text }),
+                ..Matter::default()
+            };
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
+                    params![ask, answer.to_string()],
+                )?;
+                queue_matter(tx, &m)?;
+                let_go(tx, ask)
+            })
+            .map_err(sql)?;
+        }
+        _ => {
+            if text.is_empty() {
+                return Err("an answer says something".into());
+            }
+            let answer = json!({ "by": "owner", "at": at, "text": text });
+            // An ask that held no wake, open or holding a matter, comes back to the architect's queue.
+            let holds = body["holds"].as_i64();
+            let comes_back = kind == "open" || holds.is_some();
+            let asked = if kind == "open" {
+                body["choice"].clone()
+            } else {
+                body["asked"].clone()
+            };
+            let m = Matter {
+                kind: "owner_words".into(),
+                what: format!("The owner answered ask {ask}: {}", db::one_sentence(text)),
+                body: json!({ "ask": asked, "answer": text, "owner_ask": ask }),
+                answers: holds,
+                ..Matter::default()
+            };
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
+                    params![ask, answer.to_string()],
+                )?;
+                if comes_back {
+                    queue_matter(tx, &m)?;
+                    let_go(tx, ask)?;
+                }
+                Ok(())
+            })
+            .map_err(sql)?;
+        }
+    }
+    Ok(format!("ask {ask} answered"))
+}
+
+/// Lets go the matters an ask of the owner held: they stay handled at the round that held them, and the matter the
+/// answer came back as carries them on.
+fn let_go(tx: &Transaction<'_>, ask: i64) -> db::Result<()> {
+    tx.execute(
+        "UPDATE architect_matters SET held = NULL, held_by = NULL WHERE held_by = ?1",
+        [ask],
+    )?;
+    Ok(())
+}
+
+/// Answers an ask of the owner that waits for an answer. An ask an earlier engine put for the architect, whose answer
+/// the owner gave for it, is the architect's reply too; an ask the architect put is answered by its kind.
 pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     let asked: Option<(String, Option<String>)> = db
         .conn()
@@ -28,11 +175,14 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     if answered.is_some() {
         return Err(format!("ask {ask} is answered already"));
     }
+    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    if body["from"] == "architect" {
+        return architect_answer(db, ask, &body, a);
+    }
     if a.text.trim().is_empty() {
         return Err("an answer says something".into());
     }
     let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
-    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     if body["to"] == "architect" {
         let mut reply = a.reply.clone().unwrap_or_else(|| json!({}));
         reply["text"] = json!(a.text);
@@ -55,116 +205,25 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
 }
 
 /// Rules on a design card that is not replaced: a verdict on each of its decisions, all at once, is added to its
-/// rulings, and it is ruled. The card counts as confirmed only when every decision is. The decisions disagreed with
-/// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
-/// confirms every decision needs none.
+/// rulings; the card is ruled once the architect has ruled on it too. The card counts as confirmed only when every
+/// decision is, and where the owner and the architect differ the owner's word goes. The decisions disagreed with reach
+/// the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that confirms
+/// every decision needs none.
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
-    let found: Option<(String, i64, String)> = db
-        .conn()
-        .query_row(
-            "SELECT status, work, body FROM design_cards WHERE id = ?1",
-            [design_card],
-            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    let Some((status, work, body)) = found else {
-        return Err(format!("no design card {design_card}"));
-    };
-    if status == "replaced" {
-        return Err(format!(
-            "design card {design_card} is replaced: it can no longer be ruled"
-        ));
-    }
-    let body: Vec<Value> = match serde_json::from_str(&body).unwrap_or(Value::Null) {
-        Value::Array(xs) => xs,
-        Value::Null => Vec::new(),
-        other => vec![other],
-    };
-    // A card always has a decision; one whose body holds none is ruled as one decision.
-    let count = body.len().max(1) as i64;
-    let mut decisions: Vec<&crate::DecisionRuling> = r.decisions.iter().collect();
-    decisions.sort_by_key(|d| d.decision);
-    let numbers: Vec<i64> = decisions.iter().map(|d| d.decision).collect();
-    if numbers != (1..=count).collect::<Vec<_>>() {
-        return Err(format!(
-            "a ruling on design card {design_card} gives one verdict for each of its {count} decisions, by number"
-        ));
-    }
-    let mut verdicts = Vec::new();
-    let mut said = Vec::new();
-    for d in decisions {
-        let k = d.decision;
-        let text = d.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
-        let option = d.option.as_deref().map(str::trim).filter(|o| !o.is_empty());
-        let decision = body.get(k as usize - 1);
-        match d.verdict.as_str() {
-            "confirm" if option.is_none() => {}
-            "confirm" => return Err(format!("decision {k}: another approach is chosen only by disagreeing")),
-            "disagree" if text.is_none() && option.is_none() => {
-                return Err(format!(
-                    "decision {k}: a disagreement says why, or chooses another approach"
-                ));
-            }
-            "disagree" => {}
-            _ => return Err(format!("decision {k}: the verdict is confirm or disagree")),
-        }
-        let names: Vec<&str> = decision
-            .and_then(|x| x["options"].as_array())
-            .map(|os| os.iter().filter_map(|o| o["name"].as_str()).collect())
-            .unwrap_or_default();
-        if let Some(o) = option
-            && !names.is_empty()
-            && !names.contains(&o)
-        {
-            return Err(format!("decision {k} has no approach {o:?}"));
-        }
-        let mut v = json!({ "decision": k, "verdict": d.verdict });
-        if let Some(o) = option {
-            v["option"] = json!(o);
-        }
-        if let Some(t) = text {
-            v["text"] = json!(t);
-        }
-        verdicts.push(v);
-        if d.verdict == "disagree" {
-            let node = decision
-                .and_then(|x| x["node"].as_str())
-                .map(|n| format!(" ({n})"))
-                .unwrap_or_default();
-            let chosen = option
-                .map(|o| format!(", choosing the approach \"{o}\""))
-                .unwrap_or_default();
-            let why = text.map(|t| format!(": {t}")).unwrap_or_default();
-            said.push(format!("decision {k}{node}: disagree{chosen}{why}"));
-        } else {
-            said.push(format!("decision {k} confirmed"));
-        }
-    }
-    let disagree = verdicts.iter().any(|v| v["verdict"] == "disagree");
-    let ruling = json!({ "by": "owner", "at": db::now(), "decisions": verdicts });
+    let verdicts: Vec<db::Verdict> = r
+        .decisions
+        .iter()
+        .map(|d| db::Verdict {
+            decision: d.decision,
+            verdict: d.verdict.clone(),
+            option: d.option.clone(),
+            text: d.text.clone(),
+        })
+        .collect();
     db.write(Actor::Owner, |tx| {
-        let rulings: String = tx.query_row("SELECT rulings FROM design_cards WHERE id = ?1", [design_card], |x| {
-            x.get(0)
-        })?;
-        let mut list: Vec<Value> = serde_json::from_str(&rulings).unwrap_or_default();
-        list.push(ruling.clone());
-        tx.execute(
-            "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
-            params![design_card, Value::Array(list).to_string()],
-        )?;
-        if disagree {
-            let lines: Vec<String> = said.iter().map(|s| format!("- {s}")).collect();
-            let text = format!("{} {design_card}:\n{}", db::DESIGN_CARD_RULING, lines.join("\n"));
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-                params![work, text],
-            )?;
-        }
-        Ok(())
+        db::rule_design_card(tx, design_card, "owner", &verdicts).map_err(db::Error::Abort)
     })
-    .map_err(sql)?;
-    Ok(format!("design card {design_card} ruled"))
+    .map_err(sql)
 }
 
 /// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself until the owner
@@ -366,22 +425,37 @@ mod tests {
     }
 
     // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a confirmation
-    // does not.
+    // does not. The card is ruled once the architect has ruled on it too.
     #[test]
     fn the_owner_rules_on_a_design_card() {
         let mut db = setup();
         assert!(rule(&mut db, 1, &ruling(vec![one(1, "disagree", Some(" "), None)])).is_err());
         let disagree = ruling(vec![one(1, "disagree", Some("Keep the old name."), None)]);
         assert_eq!(rule(&mut db, 1, &disagree).unwrap(), "design card 1 ruled");
-        let (status, rulings): (String, String) = db
-            .conn()
-            .query_row("SELECT status, rulings FROM design_cards WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-        let rulings: Value = serde_json::from_str(&rulings).unwrap();
-        assert_eq!(status, "ruled");
+        let status = |db: &Db| -> (String, Value) {
+            let (s, r): (String, String) = db
+                .conn()
+                .query_row("SELECT status, rulings FROM design_cards WHERE id = 1", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+            (s, serde_json::from_str(&r).unwrap())
+        };
+        let (s, rulings) = status(&db);
+        assert_eq!(s, "open");
         assert_eq!(rulings[0]["decisions"][0]["text"], "Keep the old name.");
+        let confirm = [db::Verdict {
+            decision: 1,
+            verdict: "confirm".into(),
+            option: None,
+            text: None,
+        }];
+        db.write(Actor::Architect, |tx| {
+            db::rule_design_card(tx, 1, "architect", &confirm).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        let (s, rulings) = status(&db);
+        assert_eq!((s.as_str(), &rulings[1]["by"]), ("ruled", &json!("architect")));
         let said: String = db
             .conn()
             .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
@@ -462,5 +536,136 @@ mod tests {
             "Ruling on design card 2:\n- decision 1 confirmed\n- decision 2 (design/b.md): disagree, choosing the \
              approach \"B\": One table is enough.\n- decision 3 confirmed"
         );
+    }
+
+    /// An ask the architect put, on the work of a wake, with its body.
+    fn architect_ask(db: &mut Db, body: Value) -> i64 {
+        db.write(Actor::Engine, |tx| {
+            let wake: i64 = tx.query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))?;
+            if wake == 0 {
+                tx.execute(
+                    "INSERT INTO works (id, item, flow_version, graph, at) VALUES (9, NULL, 1, 'architect', 'A15')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'A15', '{}', 'c', 1)",
+                    [],
+                )?;
+            }
+            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (9, 1, ?1)", [body.to_string()])?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap()
+    }
+
+    fn with_reply(text: &str, reply: Value) -> Answer {
+        Answer {
+            text: text.into(),
+            why: None,
+            reply: Some(reply),
+        }
+    }
+
+    fn matters(db: &Db) -> Vec<Value> {
+        let mut st = db
+            .conn()
+            .prepare("SELECT json_object('kind', kind, 'body', json(body), 'answers', answers, 'held', held) FROM architect_matters ORDER BY id")
+            .unwrap();
+        st.query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|x| serde_json::from_str(&x.unwrap()).unwrap())
+            .collect()
+    }
+
+    // The owner's view of the architect's study chooses one of the options the ask offers, and the answer keeps it.
+    #[test]
+    fn the_owner_chooses_an_option_of_the_architect_s_study() {
+        let mut db = setup();
+        let choices = json!([["satisfied", "Write it"], ["study_on", "More"], ["no_change", "None"]]);
+        let ask = architect_ask(
+            &mut db,
+            json!({ "from": "architect", "work": 9, "cell": "P2", "kind": "study", "study": {}, "choices": choices }),
+        );
+        assert!(answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "maybe" }))).is_err());
+        answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "study_on" }))).unwrap();
+        let got: String = db
+            .conn()
+            .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+            .unwrap();
+        let got: Value = serde_json::from_str(&got).unwrap();
+        assert_eq!((&got["choice"], &got["text"]), (&json!("study_on"), &json!("Fine.")));
+        assert!(matters(&db).is_empty());
+    }
+
+    // The owner approves some of the changes the architect collected, saying why not the rest: the approval comes back
+    // to the architect's queue as a matter of its own, and the matters held for them are let go.
+    #[test]
+    fn the_owner_approves_some_of_the_architect_s_changes() {
+        let mut db = setup();
+        let changes = json!([
+            { "n": 1, "matter": { "queued": 1 }, "change": { "kind": "hold", "item": 1, "reason": "r" } },
+            { "n": 2, "matter": { "queued": 1 }, "change": { "kind": "release", "item": 1, "reason": "r" } }
+        ]);
+        let ask = architect_ask(
+            &mut db,
+            json!({ "from": "architect", "work": 9, "cell": "A15", "kind": "changes", "changes": changes }),
+        );
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (kind, what, body, at, held, held_by, handled_work, handled_round)
+                 VALUES ('owner_words', 'w', '{}', 1, 'approval', ?1, 9, 1)",
+                [ask],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let some =
+            |approved: Value, text: &str| with_reply(text, json!({ "choice": "approve_some", "approved": approved }));
+        assert!(answer(&mut db, ask, &some(json!([1]), " ")).is_err());
+        assert!(answer(&mut db, ask, &some(json!([3]), "No.")).is_err());
+        answer(&mut db, ask, &some(json!([1]), "Not the release yet.")).unwrap();
+        let m = matters(&db);
+        assert_eq!(m[0]["held"], Value::Null);
+        assert_eq!(m[1]["kind"], "owner_approved");
+        assert_eq!(m[1]["body"]["approved"], json!([1]));
+        assert_eq!(m[1]["body"]["why"], "Not the release yet.");
+        assert_eq!(m[1]["body"]["changes"], changes);
+    }
+
+    // The owner's answer to an ask the architect put without waiting comes back to its queue as the owner's words,
+    // saying which held matter it answers.
+    #[test]
+    fn an_answer_to_an_ask_that_held_a_matter_comes_back_to_the_architect() {
+        let mut db = setup();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (kind, what, body, at) VALUES ('split', 'w', '{}', 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let ask = architect_ask(
+            &mut db,
+            json!({ "from": "architect", "work": 9, "cell": "A14", "kind": "ask", "asked": [], "holds": 1 }),
+        );
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET held = 'owner_ask', held_by = ?1, handled_work = 9, handled_round = 1",
+                [ask],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let plain = Answer {
+            text: "Split it in two.".into(),
+            why: None,
+            reply: None,
+        };
+        answer(&mut db, ask, &plain).unwrap();
+        let m = matters(&db);
+        assert_eq!(m[0]["held"], Value::Null);
+        assert_eq!((&m[1]["kind"], &m[1]["answers"]), (&json!("owner_words"), &json!(1)));
+        assert_eq!(m[1]["body"]["answer"], "Split it in two.");
     }
 }

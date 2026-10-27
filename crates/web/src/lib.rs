@@ -140,6 +140,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
+        .route("/api/v1/architect/say", post(say_to_architect))
+        .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -459,6 +461,27 @@ async fn rule(
     Json(r): Json<api::Ruling>,
 ) -> Result<Json<api::Done>, Fail> {
     decide(&app, move |db| api::rule(db, id, &r)).await
+}
+
+/// What the owner says to the architect.
+#[derive(Deserialize)]
+struct Said {
+    text: String,
+}
+
+/// Says something to the architect, as the owner, as the command line does: it comes to the architect's queue, and
+/// the engine is woken, so that a wake starts when works go on.
+async fn say_to_architect(State(app): State<App>, Json(s): Json<Said>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| db::say_to_architect(db, &s.text)).await
+}
+
+/// Runs one round of the architect: the next round of the wake that runs, or, when none runs and its queue would wake
+/// it, a wake started paused by the owner and its first round.
+async fn step_architect(State(app): State<App>) -> Result<StatusCode, Fail> {
+    app.control
+        .ask_step_architect()
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
 }
 
 /// Pauses a work, as the owner, as the command line does: a round of it under way ends first.

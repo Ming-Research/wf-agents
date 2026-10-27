@@ -1,6 +1,7 @@
-//! The tool cells: the tools agents ask for (cell 13), the full CI on the draft (7), the merge queue (9) and watching
-//! main (10). Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice
-//! more; a refusal is a result, not a failure, and is not tried again.
+//! The tool cells: the tools agents ask for (cell 13, and the architect's A13), the full CI on the draft (7), the merge
+//! queue (9) and watching main (10). Each attempt of a tool is a row of tool_runs under the cell's round. A tool that
+//! fails is tried twice more; a refusal is a result, not a failure, and is not tried again. The architect's own tools,
+//! engine_op and db_write, act on the engine and the database at once and are not tried again.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -414,20 +415,39 @@ pub fn describe(req: &Value) -> String {
             format!("query: {cut}{}", if cut.len() < sql.len() { "…" } else { "" })
         }
         "measure" => "measure: does not run in this version of the engine".to_string(),
+        "engine_op" => {
+            let item = req["item"]
+                .as_i64()
+                .map(|i| format!(" on item {i}"))
+                .unwrap_or_default();
+            let card = req["design_card"]
+                .as_i64()
+                .map(|c| format!(" on design card {c}"))
+                .unwrap_or_default();
+            format!("engine_op: {}{item}{card}", text("op"))
+        }
+        "db_write" => format!(
+            "db_write: writes {} changes, if each is one the owner approved",
+            req["changes"].as_array().map_or(0, Vec::len)
+        ),
         other => other.to_string(),
     }
 }
 
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
-/// and merges in what ran before.
+/// and merges in what ran before. A wake of the architect is on no item and in no project: it runs what reads and the
+/// architect's own tools.
 pub fn run_tools(
     e: &mut Engine,
     w: &Work,
-    item: &Item,
+    item: Option<&Item>,
     round: RoundId,
     gathered: &[Gathered],
 ) -> Result<Value, String> {
-    let project = e.project_of(w)?;
+    let project = match item {
+        Some(_) => Some(e.project_of(w)?),
+        None => None,
+    };
     let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
     let mut only: Option<Vec<String>> = None;
@@ -456,16 +476,18 @@ pub fn run_tools(
         if only.as_ref().is_some_and(|o| !o.contains(&tool)) {
             continue;
         }
-        let got = match tool.as_str() {
-            "ci" => ci(e, w, &project, item, round, req, &mut pushed, &pr),
-            "ci_before" => ci_before(e, w, &project, round, n, req, pushed.as_deref()),
-            "measure" => Ok(json!({ "push": {
+        let got = match (tool.as_str(), item.zip(project.as_ref())) {
+            ("ci", Some((item, project))) => ci(e, w, project, item, round, req, &mut pushed, &pr),
+            ("ci_before", Some((_, project))) => ci_before(e, w, project, round, n, req, pushed.as_deref()),
+            ("measure", _) => Ok(json!({ "push": {
                 "verdict": "refused",
                 "why": "This version of the engine has no measurement workflow; measure does not run"
             } })),
-            "gh" => gh(e, w, &project, round, n, req),
-            "query" => query(e, round, n, req),
-            other => Ok(json!({ "error": format!("no such tool: {other}") })),
+            ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
+            ("query", _) => query(e, round, n, req),
+            ("engine_op", _) => once(e, round, &tool, req, |e| crate::architect::engine_op(e, w, req)),
+            ("db_write", _) => once(e, round, &tool, req, |e| crate::arch_changes::db_write(e, w, req)),
+            (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         match got {
             Ok(mut v) => {
@@ -636,10 +658,38 @@ fn ci_before(
     })
 }
 
+/// Runs one of the architect's own tools once, recorded as a row of tool_runs under the round: it acts on the engine
+/// and the database at once, and a refusal is its result.
+fn once(
+    e: &mut Engine,
+    round: RoundId,
+    tool: &str,
+    args: &Value,
+    f: impl FnOnce(&mut Engine) -> Value,
+) -> Result<Value, (Failure, String)> {
+    let now = db::now();
+    e.db.conn()
+        .execute(
+            "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at)
+             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+            params![round.work, round.n, tool, args.to_string(), now],
+        )
+        .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
+    let id = e.db.conn().last_insert_rowid();
+    let result = f(e);
+    e.db.conn()
+        .execute(
+            "UPDATE tool_runs SET result = ?2, ended_at = ?3 WHERE id = ?1",
+            params![id, result.to_string(), db::now()],
+        )
+        .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
+    Ok(result)
+}
+
 fn gh(
     e: &Engine,
     w: &Work,
-    project: &config::Project,
+    project: Option<&config::Project>,
     round: RoundId,
     n: usize,
     req: &Value,
@@ -659,9 +709,14 @@ fn gh(
     if let Some(why) = gh_refusal(&e.config.config.install.gh.allow, &args) {
         return Ok(json!({ "ran": { "verdict": "not_allowed", "why": why } }));
     }
+    // A work runs gh in its worktree; the architect in its own directory.
+    let dir = match (&w.worktree, project) {
+        (Some(wt), _) => wt.clone(),
+        (None, Some(p)) => p.checkout.clone(),
+        (None, None) => crate::architect::workdir(&e.data),
+    };
     let (code, out) = attempts(e, round, "gh", req, || {
-        let dir = w.worktree.as_deref().unwrap_or(&project.checkout);
-        let (code, out) = e.github.gh(dir, &args)?;
+        let (code, out) = e.github.gh(&dir, &args)?;
         Ok(json!([code, out]))
     })
     .map(|v| {

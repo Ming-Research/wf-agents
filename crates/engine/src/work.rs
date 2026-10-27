@@ -259,6 +259,23 @@ pub fn rounds(conn: &Connection, work: i64) -> Result<Vec<Round>, String> {
         .map_err(sql)
 }
 
+/// The rounds run in a CLI session, oldest first: the architect's line goes on in one CLI session across its wakes,
+/// each wake with a session row of its own, so these are the rounds of every work whose session has it.
+pub fn session_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
+    let mut st = conn
+        .prepare(
+            "SELECT r.work, r.n, r.cell, r.session, r.input, r.output, r.transition, r.rejected, r.compactions,
+                    r.started_at, r.ended_at, r.usage
+             FROM rounds r JOIN sessions s ON s.id = r.session
+             WHERE s.cli_session = ?1 ORDER BY r.work, r.n",
+        )
+        .map_err(sql)?;
+    st.query_map([cli_session], round)
+        .map_err(sql)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(sql)
+}
+
 /// When the owner last let the work go on after it paused, if ever.
 pub fn resumed_at(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     conn.query_row(

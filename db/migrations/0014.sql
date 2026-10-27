@@ -1,8 +1,8 @@
 -- Takes a version 13 database to version 14: the architect's flow runs. The architect's matters are a table of their
 -- own, what holds new works back and the plan's segments, gates and budgets are tables, an item may hang on a segment,
--- say what it touches, keep the acceptance its creator wanted and be held; the dispatch order comes from the owner's
--- queue and then from the plan; and the views the architect's cells read are made, with the views whose definitions or
--- descriptions changed made afresh. Each statement below that defines something is written exactly as db/schema.sql
+-- say what it touches, keep the acceptance its creator wanted and be held; a session can be ended; the dispatch order
+-- comes from the owner's queue and then from the plan; and the views the architect's cells read are made, with the
+-- views whose definitions or descriptions changed made afresh. Each statement below that defines something is written exactly as db/schema.sql
 -- writes it.
 
 CREATE TABLE architect_matters (
@@ -40,9 +40,11 @@ CREATE TABLE architect_matters (
   -- a matter with. NULL for any other. Read by: the architect, through the matter's material.
   answers INTEGER REFERENCES architect_matters(id),
   -- Why the matter waits though picked: owner_ask while an ask of the owner the eighth question put holds it, approval
-  -- while changes the architect collected for it wait for the owner's approval; NULL while it does not.
+  -- while changes the architect collected for it wait for the owner's approval; NULL while it does not. A held matter
+  -- is handled at the round that held it, and the owner's answer comes back as a matter of its own.
   held TEXT CHECK (held IN ('owner_ask', 'approval')),
-  -- The ask of the owner that holds it. Read by: the engine, which queues the owner's answer as a matter of its own.
+  -- The ask of the owner that holds it; for changes held for approval, NULL until the wrap-up puts them to the owner.
+  -- Read by: the engine, which queues the owner's answer as a matter of its own.
   held_by INTEGER REFERENCES owner_asks(id),
   -- The architect's reply to an engineer's question, as engine_op reply handed it in, JSON; NULL until it replied.
   -- Read by: the engine, which takes it back unchanged to the work that asked.
@@ -52,7 +54,8 @@ CREATE TABLE architect_matters (
   handled_round INTEGER,
   CHECK ((work IS NULL) = (round IS NULL)),
   CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
-  CHECK ((held IS NULL) = (held_by IS NULL)),
+  CHECK (held IS NOT NULL OR held_by IS NULL),
+  CHECK (held IS NOT 'owner_ask' OR held_by IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n),
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -130,6 +133,35 @@ ALTER TABLE items ADD COLUMN segment TEXT REFERENCES plan_segments(key);
 ALTER TABLE items ADD COLUMN touches TEXT CHECK (touches IS NULL OR json_valid(touches));
 ALTER TABLE items ADD COLUMN wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted));
 ALTER TABLE items ADD COLUMN held TEXT;
+
+-- A session can be ended, so that the architect's line goes on in one CLI session across its wakes until a new policy
+-- ends it, and a cell on no line has a session of its own for each round: the sessions are made afresh with their rows,
+-- each line of a work keeping one session going on.
+CREATE TABLE sessions_version_13 AS SELECT * FROM sessions;
+DROP TABLE sessions;
+CREATE TABLE sessions (
+  -- The CLI session each line of a work runs in. A line keeps one session for the whole work and lets the CLI compact
+  -- it; after a compaction the engine gives the cell's rules and inputs again. The architect's line goes on in one CLI
+  -- session across its wakes: each wake has a row of its own with the same cli_session, until a new policy ends it. A
+  -- cell on no line has a session of its own for each round, ended once the round has.
+  -- Hidden from agents.
+  -- Read by: the engine, to resume a line.
+  id INTEGER PRIMARY KEY,
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- The line, for example engineer, review, adversarial, advisor or architect; for a cell on no line, the cell.
+  line TEXT NOT NULL,
+  -- The CLI that started the session. Only that CLI can resume it, so this stays when the configuration changes.
+  cli TEXT NOT NULL,
+  -- The CLI's own id for the session, passed to it to resume.
+  cli_session TEXT NOT NULL,
+  -- When the session was ended, so that the line's next round starts a new one; NULL while it goes on. A work's line
+  -- has at most one session going on. Read by: the engine, which resumes only a session not ended.
+  ended INTEGER
+) STRICT;
+INSERT INTO sessions (id, work, line, cli, cli_session) SELECT id, work, line, cli, cli_session FROM sessions_version_13;
+DROP TABLE sessions_version_13;
+-- The session each line of a work goes on in: one at most, among those not ended.
+CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NULL;
 
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (id) WHERE handled_round IS NULL;

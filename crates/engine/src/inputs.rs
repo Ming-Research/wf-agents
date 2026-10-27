@@ -186,13 +186,14 @@ pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<V
         .collect())
 }
 
-/// Gathers every input of a cell.
+/// Gathers every input of a cell. A wake of the architect is on no item, so an input read for the item or its project
+/// has nothing for it.
 pub fn gather(
     e: &Engine,
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
-    item: &Item,
+    item: Option<&Item>,
 ) -> Result<Vec<Gathered>, String> {
     let mut out = Vec::new();
     for x in &cell.inputs {
@@ -222,7 +223,7 @@ fn source(
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
-    item: &Item,
+    item: Option<&Item>,
     s: &Src,
 ) -> Result<Option<Part>, String> {
     Ok(match s {
@@ -261,7 +262,7 @@ fn source(
         }
         Src::Itself => None,
         Src::Config(n) => {
-            let project = e.config.config.projects.get(&item.project);
+            let project = item.and_then(|i| e.config.config.projects.get(&i.project));
             project
                 .and_then(|p| p.setting(n))
                 .filter(|v| !v.is_null())
@@ -275,6 +276,8 @@ fn source(
             value: Value::String(v.clone()),
         }),
         Src::Db { relation, .. } if relation == HISTORY => None,
+        // What is read for the item or its project has nothing for a work on no item.
+        Src::Db { by: Some(col), .. } if col != "work" && item.is_none() => None,
         Src::Db { relation, by } => {
             let rows = db_rows(e, w, item, relation, by.as_deref())?;
             // The interjections an agent is given are those for its own line.
@@ -394,16 +397,24 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
     out
 }
 
-/// The rows of a table or view for the item, work or project at hand.
-pub fn db_rows(e: &Engine, w: &Work, item: &Item, relation: &str, by: Option<&str>) -> Result<Vec<Value>, String> {
+/// The rows of a table or view for the item, work or project at hand; none of the item's or the project's for a work on
+/// no item.
+pub fn db_rows(
+    e: &Engine,
+    w: &Work,
+    item: Option<&Item>,
+    relation: &str,
+    by: Option<&str>,
+) -> Result<Vec<Value>, String> {
     let conn = e.db.conn();
     match by {
         None => work::query_json(conn, &format!("SELECT * FROM {relation}"), &[], ROWS),
         Some(col) => {
-            let key: Box<dyn ToSql> = match col {
-                "item" => Box::new(item.id),
-                "work" => Box::new(w.id),
-                _ => Box::new(item.project.clone()),
+            let key: Box<dyn ToSql> = match (col, item) {
+                ("work", _) => Box::new(w.id),
+                (_, None) => return Ok(Vec::new()),
+                ("item", Some(i)) => Box::new(i.id),
+                (_, Some(i)) => Box::new(i.project.clone()),
             };
             work::query_json(
                 conn,
@@ -425,17 +436,28 @@ fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// What the engine computes for an input; none when there is nothing.
-pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -> Result<Option<Value>, String> {
+/// What the engine computes for an input; none when there is nothing. What the architect's cells read is computed by
+/// [`crate::architect`]; what is about an item has nothing for a work on no item.
+pub fn engine_input(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    item: Option<&Item>,
+    name: &str,
+) -> Result<Option<Value>, String> {
+    if crate::architect::INPUTS.contains(&name) {
+        return crate::architect::input(e, w, g, name);
+    }
+    if name == "free_slots" {
+        let hosts = &e.config.config.install.machines.hosts;
+        return Ok(Some(
+            json!({ "machines": hosts.iter().map(|(n, h)| json!({ "name": n, "slots": h.slots })).collect::<Vec<_>>() }),
+        ));
+    }
+    let Some(item) = item else { return Ok(None) };
     let wt = w.worktree.as_deref();
     let main = main_of(e, item);
     Ok(match name {
-        "free_slots" => {
-            let hosts = &e.config.config.install.machines.hosts;
-            Some(
-                json!({ "machines": hosts.iter().map(|(n, h)| json!({ "name": n, "slots": h.slots })).collect::<Vec<_>>() }),
-            )
-        }
         "project_guide" => match wt {
             Some(wt) => Some(project_guide(e, item, wt, &guide_base(wt, &main)?)?),
             None => None,

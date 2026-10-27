@@ -79,6 +79,13 @@ enum Command {
         /// For what the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
         #[arg(long)]
         reply: Option<String>,
+        /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of
+        /// those the ask lists; for its changes, approve_all, approve_some or approve_none.
+        #[arg(long)]
+        choice: Option<String>,
+        /// For the architect's changes approved in part, the number of each change approved.
+        #[arg(long, value_delimiter = ',')]
+        approved: Vec<i64>,
     },
     /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
     DesignCards {
@@ -110,6 +117,9 @@ enum Command {
         #[arg(long, default_value = "engineer")]
         line: String,
     },
+    /// The architect: what the owner says to it.
+    #[command(subcommand)]
+    Architect(ArchitectCommand),
     /// Pauses a work: a round of it under way ends first. The page's Start all lets it go on, as `resume` does.
     Pause {
         work: i64,
@@ -201,6 +211,12 @@ enum ItemCommand {
         #[arg(long)]
         why: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ArchitectCommand {
+    /// Says something to the architect: it comes to its queue as the owner's words, and wakes it when works go on.
+    Say { text: String },
 }
 
 #[derive(Subcommand)]
@@ -376,13 +392,31 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         }
         Command::Asks { all } => print(owner::asks(d, all)),
         Command::Ask { id } => print(owner::ask(d, id)),
-        Command::Answer { ask, text, why, reply } => {
-            let reply = match reply {
+        Command::Answer {
+            ask,
+            text,
+            why,
+            reply,
+            choice,
+            approved,
+        } => {
+            let mut reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
+            // The option chosen and the changes approved go with the answer as its reply carries them.
+            if choice.is_some() || !approved.is_empty() {
+                let r = reply.get_or_insert_with(|| serde_json::json!({}));
+                if let Some(c) = choice {
+                    r["choice"] = serde_json::json!(c);
+                }
+                if !approved.is_empty() {
+                    r["approved"] = serde_json::json!(approved);
+                }
+            }
             print(owner::answer(d, owner::Answer { ask, text, why, reply }))
         }
+        Command::Architect(ArchitectCommand::Say { text }) => print(owner::say_to_architect(d, &text)),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
@@ -585,6 +619,25 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                     rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
                     cell: s.cell,
                 });
+                control.stepped();
+            }
+            api::Next::Architect => {
+                let s = e.step_architect()?;
+                let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
+                (e.say)(&format!(
+                    "the architect's round, as the owner asked: work {}, rounds {}",
+                    s.work.map_or_else(|| "none".to_string(), |w| w.to_string()),
+                    names.join(", ")
+                ));
+                if let Some(stepped) = s.work {
+                    last = Some(api::StepTaken {
+                        at: db::now(),
+                        asked: stepped,
+                        work: stepped,
+                        rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
+                        cell: s.cell,
+                    });
+                }
                 control.stepped();
             }
             api::Next::Pass => {

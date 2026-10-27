@@ -29,8 +29,9 @@ pub struct Ctx<'a> {
     pub w: &'a Work,
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
-    pub item: &'a Item,
-    pub project: &'a config::Project,
+    /// The item the work is on, and its project; none for a wake of the architect.
+    pub item: Option<&'a Item>,
+    pub project: Option<&'a config::Project>,
     pub output: &'a Value,
     pub unwrapped: Value,
     /// The worktree's HEAD when the round started.
@@ -110,6 +111,18 @@ fn items(v: Option<&Value>) -> Vec<Value> {
 }
 
 impl Ctx<'_> {
+    /// The item the work is on, for a check about it.
+    fn item(&self) -> Result<&Item, String> {
+        self.item
+            .ok_or_else(|| format!("work {} is on no item, and the check is about one", self.w.id))
+    }
+
+    /// The project the work's item is in, for a check about it.
+    fn project(&self) -> Result<&config::Project, String> {
+        self.project
+            .ok_or_else(|| format!("work {} is in no project the configuration has", self.w.id))
+    }
+
     fn wt(&self) -> Result<&Path, String> {
         self.w
             .worktree
@@ -118,7 +131,7 @@ impl Ctx<'_> {
     }
 
     fn fork(&self) -> Result<String, String> {
-        git::fork_point(self.wt()?, &self.project.main)
+        git::fork_point(self.wt()?, &self.project()?.main)
     }
 
     /// The files the branch changed against main, committed.
@@ -128,15 +141,12 @@ impl Ctx<'_> {
 
     /// The files the work itself changed from one commit to another, apart from what merging main brought in.
     fn own(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
-        git::own_changes(self.wt()?, &self.project.main, from, to)
+        git::own_changes(self.wt()?, &self.project()?.main, from, to)
     }
 
     fn design(&self, files: &[String]) -> Vec<String> {
-        files
-            .iter()
-            .filter(|f| git::under(f, &self.project.design_paths))
-            .cloned()
-            .collect()
+        let paths = self.project.map(|p| p.design_paths.as_slice()).unwrap_or_default();
+        files.iter().filter(|f| git::under(f, paths)).cloned().collect()
     }
 
     /// Where the attempts of this cell that came just before this round, each sent back, cut off or failed, began: the
@@ -166,7 +176,7 @@ impl Ctx<'_> {
             .e
             .db
             .conn()
-            .query_row("SELECT acceptance FROM items WHERE id = ?1", [self.item.id], |r| {
+            .query_row("SELECT acceptance FROM items WHERE id = ?1", [self.item()?.id], |r| {
                 r.get(0)
             })
             .map_err(|e| e.to_string())?;
@@ -284,7 +294,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             } else {
                 // The work's own commits that change them; main's, which a merge of main brought in, are left out.
                 let range = format!("{base}..{start}");
-                let not_main = format!("^origin/{}", c.project.main);
+                let not_main = format!("^origin/{}", c.project()?.main);
                 let mut args = vec!["log", "--format=%h %s", range.as_str(), not_main.as_str(), "--"];
                 args.extend(left.iter().map(String::as_str));
                 git::git(wt, &args)?.lines().map(str::to_string).collect::<Vec<_>>()
@@ -327,7 +337,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let wt = c.wt()?;
             let changed = c.branch_changes()?;
             let tree = c.design(&changed);
-            if c.item.deliver == "report" {
+            if c.item()?.deliver == "report" {
                 return fail("a report can only answer unchanged");
             }
             if tree.is_empty() {
@@ -376,7 +386,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             if at.is_some_and(|a| a == "design_card") && v.is_none() {
                 return Ok(());
             }
-            let Some(cmd) = &c.project.design_check else {
+            let Some(cmd) = &c.project()?.design_check else {
                 return Ok(());
             };
             let wt = c.wt()?;
@@ -406,13 +416,15 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "acceptance_matches_locked" => {
             let given = items(v);
-            if c.item.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer") {
+            if c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer") {
                 return fail("a work that delivers a change has no report_answer condition");
             }
             let locked: Option<String> =
                 c.e.db
                     .conn()
-                    .query_row("SELECT acceptance FROM items WHERE id = ?1", [c.item.id], |r| r.get(0))
+                    .query_row("SELECT acceptance FROM items WHERE id = ?1", [c.item()?.id], |r| {
+                        r.get(0)
+                    })
                     .map_err(|e| e.to_string())?;
             match work::json_col(locked) {
                 Some(l) if l != Value::Array(given) => fail(
@@ -427,7 +439,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 c.e.db.conn(),
                 "SELECT c.body, c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1
                  ORDER BY c.id DESC",
-                &[&c.item.id],
+                &[&c.item()?.id],
                 100,
             )?;
             // The owner's last ruling, on the latest design card the owner ruled on.
@@ -514,10 +526,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     }
                 }
                 "design_paths_only" => {
-                    let outside: Vec<&String> = changed
-                        .iter()
-                        .filter(|f| !git::under(f, &c.project.design_paths))
-                        .collect();
+                    let paths = &c.project()?.design_paths;
+                    let outside: Vec<&String> = changed.iter().filter(|f| !git::under(f, paths)).collect();
                     if outside.is_empty() {
                         Ok(())
                     } else {
@@ -711,10 +721,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 return Ok(());
             };
             let head = v.and_then(Value::as_str).unwrap_or("HEAD");
+            let tests = &c.project()?.test_paths;
             let outside: Vec<String> = c
                 .own(&from, head)?
                 .into_iter()
-                .filter(|f| !git::under(f, &c.project.test_paths))
+                .filter(|f| !git::under(f, tests))
                 .collect();
             if outside.is_empty() {
                 Ok(())
@@ -797,7 +808,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "conclusions_cover_questions" => {
             let questions = c.acceptance()?.iter().filter(|a| a["by"] == "report_answer").count();
             let given = items(v).len();
-            if c.item.deliver == "report" {
+            if c.item()?.deliver == "report" {
                 if given < questions {
                     return fail(format!("{questions} report_answer conditions, and {given} conclusions"));
                 }
@@ -868,7 +879,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let chose = c.last("3f", "adversarial")?.is_some_and(|a| a["verdict"] == "yes");
             let ran = !c.accepted("6")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
-            let due = c.item.deliver == "change" && kind == "implementation" && !chose && !ran;
+            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;
             let verdict = v.and_then(|x| x["verdict"].as_str());
             match (due, first, verdict) {
                 (true, true, None) => fail(
@@ -1000,7 +1011,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
             Ok(())
         }
-        other => fail(format!("no such engine check: {other}")),
+        other => crate::architect::check(c, other, at, v),
     }
 }
 

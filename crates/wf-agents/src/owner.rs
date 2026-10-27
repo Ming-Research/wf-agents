@@ -249,6 +249,12 @@ pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
     api::rule(&mut db, r.design_card, &given)
 }
 
+/// Says something to the architect, as the page does.
+pub fn say_to_architect(data: &Path, text: &str) -> Result<String, String> {
+    let mut db = open(data)?;
+    db::say_to_architect(&mut db, text)
+}
+
 pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {
     open(data)?
         .write(Actor::Owner, |tx| {

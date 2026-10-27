@@ -104,6 +104,9 @@ pub struct Agents {
     /// How many subagents a round may start for chores.
     #[serde(default)]
     pub subagents: Subagents,
+    /// The level the architect runs at, by its name among the levels; the top level when none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub architect: Option<String>,
 }
 
 /// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine
@@ -171,7 +174,10 @@ fn heavy() -> Vec<String> {
 }
 
 fn read_only() -> Vec<String> {
-    ["review", "advisor"].iter().map(|s| s.to_string()).collect()
+    ["review", "advisor", "architect"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 impl Permissions {
@@ -338,6 +344,10 @@ pub struct Project {
     /// flow's own rules; how agents work in every project is the flow's, and is not repeated here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
+    /// The project's constitution, the lasting values its decisions come from: a path in its checkout, such as
+    /// `CONSTITUTION.md`; none when the project has none. The architect is given its text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constitution: Option<PathBuf>,
 }
 
 fn default_main() -> String {
@@ -631,6 +641,11 @@ impl Config {
                 problems.push(format!("install.toml: level {name} runs in no such CLI: {}", l.cli));
             }
         }
+        if let Some(a) = &self.install.agents.architect
+            && !self.install.agents.levels.contains_key(a)
+        {
+            problems.push(format!("install.toml: agents.architect names no level: {a}"));
+        }
         for (name, p) in &self.projects {
             for r in &p.rules {
                 if !self.rules.contains_key(r) {
@@ -681,11 +696,26 @@ impl Config {
     /// The level one above the one named, in the order of the levels' names (by number when they are numbers); the
     /// top level is its own level above. A name that is no level is given back as it is.
     pub fn level_above(&self, name: &str) -> String {
-        let mut names: Vec<&String> = self.install.agents.levels.keys().collect();
-        names.sort_by_key(|n| (n.parse::<i64>().ok(), (*n).clone()));
+        let names = self.levels_in_order();
         match names.iter().position(|n| *n == name) {
             Some(i) => names.get(i + 1).unwrap_or(&names[i]).to_string(),
             None => name.to_string(),
+        }
+    }
+
+    /// The levels' names in their order: by number when they are numbers, by name otherwise.
+    fn levels_in_order(&self) -> Vec<&String> {
+        let mut names: Vec<&String> = self.install.agents.levels.keys().collect();
+        names.sort_by_key(|n| (n.parse::<i64>().ok(), (*n).clone()));
+        names
+    }
+
+    /// The level the architect runs at, and the new architects that read a policy: the one the installation names,
+    /// or else the top level.
+    pub fn architect_level(&self) -> String {
+        match &self.install.agents.architect {
+            Some(a) => a.clone(),
+            None => self.levels_in_order().last().map(|n| n.to_string()).unwrap_or_default(),
         }
     }
 
@@ -1029,6 +1059,10 @@ asks = 9
         assert_eq!(c.level_of_line("1", "advisor"), "2");
         assert_eq!(c.level_of_line("1", "engineer"), "1");
         assert_eq!(c.level_of_line("10", "advisor"), "10");
+        // The architect runs at the top level unless the installation names another.
+        assert_eq!(c.architect_level(), "10");
+        c.install.agents.architect = Some("2".into());
+        assert_eq!(c.architect_level(), "2");
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

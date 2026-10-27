@@ -129,8 +129,10 @@ pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s:
 
 /// Pauses a work and tells the owner why; once the owner lets it go on, its cell runs again.
 pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
-    let item = e.item_of(w)?;
-    let text = format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title);
+    let text = match e.subject(w)? {
+        Some(item) => format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title),
+        None => format!("Work {} (a wake of the architect) is paused: {why}", w.id),
+    };
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",

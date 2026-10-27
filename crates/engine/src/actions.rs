@@ -1,16 +1,16 @@
 //! What rows and cells do besides moving the work: `engine.actions` in the flow. Each runs inside the transaction
 //! that ends the round, so it happens exactly when the round is recorded. What must happen outside the database (a
 //! message to the owner, closing a PR, reverting a merge, removing a worktree) is put in the outbox in that
-//! transaction and carried out by [`run_outbox`] after it.
-//!
-//! In this version the owner answers for the architect, so what the flow sends to the architect goes to the owner.
+//! transaction and carried out by [`run_outbox`] after it. What the flow sends to the architect is queued for it as a
+//! matter, in the same transaction; the actions of the architect's own graph are [`crate::architect::act`].
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::{Matter, queue_matter};
 use flow::CompiledCell;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::inputs::at_path;
 use crate::work::{Item, RoundId, Work, json_col, query_json};
@@ -31,6 +31,9 @@ pub struct Ctx {
     /// The field an agent's forms sit in.
     pub within: String,
     pub data: PathBuf,
+    /// What the cell's rows were given: the values rows recorded, the engine's values, and each input read by id under
+    /// `@<id>`.
+    pub given: Map<String, Value>,
 }
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -68,10 +71,18 @@ fn tell(tx: &Transaction<'_>, work: Option<i64>, ask: Option<i64>, text: &str) -
 }
 
 impl Ctx {
+    /// What an action is carried out at: a place of the return, or an input the cell read by id (`@<id>`).
+    pub fn at(&self, path: &str) -> Option<Value> {
+        if path.starts_with('@') {
+            return self.given.get(path).cloned();
+        }
+        at_path(&self.unwrapped, path)
+    }
+
     fn about(&self) -> String {
         match &self.item {
             Some(i) => format!("work {} (item {}: {})", self.work.id, i.id, i.title),
-            None => format!("work {}", self.work.id),
+            None => format!("work {} (a wake of the architect)", self.work.id),
         }
     }
 
@@ -159,10 +170,28 @@ fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: 
     Ok(tx.last_insert_rowid())
 }
 
+/// Queues a design card for the architect to look at before the owner rules on it.
+fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundId) -> Result<(), String> {
+    let what = format!("Design card {card} of {} to look at", ctx.about());
+    let m = Matter {
+        kind: "design_card".into(),
+        what,
+        body: json!({ "design_card": card }),
+        item: ctx.item.as_ref().map(|i| i.id),
+        raised: Some((raised.work, raised.n)),
+        ..Matter::default()
+    };
+    queue_matter(tx, &m).map_err(sql)?;
+    Ok(())
+}
+
 /// Carries out one action.
 pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
     let w = ctx.work.id;
-    let at_value = at.and_then(|p| at_path(&ctx.unwrapped, p));
+    let at_value = at.and_then(|p| ctx.at(p));
+    if crate::architect::act(ctx, tx, name, at_value.as_ref())? {
+        return Ok(());
+    }
     match name {
         "record_place" => {
             let p = &ctx.output["place"];
@@ -180,7 +209,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             if let (Some(cli), Some(s)) = (&ctx.cli, p["session"].as_str()) {
                 tx.execute(
                     "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', ?2, ?3)
-                     ON CONFLICT (work, line) DO NOTHING",
+                     ON CONFLICT (work, line) WHERE ended IS NULL DO NOTHING",
                     params![w, cli, s],
                 )
                 .map_err(sql)?;
@@ -282,11 +311,12 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 params![w, card],
             )
             .map_err(sql)?;
+            design_card_matter(ctx, tx, card, round)?;
             notify(
                 tx,
                 Some(w),
                 &format!(
-                    "Design card {card} of {}: the architect looks first, and in this version you rule as both. It blocks nothing until the merge.",
+                    "Design card {card} of {}: the architect looks first, then you rule. It blocks nothing until the merge.",
                     ctx.about()
                 ),
             )?;
@@ -297,6 +327,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let before = current_design_cards(tx, w)?;
             let changed = at_path(&ctx.unwrapped, "design_card_changed");
             let card = new_design_card(tx, ctx.round, &body, changed.as_ref())?;
+            design_card_matter(ctx, tx, card, ctx.round)?;
             if before.is_empty() {
                 notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
             } else {
@@ -335,12 +366,29 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "notify_pending_approvers" => {
-            let why = match current_design_card(tx, w)? {
-                Some((card, status)) if status == "open" => format!("design card {card} waits for your ruling"),
+            let current = current_design_card(tx, w)?;
+            let why = match &current {
+                Some((card, status)) if status == "open" => format!("design card {card} waits for a ruling"),
                 Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
                 None => "it waits for the items it depends on to merge".to_string(),
             };
             notify(tx, Some(w), &format!("{} is ready to merge, but {why}.", ctx.about()))?;
+            // The architect is told by a matter of its own, unless it ruled on the card or one waits for it already.
+            if let Some((card, _)) = current {
+                let pending: i64 = tx
+                    .query_row(
+                        "SELECT (SELECT count(*) FROM json_each(c.rulings) r WHERE json_extract(r.value, '$.by') = 'architect')
+                              + (SELECT count(*) FROM architect_matters m WHERE m.kind = 'design_card'
+                                 AND m.handled_round IS NULL AND json_extract(m.body, '$.design_card') = c.id)
+                         FROM design_cards c WHERE c.id = ?1",
+                        [card],
+                        |r| r.get(0),
+                    )
+                    .map_err(sql)?;
+                if pending == 0 {
+                    design_card_matter(ctx, tx, card, ctx.round)?;
+                }
+            }
         }
         "revert_merge" => {
             let project = ctx.project()?;
@@ -444,14 +492,43 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "set_aside_checks" => {}
         "wake_architect" => {
-            for r in ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default() {
-                if r["urgent"] == true {
-                    notify(
-                        tx,
-                        Some(w),
-                        &format!("Urgent side report from {} at cell {}: {r}", ctx.about(), ctx.cell.id),
-                    )?;
+            // Each side report is one matter for the architect, queued once: an urgent one due at once, any other an
+            // hour after it came.
+            let reports = ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default();
+            for (index, r) in reports.iter().enumerate() {
+                let queued: i64 = tx
+                    .query_row(
+                        "SELECT count(*) FROM architect_matters
+                         WHERE work = ?1 AND round = ?2 AND json_extract(body, '$.index') = ?3",
+                        params![ctx.round.work, ctx.round.n, index as i64],
+                        |x| x.get(0),
+                    )
+                    .map_err(sql)?;
+                if queued > 0 {
+                    continue;
                 }
+                let kind = match r["kind"].as_str() {
+                    Some("duplicate") => "duplicate",
+                    Some("out_of_scope_defect") => "out_of_scope_defect",
+                    _ => "other_question",
+                };
+                let urgent = r["urgent"] == true;
+                let what = format!(
+                    "A side report from {} at cell {}: {}",
+                    ctx.about(),
+                    ctx.cell.id,
+                    db::one_sentence(r["what"].as_str().unwrap_or_default())
+                );
+                let m = Matter {
+                    kind: kind.into(),
+                    what,
+                    body: json!({ "report": r, "index": index, "cell": ctx.cell.id, "urgent": urgent }),
+                    item: ctx.item.as_ref().map(|i| i.id),
+                    raised: Some((ctx.round.work, ctx.round.n)),
+                    due: (!urgent).then(|| db::now() + crate::architect::HOUR),
+                    ..Matter::default()
+                };
+                queue_matter(tx, &m).map_err(sql)?;
             }
         }
         "deliver_answers" => {
@@ -510,9 +587,13 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
     Ok(())
 }
 
-/// The line of the cell an action is carried out for.
+/// The line of the cell an action is carried out for: its own, or the line of its graph's agents.
 fn line_of(ctx: &Ctx) -> String {
-    ctx.cell.line.clone().unwrap_or_else(|| "engineer".into())
+    match &ctx.cell.line {
+        Some(l) => l.clone(),
+        None if ctx.work.graph == crate::ARCHITECT => crate::ARCHITECT.to_string(),
+        None => crate::ENGINEER.to_string(),
+    }
 }
 
 /// Carries out what is due in the outbox; an action that fails is tried again later, waiting longer each time.

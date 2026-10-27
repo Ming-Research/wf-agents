@@ -15,6 +15,12 @@ use serde_json::Value;
 
 pub use rusqlite;
 
+mod matters;
+mod rulings;
+
+pub use matters::{Matter, one_sentence, queue_matter, say_to_architect};
+pub use rulings::{Verdict, rule_design_card};
+
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
