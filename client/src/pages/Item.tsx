@@ -13,7 +13,7 @@ import { Acceptance, Approaches, Deviation, Design, Field, Fold, Measure, Unders
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str } from '../labelled';
 import { useResource } from '../live';
-import { Markdown } from '../markdown';
+import { Markdown, MarkdownInline } from '../markdown';
 import { Link } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, DesignCardView } from './Decide';
@@ -129,11 +129,11 @@ function DesignOf({ round, shown }: { round: number; shown: Map<string, Shown[]>
   const why = at('why');
   const design = at('design');
   const measure = at('measure');
+  const measured = measure !== undefined ? <Measure value={measure} /> : null;
   return (
     <>
       {why !== undefined ? <Field label={t('design_why')} value={why} /> : null}
-      {design !== undefined ? <Design value={design} /> : null}
-      {measure !== undefined ? <Measure value={measure} /> : null}
+      {design !== undefined ? <Design value={design} after={measured} /> : measured}
     </>
   );
 }
@@ -151,7 +151,11 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
   const n = options !== undefined && Array.isArray(options.value) ? options.value.length : 0;
   return (
     <Block title={t('design_title')} from={from ?? options}>
-      {chosen !== '' ? <h3 className="design-chosen">{chosen}</h3> : null}
+      {chosen !== '' ? (
+        <h3 className="design-chosen">
+          <MarkdownInline text={chosen} />
+        </h3>
+      ) : null}
       {round !== undefined ? <DesignOf round={round} shown={shown} /> : null}
       {options !== undefined ? (
         <Fold
@@ -174,7 +178,9 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
               return (
                 <div key={r} className="shown-old">
                   {x !== undefined ? <From x={x} /> : null}
-                  <h3 className="design-chosen">{str(shown.get('chosen')?.find((y) => y.round === r)?.value)}</h3>
+                  <h3 className="design-chosen">
+                    <MarkdownInline text={str(shown.get('chosen')?.find((y) => y.round === r)?.value)} />
+                  </h3>
                   <DesignOf round={r} shown={shown} />
                 </div>
               );
@@ -306,6 +312,48 @@ function Works({ d }: { d: ItemDetail }) {
   );
 }
 
+/// What the item went through, folded: earlier and replaced design cards, earlier asks, its works, what an import
+/// recorded; nothing when it has none of these.
+function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks: OwnerAsk[] }) {
+  const imported = d.imported_from !== null || d.imported_branch !== null;
+  if (cards.length === 0 && asks.length === 0 && d.works.length === 0 && !imported) return null;
+  return (
+    <Section title={t('history')} open={false}>
+      {cards.length > 0 ? (
+        <Fold title={t('history_cards', { n: cards.length })} open>
+          {cards.map((c) => (
+            <Card key={c.id} c={c} />
+          ))}
+        </Fold>
+      ) : null}
+      {asks.length > 0 ? (
+        <Fold title={t('history_asks', { n: asks.length })} open>
+          {asks.map((a) => (
+            <Ask key={a.id} a={a} />
+          ))}
+        </Fold>
+      ) : null}
+      {d.works.length > 0 ? (
+        <Fold title={t('history_works', { n: d.works.length })} open>
+          <Works d={d} />
+        </Fold>
+      ) : null}
+      {imported ? (
+        <Fold title={t('item_imported')}>
+          <p className="muted">{t('item_imported_note')}</p>
+          <Facts
+            rows={[
+              [t('item_imported_from'), d.imported_from ?? ''],
+              [t('branch'), d.imported_branch ?? ''],
+              ['PR', d.imported_pr !== null ? `#${d.imported_pr}` : ''],
+            ]}
+          />
+        </Fold>
+      ) : null}
+    </Section>
+  );
+}
+
 function Detail({ d }: { d: ItemDetail }) {
   const i = d.item;
   const shown = byPath(d);
@@ -371,37 +419,7 @@ function Detail({ d }: { d: ItemDetail }) {
           ) : null}
         </div>
       ) : null}
-      <Section title={t('history')} open={false}>
-        {earlierCards.length > 0 ? (
-          <Fold title={t('history_cards', { n: earlierCards.length })} open>
-            {earlierCards.map((c) => (
-              <Card key={c.id} c={c} />
-            ))}
-          </Fold>
-        ) : null}
-        {earlierAsks.length > 0 ? (
-          <Fold title={t('history_asks', { n: earlierAsks.length })} open>
-            {earlierAsks.map((a) => (
-              <Ask key={a.id} a={a} />
-            ))}
-          </Fold>
-        ) : null}
-        <Fold title={t('history_works', { n: d.works.length })} open>
-          {d.works.length === 0 ? <p className="muted">{t('none')}</p> : <Works d={d} />}
-        </Fold>
-        {d.imported_from !== null || d.imported_branch !== null ? (
-          <Fold title={t('item_imported')}>
-            <p className="muted">{t('item_imported_note')}</p>
-            <Facts
-              rows={[
-                [t('item_imported_from'), d.imported_from ?? ''],
-                [t('branch'), d.imported_branch ?? ''],
-                ['PR', d.imported_pr !== null ? `#${d.imported_pr}` : ''],
-              ]}
-            />
-          </Fold>
-        ) : null}
-      </Section>
+      <History d={d} cards={earlierCards} asks={earlierAsks} />
     </>
   );
 }

@@ -26,6 +26,9 @@ export type Step = {
 /// Where the work is: the cell it is at, the cell it left to ask when it asks, and whether it still goes on.
 export type Where = { at: string; resumeAt: string | null; live: boolean };
 
+/// A cell's stage; none for a cell at no stage, which a compiled flow writes by leaving the stage out.
+const stageOf = (c: CompiledCell | undefined): string | null => c?.stage ?? null;
+
 /// A cell drawn apart from the main part of the chart, as the chart draws it: not in the asking part, not the start,
 /// and no row leads to it but the rows every agent's cell shares, such as the cell that runs the tools an agent asks
 /// for. It serves whichever cell called it.
@@ -112,7 +115,7 @@ export function progress(g: CompiledGraph, rounds: RoundSummary[], where: Where)
     const had = steps.get(id);
     if (had !== undefined) return had;
     const c = cells.get(id);
-    const s: Step = { cell: id, title: c?.title ?? id, stage: c?.stage ?? stage, state: 'done', passes: 0, row: null, rounds: [] };
+    const s: Step = { cell: id, title: c?.title ?? id, stage: stageOf(c) ?? stage, state: 'done', passes: 0, row: null, rounds: [] };
     steps.set(id, s);
     return s;
   };
@@ -134,7 +137,7 @@ export function progress(g: CompiledGraph, rounds: RoundSummary[], where: Where)
       if (!asking.has(c.id)) lastOut = c.id;
       s.rounds.push(r);
       if (r.transition !== null) s.row = r.transition;
-      if (c.stage !== null) stage = c.stage;
+      stage = stageOf(c) ?? stage;
     } else if (serves(g, c.id) && last !== null) {
       steps.get(last)?.rounds.push(r);
     }
@@ -164,7 +167,10 @@ export function progress(g: CompiledGraph, rounds: RoundSummary[], where: Where)
 /// The stages of a graph, in the order of its cells.
 export function stagesOf(g: CompiledGraph): string[] {
   const out: string[] = [];
-  for (const c of g.cells) if (c.stage !== null && !out.includes(c.stage)) out.push(c.stage);
+  for (const c of g.cells) {
+    const s = stageOf(c);
+    if (s !== null && !out.includes(s)) out.push(s);
+  }
   return out;
 }
 

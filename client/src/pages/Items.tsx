@@ -241,7 +241,7 @@ function Tree({ data, selected }: { data: ItemsData; selected: number | null }) 
 }
 
 /// The width of the tree at first.
-const WIDTH = 460;
+const WIDTH = 520;
 
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');

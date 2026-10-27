@@ -109,6 +109,13 @@ function cell(id: string, stage: string | null, rows: CompiledRow[], extra: Part
   };
 }
 
+/// A cell at no stage, as a compiled flow writes it: with the stage left out.
+function noStage(c: CompiledCell): CompiledCell {
+  const copy: Partial<CompiledCell> = { ...c };
+  delete copy.stage;
+  return copy as CompiledCell;
+}
+
 const shared = { common: true };
 const engine = { kind: 'engine', line: null };
 
@@ -133,8 +140,8 @@ const graph: CompiledGraph = {
     cell('c', 'test', [row('done', 'm', { main: true }), row('back', 'f'), row('ask', 'q', shared)]),
     cell('f', 'test', [row('done', 'k'), row('ask', 'q', shared)]),
     cell('m', 'merge', [row('wait', 'm', { main: true, waits: true }), row('clear', 'z', { main: true })], engine),
-    cell('t', null, [row('ran', '@caller', { main: true })], { kind: 'tool', line: null }),
-    cell('q', null, [row('answered', '@asker')], { kind: 'owner', line: null }),
+    noStage(cell('t', null, [row('ran', '@caller', { main: true })], { kind: 'tool', line: null })),
+    noStage(cell('q', null, [row('answered', '@asker')], { kind: 'owner', line: null })),
     cell('z', 'done', [], engine),
   ],
 };

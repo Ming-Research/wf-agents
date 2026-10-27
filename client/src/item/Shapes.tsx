@@ -76,10 +76,17 @@ export function Measure({ value }: { value: JsonValue }) {
   return <Labelled value={value} />;
 }
 
-/// The design itself: how it solves the problem, open; where it changes, what it leaves out and its cost and
-/// pitfalls, each folded.
-export function Design({ value }: { value: JsonValue }) {
-  if (!isObj(value) || typeof value.solution !== 'string') return <Labelled value={value} />;
+/// The design itself: how it solves the problem, open, with what follows it (the measure); where it changes, what it
+/// leaves out and its cost and pitfalls, each folded.
+export function Design({ value, after }: { value: JsonValue; after: ReactNode }) {
+  if (!isObj(value) || typeof value.solution !== 'string') {
+    return (
+      <>
+        <Labelled value={value} />
+        {after}
+      </>
+    );
+  }
   const folded: Array<[Key, JsonValue | undefined]> = [
     ['design_where', value.where],
     ['design_excluded', value.excluded],
@@ -88,6 +95,7 @@ export function Design({ value }: { value: JsonValue }) {
   return (
     <div className="shape">
       <Markdown text={value.solution} />
+      {after}
       {folded.map(([key, v]) =>
         empty(v) ? null : (
           <Fold key={key} title={t(key)}>
@@ -112,7 +120,9 @@ export function Approaches({ value, chosen }: { value: JsonValue; chosen: string
           return (
             <tr key={i} className={name === chosen ? 'recommended' : undefined}>
               <td>
-                <strong>{name}</strong>
+                <strong>
+                  <MarkdownInline text={name} />
+                </strong>
                 {name === chosen ? <div className="option-recommended">{t('decision_chosen')}</div> : null}
               </td>
               <td>

@@ -14,7 +14,7 @@ import { time } from '../format';
 import { postJson } from '../http';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
-import { Markdown } from '../markdown';
+import { Markdown, MarkdownInline } from '../markdown';
 import { Link, navigate } from '../route';
 import { t } from '../text';
 
@@ -90,7 +90,9 @@ function Options(props: {
               aria-checked={pick !== null ? mine : undefined}
             >
               <td>
-                <strong>{name}</strong>
+                <strong>
+                  <MarkdownInline text={name} />
+                </strong>
                 {recommended ? <div className="option-recommended">{props.mark}</div> : null}
                 {mine ? <div className="option-picked">{t('option_yours')}</div> : null}
               </td>
@@ -167,7 +169,8 @@ function Rulings({ rulings }: { rulings: JsonValue }) {
 
 /// The owner's ruling on a design card that waits for one: confirm, or disagree with a reason; the approach clicked
 /// in the card, when one is, is ruled for instead of the one recommended.
-function RuleForm({ c, option, options }: { c: DesignCard; option: string; options: boolean }) {
+function RuleForm(props: { c: DesignCard; option: string; options: boolean; recommended: boolean }) {
+  const { c, option, options } = props;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,7 +187,9 @@ function RuleForm({ c, option, options }: { c: DesignCard; option: string; optio
     <div className="decide">
       {options ? (
         <p className="muted pick-hint">
-          {option === '' ? t('rule_pick_hint') : t('rule_picked', { option })}
+          {option === ''
+            ? t('rule_pick_hint')
+            : t(props.recommended ? 'rule_picked_recommended' : 'rule_picked', { option })}
         </p>
       ) : null}
       <textarea
@@ -229,7 +234,14 @@ function CardBody({ c }: { c: DesignCard }) {
         decisions.map((d, i) => <Decision key={i} d={d} picked={open ? picked : ''} onPick={pick} />)
       )}
       <Rulings rulings={c.rulings} />
-      {open ? <RuleForm c={c} option={picked} options={options} /> : null}
+      {open ? (
+        <RuleForm
+          c={c}
+          option={picked}
+          options={options}
+          recommended={decisions.some((d) => str(d.chosen) === picked)}
+        />
+      ) : null}
     </div>
   );
 }

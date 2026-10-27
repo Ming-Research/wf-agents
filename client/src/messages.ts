@@ -250,6 +250,7 @@ const messages = {
   option_yours: 'your choice',
   rule_pick_hint: 'Click an approach to rule for it instead of the one recommended.',
   rule_picked: 'Ruling for {option} instead of the one recommended; click it again to clear.',
+  rule_picked_recommended: 'Ruling for {option}, the one recommended; click it again to clear.',
   answer_pick_hint: 'Click an option to choose it.',
   answer_picked: 'Chosen: {option}; click it again to clear.',
   kind_group: 'Group: {group}',
