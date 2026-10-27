@@ -805,7 +805,11 @@ impl Context<'_> {
                 rules.push(m.add(format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        let workspace = workspace(w, project).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
+        // A line the configuration keeps from changing anything only reads the worktree.
+        let line = c.line.clone().unwrap_or_else(|| "engineer".to_string());
+        let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
+        let workspace =
+            workspace(w, project, read_only).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full.
         let mut work_from = Vec::new();
@@ -966,8 +970,9 @@ pub fn cell_inputs(cell: &CompiledCell) -> String {
 }
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
-/// `work:<id>` gives. None for a work of no project the configuration knows.
-fn workspace(w: &Work, project: Option<&config::Project>) -> Option<String> {
+/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree. None for a work of no
+/// project the configuration knows.
+fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Option<String> {
     let p = project?;
     let main = format!(
         "Main, wherever the flow says it, is the branch {}: the work branches from it, its PR merges into it, and a \
@@ -975,6 +980,11 @@ fn workspace(w: &Work, project: Option<&config::Project>) -> Option<String> {
         p.main
     );
     Some(match (&w.worktree, &w.branch) {
+        (Some(wt), Some(branch)) if read_only => format!(
+            "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
+             commit nothing there. {main}",
+            wt.display()
+        ),
         (Some(wt), Some(branch)) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
              when you ask it to with a tool. {main}",
@@ -1033,7 +1043,12 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
                     ("3d", "cross-project dependency"),
                     ("3e", "splitting"),
                 ] {
-                    if g.cell(c).is_some() {
+                    // A check the project lacks what it needs for was answered by the engine, not judged: no column.
+                    let not_asked = g
+                        .cell(c)
+                        .and_then(|x| x.needs.as_deref())
+                        .is_some_and(|need| project.is_some_and(|p| !p.has(need).unwrap_or(false)));
+                    if g.cell(c).is_some() && !not_asked {
                         cols.push(format!(
                             "The check of {what} answered \"no\" or not applicable: does its reason hold?"
                         ));

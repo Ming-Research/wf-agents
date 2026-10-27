@@ -208,8 +208,9 @@ pub fn clean_log(log: &str) -> String {
 fn clean_line(line: &str) -> String {
     let line = line.trim_start_matches('\u{feff}');
     let mut parts = line.splitn(3, '\t');
+    // The log's first line has a byte order mark before its time.
     let text = match (parts.next(), parts.next(), parts.next()) {
-        (Some(_), Some(_), Some(rest)) => rest,
+        (Some(_), Some(_), Some(rest)) => rest.trim_start_matches('\u{feff}'),
         _ => line,
     };
     let text = match text.split_once(' ') {
@@ -232,23 +233,32 @@ fn is_timestamp(w: &str) -> bool {
         && w.ends_with('Z')
 }
 
-/// A text without its terminal escapes: ESC [ ... a letter.
+/// A text without its terminal escapes: ESC [ ... a letter. gh writes the escape character of a job's log as the two
+/// characters "^[", so "^[[1m" is an escape too.
 fn without_escapes(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
+        let escape = match c {
+            '\u{1b}' => true,
+            '^' if chars.peek() == Some(&'[') => {
                 chars.next();
-                for x in chars.by_ref() {
-                    if ('@'..='~').contains(&x) {
-                        break;
-                    }
-                }
+                true
             }
+            _ => false,
+        };
+        if !escape {
+            out.push(c);
             continue;
         }
-        out.push(c);
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            for x in chars.by_ref() {
+                if ('@'..='~').contains(&x) {
+                    break;
+                }
+            }
+        }
     }
     out
 }
@@ -387,6 +397,12 @@ mod tests {
                    check\tTest\t2026-10-27T09:47:49.0475850Z \n\
                    plain line";
         assert_eq!(clean_log(log), "error: test failed\n\nplain line");
+        // As gh gives a job's log, with the escape character written "^[".
+        let real = "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)";
+        assert_eq!(
+            clean_log(real),
+            "     Running unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)"
+        );
         let link = "https://github.com/o/r/actions/runs/40483126002/job/118000000001";
         assert_eq!(
             run_and_job(link),

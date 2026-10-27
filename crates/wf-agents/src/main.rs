@@ -1,6 +1,7 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 
 mod owner;
+mod tree;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -28,6 +29,15 @@ enum Command {
     /// The configuration in the data directory.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Checks the design tree of the repository here: its nodes, depth and decisions at HEAD, and how many more than
+    /// at the fork point given. A project names it as its design_check.
+    TreeCheck {
+        /// The directory the design tree is in.
+        #[arg(long, default_value = "design")]
+        root: String,
+        /// The fork point from main.
+        fork: String,
+    },
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
     /// appears in the data directory. The owner's page is served beside it, on the loopback address.
     Run {
@@ -252,6 +262,7 @@ fn main() -> ExitCode {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
         Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
+        Some(Command::TreeCheck { root, fork }) => tree::report(Path::new("."), &fork, &root).map(|r| print!("{r}")),
         Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
     match result {
@@ -320,7 +331,7 @@ fn print(r: Result<String, String>) -> Result<(), String> {
 /// The commands that work on a data directory's database.
 fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
-        Command::Flow(_) | Command::Config(_) => Ok(()),
+        Command::Flow(_) | Command::Config(_) | Command::TreeCheck { .. } => Ok(()),
         Command::Run { once, mode, port } => run(d, once, mode.into(), port),
         Command::Item(ItemCommand::Add(add)) => {
             let AddItem {

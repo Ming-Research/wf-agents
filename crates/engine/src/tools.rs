@@ -270,10 +270,11 @@ struct Binary {
     finished: Option<String>,
 }
 
-/// The test binaries a cargo test log shows, in the order they ran.
+/// The test binaries a cargo test log shows, in the order they ran. Each line is read as a reader sees it: without the
+/// job, the step and the time gh puts before it, and without colour escapes.
 fn binaries(log: &str) -> Vec<Binary> {
     let mut out: Vec<Binary> = Vec::new();
-    for line in log.lines() {
+    for line in hub::clean_log(log).lines() {
         let l = line.trim();
         if let Some(rest) = l.strip_prefix("Running ") {
             let (source, deps) = rest.split_once(" (").unwrap_or((rest, ""));
@@ -312,10 +313,28 @@ fn binaries(log: &str) -> Vec<Binary> {
     out
 }
 
-/// How long each named test took, as far as the logs of the fast CI tell: stable `cargo test` times no test on its
-/// own, so each named test is given the time of the whole test binary that holds it, said as that.
-fn test_times(tests: &[String], logs: &[String]) -> Vec<Value> {
-    let found: Vec<Binary> = logs.iter().flat_map(|l| binaries(l)).collect();
+/// How long each named test took, as far as the logs of the fast CI's jobs tell: stable `cargo test` times no test on
+/// its own, so each named test is given the time of the whole test binary that holds it, said as that. A test not
+/// found says how many tests the logs showed, and a log that could not be read says why.
+fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
+    let found: Vec<Binary> = logs
+        .iter()
+        .filter_map(|l| l.as_ref().ok())
+        .flat_map(|l| binaries(l))
+        .collect();
+    let unread: Vec<&str> = logs
+        .iter()
+        .filter_map(|l| l.as_ref().err().map(String::as_str))
+        .collect();
+    let ran: usize = found.iter().map(|b| b.tests.len()).sum();
+    let missing = if found.is_empty() && !unread.is_empty() {
+        format!("the logs of the fast CI could not be read: {}", unread.join("; "))
+    } else {
+        format!(
+            "not found among the {ran} tests in {} test binaries the logs of the fast CI show",
+            found.len()
+        )
+    };
     let holds = |full: &str, named: &str| {
         full == named || full.ends_with(&format!("::{named}")) || named.ends_with(&format!("::{full}"))
     };
@@ -333,7 +352,7 @@ fn test_times(tests: &[String], logs: &[String]) -> Vec<Value> {
                     ),
                     None => format!("the test binary {} that holds it reported no time", b.name),
                 })
-                .unwrap_or_else(|| "not found in the logs of the fast CI".to_string());
+                .unwrap_or_else(|| missing.clone());
             json!({ "test": named, "time": time })
         })
         .collect()
@@ -534,10 +553,13 @@ fn ci(
         )?;
         pr.set(Some(n));
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
-        let logs: Vec<String> = checks
+        let logs: Vec<Result<String, String>> = checks
             .iter()
-            .filter_map(|c| e.github.job_log(&repo(project), c).ok())
-            .map(|l| hub::clean_log(&l))
+            .map(|c| {
+                e.github
+                    .job_log(&repo(project), c)
+                    .map_err(|f| format!("{}: {}", c.name, f.what))
+            })
             .collect();
         let times = test_times(&tests, &logs);
         Ok(
@@ -879,7 +901,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
             "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
             "missing".to_string(),
         ];
-        let times = test_times(&named, &[log.to_string()]);
+        let times = test_times(&named, &[Ok(log.to_string())]);
         assert_eq!(
             times[0]["time"],
             "68.41s for the whole test binary e2e (tests/e2e.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
@@ -892,7 +914,32 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
         );
         assert_eq!(
             times[2],
-            json!({ "test": "missing", "time": "not found in the logs of the fast CI" })
+            json!({ "test": "missing", "time": "not found among the 3 tests in 2 test binaries the logs of the fast CI show" })
+        );
+        let unread = test_times(&named[..1], &[Err("check: HTTP 404".to_string())]);
+        assert_eq!(
+            unread[0]["time"],
+            "the logs of the fast CI could not be read: check: HTTP 404"
+        );
+    }
+
+    // Lines copied from a real job log, as gh gives it: the job, the step and the time before each line, and the
+    // colour escapes cargo writes, their escape character written "^[" by gh.
+    #[test]
+    fn a_named_test_is_found_in_a_real_job_log() {
+        let log = concat!(
+            "check\tSet up job\t\u{feff}2026-10-27T11:11:11.3443351Z Current runner version: '2.338.0'\n",
+            "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)\n",
+            "check\tTest\t2026-10-27T11:12:23.7464421Z \n",
+            "check\tTest\t2026-10-27T11:12:23.7464632Z running 21 tests\n",
+            "check\tTest\t2026-10-27T11:12:23.7470165Z test control::tests::a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time ... ok\n",
+            "check\tTest\t2026-10-27T11:12:53.2568286Z test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.51s\n",
+        );
+        let named = ["a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time".to_string()];
+        let times = test_times(&named, &[Ok(log.to_string())]);
+        assert_eq!(
+            times[0]["time"],
+            "29.51s for the whole test binary api (unittests src/lib.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
         );
     }
 

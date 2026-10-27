@@ -251,7 +251,12 @@ fn gates_clear(e: &Engine, w: &Work, item: &Item) -> Result<bool, String> {
 
 /// The head the last review started from; none before the first review.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
-    Ok(answered(e, w, g, "5a")?
+    head_reviewed_by(e, w, g, "5a")
+}
+
+/// The head a review cell last looked at: that of its newest answered round, if any.
+pub fn head_reviewed_by(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Option<String>, String> {
+    Ok(answered(e, w, g, cell)?
         .first()
         .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
 }

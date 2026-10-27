@@ -29,3 +29,9 @@ Rejected:
 - Giving a conditional input by where it comes from (written by the session's own line, needed from the start, from outside): rejected because a session started afresh midway, or another line's session, holds none of them, so each is given by whether the session holds it, whatever its origin.
 - Giving the whole message again after a return sent back, with the reason added: rejected because it repeats the task to an agent that did it, and spends a round's worth of tokens to say that one return was written wrongly.
 - A notation of the return formats other than JSON Schema, such as types written as code: rejected for now because the descriptions, which are the flow's own words, are three quarters of the formats, and a second notation of the schema the engine checks against could say something the schema does not.
+
+Decision: An input read from one branch of a cell's return (such as the full CI's `result[conflict]` or a review's `columns[findings]`) is read from the cell's newest return only, and is not there when that return took another branch, instead of from the newest return that took the branch, because a branch says how the cell left things: a conflict a later run of the full CI no longer reports, or findings a re-review passed, are settled, and given again they come back to the fix table as rows to answer.
+
+Decision: The worktree an agent is given is said as the agent may use it: an agent on a line the configuration makes read-only is told that it only reads the worktree and changes and commits nothing there, instead of the engineer's words about committing and asking for a push, because those words told the reviewer to do what its line refuses.
+
+Decision: The design tree review is given the change to the design tree since the last design tree review, or across the whole branch at the first, instead of since the last table review, because the table review runs just before it on the same head and left nothing to review.

@@ -238,6 +238,11 @@ fn source(
             let Some((round, value)) = values.next() else {
                 return Ok(None);
             };
+            // A value of one branch, such as `result[conflict]` or `columns[findings]`, is the cell as its newest
+            // return left it: when a newer return took another branch, the older value no longer holds.
+            if p.contains('[') && held.first().map(|(r, _)| *r) != Some(round) {
+                return Ok(None);
+            }
             // The same value an earlier return gave is the one thing it was then.
             let first = values
                 .filter(|(_, v)| *v == value)
@@ -355,8 +360,10 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
         "existing_work" => existing_work(e, w, item, &main)?.map(Value::String),
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
+                // At a re-review of the design tree, the change since the last design tree review; the table review
+                // runs just before it on the same head, so its head would leave nothing to review.
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::reviewed_head(e, w, g)?
+                    crate::values::head_reviewed_by(e, w, g, "5b")?
                 } else {
                     None
                 };
@@ -385,7 +392,8 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
                         .current_dir(wt)
                         .output()
                         .map_err(|e| format!("{cmd}: {e}"))?;
-                    Some(Value::String(String::from_utf8_lossy(&out.stdout).into_owned()))
+                    let printed = String::from_utf8_lossy(&out.stdout).into_owned();
+                    (!printed.trim().is_empty()).then_some(Value::String(printed))
                 }
                 _ => None,
             }

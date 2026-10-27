@@ -535,6 +535,63 @@ fn an_item_goes_from_the_queue_to_main() {
             })
             .unwrap();
     assert_eq!(rejected, 0, "{log}");
+    // The table review reads the worktree only, and has no column for a check the engine answered itself because
+    // the project lacks what it needs (here a gap in what is under test, and a dependency on another project).
+    let input_of = |cell: &str| -> Value {
+        let input: String =
+            e.db.conn()
+                .query_row(
+                    "SELECT input FROM rounds WHERE cell = ?1 ORDER BY id LIMIT 1",
+                    [cell],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
+    };
+    let columns = input_of("5a")["engine"]["columns"].to_string();
+    assert!(!columns.contains("a gap in what is under test"), "{columns}");
+    assert!(!columns.contains("cross-project dependency"), "{columns}");
+    assert!(columns.contains("unsure facts"), "{columns}");
+    // The review line's session is given the worktree once, at its first round, the blind review.
+    let blind = input_of("5");
+    let message = blind["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("you only read it, and change and commit nothing there"),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A value of one branch is the cell as its newest return left it: a conflict the full CI reported is in the fix
+// table only while the newest run of that cell still reports it.
+#[test]
+fn a_settled_row_leaves_the_fix_table() {
+    let s = setup("settled");
+    let (mut e, _, item) = start(&s, scripts());
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
+    let (work, _, _) = state(&e, item).unwrap();
+    let conflict = json!({ "result": { "kind": "conflict", "files": ["src/conflicted_here.rs"] } });
+    let green = json!({ "result": { "kind": "green", "head": "abc" } });
+    let add = |e: &mut Engine, output: &Value| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, '7', '{}', ?2, 'next', 'c', 1, 2)",
+                params![work, output.to_string()],
+            )?;
+            tx.execute("UPDATE works SET at = '8' WHERE id = ?1", [work])?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    add(&mut e, &conflict);
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert!(m.contains("src/conflicted_here.rs"), "{m}");
+    add(&mut e, &green);
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert!(!m.contains("src/conflicted_here.rs"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
