@@ -659,7 +659,7 @@
       "name": "design_card",
       "type": "list",
       "min": 1,
-      "desc": "The design card: one section for each decision this change to the design tree adds, changes or removes, written for the owner in the owner's language, with no internal names. It asks the owner nothing: the owner confirms this change before it is merged",
+      "desc": "The design card: one section for each decision this change to the design tree adds, changes or removes, written for the owner in the owner's language (the setting `owner.language`), with no internal names and with technical terms in their English original. It asks the owner nothing: the owner confirms this change before it is merged",
       "item": {
         "type": "union",
         "by": "settled",
@@ -1789,7 +1789,7 @@
           "text": [
             "The design tree records the key technical decisions this project rests on: what was chosen, why, and what was not chosen. It is organized by concept, not by the layout of the code: a tree is one root node file `design/<concept>.md` under `design/`, with its child nodes in the directory of the same name, `design/<concept>/`, as deep as needed.",
             "Any change to the design paths the project's configuration names gives a design card. Design paths that are not in the node format (a specification, for instance) are changed as the project's AGENTS.md says.",
-            "The tree is written for the agents that will change the code later, kept for the long term, and written in English; the design card for the owner is written in the owner's language. Derivations, measurements and point-by-point comparisons go in `research/`; a node states only conclusions, and its reasons link straight to the section of the research notes.",
+            "The tree is written for the agents that will change the code later and kept for the long term; the design card is written for the owner. Derivations, measurements and point-by-point comparisons go in `research/`; a node states only conclusions, and its reasons link straight to the section of the research notes.",
             "Record only key decisions: those that affect later implementation or the overall architecture. A decision is a real choice between several workable approaches, even one that looks obvious: it changes accepted behaviour or persistent state, a condition of safety or trust, a shared interface or representation, a clear performance commitment, or a lasting rule of the project. How big the work is or how many files it changes is no reason; a matter with only one workable approach is not recorded. Hold the granularity: too fine, and decisions drown in detail; too coarse, and important choices go unguarded.",
             "Say which kind of ground a reason is: a derivation states its premises and only the conclusions they give; an observation states what was seen and under what conditions; a principle or a single measurement shows only that the choice is suitable, not that it is the only one. Write the reasons when choosing, not afterwards.",
             "A decision that cannot be settled during design still goes into the tree. A provisional one says in its reasons why it is decided this way for now, what is uncertain and when it would be reopened; one still to check says what assumption the work goes on under and how it will be checked. The design card marks the decision provisional or to check. When it is settled later, the node is changed and a new card handed in as usual.",
@@ -2226,7 +2226,7 @@
             "side_reports",
             "progress"
           ],
-          "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}.",
+          "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
           "in": {
             "name": "outcome",
             "desc": "What this round comes to: exactly one"
@@ -2430,7 +2430,8 @@
           "pause",
           "redirect",
           "side_reports"
-        ]
+        ],
+        "shownSay": "Write it in the owner's language (the setting `owner.language`): the owner reads it on the item. Keep technical terms in their English original."
       },
       "gate": {
         "tools": [

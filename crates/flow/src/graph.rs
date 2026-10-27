@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::field::{Field, Resolved, Shapes, by_id, head, is_path, resolve};
+use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
     Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, Role, Source, Src,
 };
@@ -555,7 +555,7 @@ impl<'s> Graph<'s> {
                 !asked.contains(&i) || rows.iter().any(|r| r.to == "@asker"),
                 "a cell that is asked does not answer: {nid}"
             );
-            let main: Vec<Field> = n
+            let mut main: Vec<Field> = n
                 .out
                 .iter()
                 .flatten()
@@ -585,6 +585,17 @@ impl<'s> Graph<'s> {
                         .filter(|x| !gone.contains(head(x.at.as_deref().unwrap_or(""))))
                         .cloned(),
                 );
+            }
+            // What an agent writes for the owner to read on the item is in the owner's language; the rest of its
+            // return is in English, as the return's description says.
+            if agent && !common.shown_say.is_empty() {
+                for p in &shown {
+                    add_to_desc(&mut main, p, &common.shown_say);
+                    ensure!(
+                        add_to_desc(&mut out, p, &common.shown_say),
+                        "a place shown on the item that the return does not have: {nid} {p}"
+                    );
+                }
             }
             let line = n.line.clone();
             let rules = n.rules.clone().unwrap_or_default();

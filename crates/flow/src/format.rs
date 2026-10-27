@@ -374,6 +374,9 @@ pub struct AgentCommon {
     /// Paths of every agent's return the owner's page shows on the item the work is on.
     #[serde(default)]
     pub shown: Vec<String>,
+    /// What the description of each field an agent's cell shows on the item adds: the language it is written in.
+    #[serde(default, rename = "shownSay")]
+    pub shown_say: String,
 }
 
 /// What one return of an agent holds: exactly one form, inside the field `in`, and every field of `every`.
