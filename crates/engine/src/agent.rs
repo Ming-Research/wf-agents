@@ -77,7 +77,7 @@ pub fn command_line(r: &Request) -> Vec<String> {
     );
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
     // next would leave nothing of the session's prompt cache. The CLI is given only the fields every return of the
-    // graph has, with their types, which is the same for every cell; the cell's own answer is a material of the
+    // graph has, with their types, which is the same for every cell; the cell's own answer is a conditional input of the
     // message, and the engine checks the return against the cell's whole schema. Without the types the model hands
     // in each field as the JSON text of its value.
     out.push("--json-schema".into());

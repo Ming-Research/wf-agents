@@ -39,16 +39,19 @@ fn the_rounds_section_is_compiled_and_checked() {
     let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
     assert_eq!(kinds, ["usage_limit", "offline", "transient", "cannot_run"]);
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][2]["then"] = "99".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "99".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("rounds.failed transient: no such cell: 99"), "{e}");
+    assert!(e.contains("rounds.failed cannot_run: no such cell: 99"), "{e}");
+    // A passing failure runs again until it passes, so it goes nowhere; a number of times needs a cell to go to.
+    let transient = &r.failed.kinds[2];
+    assert!(transient.retries.is_none() && transient.then.is_none());
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][2]
-        .as_object_mut()
-        .unwrap()
-        .remove("retries");
+    v["flows"][0]["rounds"]["failed"]["kinds"][2]["retries"] = 2.into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("a retried failure says how many times"), "{e}");
+    assert!(
+        e.contains("a failure retried a number of times says where the work goes then"),
+        "{e}"
+    );
 }
 
 // What the engine stores reads back as it was, with the same digest each time.

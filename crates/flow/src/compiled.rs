@@ -770,8 +770,9 @@ fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
             }
             Handle::Retry => {
                 ensure!(
-                    k.retries.is_some_and(|n| n > 0) && to.is_some(),
-                    "rounds.failed {}: a retried failure says how many times, and where the work goes then",
+                    k.retries.is_none() == to.is_none() && k.retries.is_none_or(|n| n > 0),
+                    "rounds.failed {}: a failure retried a number of times says where the work goes then, and one \
+                     retried until it passes goes nowhere",
                     k.name
                 );
             }

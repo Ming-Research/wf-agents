@@ -6,7 +6,7 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CompiledCell, Material, RoundSummary } from '../api';
+import type { CellDiff, CellInput, CompiledCell, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
 import { circled } from '../graph/flowModel';
 import { time } from '../format';
@@ -43,8 +43,8 @@ export function who(c: CompiledCell, firstOfLine: boolean): string {
   return parts.join(' · ');
 }
 
-/// One material: what it is, where it comes from and its address.
-function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: boolean }) {
+/// One input: what it is, where it comes from and its address.
+function InputLine({ c, m, rules }: { c: CompiledCell; m: CellInput; rules: boolean }) {
   const f = useFlow();
   const addr = m.address ? <code className="addr">{m.address}</code> : null;
   switch (m.of.kind) {
@@ -70,7 +70,7 @@ function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: bo
       return (
         <li>
           <button type="button" className="go" onClick={() => f.open({ kind: 'rule', rule: name })}>
-            {t('mat_rule', { name })}
+            {t('input_rule', { name })}
           </button>
           {rule ? <span className="fw"> · {rule.desc}</span> : null}
           <div className="srcs">{addr}</div>
@@ -89,14 +89,14 @@ function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: bo
     }
     default: {
       const key: Record<string, Key> = {
-        project_rules: 'mat_project_rules',
-        settings: 'mat_settings',
-        common_format: 'mat_common_format',
-        cell_format: 'mat_cell_format',
+        project_rules: 'input_project_rules',
+        settings: 'input_settings',
+        common_format: 'input_common_format',
+        cell_format: 'input_cell_format',
       };
       return (
         <li>
-          {t(key[m.of.kind] ?? 'mat_common_format', { cell: c.id })}
+          {t(key[m.of.kind] ?? 'input_common_format', { cell: c.id })}
           <div className="srcs">{addr}</div>
         </li>
       );
@@ -108,9 +108,9 @@ function MaterialLine({ c, m, rules }: { c: CompiledCell; m: Material; rules: bo
 function AgentInputs({ c }: { c: CompiledCell }) {
   const f = useFlow();
   const view = f.cellView(c.id);
-  const materials = view?.materials ?? [];
-  const itself = materials.filter((m) => m.always && m.of.kind === 'input');
-  const conditional = materials.filter((m) => !m.always);
+  const inputs = view?.inputs ?? [];
+  const itself = inputs.filter((m) => m.always && m.of.kind === 'input');
+  const conditional = inputs.filter((m) => !m.always);
   const prompt = c.prompt ?? [];
   // The own answer's form names no field: the compiled flow leaves the key out.
   const shared = (c.forms ?? []).filter((x) => x.field != null).map((x) => `\`${x.field}\``);
@@ -169,7 +169,7 @@ function AgentInputs({ c }: { c: CompiledCell }) {
         <p className="fmt">{t('inputs_conditional_note')}</p>
         <ul className="bl">
           {conditional.map((m, i) => (
-            <MaterialLine key={i} c={c} m={m} rules />
+            <InputLine key={i} c={c} m={m} rules />
           ))}
         </ul>
       </div>
@@ -180,7 +180,7 @@ function AgentInputs({ c }: { c: CompiledCell }) {
 /// What a step that is no agent's round reads.
 function StepInputs({ c }: { c: CompiledCell }) {
   const f = useFlow();
-  const materials = f.cellView(c.id)?.materials ?? [];
+  const inputs = f.cellView(c.id)?.inputs ?? [];
   return (
     <Section title={t('sec_inputs')} note={t('inputs_step_note')}>
       {c.inputs.length === 0 ? <p className="fmt">{t('none')}</p> : null}
@@ -192,7 +192,7 @@ function StepInputs({ c }: { c: CompiledCell }) {
             <div className="srcs">
               <span className="ul">{t('input_source')}</span>
               {x.from.map((s, j) => {
-                const m = materials.find((y) => y.of.kind === 'input' && y.of.input === i && y.of.source === j);
+                const m = inputs.find((y) => y.of.kind === 'input' && y.of.input === i && y.of.source === j);
                 return <SourceChip key={j} src={s} cells={m?.cells ?? []} />;
               })}
             </div>

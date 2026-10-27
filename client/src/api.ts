@@ -210,7 +210,8 @@ export type Session = { line: string, cli: string, cli_session: string, };
 
 /**
  * One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it
- * before its message was recorded with its materials: what it is, its value, and where its cell reads it from.
+ * before its message was recorded with its conditional inputs: what it is, its value, and where its cell reads it
+ * from.
  */
 export type RoundInput = { what: string, value: JsonValue, 
 /**
@@ -219,9 +220,9 @@ export type RoundInput = { what: string, value: JsonValue,
 from: Array<Src>, };
 
 /**
- * One material of an agent round's message.
+ * One conditional input of an agent round's message.
  */
-export type RoundMaterial = { 
+export type RoundConditional = { 
 /**
  * Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
  */
@@ -271,20 +272,22 @@ flow_version: number, graph: string, session: Session | null, config_commit: str
  */
 message: string | null, 
 /**
- * Each material the message gave or referred to; empty for a round no agent ran, or one recorded before.
+ * Each conditional input the message gave or referred to; empty for a round no agent ran, or one recorded
+ * before.
  */
-materials: Array<RoundMaterial>, 
+conditional: Array<RoundConditional>, 
 /**
  * How the command line was called: the whole command line, the session started or resumed, the engine's and
  * the command line's versions; none for a round no agent ran, or one recorded before.
  */
 call: JsonValue | null, 
 /**
- * The inputs of a step that is not an agent's round, or of an agent's round recorded before its materials were.
+ * The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
+ * inputs were.
  */
 inputs: Array<RoundInput>, 
 /**
- * What the engine gave, as recorded: the message, materials, call or inputs above, and what the engine knew
+ * What the engine gave, as recorded: the message, conditional inputs, call or inputs above, and what the engine knew
  * besides, such as the head and the interjections handed in.
  */
 input: JsonValue, output: JsonValue | null, 
@@ -412,10 +415,10 @@ targets: Array<Array<string>>,
  */
 entered_from: Array<RowRef>, 
 /**
- * What a round of the cell is given: for an agent's cell, every material, each with its source and address;
- * for any other cell, the sources of its inputs.
+ * What a round of the cell is given: for an agent's cell, every input, always or conditional, each with its
+ * source and address; for any other cell, the sources of its inputs.
  */
-materials: Array<Material>, 
+inputs: Array<CellInput>, 
 /**
  * What the cell hands back, with whatever reads each field.
  */
@@ -427,14 +430,14 @@ returns: Returns, };
 export type RowRef = { cell: string, row: number, };
 
 /**
- * One material a round of a cell is given.
+ * One input a round of a cell is given.
  */
-export type Material = {
+export type CellInput = { 
 /**
- * Given every time the cell is entered, as the instruction: what the agent reads itself. Every other material
- * is given when the session does not hold it, and referred to by its address when it does.
+ * Given every time the cell is entered: what the agent reads itself. Every other input is conditional: given
+ * when the session does not hold it, and referred to by its address when it does.
  */
-always: boolean, of: MaterialOf, 
+always: boolean, of: CellInputOf, 
 /**
  * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
  * standing for what is known only when the round runs; none for what the agent reads itself.
@@ -447,9 +450,9 @@ address: string | null,
 cells: Array<string>, };
 
 /**
- * What a material is.
+ * What an input is.
  */
-export type MaterialOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "common_format" } | { "kind": "cell_format" };
+export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "common_format" } | { "kind": "cell_format" };
 
 /**
  * What a cell hands back, as a tree of fields.
@@ -747,7 +750,7 @@ schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, chec
 /**
  * Paths of the return the owner's page shows on the item the work is on.
  */
-shown?: Array<string>,
+shown?: Array<string>, 
 /**
  * Places of the return a role reads outside this flow, through the database.
  */
@@ -820,7 +823,7 @@ export type Check = { at: string | null, check: string, };
  * A place of a return a role reads outside this flow, through the database, such as the architect reading side
  * reports: what the role does with it is not a cell of this flow.
  */
-export type ReadBy = { at: string,
+export type ReadBy = { at: string, 
 /**
  * The role that reads it, one of the roles an agent may ask.
  */

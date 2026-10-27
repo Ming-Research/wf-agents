@@ -186,7 +186,7 @@ const view: GraphView = {
         return to.includes(c.id) ? [{ cell: x.id, row: i }] : [];
       }),
     ),
-    materials: [],
+    inputs: [],
     returns: { within: null, forms: [], every: [], used_by: [] },
   })),
 };

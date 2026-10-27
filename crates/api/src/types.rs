@@ -250,7 +250,8 @@ pub struct Session {
 }
 
 /// One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it
-/// before its message was recorded with its materials: what it is, its value, and where its cell reads it from.
+/// before its message was recorded with its conditional inputs: what it is, its value, and where its cell reads it
+/// from.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundInput {
     pub what: String,
@@ -259,9 +260,9 @@ pub struct RoundInput {
     pub from: Vec<Src>,
 }
 
-/// One material of an agent round's message.
+/// One conditional input of an agent round's message.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct RoundMaterial {
+pub struct RoundConditional {
     /// Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
     pub address: String,
     /// The hash of its content, which tells two versions under one address apart.
@@ -307,14 +308,16 @@ pub struct RoundDetail {
     /// The message exactly as the agent was sent it (for a round recorded before messages were, its prompt); none
     /// for a round no agent ran.
     pub message: Option<String>,
-    /// Each material the message gave or referred to; empty for a round no agent ran, or one recorded before.
-    pub materials: Vec<RoundMaterial>,
+    /// Each conditional input the message gave or referred to; empty for a round no agent ran, or one recorded
+    /// before.
+    pub conditional: Vec<RoundConditional>,
     /// How the command line was called: the whole command line, the session started or resumed, the engine's and
     /// the command line's versions; none for a round no agent ran, or one recorded before.
     pub call: Option<Value>,
-    /// The inputs of a step that is not an agent's round, or of an agent's round recorded before its materials were.
+    /// The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
+    /// inputs were.
     pub inputs: Vec<RoundInput>,
-    /// What the engine gave, as recorded: the message, materials, call or inputs above, and what the engine knew
+    /// What the engine gave, as recorded: the message, conditional inputs, call or inputs above, and what the engine knew
     /// besides, such as the head and the interjections handed in.
     pub input: Value,
     pub output: Option<Value>,
@@ -460,9 +463,9 @@ pub struct CellView {
     pub targets: Vec<Vec<String>>,
     /// Every row of every cell that can lead here, in the order of the cells and of their rows.
     pub entered_from: Vec<RowRef>,
-    /// What a round of the cell is given: for an agent's cell, every material, each with its source and address;
-    /// for any other cell, the sources of its inputs.
-    pub materials: Vec<Material>,
+    /// What a round of the cell is given: for an agent's cell, every input, always or conditional, each with its
+    /// source and address; for any other cell, the sources of its inputs.
+    pub inputs: Vec<CellInput>,
     /// What the cell hands back, with whatever reads each field.
     pub returns: Returns,
 }
@@ -474,13 +477,13 @@ pub struct RowRef {
     pub row: usize,
 }
 
-/// One material a round of a cell is given.
+/// One input a round of a cell is given.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Material {
-    /// Given every time the cell is entered, as the instruction: what the agent reads itself. Every other material
-    /// is given when the session does not hold it, and referred to by its address when it does.
+pub struct CellInput {
+    /// Given every time the cell is entered: what the agent reads itself. Every other input is conditional: given
+    /// when the session does not hold it, and referred to by its address when it does.
     pub always: bool,
-    pub of: MaterialOf,
+    pub of: CellInputOf,
     /// The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
     /// standing for what is known only when the round runs; none for what the agent reads itself.
     pub address: Option<String>,
@@ -489,10 +492,10 @@ pub struct Material {
     pub cells: Vec<String>,
 }
 
-/// What a material is.
+/// What an input is.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum MaterialOf {
+pub enum CellInputOf {
     /// One source of one of the cell's inputs, by their places in the cell's inputs and in the input's sources.
     Input { input: usize, source: usize },
     /// The project's rules, which every agent is given, as the project's configuration lists them.

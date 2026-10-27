@@ -192,7 +192,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let cli_version = e.cli_version(&cli_name);
     let input = json!({
         "message": msg.text,
-        "materials": msg.record(),
+        "conditional": msg.record(),
         "call": agent::call(&req, &agent::command_line(&req), &cli_version),
         "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
     });

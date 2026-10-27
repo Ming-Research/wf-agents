@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     Card, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
-    LinkedItem, RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, Shown,
+    LinkedItem, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RunningRound, Session, Shown,
     ToolRun, WorkDetail, WorkState, WorkSummary,
 };
 
@@ -552,11 +552,15 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
                 .collect()
         })
         .unwrap_or_default();
-    let materials = input["materials"]
+    // A round recorded before the conditional inputs were called so keeps them under `materials`.
+    let conditional = input
+        .get("conditional")
+        .or_else(|| input.get("materials"))
+        .unwrap_or(&Value::Null)
         .as_array()
         .map(|xs| {
             xs.iter()
-                .map(|m| RoundMaterial {
+                .map(|m| RoundConditional {
                     address: m["address"].as_str().unwrap_or_default().to_string(),
                     hash: m["hash"].as_str().unwrap_or_default().to_string(),
                     given: m["given"].as_bool().unwrap_or(false),
@@ -574,7 +578,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
             .as_str()
             .or(input["prompt"].as_str())
             .map(str::to_string),
-        materials,
+        conditional,
         call: input.get("call").cloned(),
         inputs,
         input,
@@ -958,7 +962,7 @@ mod tests {
         let r = round(s.db.conn(), &cache, &s.data, 2).unwrap();
         assert_eq!(r.message.as_deref(), Some("Do it"));
         assert_eq!(r.inputs[0].from, cell.inputs[0].from);
-        assert!(r.materials.is_empty() && r.call.is_none());
+        assert!(r.conditional.is_empty() && r.call.is_none());
         assert_eq!(r.session.as_ref().map(|x| x.cli_session.as_str()), Some("s1"));
         let files: Vec<&str> = r.tool_runs[0].files.iter().map(|f| f.file.as_str()).collect();
         assert_eq!(files, ["logs/run-1.log", "tool-output/round-2-1.txt"]);
@@ -975,15 +979,15 @@ mod tests {
         assert!(matches!(file(&s.data, "db", "x", 100), Err(Error::NotFound(_))));
     }
 
-    // A round recorded with its message gives each material, given or referred to, and the call; a step's inputs,
+    // A round recorded with its message gives each conditional input, given or referred to, and the call; a step's inputs,
     // recorded by their sources, are named by the cell's definition; a failed run says its kind.
     #[test]
-    fn a_round_gives_its_message_materials_and_call() {
+    fn a_round_gives_its_message_conditional_inputs_and_call() {
         let mut s = setup("message");
         let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
         let input = json!({
             "message": "# R4 · cell 1 · Research",
-            "materials": [
+            "conditional": [
                 { "address": "rule:ground", "hash": "h1", "given": true },
                 { "address": "R2·1·understanding", "hash": "h2", "given": false },
             ],
@@ -1009,7 +1013,7 @@ mod tests {
         let r = round(s.db.conn(), &cache, &s.data, 4).unwrap();
         assert_eq!(r.message.as_deref(), Some("# R4 · cell 1 · Research"));
         assert_eq!(
-            r.materials
+            r.conditional
                 .iter()
                 .map(|m| (m.address.as_str(), m.given))
                 .collect::<Vec<_>>(),

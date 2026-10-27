@@ -26,10 +26,12 @@ pub struct Halt {
     pub why: String,
 }
 
-/// How long the engine waits, the first time, before it lets one round find out whether the network is back; each
-/// time it is still down, twice as long, up to [`PROBE_MAX`].
-const PROBE: i64 = 60_000;
-const PROBE_MAX: i64 = 900_000;
+/// How long the engine waits, each time the network is found down, before it lets one round find out whether it is
+/// back.
+const PROBE: i64 = 30_000;
+
+/// The longest a run that failed in passing waits before it runs again.
+const RETRY_MAX: Duration = Duration::from_secs(300);
 
 /// How long the engine waits for a usage limit whose reset the command line did not say in words it reads.
 const UNKNOWN_RESET: i64 = 1_800_000;
@@ -108,12 +110,12 @@ fn retried<'r>(at_cell: &'r [Round], resumed: Option<i64>, s: &Rounds) -> Vec<&'
 }
 
 /// While the cell's last run, which failed, waits to run again, why; none when the cell's round may run now. Each
-/// time it runs again it waits twice as long as the time before.
+/// time it runs again it waits twice as long as the time before, up to [`RETRY_MAX`].
 pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s: &Rounds) -> Option<String> {
     let fails = retried(at_cell, resumed, s);
     let last = fails.first()?;
     let n = (fails.len() as u32).saturating_sub(1).min(10);
-    let wait = retry_wait.saturating_mul(1 << n).as_millis() as i64;
+    let wait = retry_wait.saturating_mul(1 << n).min(RETRY_MAX).as_millis() as i64;
     let due = last.ended_at.unwrap_or(last.started_at) + wait;
     (db::now() < due).then(|| {
         format!(
@@ -153,7 +155,7 @@ impl Failed<'_> {
             (Handle::Wait, "usage_limit") => {
                 Some(agent::resets_at(&what, now, &agent::zone_offset).unwrap_or(now + UNKNOWN_RESET))
             }
-            (Handle::Wait, _) => Some(now + (PROBE << e.probes.min(4)).min(PROBE_MAX)),
+            (Handle::Wait, _) => Some(now + PROBE),
             _ => None,
         };
         let mut failed = json!({ "kind": kind.name, "what": what });
@@ -177,9 +179,6 @@ impl Failed<'_> {
         match kind.handle {
             Handle::Wait => {
                 let until = until.unwrap_or(now);
-                if kind.name == "offline" {
-                    e.probes += 1;
-                }
                 let first = e.told.as_deref() != Some(kind.name.as_str());
                 e.halt = Some(Halt {
                     kind: kind.name.clone(),
@@ -202,8 +201,9 @@ impl Failed<'_> {
                 Ok(Advance::Waits(format!("{} until {}", kind.name, utc(until))))
             }
             Handle::Retry => {
+                // A failure retried without a number of times runs again until it passes.
                 let tries = retried(self.at_cell, self.resumed, self.section).len() + 1;
-                if tries as u32 <= kind.retries.unwrap_or(0) {
+                if kind.retries.is_none_or(|n| tries as u32 <= n) {
                     return Ok(Advance::Moved);
                 }
                 self.give_up(e, &kind, &what, tries)
@@ -311,5 +311,36 @@ mod tests {
         assert_eq!(utc(0), "1970-01-01 00:00 UTC");
         assert_eq!(utc(1_792_962_000_000), "2026-10-25 21:00 UTC");
         assert_eq!(utc(951_782_400_000), "2000-02-29 00:00 UTC");
+    }
+
+    // Each time a passing failure runs again it waits twice as long, up to five minutes.
+    #[test]
+    fn a_passing_failure_waits_longer_each_time_up_to_five_minutes() {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        let section = f.graph(crate::ENGINEER).unwrap().rounds.clone().unwrap();
+        let ended = db::now();
+        let rounds = |n: i64| -> Vec<Round> {
+            (0..n)
+                .map(|i| Round {
+                    id: n - i,
+                    cell: Some("1".into()),
+                    session: None,
+                    input: json!({}),
+                    output: None,
+                    transition: None,
+                    rejected: Some(json!({ "failed": { "kind": "transient", "what": "529" } })),
+                    compactions: 0,
+                    started_at: ended,
+                    ended_at: Some(ended),
+                    usage: None,
+                })
+                .collect()
+        };
+        let due = |n: i64| waiting(Duration::from_secs(10), &rounds(n), None, &section).unwrap();
+        assert!(due(1).ends_with(&utc(ended + 10_000)));
+        assert!(due(2).ends_with(&utc(ended + 20_000)));
+        assert!(due(9).ends_with(&utc(ended + 300_000)));
     }
 }

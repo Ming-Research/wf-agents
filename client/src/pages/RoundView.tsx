@@ -1,5 +1,5 @@
-// A round in full, for diagnosis: for an agent's round, each material of its message by address, given or referred
-// to, the message exactly as sent and how the command line was called; for another step, each input with where it
+// A round in full, for diagnosis: for an agent's round, each conditional input of its message by address, given or
+// referred to, the message exactly as sent and how the command line was called; for another step, each input with where it
 // came from; the return, the row it took or why it was sent back, the tools it ran with the files they kept, and what
 // it cost.
 
@@ -84,16 +84,16 @@ function Detail({ d }: { d: RoundDetail }) {
           [t('round_config'), <code key="c">{d.config_commit}</code>],
         ]}
       />
-      {d.materials.length > 0 ? (
-        <Section title={`${t('materials')} (${d.materials.length})`}>
+      {d.conditional.length > 0 ? (
+        <Section title={`${t('conditional_inputs')} (${d.conditional.length})`}>
           <table className="list defs">
             <tbody>
-              {d.materials.map((m) => (
+              {d.conditional.map((m) => (
                 <tr key={m.address}>
                   <td>
                     <code>{m.address}</code>
                   </td>
-                  <td>{m.given ? t('material_given') : <span className="muted">{t('material_referred')}</span>}</td>
+                  <td>{m.given ? t('conditional_given') : <span className="muted">{t('conditional_referred')}</span>}</td>
                   <td className="muted" title={m.hash}>
                     <code>{m.hash.slice(0, 12)}</code>
                   </td>

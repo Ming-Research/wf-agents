@@ -232,7 +232,8 @@ pub struct Failure {
     /// What the command line reports when this happens.
     pub when: String,
     pub handle: Handle,
-    /// For a failure retried: how many times the same round runs again.
+    /// For a failure retried: how many times the same round runs again before the work goes to `then`; none runs
+    /// it again until it passes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retries: Option<u32>,
     /// The cell the work is taken to once the engine gives up; none for a failure it waits out.
@@ -246,7 +247,8 @@ pub struct Failure {
 pub enum Handle {
     /// No new round starts for any work until the cause passes; then each work goes on from its cell.
     Wait,
-    /// The same round runs again, then the work goes to `then`.
+    /// The same round runs again, waiting longer each time, until it passes or as many times as the flow says, after
+    /// which the work goes to `then`.
     Retry,
     /// The work goes to `then` at once.
     Ask,

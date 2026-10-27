@@ -629,30 +629,31 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
     .collect()
 }
 
-/// Whether a round's message gave the material at an address, or only referred to it; none when it has none there.
+/// Whether a round's message gave the conditional input at an address, or only referred to it; none when it has none there.
 fn given(input: &Value, address: &str) -> Option<bool> {
-    input["materials"]
+    input["conditional"]
         .as_array()?
         .iter()
         .find(|m| m["address"] == address)
         .and_then(|m| m["given"].as_bool())
 }
 
-/// The hash of the material at an address in a round's message.
+/// The hash of the conditional input at an address in a round's message.
 fn hash_of(input: &Value, address: &str) -> Option<String> {
-    input["materials"]
+    input["conditional"]
         .as_array()?
         .iter()
         .find(|m| m["address"] == address)
         .and_then(|m| m["hash"].as_str().map(str::to_string))
 }
 
-// Every message starts with its round's address; within a session a material is given once and referred to after;
-// the database is an index; and the locked acceptance is the one material the design handed in, held by the
+// Every message starts with its round's address; within a session a conditional input is given once and referred to
+// after;
+// the database is an index; and the locked acceptance is the one conditional input the design handed in, held by the
 // engineer's session and given to the review's.
 #[test]
-fn a_message_gives_each_material_once_in_a_session() {
-    let s = setup("materials");
+fn a_message_gives_each_conditional_input_once_in_a_session() {
+    let s = setup("conditional");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..100 {
         e.tick().unwrap();
@@ -700,7 +701,7 @@ fn a_message_gives_each_material_once_in_a_session() {
     assert!(
         !rounds
             .iter()
-            .any(|r| r.2["materials"].to_string().contains("item_acceptance"))
+            .any(|r| r.2["conditional"].to_string().contains("item_acceptance"))
     );
     let call = &second["call"];
     assert_eq!(call["cli"], "scripted");
@@ -729,10 +730,10 @@ fn a_message_gives_each_material_once_in_a_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A material whose content changed is given again under its address; after a compaction the session holds nothing,
+// A conditional input whose content changed is given again under its address; after a compaction the session holds nothing,
 // and the next round is given what it needs again, the session's own earlier returns included.
 #[test]
-fn a_changed_material_is_given_again_and_so_is_everything_after_a_compaction() {
+fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compaction() {
     let s = setup("again");
     let mut scripts = scripts();
     scripts.insert(
@@ -935,43 +936,23 @@ fn no_network_stops_every_work_until_it_is_back() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A passing failure runs the same round again as many times as the flow says; if it still fails, the work pauses
-// and the architect is asked, and once the card is answered the cell runs again. None of it is a return sent back.
+// A passing failure runs the same round again until it passes: the work neither pauses nor asks anyone, and none of
+// it is a return sent back.
 #[test]
-fn a_passing_failure_runs_again_then_asks_the_architect() {
+fn a_passing_failure_runs_again_until_it_passes() {
     let (s, mut e, said, item) = failing("transient", "API Error: 529 Overloaded".to_string(), 3);
     for _ in 0..10 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().2.is_some() {
+        if state(&e, item).unwrap().1 != "1" {
             break;
         }
     }
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "1", "{log}");
-    let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(
-        paused.contains("3 times in a row") && paused.contains("asked the architect"),
-        "{paused}"
-    );
+    assert_ne!(at, "1", "{log}");
+    assert_eq!(paused, None, "{log}");
     assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
     assert_eq!(sent_back(&e), 0);
-    let (card, to, kind) = failure_card(&e);
-    assert_eq!((to.as_str(), kind.as_str()), ("architect", "transient"));
-    let ruling = json!([{ "by": "owner", "verdict": "answer", "text": "The service is back." }]).to_string();
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE cards SET status = 'ruled', rulings = ?2 WHERE id = ?1",
-            params![card, ruling],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    e.tick().unwrap();
-    let log = said.borrow().join("\n");
-    let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

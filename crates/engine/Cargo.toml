@@ -12,7 +12,7 @@ db = { path = "../db" }
 flow = { path = "../flow" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-# The hash each material of an agent's message is known by.
+# The hash each conditional input of an agent's message is known by.
 sha2 = "0.11.1"
 
 [lints]

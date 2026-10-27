@@ -190,7 +190,7 @@ CREATE TABLE rounds (
   cell TEXT,
   -- The session the agent ran in; NULL for the engine's own steps, tool cells and the owner.
   session INTEGER REFERENCES sessions(id),
-  -- What the engine gave, JSON. For an agent's round: the message, word for word; each material in it, by its
+  -- What the engine gave, JSON. For an agent's round: the message, word for word; each conditional input in it, by its
   -- address and the hash of its content, and whether it was given or only referred to; and the call (the whole
   -- command line, the session it started or resumed, the engine's version and the command line's). For another step,
   -- the values of its inputs; for cell 0, nothing. Rounds recorded before this format keep the prompt and inputs.

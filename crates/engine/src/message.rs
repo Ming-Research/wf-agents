@@ -1,11 +1,11 @@
 //! The message an agent's round is sent, and what the round's session already holds.
 //!
-//! A message is an instruction and materials. The instruction is what to do this round: the cell's task, the
-//! materials to work from by their addresses, and why the round happens; it is given every time the cell is entered.
-//! A material is anything worked on: a rule, the item, a setting, another cell's output, a tool's results, an
-//! interjection, the database's index, a return format. Each has an address, and is given once in a session: a
-//! material the session already holds, by its content, is only referred to; one that is new or changed is given;
-//! after a compaction the session is taken to hold nothing. What a session holds is worked out from the record of
+//! A message is the round's inputs, of two kinds. The always inputs are given every time the cell is entered: what to
+//! do this round (the cell's task), the conditional inputs to work from by their addresses, why the round happens and
+//! which format to hand in. A conditional input is anything worked on: a rule, the item, a setting, another cell's
+//! output, a tool's results, an interjection, a return format. Each has an address, and is given only when the
+//! session does not hold it: one the session already holds, by its content, is only referred to; one that is new or
+//! changed is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the record of
 //! what each of its rounds was given and handed back.
 //!
 //! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
@@ -23,9 +23,9 @@ use crate::Engine;
 use crate::inputs::{Gathered, Origin, Part};
 use crate::work::{Item, Round, Work};
 
-/// One material of a message.
+/// One conditional input of a message.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Material {
+pub struct Conditional {
     pub address: String,
     /// What it is: a text, or JSON.
     pub content: Value,
@@ -34,18 +34,18 @@ pub struct Material {
     pub given: bool,
 }
 
-/// An agent round's message: its text, word for word, and every material it gives or refers to.
+/// An agent round's message: its text, word for word, and every conditional input it gives or refers to.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub text: String,
-    pub materials: Vec<Material>,
+    pub conditional: Vec<Conditional>,
 }
 
 impl Message {
-    /// The materials as a round records them: each by its address and hash, given or referred to.
+    /// The conditional inputs as a round records them: each by its address and hash, given or referred to.
     pub fn record(&self) -> Value {
         Value::Array(
-            self.materials
+            self.conditional
                 .iter()
                 .map(|m| json!({ "address": m.address, "hash": m.hash, "given": m.given }))
                 .collect(),
@@ -54,7 +54,7 @@ impl Message {
 }
 
 /// The hash a content is known by: SHA-256 of its JSON with every object's keys in order, so that the same content is
-/// one material however its keys were written.
+/// one conditional input however its keys were written.
 pub fn hash(v: &Value) -> String {
     let mut s = String::new();
     canonical(v, &mut s);
@@ -99,9 +99,13 @@ pub fn round_of(address: &str) -> Option<i64> {
     address.strip_prefix('R')?.split('·').next()?.parse().ok()
 }
 
-/// The materials a round recorded, each as its address and hash; none for a round recorded before materials were.
+/// The conditional inputs a round recorded, each as its address and hash; none for a round recorded before they
+/// were. A round recorded before they were called so keeps them under `materials`.
 fn recorded(input: &Value) -> Vec<(String, String)> {
-    input["materials"]
+    input
+        .get("conditional")
+        .or_else(|| input.get("materials"))
+        .unwrap_or(&Value::Null)
         .as_array()
         .map(|xs| {
             xs.iter()
@@ -114,8 +118,8 @@ fn recorded(input: &Value) -> Vec<(String, String)> {
 /// What a session already holds: what it was given and what it handed back since it was last compacted.
 #[derive(Debug, Default)]
 pub struct Held {
-    /// The materials it was given or referred to, each as its address and the hash of its content.
-    pub materials: HashSet<(String, String)>,
+    /// The conditional inputs it was given or referred to, each as its address and the hash of its content.
+    pub conditional: HashSet<(String, String)>,
     /// The rounds whose returns it holds: every value they produced is in the session under its address.
     pub rounds: BTreeSet<i64>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
@@ -139,16 +143,16 @@ impl Held {
                 continue;
             }
             h.rounds.insert(r.id);
-            h.materials.extend(recorded(&r.input));
+            h.conditional.extend(recorded(&r.input));
         }
         h
     }
 
-    /// Whether the session holds a material: a value one of its own returns produced, or the same content under the
+    /// Whether the session holds a conditional input: a value one of its own returns produced, or the same content under the
     /// same address as one it was given. One content has one address, so the same content is held however it came.
     pub fn holds(&self, address: &str, hash: &str) -> bool {
         let own = round_of(address).is_some_and(|r| self.rounds.contains(&r)) && !address.contains("·engine·");
-        own || self.materials.contains(&(address.to_string(), hash.to_string()))
+        own || self.conditional.contains(&(address.to_string(), hash.to_string()))
     }
 }
 
@@ -187,7 +191,7 @@ fn empty(v: &Value) -> bool {
     }
 }
 
-/// How a material's content is written in a message.
+/// How a conditional input's content is written in a message.
 fn render(v: &Value) -> String {
     match v {
         Value::String(s) => s.trim_end().to_string(),
@@ -353,7 +357,8 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
 /// holds. The value is written as JSON writes it inside a string, since the format holds the schema as JSON.
 fn with_settings(e: &Engine, project: &str, text: String) -> String {
     let mut out = text;
-    for (name, value) in e.config.config.named_settings(project, &out) {
+    // The fences around the JSON are not names: without them, names are the text between pairs of backticks.
+    for (name, value) in e.config.config.named_settings(project, &out.replace("```", "")) {
         let quoted = Value::String(value).to_string();
         let inner = &quoted[1..quoted.len() - 1];
         out = out.replace(&format!("`{name}`"), &format!("`{name}` ({inner})"));
@@ -380,15 +385,15 @@ pub struct Context<'a> {
     pub registry: &'a HashMap<String, Vec<String>>,
 }
 
-/// The materials of a message as it is built: each content once, under its one address.
-struct Materials<'a> {
+/// The conditional inputs of a message as it is built: each content once, under its one address.
+struct Conditionals<'a> {
     held: &'a Held,
     registry: &'a HashMap<String, Vec<String>>,
-    list: Vec<Material>,
+    list: Vec<Conditional>,
 }
 
-impl Materials<'_> {
-    /// Adds a material, and gives the address the message refers to it by: one already added with the same content
+impl Conditionals<'_> {
+    /// Adds a conditional input, and gives the address the message refers to it by: one already added with the same content
     /// keeps its address.
     fn add(&mut self, address: String, content: Value) -> String {
         let h = hash(&content);
@@ -397,7 +402,7 @@ impl Materials<'_> {
             return m.address.clone();
         }
         let given = !self.held.holds(&address, &h);
-        self.list.push(Material {
+        self.list.push(Conditional {
             address: address.clone(),
             content,
             hash: h,
@@ -427,7 +432,7 @@ impl Materials<'_> {
 impl Context<'_> {
     /// The address of what the engine read or computed for this round under a name: the earliest round it was the
     /// same for.
-    fn computed(&self, m: &Materials<'_>, name: &str, content: &Value) -> String {
+    fn computed(&self, m: &Conditionals<'_>, name: &str, content: &Value) -> String {
         let suffix = format!("·engine·{name}");
         m.registry
             .get(&hash(content))
@@ -450,8 +455,8 @@ impl Context<'_> {
             })
     }
 
-    /// The materials one source of an input gave, each with its address.
-    fn materials_of(&self, m: &Materials<'_>, p: &Part) -> Vec<(String, Value)> {
+    /// The conditional inputs one source of an input gave, each with its address.
+    fn conditional_of(&self, m: &Conditionals<'_>, p: &Part) -> Vec<(String, Value)> {
         match &p.origin {
             Origin::Place { first, cell, path, .. } => {
                 vec![(m.earliest(format!("R{first}·{cell}·{path}"), &p.value), p.value.clone())]
@@ -520,8 +525,8 @@ impl Context<'_> {
         }
     }
 
-    /// Why this round happens, and the materials that says it with.
-    fn why(&self, m: &mut Materials<'_>, interjections: &[String]) -> Vec<String> {
+    /// Why this round happens, and the conditional inputs it says it with.
+    fn why(&self, m: &mut Conditionals<'_>, interjections: &[String]) -> Vec<String> {
         let c = self.cell;
         let mut out = Vec::new();
         let here = |r: &&Round| r.cell.as_deref() == Some(c.id.as_str());
@@ -610,7 +615,7 @@ impl Context<'_> {
     /// The message.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
-        let mut m = Materials {
+        let mut m = Conditionals {
             held: self.held,
             registry: self.registry,
             list: Vec::new(),
@@ -661,7 +666,7 @@ impl Context<'_> {
             }
             let mut addrs: Vec<String> = Vec::new();
             for p in &x.parts {
-                for (address, content) in self.materials_of(&m, p) {
+                for (address, content) in self.conditional_of(&m, p) {
                     if empty(&content) {
                         continue;
                     }
@@ -691,7 +696,7 @@ impl Context<'_> {
             push(&why.join("\n"));
             push("");
         }
-        let given: Vec<&Material> = m.list.iter().filter(|x| x.given).collect();
+        let given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
         if !given.is_empty() {
             push("## Given in this message\n");
             for x in given {
@@ -753,7 +758,7 @@ impl Context<'_> {
         ));
         Message {
             text: out,
-            materials: m.list,
+            conditional: m.list,
         }
     }
 }
@@ -903,7 +908,7 @@ mod tests {
     // run that handed nothing in.
     #[test]
     fn a_session_holds_what_it_was_given_and_returned_since_its_last_compaction() {
-        let given = |a: &str, v: &Value| json!({ "materials": [{ "address": a, "hash": hash(v), "given": true }] });
+        let given = |a: &str, v: &Value| json!({ "conditional": [{ "address": a, "hash": hash(v), "given": true }] });
         let rule = json!("Facts first.");
         let rounds = [
             round(
@@ -929,7 +934,7 @@ mod tests {
         assert_eq!(h.compacted, Some(5));
     }
 
-    // The same content copied from one place to another is one material under the earliest round's address; a word
+    // The same content copied from one place to another is one conditional input under the earliest round's address; a word
     // two places give alike keeps each place's address.
     #[test]
     fn copied_content_has_one_address_and_a_word_keeps_its_own() {
@@ -939,7 +944,7 @@ mod tests {
             (hash(&acceptance), vec!["R25·12·reply.new_acceptance".to_string()]),
             (hash(&json!("no")), vec!["R7·engine·adversarial".to_string()]),
         ]);
-        let mut m = Materials {
+        let mut m = Conditionals {
             held: &held,
             registry: &registry,
             list: Vec::new(),

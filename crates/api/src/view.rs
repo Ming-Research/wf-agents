@@ -1,5 +1,5 @@
 //! What the flow page shows of a compiled flow besides the flow itself: the cells each row can lead to and the rows
-//! that lead into each cell; what a round of each cell is given, each material with its source and its address as
+//! that lead into each cell; what a round of each cell is given, each input with its source and its address as
 //! the engine addresses it; and each cell's return as a tree of fields, with whatever reads each field.
 //!
 //! A row's target the engine keeps track of is resolved to the cells it can be from the rows alone: `@caller` is a
@@ -14,7 +14,7 @@ use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
 use crate::{
-    Branch, CellView, Field, FieldKind, FlowView, GraphView, Material, MaterialOf, ReturnForm, Returns, RowRef, Use,
+    Branch, CellInput, CellInputOf, CellView, Field, FieldKind, FlowView, GraphView, ReturnForm, Returns, RowRef, Use,
 };
 
 /// The targets the engine keeps track of, as rows and inputs name them.
@@ -57,16 +57,16 @@ fn graph(g: &CompiledGraph) -> GraphView {
             }
         }
     }
-    let materials: Vec<Vec<Material>> = g.cells.iter().map(|c| ways.materials(c, &trees)).collect();
+    let inputs: Vec<Vec<CellInput>> = g.cells.iter().map(|c| ways.inputs(c, &trees)).collect();
     let cells = g
         .cells
         .iter()
-        .zip(materials)
-        .map(|(c, materials)| CellView {
+        .zip(inputs)
+        .map(|(c, inputs)| CellView {
             id: c.id.clone(),
             targets: ways.rows(c),
             entered_from: entered.remove(c.id.as_str()).unwrap_or_default(),
-            materials,
+            inputs,
             returns: trees.remove(c.id.as_str()).unwrap_or_else(Returns::empty),
         })
         .collect();
@@ -311,33 +311,33 @@ impl<'a> Ways<'a> {
 
     /// What a round of `c` is given: for an agent's cell, the return formats and the rules with the settings they
     /// name, then the sources of its inputs; for any other cell, the sources of its inputs.
-    fn materials(&self, c: &CompiledCell, trees: &BTreeMap<&str, Returns>) -> Vec<Material> {
+    fn inputs(&self, c: &CompiledCell, trees: &BTreeMap<&str, Returns>) -> Vec<CellInput> {
         let agent = c.kind == AGENT;
         let mut out = Vec::new();
-        let given = |of: MaterialOf, address: String| Material {
+        let given = |of: CellInputOf, address: String| CellInput {
             always: false,
             of,
             address: Some(address),
             cells: Vec::new(),
         };
         if agent {
-            out.push(given(MaterialOf::CommonFormat, "format:common".into()));
-            out.push(given(MaterialOf::CellFormat, format!("format:{}", c.id)));
-            out.push(given(MaterialOf::ProjectRules, "rule:‹name›".into()));
+            out.push(given(CellInputOf::CommonFormat, "format:common".into()));
+            out.push(given(CellInputOf::CellFormat, format!("format:{}", c.id)));
+            out.push(given(CellInputOf::ProjectRules, "rule:‹name›".into()));
             for r in &c.rules {
                 out.push(given(
-                    MaterialOf::Rule { name: r.name.clone() },
+                    CellInputOf::Rule { name: r.name.clone() },
                     format!("rule:{}", r.name),
                 ));
             }
-            out.push(given(MaterialOf::Settings, "config:‹name›".into()));
+            out.push(given(CellInputOf::Settings, "config:‹name›".into()));
         }
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {
                 let (address, cells) = self.source(c, s, trees);
-                out.push(Material {
+                out.push(CellInput {
                     always: *s == Src::Itself,
-                    of: MaterialOf::Input { input: i, source: j },
+                    of: CellInputOf::Input { input: i, source: j },
                     address,
                     cells,
                 });
@@ -347,7 +347,7 @@ impl<'a> Ways<'a> {
     }
 
     /// The address the engine gives what a source of an input of `c` holds under, and the cells a place it reads can
-    /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives (`materials_of` in the
+    /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives (`conditional_of` in the
     /// engine's message builder): a value a round produced is addressed by the round, the cell and the path; what
     /// the engine reads or computes for a round by the round and its name; the item, its cards and the
     /// interjections by their ids; and the locked acceptance and the researched problem by the round that wrote
@@ -946,28 +946,28 @@ mod tests {
     }
 
     #[test]
-    fn a_material_has_its_address() {
+    fn an_input_has_its_address() {
         let v = super::graph(&graph());
         let b = cell(&v, "b");
         let input = |i: usize, s: usize| {
-            b.materials
+            b.inputs
                 .iter()
-                .find(|m| m.of == MaterialOf::Input { input: i, source: s })
+                .find(|m| m.of == CellInputOf::Input { input: i, source: s })
                 .unwrap()
         };
         assert_eq!(input(0, 0).address.as_deref(), Some("R‹round›·a·design"));
         assert!(!input(2, 0).always);
         assert_eq!(input(2, 0).address.as_deref(), Some("item:‹id›"));
         assert!(
-            b.materials
+            b.inputs
                 .iter()
-                .any(|m| m.of == MaterialOf::CellFormat && m.address.as_deref() == Some("format:b"))
+                .any(|m| m.of == CellInputOf::CellFormat && m.address.as_deref() == Some("format:b"))
         );
         let a = cell(&v, "a");
         let results = a
-            .materials
+            .inputs
             .iter()
-            .find(|m| m.of == MaterialOf::Input { input: 0, source: 0 })
+            .find(|m| m.of == CellInputOf::Input { input: 0, source: 0 })
             .unwrap();
         assert_eq!(results.cells, vec!["t".to_string()]);
         assert_eq!(results.address.as_deref(), Some("R‹round›·‹cell›·results"));
@@ -1037,19 +1037,19 @@ mod tests {
                         assert!(uses.contains(&want), "{} input {i} reads {at}", cell.id);
                     }
                 }
-                // An agent's cell is given the return formats, and every source of its inputs is a material.
+                // An agent's cell is given the return formats, and every source of its inputs is an input of the view.
                 if cell.kind == AGENT {
                     let formats = cv
-                        .materials
+                        .inputs
                         .iter()
-                        .filter(|m| matches!(m.of, MaterialOf::CommonFormat | MaterialOf::CellFormat))
+                        .filter(|m| matches!(m.of, CellInputOf::CommonFormat | CellInputOf::CellFormat))
                         .count();
                     assert_eq!(formats, 2, "{}", cell.id);
                     let sources: usize = cell.inputs.iter().map(|x| x.from.len()).sum();
                     let inputs = cv
-                        .materials
+                        .inputs
                         .iter()
-                        .filter(|m| matches!(m.of, MaterialOf::Input { .. }))
+                        .filter(|m| matches!(m.of, CellInputOf::Input { .. }))
                         .count();
                     assert_eq!(inputs, sources, "{}", cell.id);
                     assert_eq!(cv.returns.forms.len(), cell.forms.len(), "{}", cell.id);

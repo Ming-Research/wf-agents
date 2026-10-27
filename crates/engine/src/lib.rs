@@ -1,5 +1,5 @@
 //! The engine: takes each work through the compiled flow, one cell at a time. At an agent's cell it runs a round of
-//! the agent, whose message gives the instruction every time and each material once per session; at its own cells and
+//! the agent, whose message gives the always inputs every time and each conditional input when the session lacks it; at its own cells and
 //! the tool cells it does the step itself; at the owner's it waits for the owner's answer. Each return is checked
 //! against the cell's schema and checks, takes exactly one row, and the round, the work's new position and what the
 //! row does in the database are written in one transaction. What must happen outside the database is put in the
@@ -74,10 +74,8 @@ pub struct Engine {
     /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
     /// owner is told once.
     told: Option<String>,
-    /// How many times in a row the network was found down.
-    probes: u32,
     /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
-    /// after.
+    /// after, up to five minutes.
     pub retry_wait: Duration,
     /// Each CLI's version as it reported it, by the CLI's name in the configuration.
     cli_versions: BTreeMap<String, String>,
@@ -132,8 +130,7 @@ impl Engine {
             say: Box::new(|s| eprintln!("{s}")),
             halt: None,
             told: None,
-            probes: 0,
-            retry_wait: Duration::from_secs(30),
+            retry_wait: Duration::from_secs(10),
             cli_versions: BTreeMap::new(),
         };
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
@@ -188,7 +185,6 @@ impl Engine {
     /// A round ran to a return: whatever stopped every work has passed.
     fn returned(&mut self) {
         self.told = None;
-        self.probes = 0;
     }
 
     /// The compiled flow a work runs on, read from the database the first time.

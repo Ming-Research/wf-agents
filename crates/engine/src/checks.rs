@@ -206,53 +206,8 @@ fn owner_only() -> &'static BTreeSet<String> {
     })
 }
 
-/// Whether a character ends a path written in a text: white space, a backtick or a quote, punctuation a path is not
-/// written with (a colon too, so that `path:line` gives the path), and the full-width punctuation of Chinese and
-/// Japanese text, which follows a path with no space before it.
-fn ends_path(c: char) -> bool {
-    c.is_whitespace()
-        || matches!(
-            c,
-            '`' | '"' | '\'' | ':' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '|' | '!' | '?'
-        )
-        // General punctuation: quotation marks, dashes and the ellipsis.
-        || ('\u{2010}'..='\u{205F}').contains(&c)
-        // CJK punctuation: the ideographic comma and full stop, the angle, corner and lenticular brackets, and the
-        // like.
-        || ('\u{3000}'..='\u{303F}').contains(&c)
-        // Full-width forms of ASCII punctuation: the exclamation mark, the brackets, the comma, the colon, the
-        // semicolon, the question mark and the like.
-        || ('\u{FF01}'..='\u{FF0F}').contains(&c)
-        || ('\u{FF1A}'..='\u{FF20}').contains(&c)
-        || ('\u{FF3B}'..='\u{FF40}').contains(&c)
-        || ('\u{FF5B}'..='\u{FF65}').contains(&c)
-}
-
-/// File paths a text cites: each run of characters between those that end a path, with a slash in it and not
-/// starting with one, a full stop that ends a sentence taken off, whatever language the text around it is in.
-fn cited_paths(text: &str) -> Vec<String> {
-    text.split(ends_path)
-        .map(|w| w.trim_end_matches('.'))
-        .filter(|w| w.contains('/') && !w.starts_with('/'))
-        .map(str::to_string)
-        .collect()
-}
-
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
     match check {
-        "cited_places_exist" => {
-            let wt = c.wt()?;
-            for text in strs(v) {
-                for p in cited_paths(&text) {
-                    // A path whose first part is not in the worktree is not taken for a file path.
-                    let first = p.split('/').next().unwrap_or_default();
-                    if wt.join(first).exists() && !wt.join(&p).exists() {
-                        return fail(format!("{p} is not in the worktree"));
-                    }
-                }
-            }
-            Ok(())
-        }
         "research_only" => {
             let wt = c.wt()?;
             if !git::is_clean(wt)? {
@@ -1003,43 +958,5 @@ mod tests {
         assert!(names_failing(log, "breaks"));
         assert!(names_failing(log, "panics"));
         assert!(!names_failing(log, ""));
-    }
-
-    #[test]
-    fn cited_paths_are_found_in_text() {
-        assert_eq!(
-            cited_paths("see crates/flow/src/run.rs:42 and `db/schema.sql`."),
-            ["crates/flow/src/run.rs", "db/schema.sql"]
-        );
-        assert!(cited_paths("https://github.com/a/b/actions/runs/1").is_empty());
-        assert!(cited_paths("/etc/passwd").is_empty());
-        assert_eq!(
-            cited_paths("\u{89c1} crates/wf-agents/src/main.rs\u{ff1a}\u{7b2c} 12 \u{884c}"),
-            ["crates/wf-agents/src/main.rs"]
-        );
-    }
-
-    // The case the check once sent back: a correct path followed by a full-width colon.
-    #[test]
-    fn a_path_followed_by_full_width_punctuation_is_the_path() {
-        assert_eq!(
-            cited_paths("crates/wf-agents/src/main.rs\u{ff1a}"),
-            ["crates/wf-agents/src/main.rs"]
-        );
-        assert_eq!(
-            cited_paths(
-                "\u{6539}\u{4e86} crates/engine/src/steps.rs\u{ff0c}\u{4ee5}\u{53ca}\u{ff08}crates/flow/src/lib.rs\u{ff09}\u{3002}"
-            ),
-            ["crates/engine/src/steps.rs", "crates/flow/src/lib.rs"]
-        );
-        assert_eq!(
-            cited_paths("\u{201c}design/engine/inputs.md\u{201d}\u{3001}"),
-            ["design/engine/inputs.md"]
-        );
-        // A path whose name is not ASCII is kept whole, and `path:line` gives the path.
-        assert_eq!(
-            cited_paths("research/\u{8bbe}\u{8ba1}.md:3"),
-            ["research/\u{8bbe}\u{8ba1}.md"]
-        );
     }
 }

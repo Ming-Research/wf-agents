@@ -1598,7 +1598,6 @@
       "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries."
     },
     "checks": {
-      "cited_places_exist": "The places and runs that the verified grounds cite exist: the files and lines in the worktree, the runs among the engine's records.",
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "design_paths_unchanged": "Nothing in the design paths changed in this round: the engine compares them on the branch at the start of the round and at its return. The design tree changes only when designing, implementing and fixing.",
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
@@ -1763,7 +1762,7 @@
           "Before each round the engine looks at how large the line's session has grown; at the limit, it starts a new session on the same line, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs. The limit is set below the point where Claude Code compacts on its own; the number stays open until it has been measured at what size carrying on costs more than starting afresh.",
           "Compaction still happens, for instance when a session fills up within a round. The session's record marks the compaction, and the session manager sees it: right after the compaction, the session manager gives the rules and inputs this cell got in this round again, then has the agent carry on. From then on the engine treats it as a new session and gives later cells what they need as usual.",
           "A cell on no line starts a session of its own every round, and the engine gives it every input.",
-          "When an agent hands in pause, the engine runs the same cell again in the same session: it gives the cell's instruction again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
+          "When an agent hands in pause, the engine runs the same cell again in the same session: it gives the cell's always inputs again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
         ]
       },
       "rules": [
@@ -2690,10 +2689,6 @@
             }
           ],
           "checks": [
-            {
-              "at": "understanding.grounds[verified].where",
-              "check": "cited_places_exist"
-            },
             {
               "check": "research_only"
             }
@@ -7786,15 +7781,13 @@
               "name": "offline",
               "when": "The network cannot be reached",
               "handle": "wait",
-              "desc": "The engine starts no new round for any work until the network is back, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+              "desc": "The engine starts no new round for any work until the network is back, looking every half minute, tells the owner once if it lasts, then carries on each work from the cell it recorded."
             },
             {
               "name": "transient",
               "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
               "handle": "retry",
-              "retries": 2,
-              "then": "15",
-              "desc": "The engine runs the same round again, twice, waiting longer each time, and records each attempt on the work. If it still fails, the engine pauses the work and asks the architect, as for a tool that fails twice; while the architect's flow does not run, that is a card for the owner."
+              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
             },
             {
               "name": "cannot_run",
@@ -7806,7 +7799,7 @@
           ]
         },
         "record": [
-          "Each round records, besides the message it was given and each material in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
+          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
