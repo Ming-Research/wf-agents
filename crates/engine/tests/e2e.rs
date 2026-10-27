@@ -1495,6 +1495,22 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(m.contains("\n1. item:"), "{m}");
     assert!(m.contains(&format!("Worktree: {workspace}")), "{m}");
     assert_eq!(given(second, "format:1a"), Some(true));
+    // The project guide is an input every agent's cell has: given in a session's first round, before anything else,
+    // referred to after, and given again to the review's session.
+    let guide = |input: &Value| -> Option<(String, bool)> {
+        input["conditional"].as_array()?.iter().find_map(|m| {
+            let a = m["address"].as_str()?;
+            a.ends_with("·engine·project_guide")
+                .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
+        })
+    };
+    let (address, sent) = guide(first).expect("the project guide in cell 1's round");
+    assert!(sent, "{address}");
+    let m = first["message"].as_str().unwrap();
+    let at_guide = m.find(&format!("### {address}")).unwrap();
+    assert!(at_guide < m.find("### format:common").unwrap(), "{m}");
+    assert_eq!(guide(second).map(|g| g.1), Some(false));
+    assert_eq!(guide(&at("5")).map(|g| g.1), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
     let m = first["message"].as_str().unwrap();

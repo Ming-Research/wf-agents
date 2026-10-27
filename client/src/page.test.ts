@@ -264,6 +264,7 @@ const graph: CompiledGraph = {
 const view: GraphView = {
   lines: [],
   name: 'engineer',
+  common_format: '',
   cells: graph.cells.map((c) => ({
     id: c.id,
     targets: c.rows.map((r) => {
