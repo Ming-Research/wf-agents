@@ -1,8 +1,9 @@
 // A flow's state machine as the chart draws it, before it is laid out: the cells, each in the part of the chart it is
-// drawn in and the stage box around it; an arrow for the rows from one cell to another in the same part, numbered and
-// named; a small circle beside a cell for a row to another part, and a shaded one beside the cell it enters; one
-// circle beside each agent's cell for the rows every agent's cell shares; the rules beside the cells that are given
-// them; the interjection beside the engine's steps that take one. Pure, so that it is tested on its own.
+// drawn in and the stage box around it; an arrow for the rows from one cell to another in the same part, named, with
+// their numbers for the chart to draw or leave out; a small circle beside a cell for a row to another part, and a
+// shaded one beside the cell it enters; one circle beside each agent's cell for the rows every agent's cell shares;
+// the rules beside the cells that are given them; the interjection beside the engine's steps that take one. Pure, so
+// that it is tested on its own.
 
 import type { CompiledCell, CompiledGraph, GraphView, RoundSummary } from '../api';
 
@@ -31,7 +32,10 @@ export type ChartEdge = {
   /// of a rule or the interjection into its cell.
   cell: string | null;
   rows: number[];
+  /// The rows' names; none for the arrow to the shared circle, which says what it carries.
   label: string;
+  /// The rows' numbers as `runs` writes them, for the chart to draw beside the names; none when the cell has one row.
+  numbers: Array<[number, number]>;
   /// Some row of it is on the main path.
   main: boolean;
   kind: 'row' | 'shared' | 'rule' | 'interjection';
@@ -43,13 +47,6 @@ export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; groups: ChartGroup
 
 export const MAIN = 'main';
 export const ASKING = 'asking';
-
-const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
-
-/// A row's number as the chart and the transition table write it: circled, from ①.
-export function circled(i: number): string {
-  return i < CIRCLED.length ? CIRCLED[i] : `(${i + 1})`;
-}
 
 const SELF = '@self';
 const CALLER = '@caller';
@@ -64,17 +61,20 @@ export function sharedRows(c: CompiledCell): number[] {
   return c.rows.flatMap((r, i) => (r.common ? [i] : []));
 }
 
-/// Rows' numbers, circled, three or more in a row written as the first and the last.
-export function numbers(rows: number[]): string {
-  const out: string[] = [];
+/// Rows, by their places in a transition table, as the page numbers them: each as a run of its first and last place,
+/// three or more in a row as one run and every other row as a run of its own, so that rows 1, 4, 5, 6, 7 and 9 read
+/// 1, 4-7, 9.
+export function runs(rows: number[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
   let i = 0;
   while (i < rows.length) {
     let j = i;
     while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1) j += 1;
-    out.push(j - i >= 2 ? `${circled(rows[i])}–${circled(rows[j])}` : rows.slice(i, j + 1).map(circled).join(''));
+    if (j - i >= 2) out.push([rows[i], rows[j]]);
+    else for (const r of rows.slice(i, j + 1)) out.push([r, r]);
     i = j + 1;
   }
-  return out.join('');
+  return out;
 }
 
 /// The part each cell is drawn in. The asking part is a part of its own; a cell outside it that no row leads to but
@@ -98,12 +98,6 @@ export function partsOf(g: CompiledGraph, v: GraphView): Map<string, string> {
   return out;
 }
 
-/// The label of an arrow: the rows' numbers and names, or only the names when the cell has one row.
-function label(c: CompiledCell, rows: number[], names = true): string {
-  const nos = c.rows.length > 1 ? numbers(rows) : '';
-  const said = names ? [...new Set(rows.map((i) => c.rows[i].name))].join(', ') : '';
-  return [nos, said].filter((s) => s !== '').join(' ');
-}
 
 export function chart(g: CompiledGraph, v: GraphView): Chart {
   const parts = partsOf(g, v);
@@ -139,7 +133,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
       if (!e.rows.includes(row)) e.rows.push(row);
       e.main = e.main || c.rows[row].main;
     } else {
-      edges.set(id, { id, source, target, cell: c.id, rows: [row], label: '', main: c.rows[row].main, kind });
+      edges.set(id, { id, source, target, cell: c.id, rows: [row], label: '', numbers: [], main: c.rows[row].main, kind });
     }
   };
   const cellNode = (id: string) => `c:${id}`;
@@ -206,6 +200,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
         cell: null,
         rows: [],
         label: '',
+        numbers: [],
         main: false,
         kind: 'rule',
       });
@@ -220,6 +215,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
         cell: null,
         rows: [],
         label: '',
+        numbers: [],
         main: false,
         kind: 'interjection',
       });
@@ -229,7 +225,8 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
     const c = e.cell !== null ? cells.get(e.cell) : undefined;
     if (!c) continue;
     e.rows.sort((a, b) => a - b);
-    e.label = label(c, e.rows, e.kind !== 'shared');
+    e.label = e.kind === 'shared' ? '' : [...new Set(e.rows.map((i) => c.rows[i].name))].join(', ');
+    e.numbers = c.rows.length > 1 ? runs(e.rows) : [];
   }
   const groups: ChartGroup[] = [];
   const seen = new Set<string>();
@@ -241,6 +238,16 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
   }
   const partList = [MAIN, ...new Set([...parts.values()].filter((p) => p !== MAIN))];
   return { nodes: [...nodes.values()], edges: [...edges.values()], groups, parts: partList };
+}
+
+/// The arrows that draw the same rows as an arrow, by their cell and their places in its transition table: the row
+/// from its source to its target, the circles on its way to another part of the chart included. An arrow of a rule or
+/// the interjection is only itself; none for none.
+export function related(edges: ChartEdge[], id: string | null): Set<string> {
+  const e = id === null ? undefined : edges.find((x) => x.id === id);
+  if (e === undefined) return new Set();
+  if (e.cell === null) return new Set([e.id]);
+  return new Set(edges.filter((x) => x.cell === e.cell && x.rows.some((r) => e.rows.includes(r))).map((x) => x.id));
 }
 
 /// What a work did at a cell.

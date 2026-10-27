@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary } from './api';
+import { cellTab, cellTabs, numbered } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
-import { addHops, pathOf, type Route as Routed } from './graph/flowLayout';
-import { ASKING, chart, circled, MAIN, numbers, overlays, partsOf, sharedRows, taken } from './graph/flowModel';
+import { badgeRow, labelSize } from './graph/flowDraw';
+import { addHops, lengthenLast, pathOf, type Route as Routed } from './graph/flowLayout';
+import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
+import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 
@@ -24,10 +27,14 @@ describe('the message catalog', () => {
 describe('the addresses', () => {
   it('read back what they write', () => {
     const flow = { page: 'flow' as const, version: null, cell: null, project: null, ref: null, from: null };
+    const work = { page: 'work' as const, id: 3, round: null, cell: null, tab: 'rounds' as const, only: null };
     const routes: Route[] = [
       { page: 'works' },
-      { page: 'work', id: 3, round: 240, cell: null },
-      { page: 'work', id: 3, round: null, cell: '2a' },
+      { ...work, round: 240 },
+      { ...work, cell: '2a' },
+      { ...work, tab: 'cards' },
+      { ...work, tab: 'messages', round: 7 },
+      { ...work, only: 'failed' },
       { page: 'items' },
       { page: 'item', id: 5 },
       { page: 'messages' },
@@ -43,6 +50,9 @@ describe('the addresses', () => {
     }
     expect(parse('/', '')).toEqual({ page: 'works' });
     expect(parse('/works/x', '')).toEqual({ page: 'missing' });
+    // A tab or a choice of rounds the page does not know is the work's rounds, all of them.
+    expect(parse('/works/3', '?tab=x&only=y')).toEqual(work);
+    expect(href(work)).toBe('/works/3');
   });
 });
 
@@ -71,8 +81,6 @@ describe('the flow in words', () => {
     expect(targetWords('@caller')).toBe('back to the cell that called');
     expect(targetWords('@self')).toBe('itself');
     expect(targetWords('4')).toBeNull();
-    expect(circled(0)).toBe('①');
-    expect(circled(25)).toBe('(26)');
   });
 });
 
@@ -214,14 +222,37 @@ describe('the chart of a flow', () => {
   it('draws the rows every agent cell shares as one circle beside it, numbered, those back to itself too', () => {
     expect(sharedRows(graph.cells[1])).toEqual([0, 3, 4]);
     expect(node('k:a')?.rows).toEqual([0, 3, 4]);
-    expect(edge('c:a->k:a')?.label).toBe('①④⑤');
+    expect(edge('c:a->k:a')).toMatchObject({ label: '', numbers: [[0, 0], [3, 3], [4, 4]] });
     expect(edge('c:a->c:t')).toBeUndefined();
-    expect(numbers([0, 3, 4, 5, 6, 8])).toBe('①④–⑦⑨');
+    expect(runs([0, 3, 4, 5, 6, 8])).toEqual([[0, 0], [3, 6], [8, 8]]);
   });
 
-  it('draws the rows to one cell as one arrow with their numbers and names, the main path marked', () => {
-    expect(edge('c:a->c:b')).toMatchObject({ rows: [1, 2], label: '②③ done, again', main: true });
-    expect(edge('c:s->c:a')?.label).toBe('started');
+  it('draws the rows to one cell as one arrow with their names and numbers, the main path marked', () => {
+    expect(edge('c:a->c:b')).toMatchObject({ rows: [1, 2], label: 'done, again', numbers: [[1, 1], [2, 2]], main: true });
+    // A cell of one row needs no number.
+    expect(edge('c:s->c:a')).toMatchObject({ label: 'started', numbers: [] });
+  });
+
+  it("draws a row's number as a badge, and leaves the numbers out of a work's chart", () => {
+    expect(badgeRow([[0, 0], [3, 6]])).toEqual({
+      items: [
+        { x: 8, row: 0 },
+        { x: 26, row: 3 },
+        { x: 39, row: null },
+        { x: 52, row: 6 },
+      ],
+      width: 60,
+    });
+    const shared = c.edges.find((e) => e.id === 'c:a->k:a');
+    expect(shared && labelSize(shared, true)).toEqual({ width: 3 * 16 + 2 * 2 + 12, height: 20 });
+    expect(shared && labelSize(shared, false)).toBeNull();
+  });
+
+  it('lights up every arrow of a row from its source to its target', () => {
+    expect(related(c.edges, 'c:t->o:r:t')).toEqual(new Set(['c:t->o:r:t', 'i:t:a->c:a']));
+    expect(related(c.edges, 'c:a->c:b')).toEqual(new Set(['c:a->c:b']));
+    expect(related(c.edges, 'r:tree:a->c:a')).toEqual(new Set(['r:tree:a->c:a']));
+    expect(related(c.edges, null).size).toBe(0);
   });
 
   it('draws a row to another part as a circle beside the cell, and one beside the cell it comes back into', () => {
@@ -230,7 +261,7 @@ describe('the chart of a flow', () => {
     expect(node('i:q:a')).toMatchObject({ kind: 'in', cell: 'a', part: MAIN });
     // Back to where the work stopped: from the cell whose row decided it.
     expect(node('i:t:a')).toMatchObject({ kind: 'in', cell: 'a' });
-    expect(edge('i:t:a->c:a')?.label).toBe('② failed');
+    expect(edge('i:t:a->c:a')).toMatchObject({ label: 'failed', numbers: [[1, 1]] });
   });
 
   it('puts the rules beside the cells given them and the interjection beside the steps that take one', () => {
@@ -277,6 +308,70 @@ describe('the routes of arrows', () => {
     expect(down.hops).toEqual([[]]);
     expect(pathOf(across)).toBe('M 0 50 L 45 50 A 5 5 0 0 1 55 50 L 100 50');
     expect(pathOf(bent)).toBe('M 0 0 L 0 31 Q 0 40 9 40 L 40 40');
+  });
+
+  it('end where the head starts, the last piece straight before it, and at the ring as they start there', () => {
+    const bent: Routed = { points: [{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 40, y: 40 }], label: null, hops: [] };
+    expect(pathOf(bent, { end: 7 })).toBe('M 0 0 L 0 31 Q 0 40 9 40 L 33 40');
+    const close: Routed = { points: [{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 12, y: 40 }], label: null, hops: [] };
+    expect(pathOf(close, { end: 7 })).toBe('M 0 0 L 0 38 Q 0 40 2 40 L 5 40');
+    expect(pathOf(bent, { start: 7, end: 7 })).toBe('M 0 7 L 0 31 Q 0 40 9 40 L 33 40');
+  });
+
+  it('give a loop back to its own cell a last piece long enough for a head', () => {
+    const loop = (label: Routed['label']): Routed => ({
+      points: [{ x: 10, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 20 }, { x: 10, y: 20 }],
+      label,
+      hops: [],
+    });
+    const far = { x: -40, y: 5, width: 20, height: 10 };
+    const near = { x: -20, y: 5, width: 18, height: 10 };
+    expect(lengthenLast(loop(far), 16)).toEqual({
+      points: [{ x: 10, y: 0 }, { x: -6, y: 0 }, { x: -6, y: 20 }, { x: 10, y: 20 }],
+      label: far,
+      hops: [],
+    });
+    expect(lengthenLast(loop(near), 16).label).toEqual({ ...near, x: -26 });
+    // A route of three points cannot move the piece that starts at its source.
+    const three: Routed = { points: [{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 5, y: 40 }], label: null, hops: [] };
+    expect(lengthenLast(three, 16)).toBe(three);
+  });
+});
+
+describe("a cell's panel", () => {
+  const a = graph.cells[1];
+  it('has its tabs in order, the rounds on a work\'s chart and the checks only when there are any', () => {
+    expect(cellTabs(a, { rounds: false, diff: false })).toEqual(['inputs', 'returns', 'route']);
+    const checked = { ...a, checks: [{ check: 'x', at: null }] };
+    expect(cellTabs(checked, { rounds: true, diff: true })).toEqual(['changes', 'rounds', 'inputs', 'returns', 'route', 'checks']);
+    expect(cellTab(['inputs', 'returns', 'route'], 'checks')).toBe('inputs');
+    expect(cellTab(['rounds', 'inputs', 'returns', 'route'], 'route')).toBe('route');
+    expect(cellTab(['rounds', 'inputs', 'returns', 'route'], null)).toBe('rounds');
+  });
+
+  it('numbers the inputs as the message does, leaving out those the agent reads itself', () => {
+    const c = cell('x', [], {
+      inputs: [
+        { id: null, what: 'the item', from: [{ db: 'item_body', by: 'item' }], maybe: false },
+        { id: null, what: 'the code', from: ['self'], maybe: false },
+        { id: null, what: 'the design', from: [['2a', 'design']], maybe: false },
+      ],
+    });
+    expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
+  });
+});
+
+describe("a work's rounds", () => {
+  it('are shown all, or only those sent back, or only those that failed or were cut off', () => {
+    const rounds = [
+      round(1, 'a', 'took', 'done'),
+      round(2, 'a', 'sent_back', null),
+      round(3, 'a', 'failed', null),
+      round(4, 'a', 'interrupted', null),
+    ];
+    expect(roundsShown(rounds, null)).toHaveLength(4);
+    expect(roundsShown(rounds, 'sent_back').map((r) => r.id)).toEqual([2]);
+    expect(roundsShown(rounds, 'failed').map((r) => r.id)).toEqual([3, 4]);
   });
 });
 

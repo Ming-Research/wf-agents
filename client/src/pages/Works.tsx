@@ -1,7 +1,8 @@
 // Every work, and below the list the one picked: those running or waiting at the top, in an area four rows high
 // that scrolls and whose height can be dragged; those that have ended folded under them, opening to a list that
 // scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays. Both lists
-// have the same columns at the same widths, so that they read as one table.
+// have the same columns at the same widths, so that they read as one table. What waits for the owner opens that tab
+// of the work, and the marks of rounds that went wrong open the work with only those rounds.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
@@ -9,7 +10,7 @@ import type { WorkSummary } from '../api';
 import { liveState, Loaded, WorkBadge } from '../components';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { Link, navigate } from '../route';
+import { Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
 
@@ -39,7 +40,10 @@ function useNow(ticking: boolean): number {
   return now;
 }
 
-function Table({ works, selected }: { works: WorkSummary[]; selected: number | null }) {
+/// The works as rows. A row opens its work with the tab the open work shows, so that going from work to work (to rule on
+/// their design cards, say) keeps to what the owner is doing; what waits for the owner and the rounds that went wrong
+/// open that tab, or only those rounds.
+function Table({ works, selected, tab }: { works: WorkSummary[]; selected: number | null; tab: WorkTab }) {
   const status = useStatus();
   const now = useNow(works.some((w) => liveState(w, status) === 'running'));
   return (
@@ -75,7 +79,7 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
           <tr
             key={w.id}
             className={`clickable${w.id === selected ? ' selected' : ''}`}
-            onClick={() => navigate(`/works/${w.id}`)}
+            onClick={() => navigate(workHref(w.id, { tab }))}
           >
             <td>#{w.id}</td>
             <td>
@@ -98,14 +102,22 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
                 </span>
               ) : null}
               {w.open_asks > 0 ? (
-                <span className="chip warn" title={t('open_asks_n', { n: w.open_asks })}>
+                <Link
+                  to={workHref(w.id, { tab: 'messages' })}
+                  className="chip warn"
+                  title={t('open_asks_n', { n: w.open_asks })}
+                >
                   {t('open_asks_chip', { n: w.open_asks })}
-                </span>
+                </Link>
               ) : null}
               {w.open_design_cards > 0 ? (
-                <span className="chip warn" title={t('open_design_cards_n', { n: w.open_design_cards })}>
+                <Link
+                  to={workHref(w.id, { tab: 'cards' })}
+                  className="chip warn"
+                  title={t('open_design_cards_n', { n: w.open_design_cards })}
+                >
                   {t('open_design_cards_chip', { n: w.open_design_cards })}
-                </span>
+                </Link>
               ) : null}
               {w.paused ? <div className="why">{w.paused}</div> : null}
               {w.ended ? <div className="why">{w.ended}</div> : null}
@@ -116,8 +128,30 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
             <td>{w.stage !== null ? w.stage.replaceAll('_', ' ') : ''}</td>
             <td className="num">
               {w.rounds}
-              {w.sent_back > 0 ? <span className="warn"> ↩{w.sent_back}</span> : null}
-              {w.failed > 0 ? <span className="bad"> ✕{w.failed}</span> : null}
+              {w.sent_back > 0 ? (
+                <>
+                  {' '}
+                  <Link
+                    to={workHref(w.id, { only: 'sent_back' })}
+                    className="warn rounds-mark"
+                    title={t('rounds_sent_back_title', { n: w.sent_back })}
+                  >
+                    ↩{w.sent_back}
+                  </Link>
+                </>
+              ) : null}
+              {w.failed > 0 ? (
+                <>
+                  {' '}
+                  <Link
+                    to={workHref(w.id, { only: 'failed' })}
+                    className="bad rounds-mark"
+                    title={t('rounds_failed_title', { n: w.failed })}
+                  >
+                    ✕{w.failed}
+                  </Link>
+                </>
+              ) : null}
             </td>
             <td className="nowrap">{time(w.started_at)}</td>
             <td className="nowrap">{time(w.last_at)}</td>
@@ -131,7 +165,12 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
 }
 
 /// A list in an area of its own that scrolls, with a grip under it that drags its height.
-function Scroll({ name, works, selected }: { name: string; works: WorkSummary[]; selected: number | null }) {
+function Scroll({ name, works, selected, tab }: {
+  name: string;
+  works: WorkSummary[];
+  selected: number | null;
+  tab: WorkTab;
+}) {
   const [height, setHeight] = useState(() => savedHeight(name));
   const from = useRef<{ y: number; h: number } | null>(null);
   const grip = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -156,7 +195,7 @@ function Scroll({ name, works, selected }: { name: string; works: WorkSummary[];
   return (
     <>
       <div className="works-scroll" style={{ height }}>
-        <Table works={works} selected={selected} />
+        <Table works={works} selected={selected} tab={tab} />
       </div>
       <div
         className="works-grip"
@@ -172,8 +211,10 @@ function Scroll({ name, works, selected }: { name: string; works: WorkSummary[];
   );
 }
 
-export function Works({ selected, round, cell }: { selected: number | null; round: number | null; cell: string | null }) {
+export function Works({ work }: { work: WorkRoute | null }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
+  const selected = work?.id ?? null;
+  const tab = work?.tab ?? 'rounds';
   return (
     <div className="works-screen">
       <div className="works-lists">
@@ -188,20 +229,20 @@ export function Works({ selected, round, cell }: { selected: number | null; roun
                 <div className="works-label">
                   {t('works_active')} ({active.length})
                 </div>
-                <Scroll name="active" works={active} selected={selected} />
+                <Scroll name="active" works={active} selected={selected} tab={tab} />
                 <details className="works-ended">
                   <summary className="works-label">
                     {t('works_ended')} ({ended.length})
                   </summary>
-                  <Scroll name="ended" works={ended} selected={selected} />
+                  <Scroll name="ended" works={ended} selected={selected} tab={tab} />
                 </details>
               </>
             );
           }}
         </Loaded>
       </div>
-      {selected !== null ? (
-        <Work id={selected} round={round} cell={cell} />
+      {work !== null ? (
+        <Work r={work} />
       ) : (
         <p className="muted works-pick">{t('works_pick')}</p>
       )}

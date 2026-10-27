@@ -10,6 +10,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type ViewerHandle = {
   /// Shows the whole drawing, or, when that is smaller than `least`, the top of it at that zoom, centred on `around`.
   start: (least: number, around: Rect | null) => void;
+  /// Shows a rectangle of the drawing in the middle of what can be seen, at zoom `s`, at once.
+  place: (r: Rect, s: number) => void;
   /// Brings a rectangle of the drawing to the middle of what can be seen. With `keep`, it keeps the zoom and moves
   /// only when the rectangle is not wholly in sight; without, it zooms in to a zoom one can read at.
   focus: (r: Rect, keep: boolean) => void;
@@ -119,6 +121,11 @@ export function Viewer(props: {
           const top = around ? around.y : 0;
           view.current = { s, x: cx - focusX * s, y: 24 - top * s };
         }
+        apply();
+      },
+      place: (r, s) => {
+        const [cx, cy] = centre();
+        view.current = { s, x: cx - (r.x + r.width / 2) * s, y: cy - (r.y + r.height / 2) * s };
         apply();
       },
       focus: (r, keep) => {

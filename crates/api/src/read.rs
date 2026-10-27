@@ -514,13 +514,9 @@ const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
 LEFT JOIN owner_asks a ON a.id = n.ask";
 
-/// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
-/// every one.
-pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
-    let mut out = messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])?;
-    let unread = if all { "" } else { "WHERE n.read_at IS NULL" };
-    let mut st = conn.prepare(&format!("{NOTICE} {unread} ORDER BY n.id"))?;
-    let notices = st.query_map([], |r| {
+fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
+    let mut st = conn.prepare(&format!("{NOTICE} {filter} ORDER BY n.id"))?;
+    let rows = st.query_map(params_from_iter(args), |r| {
         Ok(OwnerMessage {
             id: r.get(0)?,
             engine: true,
@@ -537,9 +533,15 @@ pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
             ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
         })
     })?;
-    for n in notices {
-        out.push(n?);
-    }
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
+/// every one.
+pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
+    let mut out = messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])?;
+    let unread = if all { "" } else { "WHERE n.read_at IS NULL" };
+    out.extend(notices_where(conn, unread, &[])?);
     out.sort_by_key(|m| m.at.unwrap_or(0));
     Ok(out)
 }
@@ -569,6 +571,9 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         .ok_or_else(|| Error::NotFound(format!("no work {id}")))?;
     let mut st = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 ORDER BY r.id"))?;
     let rounds = st.query_map([id], round_summary)?.collect::<rusqlite::Result<_>>()?;
+    let mut messages = messages_where(conn, "WHERE r.work = ?1", &[id])?;
+    messages.extend(notices_where(conn, "WHERE n.work = ?1", &[id])?);
+    messages.sort_by_key(|m| m.at.unwrap_or(0));
     Ok(WorkDetail {
         work: summary,
         machine: w.machine,
@@ -580,7 +585,7 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         rounds,
         design_cards: design_cards(conn, flows, "WHERE r.work = ?1", id)?,
         asks: asks(conn, "WHERE r.work = ?1", id)?,
-        messages: messages_where(conn, "WHERE r.work = ?1", &[id])?,
+        messages,
         interjections: interjections(conn, "WHERE work = ?1", id)?,
     })
 }
@@ -1157,7 +1162,16 @@ mod tests {
 
     #[test]
     fn a_work_says_where_it_stands_and_what_each_round_came_to() {
-        let s = setup("work");
+        let mut s = setup("work");
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO owner_messages (round, text) VALUES (2, 'told')", [])?;
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 waits.', 45), (NULL, 'Halted.', 46)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
         let cache = Flows::default();
         let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
         let ws = works(s.db.conn(), &cache).unwrap();
@@ -1181,6 +1195,9 @@ mod tests {
         assert_eq!(back.line.as_deref(), Some("engineer"));
         assert_eq!(back.progress.as_deref(), Some("looked"));
         assert_eq!((back.cost_usd, back.tool_runs), (Some(0.5), 1));
+        // What its agents and the engine told the owner of it, oldest first; a notice of no work is not its.
+        let told: Vec<(bool, &str)> = d.messages.iter().map(|m| (m.engine, m.text.as_str())).collect();
+        assert_eq!(told, [(false, "told"), (true, "Work 1 waits.")]);
         assert_eq!(work(s.db.conn(), &cache, 9), Err(Error::NotFound("no work 9".into())));
 
         // A round recorded before messages were gives its prompt as its message, and its inputs.

@@ -1,13 +1,15 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
 // takes its line's, a cell on no line is white and dotted, the engine's own step is purple, dashed and rounded, a tool
-// the engine runs grey and dashed, the owner orange and rounded.
+// the engine runs grey and dashed, the owner orange and rounded. A row's number is a badge of one size with its digits
+// in it. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its
+// target.
 
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph } from '../api';
 import { t } from '../text';
-import type { Chart, ChartEdge, ChartNode, Overlay } from './flowModel';
+import { type Chart, type ChartEdge, type ChartNode, type Overlay, related } from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
@@ -97,11 +99,49 @@ export function sizes(g: CompiledGraph, c: Chart): { size: Map<string, Size>; li
   return { size, lines };
 }
 
-/// The size of an arrow's label; none for an arrow without one.
-export function labelSize(e: ChartEdge): Size | null {
-  if (e.label === '') return null;
-  return { width: Math.ceil(measure(e.label, SMALL)) + 12, height: 20 };
+/// A row number's badge: its diameter, the room between two badges, and the room a dash between a run's first and
+/// last row takes.
+const BADGE = 16;
+const BADGE_GAP = 2;
+const DASH = 10;
+/// The room between the numbers and the names in a label.
+const NAMES_GAP = 4;
+
+/// Where a label's row numbers go from its left edge: the centre of each badge and of each dash between a run's first
+/// and last row, and the width they take.
+export function badgeRow(numbers: Array<[number, number]>): {
+  items: Array<{ x: number; row: number | null }>;
+  width: number;
+} {
+  const items: Array<{ x: number; row: number | null }> = [];
+  let at = 0;
+  for (const [first, last] of numbers) {
+    if (at > 0) at += BADGE_GAP;
+    items.push({ x: at + BADGE / 2, row: first });
+    at += BADGE;
+    if (last !== first) {
+      items.push({ x: at + DASH / 2, row: null });
+      at += DASH;
+      items.push({ x: at + BADGE / 2, row: last });
+      at += BADGE;
+    }
+  }
+  return { items, width: at };
 }
+
+/// The size of an arrow's label, its row numbers drawn or not; none for an arrow without one.
+export function labelSize(e: ChartEdge, numbered: boolean): Size | null {
+  const nos = numbered ? badgeRow(e.numbers).width : 0;
+  const names = e.label === '' ? 0 : measure(e.label, SMALL);
+  if (nos === 0 && names === 0) return null;
+  return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 20 };
+}
+
+/// The arrowhead's length and width, the same for every arrow, and how far the ring around the cell a work is at
+/// stands off the cell, where the arrows into and out of the cell end and start.
+const HEAD = 7;
+const RING = 5;
+const RING_CUT = RING + 2;
 
 export type Marks = {
   /// The node whose panel is open.
@@ -157,18 +197,21 @@ function CellShape({ n, cell, box, lines, marks }: {
     }
   }
   const mark = marks.added.has(cell.id) ? t('chart_added') : marks.changed.has(cell.id) ? t('chart_changed') : null;
+  const name = `${cell.id} ${cell.title}`;
   return (
     <g className={cls} data-node={n.id}>
-      <title>{`${cell.id} ${cell.title}`}</title>
+      <title>{marks.overlays && !o ? `${name}: ${t('chart_unvisited')}` : name}</title>
       {o?.current ? (
         <rect
           className="fc-ring"
-          x={box.x - 6}
-          y={box.y - 6}
-          width={box.width + 12}
-          height={box.height + 12}
-          rx={round ? (box.height + 12) / 2 : 9}
-        />
+          x={box.x - RING}
+          y={box.y - RING}
+          width={box.width + 2 * RING}
+          height={box.height + 2 * RING}
+          rx={round ? (box.height + 2 * RING) / 2 : 8}
+        >
+          <title>{`${name}: ${t('chart_current')}`}</title>
+        </rect>
       ) : null}
       <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={round ? box.height / 2 : 3} />
       <text x={box.x + box.width / 2} y={textTop} textAnchor="middle">
@@ -207,21 +250,56 @@ function Circle({ n, box, title, text, cls }: { n: ChartNode; box: Box; title: s
   );
 }
 
+/// A row number's badge in a label, centred on `x`.
+function RowBadge({ x, y, row }: { x: number; y: number; row: number }) {
+  return (
+    <g className="fc-no">
+      <circle cx={x} cy={y} r={BADGE / 2} />
+      <text x={x} y={y + 3.5} textAnchor="middle">
+        {row + 1}
+      </text>
+    </g>
+  );
+}
+
+/// What hovering an arrow says: the rows it draws, and how many times the work took them.
+function edgeTitle(e: ChartEdge, cell: CompiledCell | undefined, n: number): string {
+  const rows = [...new Set(e.rows.map((i) => cell?.rows[i]?.name ?? ''))].filter((x) => x !== '');
+  const what = e.kind === 'shared' ? `${t('chart_shared_title')}: ${rows.join(', ')}` : rows.join(', ');
+  return n > 0 ? `${what}\n${t('chart_taken', { n })}` : what;
+}
+
 export type DrawProps = {
   g: CompiledGraph;
   chart: Chart;
   laid: Laid;
   lines: Map<string, string[]>;
   marks: Marks;
+  /// Whether the labels carry the rows' numbers: the flow's author reads them; a work's chart leaves them out.
+  numbered: boolean;
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, marks }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
+  const [hover, setHover] = useState<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
   const title = (id: string) => {
     const c = cells.get(id);
     return c ? `${c.id} ${c.title}` : id;
   };
+  const hot = related(chart.edges, hover);
+  const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
+  const ring = ringed !== undefined ? `c:${ringed}` : null;
+  const kindOf = (e: ChartEdge) => {
+    const n = marks.taken?.get(e.id) ?? 0;
+    if (hot.has(e.id)) return 'hot';
+    if (e.kind === 'rule' || e.kind === 'interjection') return 'rule';
+    if (n > 0) return 'taken';
+    if (marks.taken) return 'quiet';
+    return e.main ? 'main' : 'plain';
+  };
+  // The arrows lit up are drawn last, over the others.
+  const edges = [...chart.edges].sort((a, b) => Number(hot.has(a.id)) - Number(hot.has(b.id)));
   const b = laid.bounds;
   const pad = 24;
   return (
@@ -230,18 +308,24 @@ export function FlowSvg({ g, chart, laid, lines, marks }: DrawProps) {
       width={b.width + 2 * pad}
       height={b.height + 2 * pad}
       viewBox={`${b.x - pad} ${b.y - pad} ${b.width + 2 * pad} ${b.height + 2 * pad}`}
+      onPointerOver={(ev) => {
+        const id = (ev.target as Element).closest('[data-edge]')?.getAttribute('data-edge') ?? null;
+        if (id !== hover) setHover(id);
+      }}
+      onPointerLeave={() => setHover(null)}
     >
       <defs>
-        {['plain', 'main', 'taken', 'rule', 'quiet'].map((k) => (
+        {['plain', 'main', 'taken', 'rule', 'quiet', 'hot'].map((k) => (
           <marker
             key={k}
             id={`fc-arrow-${k}`}
             className={`fc-head fc-head-${k}`}
             viewBox="0 0 10 10"
-            refX="9"
+            refX="0"
             refY="5"
-            markerWidth={k === 'main' || k === 'taken' ? 6 : 7}
-            markerHeight={k === 'main' || k === 'taken' ? 6 : 7}
+            markerUnits="userSpaceOnUse"
+            markerWidth={HEAD}
+            markerHeight={HEAD}
             orient="auto-start-reverse"
           >
             <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -260,23 +344,22 @@ export function FlowSvg({ g, chart, laid, lines, marks }: DrawProps) {
           </g>
         );
       })}
-      {chart.edges.map((e) => {
+      {edges.map((e) => {
         const r = laid.edges.get(e.id);
         if (!r) return null;
-        const n = marks.taken?.get(e.id) ?? 0;
-        const kind =
-          e.kind === 'rule' || e.kind === 'interjection'
-            ? 'rule'
-            : n > 0
-              ? 'taken'
-              : marks.taken
-                ? 'quiet'
-                : e.main
-                  ? 'main'
-                  : 'plain';
+        const kind = kindOf(e);
         const cls = ['fc-edge', `fc-edge-${kind}`, e.kind === 'shared' ? 'fc-edge-shared' : ''].join(' ');
+        // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
+        const d = pathOf(r, {
+          start: e.source === ring ? RING_CUT : 0,
+          end: HEAD + (e.target === ring ? RING_CUT : 0),
+        });
         return (
-          <path key={e.id} className={cls} d={pathOf(r)} markerEnd={`url(#fc-arrow-${kind})`} data-edge={e.id} />
+          <g key={e.id} data-edge={e.id}>
+            <title>{edgeTitle(e, e.cell !== null ? cells.get(e.cell) : undefined, marks.taken?.get(e.id) ?? 0)}</title>
+            <path className="fc-hit" d={d} />
+            <path className={cls} d={d} markerEnd={`url(#fc-arrow-${kind})`} />
+          </g>
         );
       })}
       {chart.edges.map((e) => {
@@ -284,14 +367,37 @@ export function FlowSvg({ g, chart, laid, lines, marks }: DrawProps) {
         if (!r?.label) return null;
         const n = marks.taken?.get(e.id) ?? 0;
         const l = r.label;
-        const text = n > 0 ? `${e.label} ×${n}` : e.label;
-        const w = n > 0 ? Math.max(l.width, Math.ceil(measure(text, SMALL)) + 12) : l.width;
+        const text = n > 0 ? `${e.label} ×${n}`.trim() : e.label;
+        const nos = numbered ? badgeRow(e.numbers) : { items: [], width: 0 };
+        const names = text === '' ? 0 : Math.ceil(measure(text, SMALL));
+        const inner = nos.width + (nos.width > 0 && names > 0 ? NAMES_GAP : 0) + names;
+        const w = Math.max(l.width, inner + 12);
+        const left = l.x + l.width / 2 - inner / 2;
+        const mid = l.y + l.height / 2;
+        const cls = [
+          'fc-label',
+          e.main ? 'fc-label-main' : '',
+          n > 0 ? 'fc-label-taken' : '',
+          hot.has(e.id) ? 'fc-label-hot' : '',
+        ].join(' ');
         return (
-          <g key={`l:${e.id}`} className={`fc-label${e.main ? ' fc-label-main' : ''}${n > 0 ? ' fc-label-taken' : ''}`}>
+          <g key={`l:${e.id}`} className={cls} data-edge={e.id}>
+            <title>{edgeTitle(e, e.cell !== null ? cells.get(e.cell) : undefined, n)}</title>
             <rect x={l.x + (l.width - w) / 2} y={l.y} width={w} height={l.height} rx={3} />
-            <text x={l.x + l.width / 2} y={l.y + l.height / 2 + 4} textAnchor="middle">
-              {text}
-            </text>
+            {nos.items.map((it, i) =>
+              it.row === null ? (
+                <text key={i} className="fc-no-dash" x={left + it.x} y={mid + 4} textAnchor="middle">
+                  –
+                </text>
+              ) : (
+                <RowBadge key={i} x={left + it.x} y={mid} row={it.row} />
+              ),
+            )}
+            {text !== '' ? (
+              <text x={left + inner - names} y={mid + 4}>
+                {text}
+              </text>
+            ) : null}
           </g>
         );
       })}

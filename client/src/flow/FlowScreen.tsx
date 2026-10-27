@@ -7,7 +7,7 @@ import type { Compiled, CompiledGraph, FlowDiff, GraphView, RoundSummary } from 
 import { FlowChart, type FlowChartHandle, type Pick } from '../graph/FlowChart';
 import type { Marks } from '../graph/flowDraw';
 import { t } from '../text';
-import { CellPanel, cellWho } from './CellPanel';
+import { CellPanel, type CellTab, cellWho } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { flowOf, FlowContext, type Subject } from './context';
 import { Panel, useTrail } from './Panel';
@@ -109,6 +109,8 @@ export function FlowScreen(props: FlowScreenProps) {
   const panelRef = useRef<HTMLElement>(null);
   const trail = useTrail<Subject>(same);
   const [picked, setPicked] = useState<string | null>(null);
+  // The tab of a cell's panel the owner chose last: going to another cell keeps it.
+  const [cellTab, setCellTab] = useState<CellTab | null>(null);
   const flow = useMemo(
     () =>
       flowOf(compiled, g, view, (s) => {
@@ -174,6 +176,7 @@ export function FlowScreen(props: FlowScreenProps) {
         break;
       case 'shared':
         setPicked(`c:${p.cell}`);
+        setCellTab('route');
         trail.open({ kind: 'cell', cell: p.cell, rows: g.cells.find((c) => c.id === p.cell)?.rows.flatMap((r, i) => (r.common ? [i] : [])) });
         break;
       case 'out':
@@ -224,6 +227,8 @@ export function FlowScreen(props: FlowScreenProps) {
               rounds={rounds?.filter((r) => r.cell === c.id)}
               onRound={onRound ? (r) => trail.open({ kind: 'round', round: r.id }) : undefined}
               diff={diff?.graphs.find((x) => x.name === g.name)?.cells.find((x) => x.id === c.id) ?? null}
+              tab={cellTab}
+              onTab={setCellTab}
             />
           ),
         };

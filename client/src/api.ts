@@ -357,7 +357,7 @@ resume_at: string | null, waiting: JsonValue,
  */
 recorded: JsonValue, rounds: Array<RoundSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
 /**
- * What its agents told the owner, oldest first.
+ * What its agents told the owner, and what the engine told the owner of it, oldest first.
  */
 messages: Array<OwnerMessage>, interjections: Array<Interjection>, };
 

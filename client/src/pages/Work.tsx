@@ -1,21 +1,35 @@
-// A work, for diagnosis, under its row in the list of works (which holds its facts): the state machine of the flow
-// version it is pinned to, filling the rest of the window, with what the work did on it: the cell it is at ringed,
-// each cell it visited with its rounds and the rounds sent back or failed, the arrows it took standing out. Its rounds
-// are listed on the left, under its next round while the engine holds; a round opens in the panel with its cell
-// brought into view, a cell with its rounds.
+// A work, under its row in the list of works (which holds its facts): the state machine of the flow version it is
+// pinned to, filling the rest of the window, with what the work did on it: the cell it is at ringed, each cell it
+// visited with its rounds and the rounds sent back or failed, the arrows it took standing out. A window over the left
+// of the chart, whose width drags, has three tabs: its rounds, under its next round while the engine holds; its design
+// cards, the one waiting for the owner's ruling first with its controls; and its messages, the asks waiting for the
+// owner's answer first with their forms, then what its agents and the engine told the owner. A round opens in the
+// panel with its cell brought into view, a cell with its rounds.
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { Compiled, CompiledGraph, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
-import { liveState, Loaded, OutcomeBadge, Section } from '../components';
+import type {
+  Compiled,
+  CompiledGraph,
+  DesignCard,
+  FlowView,
+  NextRound,
+  OwnerAsk,
+  OwnerMessage,
+  RoundSummary,
+  WorkDetail,
+} from '../api';
+import { liveState, Loaded, OutcomeBadge } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration } from '../format';
+import { savedWidth, WidthGrip } from '../flow/Panel';
+import { cost, duration, time } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { reread, useActivity, useResource, useStatus } from '../live';
-import { href, Link, navigate } from '../route';
+import { href, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
-import { AskView, DesignCardView, words } from './Decide';
+import { AskView, bringIntoView, DesignCardView, words } from './Decide';
+import { markRead } from './Messages';
 import { RoundView } from './RoundView';
 
 /// Who did a round's work: an agent, by its line; the engine, also for a gate it answered itself; the tools; the
@@ -24,6 +38,14 @@ function who(r: RoundSummary, g: CompiledGraph): string {
   if (r.line !== null && r.not_asked === null) return r.line;
   const kind = r.cell !== null ? g.cells.find((c) => c.id === r.cell)?.kind : undefined;
   return kind === 'tool' ? t('round_by_tools') : kind === 'owner' ? t('round_by_owner') : t('round_by_engine');
+}
+
+/// The rounds the list shows: all of them, or only those whose return was sent back, or only those whose run failed or
+/// was cut off, as the list of works counts them.
+export function roundsShown(rounds: RoundSummary[], only: RoundsOnly | null): RoundSummary[] {
+  if (only === 'sent_back') return rounds.filter((r) => r.outcome === 'sent_back');
+  if (only === 'failed') return rounds.filter((r) => r.outcome === 'failed' || r.outcome === 'interrupted');
+  return rounds;
 }
 
 /// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
@@ -75,7 +97,13 @@ function Timeline(props: {
 
 /// The work's next round while the engine holds: what it will be, the button that runs it, and while it runs, how long
 /// it has run and what the agent is doing; when it ends, its round opens.
-function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
+function Next({ d, onRound, onCard, onAsk }: {
+  d: WorkDetail;
+  onRound: (r: number) => void;
+  /// Open the design card, or the ask, the work waits for, in its tab of the window.
+  onCard: (id: number) => void;
+  onAsk: (id: number) => void;
+}) {
   const status = useStatus();
   const w = d.work;
   const activity = useActivity(w.id);
@@ -170,13 +198,19 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
           </span>
         </div>
         <p className="prose">{t('next_waits', { what: n.waits })}</p>
-        {n.design_card !== null && w.item !== null ? (
-          <Link to={`/items/${w.item}#design-card-${n.design_card}`}>
-            {t('next_rule_card', { id: n.design_card })}
-          </Link>
+        {n.design_card !== null ? (
+          <div>
+            <button type="button" className="decide-button" onClick={() => onCard(n.design_card ?? 0)}>
+              {t('next_rule_card', { id: n.design_card })}
+            </button>
+          </div>
         ) : null}
-        {n.ask !== null && w.item !== null ? (
-          <Link to={`/items/${w.item}#ask-${n.ask}`}>{t('next_answer_ask', { id: n.ask })}</Link>
+        {n.ask !== null ? (
+          <div>
+            <button type="button" className="decide-button" onClick={() => onAsk(n.ask ?? 0)}>
+              {t('next_answer_ask', { id: n.ask })}
+            </button>
+          </div>
         ) : null}
       </section>
     );
@@ -250,119 +284,279 @@ function Paused({ d }: { d: WorkDetail }) {
   );
 }
 
-/// The work's rounds and records, in a drawer over the left of the chart.
-function Drawer({ d, g, round, onRound }: {
+/// The link to a round, which opens it in the panel.
+function RoundLink({ round, onRound }: { round: number; onRound: (r: number) => void }) {
+  return (
+    <button type="button" className="link" onClick={() => onRound(round)}>
+      {t('round_title', { id: round })}
+    </button>
+  );
+}
+
+/// The work's design cards: the one waiting for the owner's ruling first, with its controls; then the others, newest
+/// first: a replaced one as what replaced it, a ruled one folded to its one line.
+function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) => void }) {
+  if (cards.length === 0) return <p className="muted">{t('work_no_design_cards')}</p>;
+  const open = cards.filter((c) => c.status === 'open');
+  const rest = cards.filter((c) => c.status !== 'open').reverse();
+  const head = (c: DesignCard) => (
+    <span className="work-item-head">
+      <strong>{t('design_card_head', { id: c.id, status: words(c.status) })}</strong>
+      <RoundLink round={c.round} onRound={onRound} />
+    </span>
+  );
+  return (
+    <>
+      {[...open, ...rest].map((c) =>
+        c.status === 'open' || c.status === 'replaced' ? (
+          <div key={c.id} id={`design-card-${c.id}`} className="boxed">
+            {head(c)}
+            <DesignCardView c={c} />
+          </div>
+        ) : (
+          <details key={c.id} id={`design-card-${c.id}`} className="boxed work-old">
+            <summary>{head(c)}</summary>
+            <DesignCardView c={c} />
+          </details>
+        ),
+      )}
+    </>
+  );
+}
+
+/// Who told the owner a message: the engine, or an agent by its line and cell.
+function teller(m: OwnerMessage): string {
+  if (m.engine) return t('message_engine');
+  return [m.line, m.cell !== null ? t('message_cell', { cell: m.cell }) : null].filter((x) => x !== null).join(' · ');
+}
+
+/// One thing the work's agents or the engine told the owner: who and when, the round it came with, the text; one
+/// unread is marked read here as on the messages view.
+function Told({ m, onRound, onAsk }: { m: OwnerMessage; onRound: (r: number) => void; onAsk: (id: number) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
+      <div className="msg-head">
+        <span className="muted">{teller(m)}</span>
+        {m.at !== null ? <span className="muted">{time(m.at)}</span> : null}
+        {m.round !== null ? <RoundLink round={m.round} onRound={onRound} /> : null}
+        {m.read_at === null ? (
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              markRead(m.engine ? { notices: [m.id] } : { ids: [m.id] }).catch((e: unknown) =>
+                setError(e instanceof Error ? e.message : String(e)),
+              );
+            }}
+          >
+            {t('message_mark_read')}
+          </button>
+        ) : null}
+      </div>
+      <p className="msg-text">{m.text}</p>
+      {m.ask !== null ? (
+        <button type="button" className="link" onClick={() => onAsk(m.ask ?? 0)}>
+          {t('message_answer_ask', { id: m.ask })}
+        </button>
+      ) : null}
+      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+    </div>
+  );
+}
+
+/// The work's messages: the asks waiting for the owner's answer first, with their forms; then what its agents and the
+/// engine told the owner, newest first; the asks answered and the interjections folded under them.
+function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) => void; onAsk: (id: number) => void }) {
+  if (d.asks.length === 0 && d.messages.length === 0 && d.interjections.length === 0) {
+    return <p className="muted">{t('messages_none')}</p>;
+  }
+  const waiting = d.asks.filter((a) => a.answer === null);
+  const answered = d.asks.filter((a) => a.answer !== null).reverse();
+  const head = (a: OwnerAsk) => (
+    <span className="work-item-head">
+      <strong>{t('ask_head', { id: a.id })}</strong>
+      <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
+      <RoundLink round={a.round} onRound={onRound} />
+    </span>
+  );
+  return (
+    <>
+      {waiting.map((a) => (
+        <div key={a.id} id={`ask-${a.id}`} className="boxed">
+          {head(a)}
+          <AskView a={a} />
+        </div>
+      ))}
+      {[...d.messages].reverse().map((m) => (
+        <Told key={`${m.engine ? 'e' : 'a'}${m.id}`} m={m} onRound={onRound} onAsk={onAsk} />
+      ))}
+      {answered.length > 0 ? (
+        <details className="boxed work-old">
+          <summary>{t('work_answered_asks', { n: answered.length })}</summary>
+          {answered.map((a) => (
+            <div key={a.id} id={`ask-${a.id}`} className="boxed">
+              {head(a)}
+              <AskView a={a} />
+            </div>
+          ))}
+        </details>
+      ) : null}
+      {d.interjections.length > 0 ? (
+        <details className="boxed work-old">
+          <summary>
+            {t('interjections')} ({d.interjections.length})
+          </summary>
+          {d.interjections.map((x) => (
+            <div key={x.id} className="boxed">
+              <div className="muted">
+                #{x.id} {x.speaker} → {x.line} ·{' '}
+                {x.delivered_round !== null ? t('delivered', { round: x.delivered_round }) : t('waiting_delivery')}
+              </div>
+              <pre className="j-text">{x.text}</pre>
+            </div>
+          ))}
+        </details>
+      ) : null}
+    </>
+  );
+}
+
+const DRAWER_KEY = 'wf-agents.drawer-width';
+const DRAWER_MIN = 300;
+
+/// The window over the left of the chart: its tabs, the rounds (under why the work paused and its next round), the
+/// design cards and the messages; its width drags by its right edge.
+function Drawer({ d, g, r, go }: {
   d: WorkDetail;
   g: CompiledGraph;
-  round: number | null;
-  onRound: (r: number) => void;
+  r: WorkRoute;
+  go: (to: Partial<WorkRoute>) => void;
 }) {
   const status = useStatus();
   const [open, setOpen] = useState(true);
+  const [width, setWidth] = useState<number | null>(() => savedWidth(DRAWER_KEY, DRAWER_MIN));
+  // What to bring into view once its tab is shown: the design card or the ask the owner was sent to; else a tab shows
+  // from its top.
+  const want = useRef<string | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (want.current === null) body.current?.scrollTo({ top: 0 });
+  }, [r.tab]);
+  useEffect(() => {
+    if (want.current !== null && bringIntoView(want.current)) want.current = null;
+  });
+  const show = (tab: WorkTab, at: string | null) => {
+    want.current = at;
+    setOpen(true);
+    go({ tab });
+  };
+  const onRound = (round: number) => go({ round, cell: null });
+  const onCard = (id: number) => show('cards', `design-card-${id}`);
+  const onAsk = (id: number) => show('messages', `ask-${id}`);
+  const openCards = d.design_cards.filter((c) => c.status === 'open').length;
+  const openAsks = d.asks.filter((a) => a.answer === null).length;
+  const tabs: Array<{ tab: WorkTab; label: string; n: number; chip: string | null; hint: string }> = [
+    { tab: 'rounds', label: t('rounds'), n: d.rounds.length, chip: null, hint: '' },
+    {
+      tab: 'cards',
+      label: t('design_cards'),
+      n: d.design_cards.length,
+      chip: openCards > 0 ? t('open_design_cards_chip', { n: openCards }) : null,
+      hint: t('open_design_cards_n', { n: openCards }),
+    },
+    {
+      tab: 'messages',
+      label: t('work_messages_tab'),
+      n: d.messages.length + d.asks.length,
+      chip: openAsks > 0 ? t('open_asks_chip', { n: openAsks }) : null,
+      hint: t('open_asks_n', { n: openAsks }),
+    },
+  ];
+  const shown = roundsShown(d.rounds, r.only);
+  const style = open && width !== null ? { width: `min(${width}px, calc(100vw - 32px))` } : undefined;
   return (
-    <div className={`drawer${open ? '' : ' drawer-closed'}`}>
-      <button type="button" className="drawer-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        {open ? '‹' : '›'} {t('rounds')} ({d.rounds.length})
-      </button>
-      {open ? (
-        <div className="drawer-body">
-          {d.work.paused !== null ? <Paused d={d} /> : null}
-          <Next d={d} onRound={onRound} />
-          <Timeline
-            rounds={d.rounds}
-            g={g}
-            stale={status !== null && status.mode === 'hold' && status.stepping !== d.work.id}
-            selected={round}
-            onRound={(r) => onRound(r.id)}
-          />
-          {d.messages.length > 0 ? (
-            <Section title={t('work_messages')} open={false}>
-              {d.messages.map((m) => (
-                <div key={m.id} className="boxed">
-                  <div className="muted">
-                    {m.cell !== null ? t('message_cell', { cell: m.cell }) : null}
-                    {m.round !== null ? (
-                      <>
-                        {' · '}
-                        <button className="link" onClick={() => (m.round !== null ? onRound(m.round) : undefined)}>
-                          {t('round_title', { id: m.round })}
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                  <p className="prose">{m.text}</p>
-                </div>
-              ))}
-            </Section>
-          ) : null}
-          {d.asks.length > 0 ? (
-            <Section title={t('asks')} open={false}>
-              {d.asks.map((a) => (
-                <div key={a.id} className="boxed">
-                  <div>
-                    #{a.id} · {a.answer === null ? t('ask_waits') : t('ask_answered')} ·{' '}
-                    <button className="link" onClick={() => onRound(a.round)}>
-                      {t('round_title', { id: a.round })}
-                    </button>
-                  </div>
-                  <AskView a={a} />
-                </div>
-              ))}
-            </Section>
-          ) : null}
-          {d.design_cards.length > 0 ? (
-            <Section title={t('design_cards')} open={false}>
-              {d.design_cards.map((c) => (
-                <div key={c.id} className="boxed">
-                  <div>
-                    #{c.id} · {c.status} ·{' '}
-                    <button className="link" onClick={() => onRound(c.round)}>
-                      {t('round_title', { id: c.round })}
-                    </button>
-                  </div>
-                  <DesignCardView c={c} />
-                </div>
-              ))}
-            </Section>
-          ) : null}
-          {d.interjections.length > 0 ? (
-            <Section title={t('interjections')} open={false}>
-              {d.interjections.map((x) => (
-                <div key={x.id} className="boxed">
-                  <div className="muted">
-                    #{x.id} {x.speaker} → {x.line} ·{' '}
-                    {x.delivered_round !== null
-                      ? t('delivered', { round: x.delivered_round })
-                      : t('waiting_delivery')}
-                  </div>
-                  <pre className="j-text">{x.text}</pre>
-                </div>
-              ))}
-            </Section>
-          ) : null}
+    <div className={`drawer${open ? '' : ' drawer-closed'}`} style={style}>
+      <div className="drawer-head">
+        <button
+          type="button"
+          className="drawer-toggle"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={t(open ? 'drawer_fold' : 'drawer_unfold')}
+          title={t(open ? 'drawer_fold' : 'drawer_unfold')}
+        >
+          {open ? '‹' : '›'}
+        </button>
+        <div className="tabs" role="tablist">
+          {tabs
+            .filter((x) => open || x.tab === r.tab)
+            .map((x) => (
+              <button
+                key={x.tab}
+                type="button"
+                role="tab"
+                className="tab"
+                aria-selected={x.tab === r.tab}
+                onClick={() => show(x.tab, null)}
+              >
+                {x.label}
+                <span className="tab-n">{x.n}</span>
+                {x.chip !== null ? (
+                  <span className="chip warn" title={x.hint}>
+                    {x.chip}
+                  </span>
+                ) : null}
+              </button>
+            ))}
         </div>
+      </div>
+      {open ? (
+        <div className="drawer-body" role="tabpanel" ref={body}>
+          {r.tab === 'rounds' ? (
+            <>
+              {d.work.paused !== null ? <Paused d={d} /> : null}
+              <Next d={d} onRound={onRound} onCard={onCard} onAsk={onAsk} />
+              {r.only !== null ? (
+                <div className="rounds-only">
+                  <span>
+                    {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}
+                  </span>
+                  <button type="button" className="link" onClick={() => go({ only: null })}>
+                    {t('rounds_show_all', { n: d.rounds.length })}
+                  </button>
+                </div>
+              ) : null}
+              <Timeline
+                rounds={shown}
+                g={g}
+                stale={status !== null && status.mode === 'hold' && status.stepping !== d.work.id}
+                selected={r.round}
+                onRound={(x) => onRound(x.id)}
+              />
+            </>
+          ) : null}
+          {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
+          {r.tab === 'messages' ? <Messages d={d} onRound={onRound} onAsk={onAsk} /> : null}
+        </div>
+      ) : null}
+      {open ? (
+        <WidthGrip side="right" min={DRAWER_MIN} storage={DRAWER_KEY} label={t('drawer_grip')} onWidth={setWidth} />
       ) : null}
     </div>
   );
 }
 
-function Body({ id, d, compiled, view, round, cell }: {
-  id: number;
-  d: WorkDetail;
-  compiled: Compiled;
-  view: FlowView;
-  round: number | null;
-  cell: string | null;
-}) {
+function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
   if (!g || !v) return <p className="muted page">{t('none')}</p>;
-  const roundCell = round !== null ? (d.rounds.find((r) => r.id === round)?.cell ?? null) : null;
-  const go = (r: number | null, c: string | null) => navigate(href({ page: 'work', id, round: r, cell: c }), true);
+  const roundCell = r.round !== null ? (d.rounds.find((x) => x.id === r.round)?.cell ?? null) : null;
+  const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
   const model = chart(g, v);
   return (
     <>
-      <Drawer d={d} g={g} round={round} onRound={(r) => go(r, null)} />
+      <Drawer d={d} g={g} r={r} go={go} />
       <FlowScreen
         compiled={compiled}
         g={g}
@@ -374,20 +568,20 @@ function Body({ id, d, compiled, view, round, cell }: {
           added: new Set(),
           changed: new Set(),
         }}
-        cell={cell}
-        onCell={(c) => go(null, c)}
+        cell={r.cell}
+        onCell={(c) => go({ round: null, cell: c })}
         start={roundCell ?? d.work.at}
         rounds={d.rounds}
-        round={round}
-        onRound={(r) => go(r, null)}
-        renderRound={(r) => <RoundView id={r} rounds={d.rounds} />}
+        round={r.round}
+        onRound={(x) => go({ round: x, cell: null })}
+        renderRound={(x) => <RoundView id={x} rounds={d.rounds} />}
       />
     </>
   );
 }
 
-export function Work({ id, round, cell }: { id: number; round: number | null; cell: string | null }) {
-  const detail = useResource<WorkDetail>(`work:${id}`, `/api/v1/works/${id}`);
+export function Work({ r }: { r: WorkRoute }) {
+  const detail = useResource<WorkDetail>(`work:${r.id}`, `/api/v1/works/${r.id}`);
   const version = detail.data?.work.flow_version ?? null;
   const compiled = useResource<Compiled>(null, version !== null ? `/api/v1/flows/${version}` : null);
   const view = useResource<FlowView>(null, version !== null ? `/api/v1/flows/${version}/view` : null);
@@ -395,15 +589,9 @@ export function Work({ id, round, cell }: { id: number; round: number | null; ce
     <div className="screen">
       <Loaded r={detail}>
         {(d) => (
-          <>
-            <Loaded r={compiled}>
-              {(c) => (
-                <Loaded r={view}>
-                  {(v) => <Body id={id} d={d} compiled={c} view={v} round={round} cell={cell} />}
-                </Loaded>
-              )}
-            </Loaded>
-          </>
+          <Loaded r={compiled}>
+            {(c) => <Loaded r={view}>{(v) => <Body r={r} d={d} compiled={c} view={v} />}</Loaded>}
+          </Loaded>
         )}
       </Loaded>
     </div>

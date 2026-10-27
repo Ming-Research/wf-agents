@@ -1,25 +1,32 @@
-// A cell, as its panel explains it. For an agent's cell: its inputs, of two kinds, what is given every time the cell
-// is entered and what is given only when the session does not hold it yet, the latter by where it comes from; what
-// it hands back; its transition table; the checks on its return; what the engine does every time it returns a field;
-// what it hands over; and every row that leads into it. For an engine step, a tool or the owner: what the step does,
-// what it reads, which never goes into any agent's context, and the same after.
+// A cell, as its panel explains it, in tabs. For an agent's cell: its inputs, first the message as the engine sends it
+// every time the cell is entered, in the order sent (why the round happens, what is given, the task word for word,
+// what to work from, the review table if any, what to hand in), with what the engine fills in each round shown as a
+// placeholder, then the conditional inputs that message gives or points at by their numbers; what it hands back, what
+// is shown on the item and what others read; where it is entered from and where each of its rows goes; its checks,
+// what the engine does every time it returns a field and what it hands over. For an engine step, a tool or the owner:
+// what the step does and what it reads, which never goes into any agent's context, and the same after. A work's chart
+// adds its rounds at the cell; a comparison, what changed.
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CellInput, CompiledCell, RoundSummary } from '../api';
+import type { CellDiff, CellInput, CompiledCell, CompiledInput, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
-import { circled } from '../graph/flowModel';
 import { time } from '../format';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 import { Changes } from './Changes';
 import { Returns } from './Returns';
-import { CellLink, conditionsWords, inline, SourceChip, Target } from './words';
+import { CellLink, conditionsWords, inline, RowNo, SourceChip, Target } from './words';
 
-export function Section({ title, note, children, id }: { title: string; note?: ReactNode; children: ReactNode; id?: string }) {
+export function Section({ title, note, children, id }: {
+  title?: string;
+  note?: ReactNode;
+  children: ReactNode;
+  id?: string;
+}) {
   return (
     <section className="ds" id={id}>
-      <h4>{title}</h4>
+      {title !== undefined ? <h4>{title}</h4> : null}
       {note ? <p className="fmt">{note}</p> : null}
       {children}
     </section>
@@ -43,164 +50,285 @@ export function who(c: CompiledCell, firstOfLine: boolean): string {
   return parts.join(' · ');
 }
 
-/// One input: what it is, where it comes from and its address.
-function InputLine({ c, m, rules }: { c: CompiledCell; m: CellInput; rules: boolean }) {
-  const f = useFlow();
-  const addr = m.address ? <code className="addr">{m.address}</code> : null;
-  switch (m.of.kind) {
-    case 'input': {
-      const x = c.inputs[m.of.input];
-      const src = x?.from[m.of.source];
-      if (!x || src === undefined) return null;
-      return (
-        <li>
-          {x.what}
-          {x.maybe ? <span className="fw"> · {t('input_maybe')}</span> : null}
-          <div className="srcs">
-            <span className="ul">{t('input_source')}</span>
-            <SourceChip src={src} cells={m.cells} />
-            {addr}
-          </div>
-        </li>
-      );
-    }
-    case 'rule': {
-      const name = m.of.name;
-      const rule = f.g.rules.find((r) => r.name === name);
-      return (
-        <li>
-          <button type="button" className="go" onClick={() => f.open({ kind: 'rule', rule: name })}>
-            {t('input_rule', { name })}
-          </button>
-          {rule ? <span className="fw"> · {rule.desc}</span> : null}
-          <div className="srcs">{addr}</div>
-          {rules && rule ? (
-            <details className="rule-text">
-              <summary>{t('rule_full_text')}</summary>
-              <ul className="bl">
-                {rule.text.map((line, i) => (
-                  <li key={i}>{inline(line)}</li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </li>
-      );
-    }
-    default: {
-      const key: Record<string, Key> = {
-        project_rules: 'input_project_rules',
-        common_format: 'input_common_format',
-        cell_format: 'input_cell_format',
-        cell_inputs: 'input_cell_inputs',
-        workspace: 'input_workspace',
-      };
-      return (
-        <li>
-          {t(key[m.of.kind] ?? 'input_common_format', { cell: c.id })}
-          <div className="srcs">{addr}</div>
-        </li>
-      );
-    }
-  }
+/// The tabs of a cell's panel.
+export type CellTab = 'changes' | 'rounds' | 'inputs' | 'returns' | 'route' | 'checks';
+
+/// A cell's tabs, in order: what changed, when two flows are compared; its rounds, on a work's chart; its inputs,
+/// what it hands back, and where it is entered from and where its rows go; its checks, when it has any.
+export function cellTabs(c: CompiledCell, has: { rounds: boolean; diff: boolean }): CellTab[] {
+  const tabs: CellTab[] = [];
+  if (has.diff) tabs.push('changes');
+  if (has.rounds) tabs.push('rounds');
+  tabs.push('inputs', 'returns', 'route');
+  if ((c.checks ?? []).length + (c.always ?? []).length + (c.handoff ?? []).length > 0) tabs.push('checks');
+  return tabs;
 }
 
-/// What an agent's round is given: every time, and once in a session by where it comes from.
+/// The tab a cell's panel shows: the one the owner chose last, when this cell has it, else its first, so that going
+/// from cell to cell keeps to what the owner reads.
+export function cellTab(tabs: CellTab[], chosen: CellTab | null): CellTab {
+  return chosen !== null && tabs.includes(chosen) ? chosen : tabs[0];
+}
+
+const TAB_NAMES: Record<CellTab, Key> = {
+  changes: 'sec_changes',
+  rounds: 'tab_rounds',
+  inputs: 'sec_inputs',
+  returns: 'sec_returns',
+  route: 'tab_route',
+  checks: 'sec_checks',
+};
+
+/// What the engine fills in each round, in the placeholder's style: a description between angle quotes, or the parts
+/// of an address (`‹round›`, `‹id›`, `‹cell›`, `‹name›`) known only when the round runs.
+function Filled({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(‹[^›]*›)/).map((part, i) =>
+        part.startsWith('‹') ? (
+          <span key={i} className="ph">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+/// One input of the cell the conditional inputs list, by the number the message's list to work from gives it: what it
+/// is, and each of its sources with its address.
+function NumberedInput({ no, x, sources }: { no: number; x: CompiledInput; sources: CellInput[] }) {
+  return (
+    <li>
+      <span className="in-no">{no}.</span> {x.what}
+      {x.maybe ? <span className="fw"> · {t('input_maybe')}</span> : null}
+      <div className="srcs">
+        <span className="ul">{t('input_source')}</span>
+        {sources.map((m, i) => {
+          if (m.of.kind !== 'input') return null;
+          const src = x.from[m.of.source];
+          return src === undefined ? null : (
+            <span key={i} className="src">
+              <SourceChip src={src} cells={m.cells} />
+              {m.address ? (
+                <code className="addr">
+                  <Filled text={m.address} />
+                </code>
+              ) : null}
+            </span>
+          );
+        })}
+      </div>
+    </li>
+  );
+}
+
+/// A conditional input that is none of the cell's own: a rule, a return format, what each numbered input is, the
+/// project's rules, the worktree.
+function OtherInput({ c, m }: { c: CompiledCell; m: CellInput }) {
+  const f = useFlow();
+  const addr = m.address ? (
+    <code className="addr">
+      <Filled text={m.address} />
+    </code>
+  ) : null;
+  if (m.of.kind === 'rule') {
+    const name = m.of.name;
+    const rule = f.g.rules.find((r) => r.name === name);
+    return (
+      <li>
+        <button type="button" className="go" onClick={() => f.open({ kind: 'rule', rule: name })}>
+          {t('input_rule', { name })}
+        </button>
+        {rule ? <span className="fw"> · {rule.desc}</span> : null}
+        <div className="srcs">{addr}</div>
+        {rule ? (
+          <details className="rule-text">
+            <summary>{t('rule_full_text')}</summary>
+            <ul className="bl">
+              {rule.text.map((line, i) => (
+                <li key={i}>{inline(line)}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </li>
+    );
+  }
+  const key: Record<string, Key> = {
+    project_rules: 'input_project_rules',
+    common_format: 'input_common_format',
+    cell_format: 'input_cell_format',
+    cell_inputs: 'input_cell_inputs',
+    workspace: 'input_workspace',
+  };
+  return (
+    <li>
+      {t(key[m.of.kind] ?? 'input_common_format', { cell: c.id })}
+      <div className="srcs">{addr}</div>
+    </li>
+  );
+}
+
+/// The cell's inputs, each with the number the message's list to work from gives it, or none for an input the agent
+/// reads itself; the engine numbers them so in `inputs:<cell>`.
+export function numbered(c: CompiledCell): Array<{ x: CompiledInput; i: number; no: number | null }> {
+  let no = 0;
+  return c.inputs.map((x, i) => {
+    if (x.from.every((s) => s === 'self')) return { x, i, no: null };
+    no += 1;
+    return { x, i, no };
+  });
+}
+
+/// What an agent's round is given: the message as it is sent every time the cell is entered, in the order sent, what
+/// the engine fills in each round as placeholders; then the conditional inputs, those of the cell numbered as the
+/// message's list to work from points at them.
 function AgentInputs({ c }: { c: CompiledCell }) {
   const f = useFlow();
   const view = f.cellView(c.id);
   const inputs = view?.inputs ?? [];
-  const itself = inputs.filter((m) => m.always && m.of.kind === 'input');
-  const conditional = inputs.filter((m) => !m.always);
+  const own = numbered(c);
+  const sources = (i: number) => inputs.filter((m) => m.of.kind === 'input' && m.of.input === i);
+  const others = inputs.filter((m) => m.of.kind !== 'input');
+  const rules = others.filter((m) => m.of.kind === 'project_rules' || m.of.kind === 'rule').map((m) => m.address ?? '');
+  const worktree = others.find((m) => m.of.kind === 'workspace')?.address ?? null;
+  // The table review is given the columns of the review table the rule of that name lists, each with its number.
+  const table = (c.rules ?? []).some((r) => r.name === 'review_table');
   const prompt = c.prompt ?? [];
-  // The own answer's form names no field: the compiled flow leaves the key out.
-  const shared = (c.forms ?? []).filter((x) => x.field != null).map((x) => `\`${x.field}\``);
   const enums = c.prompt_by ? (c.inenums?.[c.prompt_by.by] ?? []) : [];
   return (
-    <Section title={t('sec_inputs')}>
-      <div className="ig">
-        <div className="il">{t('inputs_always')}</div>
-        <p className="fmt">{t('inputs_always_note')}</p>
-        {prompt.length > 0 ? (
-          <div className="prompt">
-            {prompt.map((p, i) => (
-              <p key={i}>{inline(p)}</p>
-            ))}
+    <>
+      <Section title={t('inputs_message')}>
+        <div className="sent">
+          <div className="sent-line">
+            <Filled text={t('sent_title', { cell: c.id, title: c.title })} />
           </div>
-        ) : null}
-        {c.prompt_by ? (
-          <div className="prompt-by">
-            <div className="fmt">{inline(t('prompt_by', { by: `\`${c.prompt_by.by}\`` }))}</div>
-            {Object.entries(c.prompt_by.cases).map(([k, lines]) => (
-              <div key={k} className="case">
-                <div className="case-h">
-                  <code>{k}</code>
-                  {enums.find(([v]) => v === k)?.[1] ? (
-                    <span className="fw"> · {enums.find(([v]) => v === k)?.[1]}</span>
-                  ) : null}
+          <div className="sent-line">
+            <span className="ph">‹{t('sent_why')}›</span>
+          </div>
+          <div className="sent-h">{t('sent_given')}</div>
+          <div className="sent-line">
+            <span className="ph">‹{t('sent_given_what')}›</span>
+          </div>
+          <div className="sent-h">{t('sent_task')}</div>
+          {prompt.length > 0 ? (
+            <div className="prompt">
+              {prompt.map((p, i) => (
+                <p key={i}>{inline(p)}</p>
+              ))}
+            </div>
+          ) : null}
+          {c.prompt_by ? (
+            <div className="prompt-by">
+              <div className="fmt">{inline(t('prompt_by', { by: `\`${c.prompt_by.by}\`` }))}</div>
+              {Object.entries(c.prompt_by.cases).map(([k, lines]) => (
+                <div key={k} className="case">
+                  <div className="case-h">
+                    <code>{k}</code>
+                    {enums.find(([v]) => v === k)?.[1] ? (
+                      <span className="fw"> · {enums.find(([v]) => v === k)?.[1]}</span>
+                    ) : null}
+                  </div>
+                  {lines.map((l, i) => (
+                    <p key={i}>{inline(l)}</p>
+                  ))}
                 </div>
-                {lines.map((l, i) => (
-                  <p key={i}>{inline(l)}</p>
-                ))}
+              ))}
+            </div>
+          ) : null}
+          <div className="sent-h">{t('sent_work_from')}</div>
+          {own.map(({ x, i, no }) =>
+            no === null ? (
+              <div key={i} className="sent-line">
+                {t('sent_read_yourself', { what: x.what })}
               </div>
-            ))}
-          </div>
-        ) : null}
-        {itself.length > 0 ? (
-          <div className="ig">
-            <div className="il">{t('inputs_itself')}</div>
-            <ul className="bl">
-              {itself.map((m, i) => (m.of.kind === 'input' ? <li key={i}>{c.inputs[m.of.input]?.what}</li> : null))}
-            </ul>
-          </div>
-        ) : null}
+            ) : (
+              <div key={i} className="sent-line" title={x.what}>
+                {no}.{' '}
+                <Filled
+                  text={sources(i)
+                    .map((m) => m.address ?? '')
+                    .filter((a) => a !== '')
+                    .join(', ')}
+                />
+              </div>
+            ),
+          )}
+          {rules.length > 0 ? (
+            <div className="sent-line">
+              <Filled text={t('sent_rules', { rules: rules.join(', ') })} />
+            </div>
+          ) : null}
+          {worktree !== null ? (
+            <div className="sent-line">
+              <Filled text={t('sent_worktree', { address: worktree })} />
+            </div>
+          ) : null}
+          {table ? (
+            <>
+              <div className="sent-h">{t('sent_table')}</div>
+              <div className="sent-line">
+                <span className="ph">‹{t('sent_table_what')}›</span>
+              </div>
+            </>
+          ) : null}
+          <div className="sent-line sent-end">{t('sent_hand_in', { cell: c.id })}</div>
+        </div>
+      </Section>
+      <Section title={t('inputs_conditional')}>
         <ul className="bl">
-          <li>{t('inputs_work_from')}</li>
-          <li>
-            {inline(
-              shared.length > 0
-                ? t('inputs_hand_in', { cell: c.id, forms: shared.join(', ') })
-                : t('inputs_hand_in_own', { cell: c.id }),
-            )}
-          </li>
-        </ul>
-      </div>
-      <div className="ig">
-        <div className="il">{t('inputs_conditional')}</div>
-        <p className="fmt">{t('inputs_conditional_note')}</p>
-        <ul className="bl">
-          {conditional.map((m, i) => (
-            <InputLine key={i} c={c} m={m} rules />
+          {own.map(({ x, i, no }) =>
+            no === null ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
+          )}
+          {others.map((m, i) => (
+            <OtherInput key={i} c={c} m={m} />
           ))}
         </ul>
-      </div>
-    </Section>
+      </Section>
+    </>
   );
 }
 
-/// What a step that is no agent's round reads.
+/// What a step that is no agent's round does and reads.
 function StepInputs({ c }: { c: CompiledCell }) {
   const f = useFlow();
   const inputs = f.cellView(c.id)?.inputs ?? [];
   return (
-    <Section title={t('sec_inputs')} note={t('inputs_step_note')}>
-      {c.inputs.length === 0 ? <p className="fmt">{t('none')}</p> : null}
-      <ul className="bl">
-        {c.inputs.map((x, i) => (
-          <li key={i}>
-            {x.what}
-            {x.maybe ? <span className="fw"> · {t('input_maybe')}</span> : null}
-            <div className="srcs">
-              <span className="ul">{t('input_source')}</span>
-              {x.from.map((s, j) => {
-                const m = inputs.find((y) => y.of.kind === 'input' && y.of.input === i && y.of.source === j);
-                return <SourceChip key={j} src={s} cells={m?.cells ?? []} />;
-              })}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Section>
+    <>
+      {c.step ? (
+        <Section title={t('sec_step')}>
+          <p>
+            <code>{c.step}</code> {f.compiled.engine.steps[c.step] ?? ''}
+          </p>
+          {c.needs ? (
+            <p className="fmt">
+              {inline(t('step_needs', { need: `\`${c.needs}\`` }))} {f.compiled.engine.needs[c.needs] ?? ''}
+            </p>
+          ) : null}
+        </Section>
+      ) : null}
+      <Section title={t('sec_step_reads')} note={t('inputs_step_note')}>
+        {c.inputs.length === 0 ? <p className="fmt">{t('none')}</p> : null}
+        <ul className="bl">
+          {c.inputs.map((x, i) => (
+            <li key={i}>
+              {x.what}
+              {x.maybe ? <span className="fw"> · {t('input_maybe')}</span> : null}
+              <div className="srcs">
+                <span className="ul">{t('input_source')}</span>
+                {x.from.map((s, j) => {
+                  const m = inputs.find((y) => y.of.kind === 'input' && y.of.input === i && y.of.source === j);
+                  return <SourceChip key={j} src={s} cells={m?.cells ?? []} />;
+                })}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Section>
+    </>
   );
 }
 
@@ -211,7 +339,7 @@ function Table({ c, highlight }: { c: CompiledCell; highlight: number[] }) {
     <ol className="tt">
       {c.rows.map((r, i) => (
         <li key={r.name} className={highlight.includes(i) ? 'tt-on' : undefined}>
-          <span className="no">{circled(i)}</span>
+          <RowNo row={i} />
           <div className="tb">
             <div>
               <strong>{r.name}</strong>
@@ -265,6 +393,7 @@ function Table({ c, highlight }: { c: CompiledCell; highlight: number[] }) {
   );
 }
 
+/// The work's rounds at the cell, newest first; a badge only for what is not the usual course, as in the work's list.
 function RoundsHere({ rounds, onRound }: { rounds: RoundSummary[]; onRound: (r: RoundSummary) => void }) {
   if (rounds.length === 0) return <p className="fmt">{t('no_rounds')}</p>;
   return (
@@ -273,15 +402,44 @@ function RoundsHere({ rounds, onRound }: { rounds: RoundSummary[]; onRound: (r: 
         {[...rounds].reverse().map((r) => (
           <tr key={r.id} className="clickable" onClick={() => onRound(r)}>
             <td className="muted">#{r.id}</td>
-            <td>
-              <OutcomeBadge outcome={r.outcome} />
+            <td className="clip">
+              {r.outcome !== 'took' ? (
+                <>
+                  <OutcomeBadge outcome={r.outcome} />{' '}
+                </>
+              ) : null}
+              {r.transition ?? r.why ?? ''}
             </td>
-            <td className="clip">{r.transition ?? r.why ?? ''}</td>
-            <td className="muted">{time(r.started_at)}</td>
+            <td className="muted nowrap">{time(r.started_at)}</td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+/// Where the cell is entered from: every row of every cell that leads here.
+function Entered({ c }: { c: CompiledCell }) {
+  const f = useFlow();
+  const view = f.cellView(c.id);
+  return (
+    <Section title={t('sec_entered')}>
+      {(view?.entered_from ?? []).length === 0 ? <p className="fmt">{t('entered_none')}</p> : null}
+      <ul className="bl">
+        {(view?.entered_from ?? []).map((r) => {
+          const from = f.cell(r.cell);
+          const row = from?.rows[r.row];
+          if (!from || !row) return null;
+          return (
+            <li key={`${r.cell}:${r.row}`}>
+              {r.cell === c.id ? t('entered_itself') : <CellLink id={r.cell} />} <RowNo row={r.row} />{' '}
+              <strong>{row.name}</strong>
+              <div className="tx">{inline(conditionsWords(row.if, new Set(Object.keys(f.compiled.engine.values))))}</div>
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
   );
 }
 
@@ -294,130 +452,118 @@ export function CellPanel(props: {
   onRound?: (r: RoundSummary) => void;
   /// When two flows are compared, what changed in this cell.
   diff?: CellDiff | null;
+  /// The tab the owner chose last, kept from cell to cell, and how a choice is kept.
+  tab: CellTab | null;
+  onTab: (tab: CellTab) => void;
 }) {
-  const { c, rows = [], rounds, onRound, diff } = props;
+  const { c, rows = [], rounds, onRound, diff, tab: chosen, onTab } = props;
   const f = useFlow();
   const view = f.cellView(c.id);
   const agent = c.kind === 'agent';
+  const tabs = cellTabs(c, { rounds: rounds !== undefined && onRound !== undefined, diff: diff != null });
+  const tab = cellTab(tabs, chosen);
   const table = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  // A tab shows from its top; the transition table, when rows of it are pointed out, from the table.
   useEffect(() => {
-    if (rows.length > 0) table.current?.scrollIntoView({ block: 'start' });
-  }, [rows]);
+    if (rows.length > 0 && tab === 'route') table.current?.scrollIntoView({ block: 'start' });
+    else bar.current?.parentElement?.scrollTo({ top: 0 });
+  }, [rows, tab]);
   const checks = c.checks ?? [];
   const always = c.always ?? [];
   const handoff = c.handoff ?? [];
   return (
     <>
-      {rounds && onRound ? (
-        <Section title={t('sec_rounds_here')}>
-          <RoundsHere rounds={rounds} onRound={onRound} />
-        </Section>
-      ) : null}
-      {diff ? (
-        <Section title={t('sec_changes')}>
-          <Changes d={diff} />
-        </Section>
-      ) : null}
-      {!agent && c.step ? (
-        <Section title={t('sec_step')}>
-          <p>
-            <code>{c.step}</code> {f.compiled.engine.steps[c.step] ?? ''}
-          </p>
-          {c.needs ? (
-            <p className="fmt">
-              {inline(t('step_needs', { need: `\`${c.needs}\`` }))} {f.compiled.engine.needs[c.needs] ?? ''}
-            </p>
-          ) : null}
-        </Section>
-      ) : null}
-      {agent ? <AgentInputs c={c} /> : <StepInputs c={c} />}
-      <Section title={t('sec_returns')}>
-        {view ? <Returns c={c} r={view.returns} /> : null}
-      </Section>
-      <div ref={table}>
-        <Section title={t('sec_table')}>
-          <Table c={c} highlight={rows} />
-        </Section>
+      <div className="tabs cell-tabs" role="tablist" ref={bar}>
+        {tabs.map((x) => (
+          <button key={x} type="button" role="tab" className="tab" aria-selected={x === tab} onClick={() => onTab(x)}>
+            {t(TAB_NAMES[x])}
+            {x === 'rounds' ? <span className="tab-n">{rounds?.length ?? 0}</span> : null}
+          </button>
+        ))}
       </div>
-      {checks.length > 0 ? (
-        <Section title={t('sec_checks')} note={t('checks_note')}>
-          <ul className="bl">
-            {checks.map((k, i) => (
-              <li key={i}>
-                <code>{k.check}</code>
-                {k.at ? <span className="fw"> · {inline(t('check_at', { at: `\`${k.at}\`` }))}</span> : null}
-                <div className="fd">{f.compiled.engine.checks[k.check] ?? ''}</div>
-              </li>
-            ))}
-          </ul>
-        </Section>
+      {tab === 'changes' && diff ? <Changes d={diff} /> : null}
+      {tab === 'rounds' && rounds && onRound ? <RoundsHere rounds={rounds} onRound={onRound} /> : null}
+      {tab === 'inputs' ? agent ? <AgentInputs c={c} /> : <StepInputs c={c} /> : null}
+      {tab === 'returns' ? (
+        <>
+          <Section>{view ? <Returns c={c} r={view.returns} /> : null}</Section>
+          {(c.shown ?? []).length > 0 ? (
+            <Section title={t('sec_shown')} note={t('shown_note')}>
+              <ul className="bl">
+                {(c.shown ?? []).map((p) => (
+                  <li key={p}>
+                    <code>{p}</code>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+          {(c.read_by ?? []).length > 0 ? (
+            <Section title={t('sec_read_by')} note={t('read_by_note')}>
+              <ul className="bl">
+                {(c.read_by ?? []).map((x) => (
+                  <li key={`${x.at}:${x.role}`}>
+                    <code>{x.at}</code> · {t('use_role', { role: x.role })}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+        </>
       ) : null}
-      {always.length > 0 ? (
-        <Section title={t('sec_always')} note={t('always_note')}>
-          <ul className="bl">
-            {always.map((a, i) => (
-              <li key={i}>
-                {a.view
-                  ? inline(t('always_view', { at: `\`${a.at}\``, view: `\`${a.view}\`` }))
-                  : inline(t('always_action', { at: `\`${a.at}\``, action: `\`${a.do ?? ''}\`` }))}
-                {a.do ? <div className="fd">{f.compiled.engine.actions[a.do] ?? ''}</div> : null}
-              </li>
-            ))}
-          </ul>
-        </Section>
+      {tab === 'route' ? (
+        <>
+          <Entered c={c} />
+          <div ref={table} className="cell-table">
+            <Section title={t('sec_table')}>
+              <Table c={c} highlight={rows} />
+            </Section>
+          </div>
+        </>
       ) : null}
-      {handoff.length > 0 ? (
-        <Section title={t('sec_handoff')} note={t('handoff_note')}>
-          <ul className="bl">
-            {handoff.map((h) => (
-              <li key={h}>
-                <code>{h}</code>
-              </li>
-            ))}
-          </ul>
-        </Section>
+      {tab === 'checks' ? (
+        <>
+          {checks.length > 0 ? (
+            <Section title={t('sec_checks')} note={t('checks_note')}>
+              <ul className="bl">
+                {checks.map((k, i) => (
+                  <li key={i}>
+                    <code>{k.check}</code>
+                    {k.at ? <span className="fw"> · {inline(t('check_at', { at: `\`${k.at}\`` }))}</span> : null}
+                    <div className="fd">{f.compiled.engine.checks[k.check] ?? ''}</div>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+          {always.length > 0 ? (
+            <Section title={t('sec_always')} note={t('always_note')}>
+              <ul className="bl">
+                {always.map((a, i) => (
+                  <li key={i}>
+                    {a.view
+                      ? inline(t('always_view', { at: `\`${a.at}\``, view: `\`${a.view}\`` }))
+                      : inline(t('always_action', { at: `\`${a.at}\``, action: `\`${a.do ?? ''}\`` }))}
+                    {a.do ? <div className="fd">{f.compiled.engine.actions[a.do] ?? ''}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+          {handoff.length > 0 ? (
+            <Section title={t('sec_handoff')} note={t('handoff_note')}>
+              <ul className="bl">
+                {handoff.map((h) => (
+                  <li key={h}>
+                    <code>{h}</code>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+        </>
       ) : null}
-      {(c.shown ?? []).length > 0 ? (
-        <Section title={t('sec_shown')} note={t('shown_note')}>
-          <ul className="bl">
-            {(c.shown ?? []).map((p) => (
-              <li key={p}>
-                <code>{p}</code>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-      {(c.read_by ?? []).length > 0 ? (
-        <Section title={t('sec_read_by')} note={t('read_by_note')}>
-          <ul className="bl">
-            {(c.read_by ?? []).map((x) => (
-              <li key={`${x.at}:${x.role}`}>
-                <code>{x.at}</code> · {t('use_role', { role: x.role })}
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-      <Section title={t('sec_entered')}>
-        {(view?.entered_from ?? []).length === 0 ? <p className="fmt">{t('entered_none')}</p> : null}
-        <ul className="bl">
-          {(view?.entered_from ?? []).map((r) => {
-            const from = f.cell(r.cell);
-            const row = from?.rows[r.row];
-            if (!from || !row) return null;
-            return (
-              <li key={`${r.cell}:${r.row}`}>
-                {r.cell === c.id ? t('entered_itself') : <CellLink id={r.cell} />}{' '}
-                <span className="no">{circled(r.row)}</span> <strong>{row.name}</strong>
-                <div className="tx">
-                  {inline(conditionsWords(row.if, new Set(Object.keys(f.compiled.engine.values))))}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </Section>
     </>
   );
 }

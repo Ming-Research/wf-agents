@@ -1,7 +1,8 @@
 // Lays a flow's chart out with elkjs: each part of the chart on its own, top to bottom, its stage boxes as boxes that
-// hold their cells, arrows routed at right angles around the boxes with room for their labels; then the main part on
-// top and the other parts in a row below it. Each arrow's route also says where it crosses an arrow that runs the
-// other way, so that it is drawn with a small arch there.
+// hold their cells, arrows routed at right angles around the boxes with room for their labels, each with a last
+// straight piece long enough for its head; then the main part on top and the other parts in a row below it. Each
+// arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a small arch
+// there.
 
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
@@ -58,7 +59,14 @@ const options: Record<string, string> = {
   'elk.layered.mergeEdges': 'false',
 };
 
+/// The shortest first and last straight piece of an arrow: room for its head, and for the ring around the cell a work
+/// is at, which an arrow starts and ends at.
+export const STRAIGHT = 16;
+
+// Inside a stage box elkjs takes the box's own spacing, not the chart's; without this, arrows there left a cell and
+// came into one with a piece too short to carry a head.
 const groupOptions: Record<string, string> = {
+  'elk.layered.spacing.edgeNodeBetweenLayers': String(STRAIGHT),
   'elk.padding': `[top=${TITLE},left=20,bottom=20,right=20]`,
 };
 
@@ -116,11 +124,14 @@ async function layPart(
       const s = e.sections?.[0];
       if (!s) continue;
       const l = e.labels?.[0];
-      routes.set(e.id, {
+      const route = {
         points: [s.startPoint, ...(s.bendPoints ?? []), s.endPoint].map((p) => ({ x: p.x, y: p.y })),
         label: l ? { x: l.x ?? 0, y: l.y ?? 0, width: l.width ?? 0, height: l.height ?? 0 } : null,
         hops: [],
-      });
+      };
+      // A loop back to its own cell is given room for both its ends to show beside the ring.
+      const loop = e.sources[0] === e.targets[0];
+      routes.set(e.id, lengthenLast(route, loop ? 2 * STRAIGHT : STRAIGHT));
     }
     for (const k of n.children ?? []) collect(k);
   };
@@ -129,6 +140,44 @@ async function layPart(
 }
 
 const shift = (b: Box, dx: number, dy: number): Box => ({ ...b, x: b.x + dx, y: b.y + dy });
+
+/// Whether a box, grown by `pad` on each side, touches the straight piece from `a` to `b`.
+function touches(box: Box, a: Point, b: Point, pad: number): boolean {
+  return (
+    Math.max(a.x, b.x) >= box.x - pad &&
+    Math.min(a.x, b.x) <= box.x + box.width + pad &&
+    Math.max(a.y, b.y) >= box.y - pad &&
+    Math.min(a.y, b.y) <= box.y + box.height + pad
+  );
+}
+
+/// A route whose last piece is at least `min` long: where it is shorter (a loop from a cell back to itself, which
+/// elkjs draws close around the cell), the piece before it, which runs across it, moves away from the target, and a
+/// label beside that piece moves with it. A route of three points, whose piece before the last starts at the
+/// source, or one whose piece before that would turn back on itself, is left as it is.
+export function lengthenLast(r: Route, min: number): Route {
+  const p = r.points;
+  const n = p.length;
+  if (n < 4) return r;
+  const a = p[n - 2];
+  const b = p[n - 1];
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len >= min || len < 0.5) return r;
+  const u = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const c = p[n - 3];
+  if (Math.abs((a.x - c.x) * u.x + (a.y - c.y) * u.y) > 0.5) return r;
+  const d = min - len;
+  const q = p[n - 4];
+  // The piece before that runs along the last one: heading for the target, it gets shorter, and must stay a piece.
+  const along = (c.x - q.x) * u.x + (c.y - q.y) * u.y;
+  if (along > 0 && along - d < 1) return r;
+  const away = (x: Point): Point => ({ x: x.x - u.x * d, y: x.y - u.y * d });
+  // A label beside that piece, on the side it moves to and near enough to be run into, moves with it.
+  const behind = (l: Box) => (l.x + l.width / 2 - c.x) * u.x + (l.y + l.height / 2 - c.y) * u.y < 0;
+  const moves = r.label !== null && behind(r.label) && touches(r.label, c, a, d + 4);
+  const label = moves && r.label !== null ? shift(r.label, -u.x * d, -u.y * d) : r.label;
+  return { points: [...p.slice(0, n - 3), away(c), away(a), b], label, hops: r.hops };
+}
 
 /// Lays the chart out. `size` gives each node's size and `labelSize` each arrow's label's, none for no label.
 export async function layoutChart(
@@ -206,32 +255,55 @@ export function addHops(edges: Map<string, Route>): void {
   }
 }
 
-/// The SVG path of a route: right angles rounded, and an arch at each place it crosses another arrow.
-export function pathOf(r: Pick<Route, 'points' | 'hops'>, radius = 9, hop = 5): string {
-  const p = r.points;
-  if (p.length < 2) return '';
+/// What `pathOf` cuts off a route's ends: `start` and `end`, for the ring around the cell a work is at and for the
+/// arrowhead, which the path's end then carries.
+export type Cut = { start?: number; end?: number };
+
+/// How much of the last piece stays straight before the arrowhead, once its end is cut off for one.
+const BEFORE_HEAD = 3;
+
+/// The SVG path of a route: right angles rounded, and an arch at each place it crosses another arrow. With its end cut
+/// off for an arrowhead, the last bend is rounded no more than leaves the last piece straight for a little before the
+/// head, so that the head points along it.
+export function pathOf(r: Pick<Route, 'points' | 'hops'>, cut: Cut = {}, radius = 9, hop = 5): string {
+  if (r.points.length < 2) return '';
   const len = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
   const unit = (a: Point, b: Point) => {
     const l = len(a, b) || 1;
     return { x: (b.x - a.x) / l, y: (b.y - a.y) / l };
   };
-  // The radius each bend is rounded with: no more than half of either piece beside it.
-  const bend = (k: number) => Math.min(radius, len(p[k - 1], p[k]) / 2, len(p[k], p[k + 1]) / 2);
+  // A point moved from `from` towards `to` by `d`, stopping short of `to`.
+  const toward = (from: Point, to: Point, d: number): Point => {
+    const l = len(from, to);
+    const k = Math.min(d, Math.max(0, l - 1)) / (l || 1);
+    return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k };
+  };
+  const p = [...r.points];
+  const last = p.length - 1;
+  const end = cut.end ?? 0;
+  if (cut.start) p[0] = toward(p[0], p[1], cut.start);
+  if (end > 0) p[last] = toward(p[last], p[last - 1], end);
+  // The radius each bend is rounded with: no more than half of either piece beside it, and before the head, no more
+  // than leaves the last piece straight before it.
+  const bend = (k: number) => {
+    const after = k + 1 === last && end > 0 ? Math.max(0, len(p[k], p[k + 1]) - BEFORE_HEAD) : len(p[k], p[k + 1]) / 2;
+    return Math.min(radius, len(p[k - 1], p[k]) / 2, after);
+  };
   const f = (n: number) => Math.round(n * 10) / 10;
   let d = `M ${f(p[0].x)} ${f(p[0].y)}`;
-  for (let k = 0; k + 1 < p.length; k++) {
+  for (let k = 0; k < last; k++) {
     const a = p[k];
     const b = p[k + 1];
     const u = unit(a, b);
-    const last = k + 1 === p.length - 1;
-    const rEnd = last ? 0 : bend(k + 1);
-    const end = { x: b.x - u.x * rEnd, y: b.y - u.y * rEnd };
+    const final = k + 1 === last;
+    const rEnd = final ? 0 : bend(k + 1);
+    const stop = { x: b.x - u.x * rEnd, y: b.y - u.y * rEnd };
     for (const x of r.hops[k] ?? []) {
       const s = Math.sign(b.x - a.x);
       d += ` L ${f(x - s * hop)} ${f(a.y)} A ${hop} ${hop} 0 0 ${s > 0 ? 1 : 0} ${f(x + s * hop)} ${f(a.y)}`;
     }
-    d += ` L ${f(end.x)} ${f(end.y)}`;
-    if (!last) {
+    d += ` L ${f(stop.x)} ${f(stop.y)}`;
+    if (!final) {
       const v = unit(b, p[k + 2]);
       d += ` Q ${f(b.x)} ${f(b.y)} ${f(b.x + v.x * rEnd)} ${f(b.y + v.y * rEnd)}`;
     }

@@ -1,11 +1,10 @@
 // The flow written out in words: a row's condition and target, where an input comes from, what reads a field, each
-// cell by its id and title, a link that opens it. Names the flow gives (fields, values, views, actions) are set in
-// code type; what they are is said in words.
+// cell by its id and title, a link that opens it, a row's number as a badge. Names the flow gives (fields, values,
+// views, actions) are set in code type; what they are is said in words.
 
 import { Fragment, type ReactNode } from 'react';
 
 import type { Atom, CompiledCell, Src, Use } from '../api';
-import { circled } from '../graph/flowModel';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 
@@ -13,6 +12,23 @@ import { useFlow } from './context';
 export function inline(text: string): ReactNode {
   const parts = text.split('`');
   return parts.map((p, i) => (i % 2 === 1 ? <code key={i}>{p}</code> : <Fragment key={i}>{p}</Fragment>));
+}
+
+/// A row's number, its place in its cell's transition table from 1, as a badge of one size whatever its digits.
+export function RowNo({ row }: { row: number }) {
+  return <span className="no">{row + 1}</span>;
+}
+
+/// A text with `{no}` in it, the row's badge put there.
+function withRow(text: string, row: number): ReactNode {
+  const [before, after = ''] = text.split('{no}');
+  return (
+    <>
+      {inline(before)}
+      <RowNo row={row} />
+      {inline(after)}
+    </>
+  );
 }
 
 /// Values, as `a`, `b` or `c`.
@@ -191,11 +207,11 @@ export function UseChip({ u, here }: { u: Use; here: string }) {
       );
     }
     case 'condition':
-      return <span className="use">{of(u.cell, t('use_condition', { no: circled(u.row) }))}</span>;
+      return <span className="use">{of(u.cell, withRow(t('use_condition'), u.row))}</span>;
     case 'action':
       return (
         <span className="use" title={f.compiled.engine.actions[u.action]}>
-          {of(u.cell, inline(t('use_action', { no: circled(u.row), action: `\`${u.action}\`` })))}
+          {of(u.cell, withRow(t('use_action', { action: `\`${u.action}\`` }), u.row))}
         </span>
       );
     case 'always':

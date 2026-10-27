@@ -1027,9 +1027,13 @@ ul.linked {
   --fc-out-fill: #ececff;
   --fc-in: #ea580c;
   --fc-in-fill: #fdd8bd;
-  --fc-arrow: #55554f;
-  --fc-arrow-main: #1d1d1b;
+  --fc-arrow: #8a8a84;
+  --fc-arrow-main: #4b5563;
   --fc-taken: #2f6fdf;
+  --fc-hot: #e8590c;
+  --fc-no: #dbe6fb;
+  --fc-no-line: #9db8ee;
+  --fc-no-text: #1f4fa8;
   --fc-label: rgb(234 234 230 / 92%);
   --fc-text: #1d1d1b;
 }
@@ -1068,9 +1072,13 @@ ul.linked {
     --fc-out-fill: #2a2a45;
     --fc-in: #f9813a;
     --fc-in-fill: #4c2a13;
-    --fc-arrow: #b4b4ac;
-    --fc-arrow-main: #f2f2ec;
+    --fc-arrow: #85857e;
+    --fc-arrow-main: #c4c8cf;
     --fc-taken: #6ea0f5;
+    --fc-hot: #ff8a4c;
+    --fc-no: #23365a;
+    --fc-no-line: #4a6aa8;
+    --fc-no-text: #c4d7fa;
     --fc-label: rgb(44 44 41 / 92%);
     --fc-text: #e8e8e3;
   }
@@ -1221,7 +1229,7 @@ svg.fc {
 .fc-ring {
   fill: none;
   stroke: var(--fc-taken);
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
 
 .fc-unvisited {
@@ -1278,12 +1286,13 @@ svg.fc {
 .fc-edge {
   fill: none;
   stroke: var(--fc-arrow);
-  stroke-width: 1.6;
+  stroke-width: 1.3;
 }
 
+/* The main path stands out by a darker grey and a little more weight, not by heavy black. */
 .fc-edge-main {
   stroke: var(--fc-arrow-main);
-  stroke-width: 3;
+  stroke-width: 2;
 }
 
 .fc-edge-shared {
@@ -1297,7 +1306,21 @@ svg.fc {
 
 .fc-edge-taken {
   stroke: var(--fc-taken);
-  stroke-width: 3.5;
+  stroke-width: 2.6;
+}
+
+/* The row the pointer is on, from its source to its target. */
+.fc-edge-hot {
+  stroke: var(--fc-hot);
+  stroke-width: 2.6;
+}
+
+/* Arrows are thin: a wider line no one sees takes the pointer. */
+.fc-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10;
+  pointer-events: stroke;
 }
 
 .fc-edge-quiet {
@@ -1325,6 +1348,10 @@ svg.fc {
   opacity: 0.35;
 }
 
+.fc-head-hot path {
+  fill: var(--fc-hot);
+}
+
 .fc-label rect {
   fill: var(--fc-label);
 }
@@ -1341,6 +1368,38 @@ svg.fc {
   fill: var(--fc-taken);
   font-weight: 700;
 }
+
+.fc-label-hot rect {
+  fill: var(--fc-hot);
+}
+
+/* A row's number: a badge of one size, its digits plain. */
+.fc-no circle {
+  fill: var(--fc-no);
+  stroke: var(--fc-no-line);
+  stroke-width: 1;
+}
+
+.fc .fc-no text {
+  fill: var(--fc-no-text);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.fc-no-dash {
+  fill: var(--muted);
+}
+
+.fc .fc-label-hot > text,
+.fc .fc-label-hot .fc-no text {
+  fill: #fff;
+}
+
+.fc .fc-label-hot .fc-no circle {
+  fill: rgb(255 255 255 / 25%);
+  stroke: rgb(255 255 255 / 60%);
+}
+
 
 /* A view that fills the window under the bar: the flow's chart, or a work on it. */
 
@@ -1409,9 +1468,27 @@ svg.fc {
   max-width: min(420px, calc(100vw - 32px));
 }
 
+/* The legend opens from a "?" in the chart's corner, and is the box it opens to. */
+.legend:not([open]) {
+  padding: 0;
+  border-radius: 50%;
+}
+
 .legend summary {
   cursor: pointer;
   color: var(--accent);
+  list-style: none;
+  font-weight: 700;
+  font-size: 15px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.legend summary::-webkit-details-marker {
+  display: none;
 }
 
 .legend ul {
@@ -1530,7 +1607,7 @@ svg.fc {
   min-width: 16ch;
 }
 
-/* A work's rounds, over the left of its chart. */
+/* A work's rounds, design cards and messages, in tabs of a window over the left of its chart. */
 
 .drawer {
   position: absolute;
@@ -1548,7 +1625,17 @@ svg.fc {
 }
 
 .drawer-closed {
-  width: auto;
+  width: auto !important;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+
+.drawer-closed .drawer-head {
+  border-bottom: 0;
 }
 
 .drawer-toggle {
@@ -1561,10 +1648,81 @@ svg.fc {
   color: var(--accent);
 }
 
+/* Tabs: of the window over a work's chart, and of the cell's panel. */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 6px 8px 5px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-n {
+  margin-left: 4px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tab .chip {
+  font-weight: 400;
+}
+
+.drawer-body > .muted {
+  margin: 0;
+}
+
+.rounds-only {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.work-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+details.work-old > summary {
+  cursor: pointer;
+}
+
+summary > .work-item-head {
+  display: inline-flex;
+}
+
+.rounds-mark:hover {
+  text-decoration: underline;
+}
+
 /* The drawer's parts follow one another and keep their height: a grid squeezed them onto each other. */
 .drawer-body {
   overflow: auto;
-  padding: 0 8px 8px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1578,8 +1736,14 @@ svg.fc {
   box-shadow: none;
 }
 
+/* The rounds fill the window's width, whatever it is dragged to: what a round did takes the room left. */
+.drawer table.timeline {
+  width: 100%;
+}
+
 .drawer td.clip {
-  max-width: 200px;
+  max-width: 0;
+  width: 100%;
 }
 
 table.list.mini td {
@@ -1612,14 +1776,15 @@ table.list.mini td {
     width: auto !important;
   }
 
-  .panel-grip {
+  .width-grip {
     display: none;
   }
 }
 
-.panel-grip {
+/* The edge of a floating window that drags its width. */
+
+.width-grip {
   position: absolute;
-  left: -6px;
   top: 12px;
   bottom: 12px;
   width: 12px;
@@ -1628,7 +1793,15 @@ table.list.mini td {
   z-index: 1;
 }
 
-.panel-grip::after {
+.width-grip-left {
+  left: -6px;
+}
+
+.width-grip-right {
+  right: -6px;
+}
+
+.width-grip::after {
   content: '';
   position: absolute;
   left: 4px;
@@ -1640,7 +1813,7 @@ table.list.mini td {
   background: var(--line);
 }
 
-.panel-grip:hover::after {
+.width-grip:hover::after {
   background: var(--accent);
 }
 
@@ -1767,6 +1940,69 @@ ul.bl {
   padding: 2px 0 2px 10px;
   display: grid;
   gap: 6px;
+}
+
+/* The message an agent's round is sent, in the order sent: its own lines as they are written, the task in the page's
+   font, and what the engine fills in each round as placeholders. */
+.sent {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.sent-h,
+.sent-line {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.sent-h {
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.sent-end {
+  margin-top: 6px;
+}
+
+.ph {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-style: italic;
+  color: var(--muted);
+  background: var(--code);
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.in-no {
+  font-weight: 700;
+}
+
+.srcs .src {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  align-items: baseline;
+}
+
+/* The tabs of a cell's panel stay at the top while it scrolls; what is brought into view stops below them. */
+.cell-table {
+  scroll-margin-top: 44px;
+}
+
+/* The tabs of a cell's panel stay at the top while it scrolls. */
+.cell-tabs {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  margin: -12px -14px 0;
+  padding: 4px 10px 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 .prompt-by {
@@ -2027,10 +2263,25 @@ ol.tt li.tt-on {
   background: var(--accent-soft);
 }
 
+/* A row's number: a badge of one size, its digits plain. */
 .no {
-  font-weight: 600;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-soft);
   color: var(--accent);
-  min-width: 1.4em;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+ol.tt .no {
+  margin-top: 3px;
 }
 
 .tb {

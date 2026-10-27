@@ -394,7 +394,7 @@ pub struct WorkDetail {
     pub rounds: Vec<RoundSummary>,
     pub design_cards: Vec<DesignCard>,
     pub asks: Vec<OwnerAsk>,
-    /// What its agents told the owner, oldest first.
+    /// What its agents told the owner, and what the engine told the owner of it, oldest first.
     pub messages: Vec<OwnerMessage>,
     pub interjections: Vec<Interjection>,
 }

@@ -22,7 +22,7 @@ export function App() {
       <main>
         {/* One element for the list and a work picked from it, so that picking a work keeps the list as it is. */}
         {route.page === 'works' || work !== null ? (
-          <Works selected={work?.id ?? null} round={work?.round ?? null} cell={work?.cell ?? null} />
+          <Works work={work} />
         ) : null}
         {/* One element for the tree and the item picked from it, so that picking an item keeps the tree as it is. */}
         {route.page === 'items' || route.page === 'item' ? (

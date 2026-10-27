@@ -14,7 +14,7 @@ import { t } from '../text';
 import { KindChip } from './Decide';
 
 /// Marks messages read: an agent's message or an engine's notice, or every one unread.
-async function markRead(body: { ids: number[] } | { notices: number[] } | { all: true }): Promise<void> {
+export async function markRead(body: { ids: number[] } | { notices: number[] } | { all: true }): Promise<void> {
   await postJson('/api/v1/messages/read', body);
   reread('messages');
 }
