@@ -765,6 +765,8 @@ mod tests {
             let mut db = Db {
                 conn: Connection::open_in_memory().unwrap(),
                 writer: Arc::new(Mutex::new(None)),
+                watch: Arc::default(),
+                listener: None,
             };
             db.upgrade(schema, migrations).unwrap();
             db
