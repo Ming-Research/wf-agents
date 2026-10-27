@@ -72,6 +72,9 @@ function Graph({ items, selected, onSelect }: Props) {
         source: String(l.depends_on),
         target: String(l.item),
       })),
+      'DOWN',
+      // Items that depend on nothing are many: they are packed in rows across the wide panel.
+      8,
     ).then(
       (l) => {
         if (live) setLaid({ shape, laid: l });

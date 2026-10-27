@@ -594,6 +594,8 @@ td.clip {
 }
 
 .round {
+  /* Brought into view below the sticky bar. */
+  scroll-margin-top: 56px;
   background: var(--panel);
   border: 2px solid var(--accent);
   border-radius: 8px;

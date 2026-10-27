@@ -103,7 +103,12 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
   useEffect(() => {
     let live = true;
     layout(
-      built.nodes.map((n) => ({ id: n.id, width: WIDTH, height: HEIGHT })),
+      built.nodes.map((n) => ({
+        id: n.id,
+        width: WIDTH,
+        height: HEIGHT,
+        layer: n.id === graph.start ? ('FIRST' as const) : n.id === graph.end ? ('LAST' as const) : undefined,
+      })),
       built.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
     ).then(
       (l) => {
