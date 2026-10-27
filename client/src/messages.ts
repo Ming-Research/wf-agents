@@ -97,7 +97,7 @@ const messages = {
   course_note_all: 'Every work is paused: Start all in the bar lets them go on, and Step runs one round of this one.',
   course_answered: 'your answer to ask {id} is in',
   course_answered_hint: 'The ask is answered: the next round takes the answer in and the work goes on.',
-  course_outdated: 'flow {version}: taken over',
+  course_outdated: 'flow {version}: older',
   course_outdated_hint:
     'On flow version {version}; the engine runs version {now}. When it goes on (Continue, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
   waits_answer: 'waits for your answer to ask {id}',

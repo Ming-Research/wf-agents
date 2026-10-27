@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
-import type { Status, WorkSummary } from '../api';
+import type { WorkSummary } from '../api';
 import { type Course, WorkBadge, Loaded } from '../components';
 import { Controls, held, runningWords, takeoverWords, useActions, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
@@ -44,9 +44,9 @@ function useNow(ticking: boolean): number {
 }
 
 /// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
-/// waits for, linked to where the owner gives it, its design cards and asks waiting for the owner as small chips, and
-/// that it is on an older flow version; under it, why the engine stopped it or why it ended, cut to the line.
-function State({ w, c, status, now }: { w: WorkSummary; c: Course; status: Status | null; now: number }) {
+/// waits for, linked to where the owner gives it, and its design cards and asks waiting for the owner as small chips;
+/// under it, why the engine stopped it or why it ended, cut to the line.
+function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   if (c.over) {
     return (
       <>
@@ -127,13 +127,6 @@ function State({ w, c, status, now }: { w: WorkSummary; c: Course; status: Statu
       </Link>,
     );
   }
-  if (c.outdated) {
-    parts.push(
-      <span key="outdated" className="chip warn" title={takeoverWords(w, status)}>
-        {t('course_outdated', { version: w.flow_version })}
-      </span>,
-    );
-  }
   return (
     <>
       {parts}
@@ -161,7 +154,7 @@ function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab
         )}
       </td>
       <td className="state-cell" title={held(a.c, w) ?? w.ended ?? undefined}>
-        <State w={w} c={a.c} status={status} now={now} />
+        <State w={w} c={a.c} now={now} />
       </td>
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
         <Controls a={a} w={w} status={status} onStep={() => a.step()} />
@@ -173,6 +166,11 @@ function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab
       </td>
       <td>
         <span className="cell-id">{w.at}</span> {w.at_title}
+        {a.c.outdated ? (
+          <span className="chip warn" title={takeoverWords(w, status)}>
+            {t('course_outdated', { version: w.flow_version })}
+          </span>
+        ) : null}
       </td>
       <td>{w.stage !== null ? w.stage.replaceAll('_', ' ') : ''}</td>
       <td className="num">

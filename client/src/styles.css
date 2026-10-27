@@ -2450,7 +2450,7 @@ summary.works-label {
 }
 
 /* Both lists of works have the same columns at the same widths; the item takes what is left, at least about 280px:
-   the other columns take 1296px, and a narrower window scrolls the lists sideways. */
+   the other columns take 1316px, and a narrower window scrolls the lists sideways. */
 
 .works-scroll {
   overflow-x: auto;
@@ -2458,7 +2458,7 @@ summary.works-label {
 
 .works-table {
   table-layout: fixed;
-  min-width: 1580px;
+  min-width: 1596px;
 }
 
 .works-table .w-id {
@@ -2466,11 +2466,11 @@ summary.works-label {
 }
 
 .works-table .w-state {
-  width: 280px;
+  width: 340px;
 }
 
 .works-table .w-control {
-  width: 140px;
+  width: 130px;
 }
 
 .works-table td.control-cell {
@@ -2480,7 +2480,7 @@ summary.works-label {
 }
 
 .works-table .w-at {
-  width: 200px;
+  width: 190px;
 }
 
 .works-table .w-stage {
@@ -2492,7 +2492,7 @@ summary.works-label {
 }
 
 .works-table .w-time {
-  width: 140px;
+  width: 130px;
 }
 
 .works-table td.nowrap {
