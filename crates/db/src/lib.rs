@@ -277,11 +277,8 @@ impl Db {
     fn create_schema(&mut self, schema: &str, migrations: &[&str]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
-        if version_of(&tx)? != 0 {
-            return Err(Error::Exists);
-        }
-        if !is_empty(&tx)? {
-            return Err(Error::Foreign);
+        if let Some(e) = in_the_way(&tx)? {
+            return Err(e);
         }
         tx.execute_batch(schema)?;
         track(&tx)?;
@@ -317,6 +314,29 @@ impl Db {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// What stops a creation in the database `conn` is open on: a database is there, or other tables are. None when it
+/// holds nothing, which a creation takes.
+fn in_the_way(conn: &Connection) -> Result<Option<Error>> {
+    if version_of(conn)? != 0 {
+        return Ok(Some(Error::Exists));
+    }
+    if !is_empty(conn)? {
+        return Ok(Some(Error::Foreign));
+    }
+    Ok(None)
+}
+
+/// Whether a creation at `path` would be refused, judged the way the creation judges it: the file holds a database or
+/// other tables. No file, an empty one, and one that cannot be read at all are not told as taken, so that a caller
+/// who leaves out checks where a creation will be refused leaves them out only when it is sure.
+pub fn is_taken(path: &Path) -> bool {
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let Ok(conn) = Connection::open_with_flags(path, flags) else {
+        return false;
+    };
+    in_the_way(&conn).is_ok_and(|e| e.is_some())
 }
 
 /// Whether a database at version `at` is already at `version`; one from a newer wf-agents is refused.
@@ -1086,6 +1106,32 @@ mod tests {
         let created = Db::create(&empty).unwrap();
         assert_like_new(&created);
         Db::open(&empty).unwrap();
+    }
+
+    // Before a creation, a place it would refuse is told by the rule it refuses by: a database, or other tables. No
+    // file, an empty file, and a file SQLite has written a header to that holds nothing are not in the way.
+    #[test]
+    fn a_place_a_creation_would_refuse_is_told_beforehand() {
+        let none = temp("taken-none");
+        assert!(!is_taken(&none));
+        let empty = temp("taken-empty");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(!is_taken(&empty));
+        let header = temp("taken-header");
+        Connection::open(&header)
+            .unwrap()
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        assert!(std::fs::metadata(&header).unwrap().len() > 0);
+        assert!(!is_taken(&header));
+        Db::create(&header).unwrap();
+        assert!(is_taken(&header));
+        let foreign = temp("taken-foreign");
+        Connection::open(&foreign)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (x)")
+            .unwrap();
+        assert!(is_taken(&foreign));
     }
 
     // Of two creations at the same path at once only one builds; the other is told a database is there, and the

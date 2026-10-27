@@ -20,10 +20,10 @@ pub fn open(data: &Path) -> Result<Db, String> {
     })
 }
 
-/// Whether the data directory `data` has a file at its database's place that holds anything, so that [`create`] will
-/// refuse it. For a caller that has checks to make before it creates and can leave them out where it will be refused.
+/// Whether the place of the data directory `data`'s database is one [`create`] will refuse: a database is there, or
+/// other tables. For a caller that has checks to make before it creates, and can leave them out where it is refused.
 pub fn exists(data: &Path) -> bool {
-    std::fs::metadata(config::database(data)).is_ok_and(|m| m.len() > 0)
+    db::is_taken(&config::database(data))
 }
 
 /// Makes the database in the data directory `data`, with its `db/` directory when that is missing, and gives its
