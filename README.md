@@ -46,6 +46,13 @@ The engine runs every agent's command line with a configuration directory of its
 the data directory unless the CLI's `config_dir` in `install.toml` names another, and the engine keeps it out of git.
 Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude claude`, then `/login`.
 
+## The architect
+
+The architect runs at the level `install.toml` names under `[agents]` as `architect` (such as `architect = "4"`), the
+top level when it names none. Each project's file names its constitution, a path in the project's checkout, such as
+`constitution = "CONSTITUTION.md"`; the architect is given the text of every project's constitution, and checks each
+project against it article by article (the level-two headings that start with "Article").
+
 ## The owner's page
 
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with

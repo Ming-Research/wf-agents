@@ -363,3 +363,13 @@ CREATE VIEW plan AS
      FROM items i WHERE i.segment = s.key) AS items
   FROM plan_segments s
   ORDER BY s.deferred IS NOT NULL, s.position IS NULL, s.position, s.key;
+
+CREATE VIEW urgent_side_reports AS
+  -- The side reports marked urgent that came while each wake of the architect runs and are not handled yet: an urgent
+  -- report is given to the running wake at once, at the top of its next round, as well as waiting in the queue.
+  -- Read by: every cell of the architect's line.
+  SELECT w.id AS work, m.id AS matter, m.item, m.what, json_extract(m.body, '$.report') AS report
+  FROM works w JOIN architect_matters m
+    ON m.at >= (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id)
+  WHERE w.graph = 'architect' AND w.ended IS NULL AND m.handled_round IS NULL
+    AND json_extract(m.body, '$.urgent') = 1;

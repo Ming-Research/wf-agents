@@ -1287,7 +1287,7 @@
         ],
         [
           "design_card",
-          "A work's new design card, for you to look at before the owner rules on it"
+          "A work's new design card, for you to look at whether it is sound and its chosen approaches reasonable; the owner rules on it"
         ],
         [
           "tool_failed",
@@ -2637,8 +2637,8 @@
     },
     {
       "name": "engine_op",
-      "desc": "Has the engine act at once, without the owner's approval: pause a work, let a paused work go on, stop starting new works, let them start again, reply to an engineer's question to you, interject to another item's engineer, or rule on a work's design card. It takes effect as it runs.",
-      "runs": "The engine does as asked: pause_work waits for the work's round under way to end, then stops it, keeping its worktree, branch and sessions; resume_work lets it go on from the cell it stopped at; hold_dispatch and release_dispatch change whether new works start from the queue; reply takes the reply back to the work that asked, which goes on; interject gives the words to that item's engineer; rule_design_card records the architect's verdict on each decision of the card, a disagreement reaching the work's engineer as an interjection.",
+      "desc": "Has the engine act at once, without the owner's approval: pause a work, let a paused work go on, stop starting new works, let them start again, reply to an engineer's question to you, or interject to another item's engineer. It takes effect as it runs.",
+      "runs": "The engine does as asked: pause_work waits for the work's round under way to end, then stops it, keeping its worktree, branch and sessions; resume_work lets it go on from the cell it stopped at; hold_dispatch and release_dispatch change whether new works start from the queue; reply takes the reply back to the work that asked, which goes on; interject gives the words to that item's engineer.",
       "in": [
         {
           "name": "op",
@@ -2668,17 +2668,13 @@
             [
               "interject",
               "Say something to another item's engineer"
-            ],
-            [
-              "rule_design_card",
-              "Rule on each decision of a work's design card, before the owner"
             ]
           ]
         },
         {
           "name": "item",
           "type": "int",
-          "desc": "Which item: its number; not for hold_dispatch, release_dispatch and rule_design_card",
+          "desc": "Which item: its number; not for hold_dispatch and release_dispatch",
           "optional": true
         },
         {
@@ -2691,56 +2687,6 @@
           "type": "text",
           "desc": "What to say: only for interject",
           "optional": true
-        },
-        {
-          "name": "design_card",
-          "type": "int",
-          "desc": "Which design card: its number; only for rule_design_card",
-          "optional": true
-        },
-        {
-          "name": "verdicts",
-          "type": "list",
-          "desc": "Your verdict on each decision of the design card, one per decision: only for rule_design_card",
-          "item": {
-            "type": "obj",
-            "fields": [
-              {
-                "name": "decision",
-                "type": "int",
-                "desc": "The decision's number on the card"
-              },
-              {
-                "name": "verdict",
-                "type": "enum",
-                "desc": "Your verdict",
-                "values": [
-                  [
-                    "confirm",
-                    "It fits the whole"
-                  ],
-                  [
-                    "disagree",
-                    "It does not fit the whole: say why, or choose another of its approaches"
-                  ]
-                ]
-              },
-              {
-                "name": "why",
-                "type": "text",
-                "desc": "Why you disagree; for a confirmation, leave it out",
-                "optional": true
-              },
-              {
-                "name": "approach",
-                "type": "text",
-                "desc": "Another of the decision's approaches you choose instead, by its name; leave it out if none",
-                "optional": true
-              }
-            ]
-          },
-          "optional": true,
-          "min": 1
         }
       ],
       "out": [
@@ -2855,9 +2801,9 @@
     "actions": {
       "lock_acceptance": "Writes the design's acceptance conditions onto the item and locks them; if they are the same as those already locked, nothing changes.",
       "lock_new_acceptance": "Writes the advisor's new acceptance conditions onto the item and locks them.",
-      "post_design_card": "When the design tree changed, puts the design card in the database and sends it to the architect first: it blocks nothing yet, so the owner can look and stop it early. A card that a new design brings after a redesign replaces the cards of this work the redesign set aside, and keeps what the design said changed from them.",
-      "update_design_card": "Replaces the work's design card with the one handed in, and keeps what the return says changed from it. Only the decisions that changed go through again, the architect first; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
-      "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner and the architect can no longer rule on them. A new design brings a new design card; without one there is nothing to mark.",
+      "post_design_card": "When the design tree changed, puts the design card in the database for the owner to rule on, and queues it for the architect to look at: it blocks nothing yet, so the owner can look and stop it early. A card that a new design brings after a redesign replaces the cards of this work the redesign set aside, and keeps what the design said changed from them.",
+      "update_design_card": "Replaces the work's design card with the one handed in, and keeps what the return says changed from it. Only the decisions that changed go through again; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
+      "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner can no longer rule on them. A new design brings a new design card; without one there is nothing to mark.",
       "notify_pending_approvers": "Tells each side that has not gone through the design card that the design card is holding up the merge.",
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
@@ -2867,7 +2813,7 @@
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
       "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
-      "wake_architect": "Queues each side report for the architect once: an urgent one due at once, which wakes the architect, any other an hour after it came.",
+      "wake_architect": "Queues each side report for the architect once, due at once, which wakes the architect when no wake runs; one marked urgent that comes while a wake runs is also given to that wake at the top of its next round.",
       "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
       "open_asks": "Puts each choice the architect handed in as open to the owner, as an ask that holds no wake; once the owner answers, the answer is queued for the architect as a matter of its own.",
@@ -2913,7 +2859,7 @@
       "ruling_matches_advisor": "This work did ask the advisor about this row, and the ruling written matches the advisor's reply.",
       "owner_kinds_to_owner": "A point of a kind in the owner_only group is asked of the owner.",
       "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
-      "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card (the owner's or the architect's), the return is a redirect, not answers.",
+      "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card, the return is a redirect, not answers.",
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
       "constitution_covered": "There is exactly one row for each article of each project's constitution the architect is given, in the constitution's order.",
       "chosen_first": "The matter chosen is the first of the ranked list; one given by its number in the queue is in the queue and not handled.",
@@ -3681,7 +3627,7 @@
           },
           {
             "name": "Interjections",
-            "what": "What the owner or the architect said to you while this work runs, each with who said it. During a round, any that are waiting are given to you each time you finish using a tool; those that came before the round are at the top of its input. Rulings on the design card come this way too: a verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen), the owner's or the architect's",
+            "what": "What the owner or the architect said to you while this work runs, each with who said it. During a round, any that are waiting are given to you each time you finish using a tool; those that came before the round are at the top of its input. Rulings on the design card come this way too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen)",
             "from": [
               {
                 "db": "waiting_interjections",
@@ -4173,7 +4119,7 @@
               "maybe": true
             },
             {
-              "what": "Rulings on the design card, a verdict on each decision: the decisions the owner or the architect disagreed with and why, the approach the owner chose for a decision, the acceptance the owner changed; none if no decision was disagreed with",
+              "what": "Rulings on the design card, a verdict on each decision: the decisions the owner disagreed with and why, the approach the owner chose for a decision, the acceptance the owner changed; none if no decision was disagreed with",
               "from": [
                 {
                   "db": "item_design_cards",
@@ -4295,7 +4241,7 @@
               ]
             },
             {
-              "what": "Rulings on the design card, a verdict on each decision: the decisions the owner or the architect disagreed with and why, the approach the owner chose for a decision, the acceptance the owner changed; none if no decision was disagreed with",
+              "what": "Rulings on the design card, a verdict on each decision: the decisions the owner disagreed with and why, the approach the owner chose for a decision, the acceptance the owner changed; none if no decision was disagreed with",
               "from": [
                 {
                   "db": "item_design_cards",
@@ -6804,7 +6750,7 @@
               "maybe": true
             },
             {
-              "what": "How far the items depended on are; the rulings on the design card, a verdict on each decision, with the version of the change to the design tree the owner confirmed and the architect looked at; and the change to the design tree in the commit to merge",
+              "what": "How far the items depended on are; the rulings on the design card, a verdict on each decision, with the version of the change to the design tree the owner confirmed; and the change to the design tree in the commit to merge",
               "from": [
                 {
                   "db": "item_dependencies",
@@ -7107,11 +7053,11 @@
             "gates": [
               [
                 "clear",
-                "Every item depended on is merged; the design tree did not change, or every decision of its change was confirmed by the owner and looked at by the architect, word for word as it is to merge (for decisions copied from a parent's design card, the version gone through on the parent's design card)"
+                "Every item depended on is merged; the design tree did not change, or every decision of its change was confirmed by the owner, word for word as it is to merge (for decisions copied from a parent's design card, the version gone through on the parent's design card)"
               ],
               [
                 "waiting",
-                "Something is not ready: an item depended on is not merged, or the owner has not confirmed every decision of the change to the design tree or the architect not looked at it, or it changed after they had"
+                "Something is not ready: an item depended on is not merged, or the owner has not confirmed every decision of the change to the design tree, or it changed after the owner had"
               ]
             ],
             "interjection": "interjection_state"
@@ -8668,7 +8614,7 @@
             "design_card_disputed": [
               [
                 "yes",
-                "The reply or interjection brought back holds a disagreement with the design card (the owner's or the architect's)"
+                "The reply or interjection brought back holds a disagreement with the design card (the owner's)"
               ],
               [
                 "no",
@@ -9116,12 +9062,12 @@
         "The design card is a gate before merging: the change to the design tree is merged only after the owner confirms it. It asks the owner nothing; anything to ask the owner goes through ask.",
         "The design card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One design card per work, one section per decision. Its content is shown in the design section of the item's research; the design card in the owner's interface shows only the decisions' names and links.",
         "The design card follows the design tree on the branch: written and committed on the branch during design, the design card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new design card, which the engine checks against the change on the branch.",
-        "Each new design card (the first, from design, or a new one from a later round that changed the design tree) goes to the architect first: does this design fit the whole? This does not block the engineer, and nothing waits for the architect's conclusion. If the architect agrees, the design card goes to the owner with the architect's comments; if not, this version does not go to the owner but is sent to the engineer as an interjection. When the owner and the architect disagree, the owner decides: the architect cannot change what the owner confirmed. Without a design card, the architect has nothing to do.",
-        "The engine records by decision which version of each decision the owner and the architect each went through. When the design card changes, only the changed decisions go through again: the architect first, then the owner, who is shown how the decision changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for 19.",
+        "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. A card the owner has confirmed is not sent to the architect. Without a design card, the architect has nothing to do.",
+        "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for 19.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
         "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded, with a word to the engineer; the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
-        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to 11 to choose the way on, and 11 may not carry on: to change the design, back to 2 to design again; if what the item needs has changed, back to 1; if unsure, ask the owner. 2 and 2a can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, 2a must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor. A disagreement from the architect is sent the same way.",
-        "When 11 chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner and the architect can no longer rule on them, and the new design gives a new design card.",
+        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to 11 to choose the way on, and 11 may not carry on: to change the design, back to 2 to design again; if what the item needs has changed, back to 1; if unsure, ask the owner. 2 and 2a can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, 2a must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor.",
+        "When 11 chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
         "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner and the architect went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At 19, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
         "At 19, the engine compares the change to the design tree in the commit to be merged with the version both sides went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at 19, and the engine tells the side that has not gone through it that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
       ],
@@ -9129,7 +9075,7 @@
         "name": "interjection",
         "desc": "What the owner or the architect says while a work runs, which the engine sends into an agent's session",
         "text": [
-          "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen), and the architect's, of the same shape, after looking at the design card. When the owner and the architect say different things, the owner's word goes.",
+          "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen); the architect does not rule on design cards, but may say what it found wrong in one. When the owner and the architect say different things, the owner's word goes.",
           "Delivery: while an agent's round runs, the session manager gives it the interjections waiting each time it finishes using a tool; those not delivered by the end of the round go at the top of the next round's input. Interjections and the agents' answers are recorded on the work and visible in the owner's interface.",
           "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker, and the agent goes on in the same cell, like after a pause, with nothing drawn on the graph. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to 11; where to go is not thought about here but at 11, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
           "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (18 choosing what runs next, 19 judging whether it may enter the merge queue, including while 19 waits), it goes straight to 11 to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if 18 or 19 comes next, sent to 11 from there; if 20, the end, comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",
@@ -9143,7 +9089,7 @@
           },
           {
             "name": "architect",
-            "desc": "The architect over everything: for instance, a disagreement after looking at a design card"
+            "desc": "The architect over everything: for instance, what it found wrong in a design card or in the approaches it chose by default"
           }
         ]
       },
@@ -9612,6 +9558,18 @@
                 "@from",
                 "reply"
               ]
+            ],
+            "maybe": true,
+            "with": "ask"
+          },
+          {
+            "name": "Urgent side reports",
+            "what": "Side reports marked urgent that came while you are awake: each is a matter in your queue as well, and you see it here at once, whichever question you are at; none when none came",
+            "from": [
+              {
+                "db": "urgent_side_reports",
+                "by": "work"
+              }
             ],
             "maybe": true,
             "with": "ask"
@@ -11095,7 +11053,7 @@
                 "The owner set a new version of the policy, and the old one is no longer used. Go over everything by the new version: which segments must change, be deferred or be added, which running and queued works no longer fit the policy and what becomes of each; the gates and budgets change with them. Items that hang on none of the new segments go into the pool, not cancelled, and the list goes into your log for the owner. Where the policy holds something you cannot judge by, report it to the owner as the third question does, and do not fill it in yourself."
               ],
               "design_card": [
-                "A work's new design card, which you look at before the owner rules on it: whether each of its decisions fits the whole. Rule on each decision with rule_design_card: confirm it, or disagree saying why, or choose another of its approaches. A disagreement reaches the work's engineer as an interjection, and the owner rules on the card the work hands in next; what you confirm goes to the owner with your view. Where you and the owner differ, the owner's word goes."
+                "A work's new design card. You do not rule on it: the owner does. Look at whether the card itself is sound, and whether the approaches it chose by default are reasonable in the whole. If they are not, act on it as the matter needs, such as telling the work's engineer with interject what is wrong and why; if they are, leave the card to the owner."
               ],
               "tool_failed": [
                 "A tool the engine runs for a work failed, and its retries failed too: which tool, which kind of failure, what happened and how many retries are in the input. Fix it if you can, and reply once it is fixed, saying what you fixed: the engine runs that step again. What only the owner can fix, ask the owner."
