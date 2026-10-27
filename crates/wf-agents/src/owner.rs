@@ -3,21 +3,14 @@
 
 use std::path::Path;
 
+use db::Actor;
 use db::rusqlite::{OptionalExtension, params};
-use db::{Actor, Db};
+use engine::database::open;
 use engine::query_json;
 use serde_json::{Value, json};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
-}
-
-pub fn open(data: &Path) -> Result<Db, String> {
-    let path = config::database(data);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    Db::open(&path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// What a new item says, as the owner writes it.

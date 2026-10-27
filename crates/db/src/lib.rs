@@ -1,6 +1,6 @@
 //! The wf-agents database. `db/schema.sql` is its only definition; this crate carries it into the binary, creates a
-//! database from it or brings an older one up to it, writes every change to a state table into `changes`, and opens
-//! the read-only connection agents query through.
+//! database from it on request only, opens an existing one and brings it up to the schema when it is older, writes
+//! every change to a state table into `changes`, and opens the read-only connection agents query through.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
@@ -39,6 +39,10 @@ pub enum Error {
     Newer(i64),
     /// The file holds tables but is not a wf-agents database.
     Foreign,
+    /// There is no database: the file does not exist, or is empty.
+    Missing,
+    /// A database is already there, and creating one would overwrite it.
+    Exists,
     /// The dependency would close a cycle.
     Cycle {
         item: i64,
@@ -63,6 +67,8 @@ impl fmt::Display for Error {
                 "the database is at version {v}, newer than this wf-agents ({VERSION})"
             ),
             Error::Foreign => write!(f, "the file holds tables but is not a wf-agents database"),
+            Error::Missing => write!(f, "there is no database"),
+            Error::Exists => write!(f, "a database is already there"),
             Error::Cycle { item, depends_on } => {
                 write!(
                     f,
@@ -121,17 +127,35 @@ pub struct Db {
 }
 
 impl Db {
-    /// Opens the database at `path`: creates it from the schema when the file is new, and migrates it when it is
-    /// older than this wf-agents.
+    /// Opens the database at `path`, and migrates it when it is older than this wf-agents. It makes nothing: when the
+    /// file does not exist or is empty, there is no database, and the error says so.
     pub fn open(path: &Path) -> Result<Db> {
-        let db = Db::set_up(Connection::open(path)?)?;
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = match Connection::open_with_flags(path, flags) {
+            Ok(conn) => conn,
+            Err(_) if !path.exists() => return Err(Error::Missing),
+            Err(e) => return Err(e.into()),
+        };
+        let mut db = Db::set_up(conn)?;
+        db.migrate(MIGRATIONS)?;
+        db.conn.pragma_update(None, "journal_mode", "WAL")?;
+        Ok(db)
+    }
+
+    /// Makes the database at `path` from the schema. The place must hold no database: a file that does not exist or
+    /// is empty is taken, anything in it is refused. A failure leaves an empty file at most, which a retry takes.
+    pub fn create(path: &Path) -> Result<Db> {
+        let mut db = Db::set_up(Connection::open(path)?)?;
+        db.create_schema(SCHEMA, MIGRATIONS)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(db)
     }
 
     /// A new database in memory.
     pub fn in_memory() -> Result<Db> {
-        Db::set_up(Connection::open_in_memory()?)
+        let mut db = Db::set_up(Connection::open_in_memory()?)?;
+        db.create_schema(SCHEMA, MIGRATIONS)?;
+        Ok(db)
     }
 
     fn set_up(conn: Connection) -> Result<Db> {
@@ -141,9 +165,7 @@ impl Db {
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
-        let mut db = Db { conn, writer };
-        db.upgrade(SCHEMA, MIGRATIONS)?;
-        Ok(db)
+        Ok(Db { conn, writer })
     }
 
     /// The connection, for reads.
@@ -171,36 +193,64 @@ impl Db {
         Ok(out)
     }
 
-    /// Brings the database to the version `schema` defines: creates it from `schema` when it is empty, or runs the
-    /// migrations from its version on; then makes the triggers that track changes afresh.
-    fn upgrade(&mut self, schema: &str, migrations: &[&str]) -> Result<()> {
+    /// Builds `schema` into a database that holds nothing, at the version `migrations` lead to; then makes the
+    /// triggers that track changes. What is there is judged under the lock, so of two creations only one builds.
+    fn create_schema(&mut self, schema: &str, migrations: &[&str]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
-        let at: i64 = self.conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        if version_of(&tx)? != 0 {
+            return Err(Error::Exists);
+        }
+        if !is_empty(&tx)? {
+            return Err(Error::Foreign);
+        }
+        tx.execute_batch(schema)?;
+        track(&tx)?;
+        tx.pragma_update(None, "user_version", version)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Brings an existing database to the version `migrations` lead to: runs the migrations from its version on, then
+    /// makes the triggers that track changes afresh. A file with nothing in it holds no database.
+    fn migrate(&mut self, migrations: &[&str]) -> Result<()> {
+        let version = 1 + migrations.len() as i64;
+        if version_of(&self.conn)? == version {
+            return Ok(());
+        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        // Judged again under the lock: another process may have migrated it while this one waited.
+        let at = version_of(&tx)?;
         if at > version {
             return Err(Error::Newer(at));
         }
         if at == version {
             return Ok(());
         }
-        let empty: bool = self
-            .conn
-            .query_row("SELECT count(*) = 0 FROM sqlite_schema", [], |r| r.get(0))?;
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         if at == 0 {
-            if !empty {
-                return Err(Error::Foreign);
+            if is_empty(&tx)? {
+                return Err(Error::Missing);
             }
-            tx.execute_batch(schema)?;
-        } else {
-            for m in &migrations[at as usize - 1..] {
-                tx.execute_batch(m)?;
-            }
+            return Err(Error::Foreign);
+        }
+        for m in &migrations[at as usize - 1..] {
+            tx.execute_batch(m)?;
         }
         track(&tx)?;
         tx.pragma_update(None, "user_version", version)?;
         tx.commit()?;
         Ok(())
     }
+}
+
+/// The version a database is at, which is 0 for a file with nothing made in it.
+fn version_of(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.pragma_query_value(None, "user_version", |r| r.get(0))
+}
+
+/// Whether the database holds no table, view or index.
+fn is_empty(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row("SELECT count(*) = 0 FROM sqlite_schema", [], |r| r.get(0))
 }
 
 fn set(current: &Current, w: Option<Writer>) {
@@ -599,7 +649,7 @@ mod tests {
     #[test]
     fn agents_read_what_they_may_and_nothing_else() {
         let path = temp("agents");
-        let mut db = Db::open(&path).unwrap();
+        let mut db = Db::create(&path).unwrap();
         db.write(Actor::Owner, |tx| {
             let id = item(tx, "visible")?;
             tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [id])?;
@@ -627,7 +677,7 @@ mod tests {
     #[test]
     fn a_newer_or_foreign_database_is_refused() {
         let path = temp("newer");
-        Db::open(&path).unwrap();
+        Db::create(&path).unwrap();
         Connection::open(&path)
             .unwrap()
             .pragma_update(None, "user_version", VERSION + 1)
@@ -639,6 +689,48 @@ mod tests {
             .execute_batch("CREATE TABLE t (x)")
             .unwrap();
         assert!(matches!(Db::open(&path), Err(Error::Foreign)));
+    }
+
+    // Opening makes nothing: a path with no file gets none, and a file with nothing in it is no database and stays as
+    // it was.
+    #[test]
+    fn opening_a_missing_or_empty_file_is_refused_and_makes_nothing() {
+        let path = temp("missing");
+        assert!(matches!(Db::open(&path), Err(Error::Missing)));
+        assert!(!path.exists());
+        std::fs::write(&path, b"").unwrap();
+        assert!(matches!(Db::open(&path), Err(Error::Missing)));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+        assert!(!Path::new(&format!("{}-wal", path.display())).exists());
+    }
+
+    // A database made at a path has the shape of a new one in memory, with its version and triggers, and opens again;
+    // a place with a database or other tables in it is refused and what is there stays; an empty file is taken.
+    #[test]
+    fn creating_makes_a_new_database_and_refuses_a_place_with_anything_in_it() {
+        let path = temp("create");
+        let mut made = Db::create(&path).unwrap();
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(made.conn()).unwrap(), shape(new.conn()).unwrap());
+        assert_eq!(version_of(made.conn()).unwrap(), VERSION);
+        made.write(Actor::Owner, |tx| item(tx, "kept")).unwrap();
+        drop(made);
+        assert!(matches!(Db::create(&path), Err(Error::Exists)));
+        let reopened = Db::open(&path).unwrap();
+        let titles = names(reopened.conn(), "SELECT title FROM items").unwrap();
+        assert_eq!(titles, ["kept"]);
+
+        let other = temp("create-foreign");
+        let conn = Connection::open(&other).unwrap();
+        conn.execute_batch("CREATE TABLE t (x)").unwrap();
+        assert!(matches!(Db::create(&other), Err(Error::Foreign)));
+        let tables = names(&conn, "SELECT name FROM sqlite_schema").unwrap();
+        assert_eq!(tables, ["t"]);
+
+        let empty = temp("create-empty");
+        std::fs::write(&empty, b"").unwrap();
+        Db::create(&empty).unwrap();
+        Db::open(&empty).unwrap();
     }
 
     // A database migrated from an older version has the shape of one created afresh; a migration that forgets a
@@ -654,17 +746,15 @@ mod tests {
                 conn: Connection::open_in_memory().unwrap(),
                 writer: Arc::new(Mutex::new(None)),
             };
-            db.upgrade(schema, migrations).unwrap();
+            db.create_schema(schema, migrations).unwrap();
             db
         };
         let mut old = fresh(v1, &[]);
-        old.upgrade(v2, &[step]).unwrap();
+        old.migrate(&[step]).unwrap();
         let new = fresh(v2, &[step]);
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         let mut wrong = fresh(v1, &[]);
-        wrong
-            .upgrade(v2, &["ALTER TABLE things ADD COLUMN size INTEGER;"])
-            .unwrap();
+        wrong.migrate(&["ALTER TABLE things ADD COLUMN size INTEGER;"]).unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
     }

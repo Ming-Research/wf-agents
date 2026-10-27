@@ -27,6 +27,9 @@ enum Command {
     /// The configuration in the data directory.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Makes the database in the data directory, once. It is the only command that makes one: every other command
+    /// opens the database that is there, and fails when there is none.
+    Init,
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
     /// appears in the data directory.
     Run {
@@ -226,18 +229,9 @@ fn data(dir: Option<&Path>) -> Result<&Path, String> {
     dir.ok_or_else(|| "no data directory: pass --data or set WF_AGENTS_DATA".to_string())
 }
 
-/// The flow this command runs, compiled against the database it creates.
-fn compiled() -> Result<flow::Compiled, String> {
-    let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
-    flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())
-}
-
 fn config_check(dir: &Path) -> Result<(), String> {
     let c = config::working(dir).map_err(|e| e.to_string())?;
-    let problems = c.check(&compiled()?);
-    if !problems.is_empty() {
-        return Err(problems.join("\n"));
-    }
+    engine::compile_for(&c)?;
     println!(
         "{}: {} projects ({}), {} rules",
         dir.display(),
@@ -256,6 +250,7 @@ fn print(r: Result<String, String>) -> Result<(), String> {
 fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) => Ok(()),
+        Command::Init => init(d),
         Command::Run { once } => run(d, once),
         Command::Item(ItemCommand::Add {
             project,
@@ -349,6 +344,16 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Anomalies => print(owner::anomalies(d)),
         Command::Cost { work } => print(owner::cost(d, work)),
     }
+}
+
+/// Makes the database of a data directory that passes the check the engine makes when it starts: a git repository
+/// with a commit, whose committed configuration is valid. A place that is not one gets nothing made in it.
+fn init(d: &Path) -> Result<(), String> {
+    let committed = config::committed(d).map_err(|e| e.to_string())?;
+    engine::compile_for(&committed.config)?;
+    let path = engine::database::create(d)?;
+    println!("created {}", path.display());
+    Ok(())
 }
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI.

@@ -8,6 +8,7 @@
 //! architect, and the engine takes one work one step at a time: a long round of one work holds up the others.
 
 pub mod agent;
+pub mod database;
 pub mod git;
 pub mod hub;
 
@@ -74,17 +75,8 @@ impl Engine {
         agents: Box<dyn Agents>,
         github: Box<dyn GitHub>,
     ) -> Result<Engine, String> {
-        let path = config::database(data);
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        let mut db = Db::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let relations = db::relations(db::SCHEMA).map_err(|e| e.to_string())?;
-        let compiled = flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())?;
-        let problems = config.config.check(&compiled);
-        if !problems.is_empty() {
-            return Err(problems.join("\n"));
-        }
+        let mut db = database::open(data)?;
+        let compiled = compile_for(&config.config)?;
         let digest = compiled.digest();
         let json = compiled.json();
         let flow_now = db
@@ -344,6 +336,18 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// The flow built into this engine, compiled against the database it makes, when `config` fits it; otherwise every
+/// problem the configuration has with the flow, one to a line.
+pub fn compile_for(config: &config::Config) -> Result<Compiled, String> {
+    let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
+    let compiled = flow::compile(flow::FLOW, &flow::Context { relations }).map_err(|e| e.to_string())?;
+    let problems = config.check(&compiled);
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
+    Ok(compiled)
 }
 
 /// The rows of a cell whose name is given.

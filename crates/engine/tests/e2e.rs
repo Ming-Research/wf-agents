@@ -320,6 +320,7 @@ merge_checks = ["check"]
     git(&data, &["init", "-q"]);
     git(&data, &["add", "-A"]);
     git(&data, &["commit", "-q", "-m", "configuration"]);
+    engine::database::create(&data).unwrap();
     Setup { root, data, origin }
 }
 

@@ -7,7 +7,7 @@
 //!   from, merged in order: a later table merges into an earlier one key by key, and any other value, a list
 //!   included, replaces the earlier one whole;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
-//! - `db/`: the database, kept out of git.
+//! - `db/`: the database, kept out of git; `wf-agents init` makes it.
 //!
 //! The engine reads only what is committed, so each round names the configuration it ran with by its commit.
 //! `config check` reads the working tree instead, to check a change before it is committed. A field the types do not
