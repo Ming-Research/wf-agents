@@ -404,7 +404,7 @@ function RoundsHere({ work, rounds, onRound }: { work: number; rounds: RoundSumm
       <tbody>
         {[...rounds].reverse().map((r) => (
           <tr key={r.n} className="clickable" onClick={() => onRound(r)}>
-            <td className="muted">{roundName(work, r.n)}</td>
+            <td className="muted nowrap">{roundName(work, r.n)}</td>
             <td className="clip">
               {r.outcome !== 'took' ? (
                 <>

@@ -827,17 +827,25 @@ fn level_of(levels: &BTreeMap<String, config::Level>, model: &str, effort: Optio
 }
 
 /// The acceptance a round's lock replaced, as the record of changes keeps the item before it; none when the round
-/// locked none, or locked the first. The record keeps an item as it was written, and an item written before rounds
-/// were named by their work names its round by a number no round has now, so a round of then finds none.
+/// locked none, or locked the first. The record keeps an item as it was written: one written before rounds were named
+/// by their work names the round that locked it by a number no round has now, and has no work for it, so that lock is
+/// found as the change of the round's work's item to another round's acceptance while the round ran, its lock being
+/// written in the transaction that ended it.
 fn acceptance_before(conn: &Connection, work: i64, n: i64) -> Result<Option<Value>> {
     let before: Option<Option<String>> = conn
         .query_row(
-            "SELECT json_extract(old_row, '$.acceptance') FROM changes
-             WHERE table_name = 'items' AND json_extract(new_row, '$.acceptance_work') = ?1
-               AND json_extract(new_row, '$.acceptance_round') = ?2
-               AND NOT (json_extract(old_row, '$.acceptance_work') IS ?1
-                        AND json_extract(old_row, '$.acceptance_round') IS ?2)
-             ORDER BY id LIMIT 1",
+            "SELECT json_extract(c.old_row, '$.acceptance')
+             FROM changes c JOIN rounds r ON r.work = ?1 AND r.n = ?2 JOIN works w ON w.id = r.work
+             WHERE c.table_name = 'items' AND json_extract(c.row_key, '$.id') = w.item
+               AND ((json_extract(c.new_row, '$.acceptance_work') = ?1
+                     AND json_extract(c.new_row, '$.acceptance_round') = ?2
+                     AND NOT (json_extract(c.old_row, '$.acceptance_work') IS ?1
+                              AND json_extract(c.old_row, '$.acceptance_round') IS ?2))
+                    OR (json_type(c.new_row, '$.acceptance_work') IS NULL
+                        AND c.at BETWEEN r.started_at AND r.ended_at
+                        AND json_extract(c.new_row, '$.acceptance_round')
+                            IS NOT json_extract(c.old_row, '$.acceptance_round')))
+             ORDER BY c.id LIMIT 1",
             [work, n],
             |r| r.get(0),
         )
@@ -1364,6 +1372,29 @@ mod tests {
         assert_eq!((step.level, step.acceptance_before), (None, None));
         assert_eq!(step.inputs[0].what, cell.inputs[0].what);
         assert_eq!(step.inputs[0].from, cell.inputs[0].from);
+        // A lock recorded before rounds were named by their work names its round by its old number: it is found by
+        // when the round ran.
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                 VALUES (1, 6, '12', '{}', 'c', 100, 110)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO changes (tx, at, actor, table_name, row_key, old_row, new_row)
+                 VALUES (99, 105, 'engine', 'items', '{\"id\":1}', ?1, ?2)",
+                [
+                    r#"{"acceptance":[{"id":"A0"}],"acceptance_round":7}"#,
+                    r#"{"acceptance":[{"id":"A9"}],"acceptance_round":9}"#,
+                ],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let old = round(s.db.conn(), &cache, &s.data, 1, 6).unwrap();
+        assert_eq!(old.acceptance_before, Some(json!([{ "id": "A0" }])));
+        let open = round(s.db.conn(), &cache, &s.data, 1, 5).unwrap();
+        assert_eq!(open.acceptance_before, None);
     }
 
     // A round recorded before its level was finds it as the one level that runs its model with its effort.

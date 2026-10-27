@@ -72,7 +72,7 @@ function Timeline(props: {
               className={`clickable${r.n === props.selected ? ' selected' : ''}`}
               onClick={() => props.onRound(r)}
             >
-              <td className="muted">{roundName(props.work, r.n)}</td>
+              <td className="muted nowrap">{roundName(props.work, r.n)}</td>
               <td className="nowrap">
                 <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
               </td>

@@ -131,7 +131,7 @@ export type WorkState = "running" | "ready" | "asking" | "waiting" | "paused" | 
 /**
  * The round of a work that is running.
  */
-export type RunningRound = {
+export type RunningRound = { 
 /**
  * Its number in the work.
  */
@@ -186,11 +186,11 @@ export type RoundOutcome = "running" | "took" | "sent_back" | "failed" | "interr
 /**
  * A round as a work's timeline shows it.
  */
-export type RoundSummary = {
+export type RoundSummary = { 
 /**
  * Its number in its work.
  */
-n: number,
+n: number, 
 /**
  * Its cell; none for a round that only answered an interjection.
  */
@@ -219,11 +219,11 @@ not_asked: string | null, };
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.
  */
-export type DesignCard = { id: number,
+export type DesignCard = { id: number, 
 /**
  * The round that handed it in: its number in the work.
  */
-round: number, work: number, item: number | null,
+round: number, work: number, item: number | null, 
 /**
  * open, ruled or replaced.
  */
@@ -236,11 +236,11 @@ replaced: Replacement | null, };
 /**
  * The design card that replaced another: the round that handed it in, at which cell and when.
  */
-export type Replacement = { design_card: number,
+export type Replacement = { design_card: number, 
 /**
  * The round that handed it in: its number in the work.
  */
-round: number, work: number,
+round: number, work: number, 
 /**
  * The cell of that round, and the cell's title in the work's flow version.
  */
@@ -262,7 +262,7 @@ export type OwnerAsk = { id: number,
 /**
  * The round that put it to the owner: its number in the work.
  */
-round: number, work: number, item: number | null, body: JsonValue,
+round: number, work: number, item: number | null, body: JsonValue, 
 /**
  * The kind of each point it asks about, in order, with the kind's group.
  */
@@ -570,7 +570,7 @@ export type ItemDetail = { item: ItemSummary, problem: string, why: string, appr
  * The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
  * design passes its checks.
  */
-acceptance: JsonValue | null, acceptance_work: number | null, acceptance_round: number | null,
+acceptance: JsonValue | null, acceptance_work: number | null, acceptance_round: number | null, 
 /**
  * The items it depends on, and the items that depend on it.
  */
@@ -593,11 +593,11 @@ shown: Array<Shown>, };
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
  */
-export type Shown = { work: number,
+export type Shown = { work: number, 
 /**
  * The round that handed it back: its number in the work.
  */
-round: number, cell: string,
+round: number, cell: string, 
 /**
  * The path of the return it is at, as the flow writes it.
  */

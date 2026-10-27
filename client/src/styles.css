@@ -1761,6 +1761,10 @@ table.list.mini td {
   font-size: 12.5px;
 }
 
+table.list.mini td.nowrap {
+  white-space: nowrap;
+}
+
 /* The panel that floats over the right side while something on the chart is open. */
 
 .panel {
