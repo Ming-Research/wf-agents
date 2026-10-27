@@ -126,6 +126,11 @@ impl Ctx<'_> {
         git::changed(self.wt()?, &self.fork()?, "HEAD")
     }
 
+    /// The files the work itself changed from one commit to another, apart from what merging main brought in.
+    fn own(&self, from: &str, to: &str) -> Result<Vec<String>, String> {
+        git::own_changes(self.wt()?, &self.project.main, from, to)
+    }
+
     fn design(&self, files: &[String]) -> Vec<String> {
         files
             .iter()
@@ -243,7 +248,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 return fail("the worktree has uncommitted changes");
             }
             let Some(start) = &c.head_start else { return Ok(()) };
-            let outside: Vec<String> = git::changed(wt, start, "HEAD")?
+            let outside: Vec<String> = c
+                .own(start, "HEAD")?
                 .into_iter()
                 .filter(|f| !f.starts_with("research/"))
                 .collect();
@@ -262,19 +268,26 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             // The change is counted from where the attempts of this cell began: commits an earlier attempt made and was
             // sent back for are still on the branch, and a revert in this round that undoes them leaves no change.
             let base = c.attempts_start()?.unwrap_or_else(|| start.clone());
-            let net = c.design(&git::changed(wt, &base, "HEAD")?);
+            let net = c.design(&c.own(&base, "HEAD")?);
             let loose = c.design(&git::changed_since(wt, "HEAD")?);
             if net.is_empty() && loose.is_empty() {
                 return Ok(());
             }
-            let own = c.design(&git::changed(wt, start, "HEAD")?);
-            let earlier = if base != *start && !c.design(&git::changed(wt, &base, start)?).is_empty() {
-                let range = format!("{base}..{start}");
-                let mut args = vec!["log", "--format=%h %s", range.as_str(), "--"];
-                args.extend(c.project.design_paths.iter().map(String::as_str));
-                git::git(wt, &args)?.lines().map(str::to_string).collect::<Vec<_>>()
-            } else {
+            let own = c.design(&c.own(start, "HEAD")?);
+            let left = if base == *start {
                 Vec::new()
+            } else {
+                c.design(&c.own(&base, start)?)
+            };
+            let earlier = if left.is_empty() {
+                Vec::new()
+            } else {
+                // The work's own commits that change them; main's, which a merge of main brought in, are left out.
+                let range = format!("{base}..{start}");
+                let not_main = format!("^origin/{}", c.project.main);
+                let mut args = vec!["log", "--format=%h %s", range.as_str(), not_main.as_str(), "--"];
+                args.extend(left.iter().map(String::as_str));
+                git::git(wt, &args)?.lines().map(str::to_string).collect::<Vec<_>>()
             };
             let mut why = Vec::new();
             if !own.is_empty() {
@@ -654,13 +667,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "design_card_when_tree_changed" => {
-            let wt = c.wt()?;
             let card = values::design_card(c.e, c.w)?;
             let base = match card.and_then(|k| k.head) {
                 Some(h) => h,
                 None => c.fork()?,
             };
-            let tree = c.design(&git::changed(wt, &base, "HEAD")?);
+            let tree = c.design(&c.own(&base, "HEAD")?);
             match (tree.is_empty(), v.is_some()) {
                 (false, false) => fail(format!(
                     "the design paths changed since the last design card ({}): hand in the new design card",
@@ -695,12 +707,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
         }
         "tests_only" => {
-            let wt = c.wt()?;
             let Some(from) = c.w.pushed_head.clone() else {
                 return Ok(());
             };
             let head = v.and_then(Value::as_str).unwrap_or("HEAD");
-            let outside: Vec<String> = git::changed(wt, &from, head)?
+            let outside: Vec<String> = c
+                .own(&from, head)?
                 .into_iter()
                 .filter(|f| !git::under(f, &c.project.test_paths))
                 .collect();
