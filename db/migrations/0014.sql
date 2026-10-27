@@ -30,8 +30,8 @@ CREATE TABLE architect_matters (
   round INTEGER,
   -- When it came. Read by: the queue, for how long it waited.
   at INTEGER NOT NULL,
-  -- For a next look the architect set for a time, that time; for a side report that is not urgent, an hour after it
-  -- came; NULL for a matter due at once. A matter not due wakes no one and is not in the queue.
+  -- For a next look the architect set for a time, that time; NULL for a matter due at once. A matter not due wakes no
+  -- one and is not in the queue.
   due INTEGER,
   -- For a next look the architect set on an item's work ending: that item; the matter is due once the item's latest
   -- work has ended or reached its end. NULL for any other.
@@ -166,13 +166,39 @@ CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NU
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (id) WHERE handled_round IS NULL;
 
--- Every design card not replaced waits for the architect's look, as a card handed in from now on does: the merge gate
--- waits for the architect's ruling as well as the owner's.
+-- Every design card not replaced that the owner has not confirmed is for the architect to look at, as a card handed
+-- in from now on is: whether the card holds and the approaches it chose are reasonable; the owner alone rules on it.
+-- A card is confirmed when the owner's last ruling confirms every decision: a verdict of confirm on each of them, or,
+-- for a ruling made before rulings were per decision, on the card as a whole.
 INSERT INTO architect_matters (kind, what, body, item, work, round, at)
   SELECT 'design_card', 'Design card ' || c.id || ' of work ' || c.work || ' to look at',
     json_object('design_card', c.id), w.item, c.work, c.round, CAST(unixepoch('subsec') * 1000 AS INTEGER)
   FROM design_cards c JOIN works w ON w.id = c.work
-  WHERE c.status <> 'replaced';
+  WHERE c.status <> 'replaced' AND NOT coalesce((
+    SELECT CASE
+      WHEN json_type(r.value, '$.decisions') = 'array' THEN
+        NOT EXISTS (
+          SELECT 1 FROM json_each(r.value, '$.decisions') d WHERE json_extract(d.value, '$.verdict') IS NOT 'confirm')
+        AND (SELECT count(DISTINCT json_extract(d.value, '$.decision')) FROM json_each(r.value, '$.decisions') d
+             WHERE json_extract(d.value, '$.decision') BETWEEN 1 AND max(1, coalesce(json_array_length(c.body), 1)))
+          = max(1, coalesce(json_array_length(c.body), 1))
+      ELSE json_extract(r.value, '$.verdict') = 'confirm' END
+    FROM json_each(c.rulings) r WHERE json_extract(r.value, '$.by') = 'owner' ORDER BY r.key DESC LIMIT 1), 0);
+
+-- The side reports rounds handed in before the architect ran are one matter for it, to look through them all, each
+-- with the round that handed it in and its place in that round's list; none when there are none.
+INSERT INTO architect_matters (kind, what, body, at)
+  SELECT 'other_question', 'Look through the ' || n || ' side reports handed in before you ran',
+    json_object('side_reports', json(reports)), CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  FROM (
+    SELECT count(*) AS n, json_group_array(json_object('work', work, 'round', round, 'cell', cell, 'index', idx,
+      'report', CASE WHEN type IN ('object', 'array') THEN json(report) ELSE report END)) AS reports
+    FROM (
+      SELECT r.work, r.n AS round, r.cell, s.key AS idx, s.type, s.value AS report
+      FROM rounds r, json_each(r.output, '$.side_reports') s
+      WHERE r.output IS NOT NULL
+      ORDER BY r.work, r.n, s.key))
+  WHERE n > 0;
 
 DROP VIEW ready_items;
 DROP VIEW item_body;

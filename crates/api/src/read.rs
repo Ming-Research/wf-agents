@@ -309,9 +309,7 @@ fn waits(
     }
     let card: Option<i64> = conn
         .query_row(
-            "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' AND NOT EXISTS (
-               SELECT 1 FROM json_each(rulings) r WHERE json_extract(r.value, '$.by') = 'owner')
-             ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1",
             [w.id],
             |x| x.get(0),
         )
@@ -349,6 +347,7 @@ fn summary(
                 .find_map(|r| g?.cell(r.cell.as_deref()?)?.stage.clone())
         });
     let count = |want: &[RoundOutcome]| rounds.iter().filter(|r| want.contains(&r.outcome())).count() as i64;
+    let (paused, paused_by) = paused(w);
     WorkSummary {
         id: w.id,
         item: w.item,
@@ -364,12 +363,8 @@ fn summary(
             WorkState::Asking if waits.is_none() => WorkState::Ready,
             s => s,
         },
-        paused: w.paused.clone(),
-        paused_by: match w.paused_by.as_deref() {
-            Some("owner") => Some(PausedBy::Owner),
-            Some(_) => Some(PausedBy::Engine),
-            None => None,
-        },
+        paused,
+        paused_by,
         ended: w.ended.clone(),
         waits,
         answered,
@@ -395,6 +390,24 @@ fn summary(
     }
 }
 
+/// Why a work is paused and who paused it, as the owner reads it: the architect's stop is the engine's pause whose
+/// reason says the architect stopped it, and is shown as the architect's, with the architect's reason.
+fn paused(w: &WorkRow) -> (Option<String>, Option<PausedBy>) {
+    let stopped = (w.paused_by.as_deref() == Some("engine"))
+        .then(|| w.paused.as_deref()?.strip_prefix(db::STOPPED_BY_ARCHITECT))
+        .flatten();
+    if let Some(why) = stopped {
+        let why = why.trim_start_matches(':').trim().to_string();
+        return (Some(why), Some(PausedBy::Architect));
+    }
+    let by = match w.paused_by.as_deref() {
+        Some("owner") => Some(PausedBy::Owner),
+        Some(_) => Some(PausedBy::Engine),
+        None => None,
+    };
+    (w.paused.clone(), by)
+}
+
 /// A count by key, as a query that gives each key with its count reads it.
 fn counts(conn: &Connection, q: &str) -> Result<HashMap<i64, i64>> {
     let mut st = conn.prepare(q)?;
@@ -404,19 +417,6 @@ fn counts(conn: &Connection, q: &str) -> Result<HashMap<i64, i64>> {
 }
 
 /// The works a filter selects, as summaries, with their rows.
-/// A design card's status as the owner sees it: one the owner has ruled on is no longer the owner's to rule, though it
-/// stays open until the architect has looked at it too; the rulings say who ruled.
-fn owner_status(status: String, rulings: &Value) -> String {
-    let owner_ruled = rulings
-        .as_array()
-        .is_some_and(|rs| rs.iter().any(|r| r["by"] == "owner"));
-    if status == "open" && owner_ruled {
-        "ruled".to_string()
-    } else {
-        status
-    }
-}
-
 fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, WorkSummary)>> {
     let asks = counts(
         conn,
@@ -424,8 +424,7 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
     )?;
     let design_cards = counts(
         conn,
-        "SELECT work, count(*) FROM design_cards WHERE status = 'open' AND NOT EXISTS (
-           SELECT 1 FROM json_each(rulings) r WHERE json_extract(r.value, '$.by') = 'owner') GROUP BY work",
+        "SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work",
     )?;
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
@@ -582,15 +581,14 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) ->
             _ => None,
         };
         let own: (i64, String) = (r.get(17)?, r.get(18)?);
-        let rulings = json(r.get(6)?).unwrap_or(Value::Null);
         let card = DesignCard {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
-            status: owner_status(r.get(4)?, &rulings),
+            status: r.get(4)?,
             body: json(r.get(5)?).unwrap_or(Value::Null),
-            rulings,
+            rulings: json(r.get(6)?).unwrap_or(Value::Null),
             replaced_by: by,
             replaced,
             cell: r.get(15)?,
@@ -2109,7 +2107,8 @@ mod tests {
 
     // What a work waits for comes from what is open, never from the kind of cell it is at: at a cell that asks, the
     // ask still unanswered, and once answered the work is ready and says the answer is in; at a row that waits, the
-    // items its item depends on. A paused work says both who paused it and what it waits for.
+    // items its item depends on. A paused work says both who paused it and what it waits for; one the architect
+    // stopped says it was the architect, with the architect's reason.
     #[test]
     fn a_work_says_what_it_waits_for_from_what_is_open() {
         let mut s = setup("waits");
@@ -2162,6 +2161,19 @@ mod tests {
         assert_eq!(
             (ws[1].state, &ws[1].waits, ws[1].answered),
             (WorkState::Ready, &None, Some(1))
+        );
+        s.db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "UPDATE works SET paused = ?1, paused_by = 'engine' WHERE id = 3",
+                [format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT)],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(
+            (ws[2].paused_by, ws[2].paused.as_deref()),
+            (Some(PausedBy::Architect), Some("it waits for the parser"))
         );
     }
 

@@ -637,7 +637,7 @@ fn building_a_message_writes_nothing() {
 }
 
 // While the merge gate waits for the owner's ruling on the design card, the next round offers no round: it says what
-// the work waits for, and which design card.
+// the work waits for, and which design card. The owner's confirmation alone lets the work through.
 #[test]
 fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
     let s = setup("gate-wait");
@@ -677,47 +677,11 @@ fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
     assert_eq!(next.cell, "19", "{log}");
     assert_eq!(
         next.waits.as_deref(),
-        Some(format!("the architect's look at design card {card}").as_str()),
-        "{log}"
-    );
-    assert_eq!(next.design_card, Some(card));
-    // The architect disagrees: the engineer is told, and the gate waits for the owner.
-    let disagree = [db::Verdict {
-        decision: 1,
-        verdict: "disagree".into(),
-        option: None,
-        text: Some("It does not fit the whole.".into()),
-    }];
-    e.db.write(Actor::Architect, |tx| {
-        db::rule_design_card(tx, card, "architect", &disagree).map_err(db::Error::Abort)
-    })
-    .unwrap();
-    let said: String =
-        e.db.conn()
-            .query_row(
-                "SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect'",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert!(said.starts_with(&format!("Ruling on design card {card}:")), "{said}");
-    // The engineer has taken the interjection in.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE interjections SET delivered_round = (SELECT max(n) FROM rounds WHERE work = ?1) WHERE work = ?1",
-            [work],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!(
-        next.waits.as_deref(),
         Some(format!("the owner's ruling on design card {card}").as_str()),
         "{log}"
     );
     assert_eq!(next.design_card, Some(card));
-    // Where the two differ, the owner's word goes: the owner confirms, and the gate waits no longer.
+    // The owner confirms, and the gate waits no longer.
     let confirm = api::Ruling {
         decisions: vec![api::DecisionRuling {
             decision: 1,
@@ -2759,81 +2723,106 @@ fn an_engineer_s_question_wakes_the_architect_whose_reply_takes_the_work_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Each side report is a matter of the architect's queue, queued once: an urgent one is due at once and wakes the
-// architect, any other an hour after it came, when it wakes the architect again.
+// Each side report is a matter of the architect's queue, queued once and due at once: one that comes while no wake runs
+// wakes the architect, urgent or not; one marked urgent that comes while a wake runs is given to that wake at the top
+// of its next round, and waits in the queue as well, for the wake to handle.
 #[test]
-fn side_reports_wake_the_architect_an_urgent_one_at_once_and_the_rest_an_hour_on() {
+fn side_reports_are_due_at_once_and_an_urgent_one_reaches_the_wake_that_runs() {
     let s = setup("side-reports");
     let mut agents = scripts();
+    // A cell's first round hands in the report, and its later rounds none.
+    let reporting = |r: Value| -> Script {
+        Box::new(move |_: &Request, n: usize| {
+            let reports = if n == 1 { json!([r.clone()]) } else { json!([]) };
+            (Vec::new(), vec![("side_reports", reports)])
+        })
+    };
+    let later = "It needs the timing machine later.";
     agents.insert(
         "1",
-        Box::new(|_: &Request, n: usize| {
-            let reports = if n == 1 {
-                json!([
-                    { "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true },
-                    { "kind": "machine_or_permission_later", "what": "It needs the timing machine later.", "urgent": false }
-                ])
-            } else {
-                json!([])
-            };
-            (Vec::new(), vec![("side_reports", reports)])
-        }),
+        reporting(json!({ "kind": "machine_or_permission_later", "what": later, "urgent": false })),
+    );
+    agents.insert(
+        "2",
+        reporting(json!({ "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true })),
     );
     picks_first(&s, &mut agents);
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
     e.step(work).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(
-        matters(&e),
-        [
-            ("duplicate".to_string(), true, false),
-            ("other_question".to_string(), false, false)
-        ],
-        "{log}"
-    );
+    // The report not urgent is due at once, and wakes the architect, as no wake runs.
+    assert_eq!(matters(&e), [("other_question".to_string(), true, false)], "{log}");
     let due: Option<i64> =
         e.db.conn()
             .query_row(
-                "SELECT due - at FROM architect_matters WHERE kind = 'other_question'",
+                "SELECT due FROM architect_matters WHERE kind = 'other_question'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-    // An hour after it came, the time it came being read a moment after the hour was counted from.
-    assert!(due.is_some_and(|d| (3_590_000..=3_600_000).contains(&d)), "{due:?}");
+    assert_eq!(due, None);
     let woke = e.step(work).unwrap();
+    let log = said.borrow().join("\n");
     assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
     let wake = woke.work.unwrap();
+    // While the wake runs, an urgent report comes: it is queued, and the wake's next round of its line is given it.
+    let came = |e: &mut Engine| -> Option<i64> {
+        e.db.conn()
+            .query_row("SELECT at FROM architect_matters WHERE kind = 'duplicate'", [], |r| {
+                r.get(0)
+            })
+            .ok()
+    };
     assert!(
-        steps_until(&mut e, 60, |e| wake_done(e, wake)),
+        steps_until(&mut e, 40, |e| came(e).is_some()),
         "{}",
         said.borrow().join("\n")
     );
-    // Each report is queued once; the one not urgent wakes no one until its hour has passed.
+    let at = came(&mut e).unwrap();
+    assert!(!wake_done(&mut e, wake), "{}", said.borrow().join("\n"));
+    let given = |e: &mut Engine| -> Option<String> {
+        let input: String =
+            e.db.conn()
+                .query_row(
+                    "SELECT r.input FROM rounds r JOIN sessions s ON s.id = r.session
+                 WHERE r.work = ?1 AND s.line = 'architect' AND r.started_at >= ?2 ORDER BY r.n LIMIT 1",
+                    [wake, at],
+                    |r| r.get(0),
+                )
+                .ok()?;
+        let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+        input["message"].as_str().map(str::to_string)
+    };
+    assert!(
+        steps_until(&mut e, 40, |e| given(e).is_some()),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let message = given(&mut e).unwrap();
+    let section = message
+        .split("\n### ")
+        .find(|x| x.starts_with(&format!("R{wake}-")) && x.contains("·engine·urgent_side_reports"))
+        .and_then(|x| x.split("\n## ").next())
+        .unwrap_or_default();
+    assert!(section.contains("Item 7 does the same."), "{message}");
+    assert!(!section.contains(later), "{message}");
+    // The wake handles both, each once.
+    assert!(
+        steps_until(&mut e, 80, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
     let log = said.borrow().join("\n");
     assert_eq!(
         matters(&e),
         [
-            ("duplicate".to_string(), false, true),
-            ("other_question".to_string(), false, false)
+            ("other_question".to_string(), false, true),
+            ("duplicate".to_string(), false, true)
         ],
         "{log}"
     );
-    e.step(None).unwrap();
-    assert_eq!(wakes(&e), [wake]);
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE architect_matters SET due = ?1 WHERE kind = 'other_question'",
-            [db::now() - 1],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    let again = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("A0"), "{log}");
-    assert_eq!(wakes(&e).len(), 2, "{log}");
+    assert_eq!(wakes(&e), [wake], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -2898,10 +2887,11 @@ fn the_owner_s_words_wake_the_architect_and_a_next_look_wakes_it_again_when_due(
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A design card a work hands in comes to the architect's queue, which wakes it; its ruling, made with engine_op, is
-// kept beside the owner's, and a decision it disagrees with reaches the work's engineer as an interjection.
+// A design card a work hands in comes to the architect's queue, which wakes it. The architect does not rule on it: it
+// looks at whether the card holds and the approaches it chose are reasonable, and tells the work's engineer with an
+// interjection what does not hold. The card's rulings are the owner's alone.
 #[test]
-fn a_design_card_wakes_the_architect_whose_ruling_is_kept_and_reaches_the_engineer() {
+fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_owner() {
     let s = setup("architect-card");
     let mut agents = scripts();
     agents.insert(
@@ -2929,49 +2919,30 @@ fn a_design_card_wakes_the_architect_whose_ruling_is_kept_and_reaches_the_engine
         }),
     );
     picks_first(&s, &mut agents);
-    let path = config::database(&s.data);
+    let look = "Decision 1 chose an approach that does not hold in the whole: the parser already does this.";
     agents.insert(
         "A8",
         Box::new(move |_: &Request, n: usize| {
             if n == 1 {
-                let card: i64 = db::open_read(&path)
-                    .unwrap()
-                    .query_row("SELECT max(id) FROM design_cards", [], |r| r.get(0))
-                    .unwrap();
-                let verdicts = json!([{ "decision": 1, "verdict": "disagree", "why": "It does not fit the whole." }]);
-                let tools = json!([{ "tool": "engine_op", "op": "rule_design_card", "design_card": card, "verdicts": verdicts }]);
+                let tools = json!([{ "tool": "engine_op", "op": "interject", "item": 1, "say": look }]);
                 return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
             }
             (Vec::new(), Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    let ruled = |e: &mut Engine| -> bool {
+    let told = |e: &mut Engine| -> bool {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM design_cards c, json_each(c.rulings) r
-                 WHERE json_extract(r.value, '$.by') = 'architect'",
+                "SELECT count(*) FROM interjections WHERE speaker = 'architect'",
                 [],
                 |r| r.get::<_, i64>(0),
             )
             .unwrap()
             > 0
     };
-    assert!(steps_until(&mut e, 150, ruled), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 150, told), "{}", said.borrow().join("\n"));
     let log = said.borrow().join("\n");
-    let (card, status, rulings): (i64, String, String) =
-        e.db.conn()
-            .query_row("SELECT id, status, rulings FROM design_cards", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .unwrap();
-    let rulings: Value = serde_json::from_str(&rulings).unwrap();
-    assert_eq!(status, "open", "{log}");
-    assert_eq!(rulings[0]["by"], "architect");
-    assert_eq!(
-        rulings[0]["decisions"],
-        json!([{ "decision": 1, "verdict": "disagree", "text": "It does not fit the whole." }])
-    );
     assert_eq!(matters(&e)[0].0, "design_card", "{log}");
     let (work, _, _) = state(&e, item).unwrap();
     let said_to: String =
@@ -2982,10 +2953,163 @@ fn a_design_card_wakes_the_architect_whose_ruling_is_kept_and_reaches_the_engine
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(
-        said_to,
-        format!("Ruling on design card {card}:\n- decision 1 (design/engine.md): disagree: It does not fit the whole.")
+    assert_eq!(said_to, look);
+    // The architect's look rules nothing: the card waits for the owner, whose ruling is the only one it holds.
+    let card = |e: &Engine| -> (i64, String, Value) {
+        let (id, status, rulings): (i64, String, String) =
+            e.db.conn()
+                .query_row("SELECT id, status, rulings FROM design_cards", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .unwrap();
+        (id, status, serde_json::from_str(&rulings).unwrap())
+    };
+    let (id, status, rulings) = card(&e);
+    assert_eq!((status.as_str(), rulings), ("open", json!([])), "{log}");
+    let confirm = api::Ruling {
+        decisions: vec![api::DecisionRuling {
+            decision: 1,
+            verdict: "confirm".into(),
+            text: None,
+            option: None,
+        }],
+    };
+    api::rule(&mut e.db, id, &confirm).unwrap();
+    let (_, status, rulings) = card(&e);
+    assert_eq!(status, "ruled");
+    let by: Vec<&Value> = rulings.as_array().unwrap().iter().map(|r| &r["by"]).collect();
+    assert_eq!(by, [&json!("owner")]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect stops a work with engine_op: the engine pauses it, with a reason that says the architect stopped it and
+// why. The owner's Start all does not let it go on; the owner's Continue of that work does.
+#[test]
+fn a_work_the_architect_stops_stays_stopped_through_start_all() {
+    let s = setup("architect-stop");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "A8",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools =
+                    json!([{ "tool": "engine_op", "op": "pause_work", "item": 1, "say": "It waits for the parser." }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
     );
+    let (mut e, said, item) = start(&s, agents);
+    let work = e.step(None).unwrap().work.unwrap();
+    db::say_to_architect(&mut e.db, "Stop the feature until the parser is in.").unwrap();
+    let woke = e.step(Some(work)).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
+    let wake = woke.work.unwrap();
+    let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
+    assert!(steps_until(&mut e, 80, stopped), "{}", said.borrow().join("\n"));
+    let why = format!("{}: It waits for the parser.", db::STOPPED_BY_ARCHITECT);
+    assert_eq!(state(&e, item).unwrap().2, Some(why.clone()));
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert!(
+        steps_until(&mut e, 80, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    assert_eq!(api::start_all(&mut e.db).unwrap(), "0 works paused by the owner go on");
+    let n = rounds_count(&e);
+    let log = said.borrow().join("\n");
+    assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
+    assert_eq!((rounds_count(&e), state(&e, item).unwrap().2), (n, Some(why)), "{log}");
+    api::resume(&mut e.db, work).unwrap();
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect runs at the level the installation names for it, and so does the new architect that reads a policy,
+// on no line: a wake's round and that reading run with the named level's model and effort, not the top level's, and
+// record the level in their call.
+#[test]
+fn the_architect_runs_at_the_level_the_installation_names() {
+    let s = setup("architect-level");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let levels = "[agents.levels.2]\ndesc = \"testing\"\ncli = \"claude\"\nmodel = \"m-two\"\neffort = \"medium\"\n\
+                  [agents.levels.4]\ndesc = \"running\"\ncli = \"claude\"\nmodel = \"m-four\"\neffort = \"max\"\n\
+                  [agents]\narchitect = \"2\"\n";
+    write(&s.data, "install.toml", &format!("{install}\n{levels}"));
+    git(&s.data, &["commit", "-q", "-am", "the architect's level"]);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    // The round, its model and its call, of a cell of a wake.
+    let ran = |e: &Engine, wake: i64, cell: &str| -> Option<(String, Value)> {
+        let (model, input): (String, String) =
+            e.db.conn()
+                .query_row(
+                    "SELECT model, input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n LIMIT 1",
+                    params![wake, cell],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .ok()?;
+        let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+        Some((model, input["call"].clone()))
+    };
+    // What a round ran at: its model, the level its call records, and the model and effort its command line gives.
+    let at_level = |model: &str, call: &Value| -> (String, Value, Option<String>, Option<String>) {
+        let command: Vec<String> = call["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.as_str().map(str::to_string))
+            .collect();
+        let after = |flag: &str| {
+            command
+                .iter()
+                .position(|a| a == flag)
+                .and_then(|i| command.get(i + 1).cloned())
+        };
+        (
+            model.to_string(),
+            call["level"].clone(),
+            after("--model"),
+            after("--effort"),
+        )
+    };
+    let want = (
+        "m-two".to_string(),
+        json!("2"),
+        Some("m-two".to_string()),
+        Some("medium".to_string()),
+    );
+    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| ran(e, wake, "A1").is_some()),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (model, call) = ran(&e, wake, "A1").unwrap();
+    assert_eq!(at_level(&model, &call), want);
+    assert!(
+        steps_until(&mut e, 60, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    // A wake at the new architect's reading of a policy, which the owner steps.
+    let reading =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) SELECT NULL, flow_version, graph, 'P5' FROM works
+                 WHERE id = ?1",
+                [wake],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    e.step_work(reading).unwrap();
+    let log = said.borrow().join("\n");
+    let (model, call) = ran(&e, reading, "P5").expect(&log);
+    assert_eq!(at_level(&model, &call), want, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

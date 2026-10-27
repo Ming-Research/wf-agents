@@ -171,6 +171,9 @@ pub enum PausedBy {
     /// The engine, for a problem the owner looks at before letting it go on: a step that could not be taken, or
     /// returns sent back too often.
     Engine,
+    /// The architect, which the engine keeps as its own pause, with the architect's reason: Start all does not let it
+    /// go on; the architect's resume, or the owner's Continue of that work, does.
+    Architect,
 }
 
 /// What a work waits for: once it comes, the work goes on by itself, unless it is paused.
@@ -203,7 +206,8 @@ pub struct WorkSummary {
     pub at_title: Option<String>,
     pub stage: Option<String>,
     pub state: WorkState,
-    /// Why it was paused, and who paused it; why it ended before its end.
+    /// Why it was paused, and who paused it (for a work the architect stopped, the architect's reason); why it ended
+    /// before its end.
     pub paused: Option<String>,
     pub paused_by: Option<PausedBy>,
     pub ended: Option<String>,

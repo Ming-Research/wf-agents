@@ -81,7 +81,7 @@ export type Course = {
   /// A round of it runs now: after it the work goes on by itself, or stops because it is held back, or the round is
   /// the one the owner asked for.
   running: 'goes_on' | 'pausing' | 'step' | null;
-  held: 'you' | 'all' | 'engine' | null;
+  held: 'you' | 'all' | 'engine' | 'architect' | null;
   waits: Waits | null;
   /// Its flow version is older than the one the engine runs: when it goes on, it is taken over.
   outdated: boolean;
@@ -92,7 +92,15 @@ export function course(w: WorkSummary, status: Status | null): Course {
     return { over: true, running: null, held: null, waits: null, outdated: false };
   }
   const held: Course['held'] =
-    w.paused_by === 'engine' ? 'engine' : w.paused_by === 'owner' ? 'you' : status?.paused ? 'all' : null;
+    w.paused_by === 'engine'
+      ? 'engine'
+      : w.paused_by === 'architect'
+        ? 'architect'
+        : w.paused_by === 'owner'
+          ? 'you'
+          : status?.paused
+            ? 'all'
+            : null;
   let running: Course['running'] = null;
   if (status !== null && status.running === w.id) {
     running = status.stepping === w.id ? 'step' : held !== null ? 'pausing' : 'goes_on';
@@ -113,7 +121,7 @@ export function controls(c: Course, status: Status | null) {
   if (c.over || status === null) return { pause: false, resume: false, step: false, canStep: false };
   return {
     pause: c.held === null,
-    resume: c.held === 'engine' || (c.held === 'you' && !status.paused),
+    resume: c.held === 'engine' || c.held === 'architect' || (c.held === 'you' && !status.paused),
     step: c.held !== null && c.running === null && c.waits === null,
     canStep: status.stepping === null && status.halt === null,
   };
@@ -122,9 +130,18 @@ export function controls(c: Course, status: Status | null) {
 /// Why the engine pauses a work the owner paused without saying why, as the engine writes it.
 const PAUSED_BY_OWNER = 'the owner paused it';
 
-/// Why a work is held back by itself, in words: stopped by the engine, or paused by the owner.
+/// Who holds a work back, in a few words, and whether the engine stopped it for a problem the owner looks at: paused by
+/// the owner, or stopped by the engine or by the architect.
+export function heldName(c: Course): { name: string; problem: boolean } {
+  if (c.held === 'engine') return { name: t('course_stopped'), problem: true };
+  if (c.held === 'architect') return { name: t('course_stopped_architect'), problem: false };
+  return { name: t('course_paused'), problem: false };
+}
+
+/// Why a work is held back by itself, in words: stopped by the engine or by the architect, or paused by the owner.
 export function heldWords(c: Course, why: string | null): string {
   if (c.held === 'engine') return t('course_stopped_why', { why: why ?? '' });
+  if (c.held === 'architect') return t('course_stopped_architect_why', { why: why ?? '' });
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 

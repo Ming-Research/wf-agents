@@ -652,6 +652,15 @@ impl Config {
                     problems.push(format!("projects/{name}.toml: no such rule: {r} (rules/{r}.md)"));
                 }
             }
+            // The constitution is a file in the project's checkout, named by its path from there.
+            if let Some(c) = &p.constitution
+                && (c.as_os_str().is_empty() || !c.is_relative())
+            {
+                problems.push(format!(
+                    "projects/{name}.toml: constitution is not a path in the project's checkout: {}",
+                    c.display()
+                ));
+            }
             for o in &p.other_projects {
                 if !self.projects.contains_key(o) {
                     problems.push(format!("projects/{name}.toml: no such project: {o}"));
@@ -1087,6 +1096,37 @@ asks = 9
         let mut m = files(&[]);
         m.0.insert("install.toml", "[owner]\nlanguage = 1");
         assert!(read(&m).is_err());
+    }
+
+    // The architect's level is one of the levels, and a project's constitution a path in its checkout; anything else
+    // is refused.
+    #[test]
+    fn the_architect_s_level_and_a_constitution_point_somewhere() {
+        let mut m = files(&[(
+            "projects/q.toml",
+            "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"CONSTITUTION.md\"",
+        )]);
+        let named = format!("{INSTALL}\n[agents]\narchitect = \"senior\"\n");
+        m.0.insert("install.toml", Box::leak(named.into_boxed_str()));
+        let c = read(&m).unwrap();
+        assert_eq!(c.architect_level(), "senior");
+        assert_eq!(
+            c.projects["q"].constitution.as_deref(),
+            Some(Path::new("CONSTITUTION.md"))
+        );
+        let mut m = files(&[(
+            "projects/q.toml",
+            "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"/q/CONSTITUTION.md\"",
+        )]);
+        let unnamed = format!("{INSTALL}\n[agents]\narchitect = \"9\"\n");
+        m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
+        let e = read(&m).unwrap_err();
+        assert!(e.to_string().contains("agents.architect names no level: 9"), "{e}");
+        assert!(
+            e.to_string()
+                .contains("projects/q.toml: constitution is not a path in the project's checkout: /q/CONSTITUTION.md"),
+            "{e}"
+        );
     }
 
     // A rule is given with the value of each setting it names.

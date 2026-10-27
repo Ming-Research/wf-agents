@@ -12,7 +12,7 @@ import type {
   Status,
   WorkSummary,
 } from './api';
-import { controls, course } from './components';
+import { controls, course, heldName, heldWords } from './components';
 import { held } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
@@ -147,6 +147,11 @@ describe('how a work goes on', () => {
     const stopped = course(work({ paused: 'cell 4: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
     expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, resume: true, step: true, canStep: false });
+    // Stopped by the architect: said so, with its reason, not as a problem; Start all leaves it, Continue lets it go on.
+    const architect = course(work({ paused: 'it waits for the parser', paused_by: 'architect' }), status({ paused: true }));
+    expect([architect.held, heldName(architect)]).toEqual(['architect', { name: 'stopped by the architect', problem: false }]);
+    expect(heldWords(architect, 'it waits for the parser')).toBe('stopped by the architect: it waits for the parser');
+    expect(controls(architect, status({ paused: true })).resume).toBe(true);
     // An ended work goes on no more.
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
   });

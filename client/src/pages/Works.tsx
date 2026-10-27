@@ -9,7 +9,7 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { WorkSummary } from '../api';
-import { type Course, WorkBadge, Loaded } from '../components';
+import { type Course, heldName, WorkBadge, Loaded } from '../components';
 import { Controls, held, runningWords, takeoverWords, useActions, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
@@ -59,9 +59,10 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
       );
     }
   } else if (why !== null) {
+    const h = heldName(c);
     parts.push(
-      <span key="held" className={`badge ${c.held === 'engine' ? 'state-stopped' : 'state-paused'}`} title={why}>
-        {c.held === 'engine' ? t('course_stopped') : t('course_paused')}
+      <span key="held" className={`badge ${h.problem ? 'state-stopped' : 'state-paused'}`} title={why}>
+        {h.name}
       </span>,
     );
   }
@@ -117,7 +118,7 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   return (
     <>
       {parts}
-      {c.held === 'engine' && w.paused ? <span className="why">{w.paused}</span> : null}
+      {(c.held === 'engine' || c.held === 'architect') && w.paused ? <span className="why">{w.paused}</span> : null}
     </>
   );
 }

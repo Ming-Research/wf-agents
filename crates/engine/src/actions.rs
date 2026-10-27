@@ -170,7 +170,8 @@ fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: 
     Ok(tx.last_insert_rowid())
 }
 
-/// Queues a design card for the architect to look at before the owner rules on it.
+/// Queues a new design card for the architect to look at: whether it holds and the approaches it chose are reasonable.
+/// The owner alone rules on it.
 fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundId) -> Result<(), String> {
     let what = format!("Design card {card} of {} to look at", ctx.about());
     let m = Matter {
@@ -316,7 +317,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 tx,
                 Some(w),
                 &format!(
-                    "Design card {card} of {}: the architect looks first, then you rule. It blocks nothing until the merge.",
+                    "Design card {card} of {} waits for your ruling; the architect looks at it too. It blocks nothing until the merge.",
                     ctx.about()
                 ),
             )?;
@@ -338,16 +339,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     )
                     .map_err(sql)?;
                 }
-                // The owner ruled on a card it replaces: the owner confirms the decisions again.
-                let owner_ruled: i64 = tx
-                    .query_row(
-                        "SELECT count(*) FROM design_cards c, json_each(c.rulings) r
-                         WHERE c.work = ?1 AND c.replaced_by = ?2 AND json_extract(r.value, '$.by') = 'owner'",
-                        params![w, card],
-                        |x| x.get(0),
-                    )
-                    .map_err(sql)?;
-                let again = if owner_ruled > 0 || before.iter().any(|(_, status)| status == "ruled") {
+                let again = if before.iter().any(|(_, status)| status == "ruled") {
                     " A decision you ruled on changed: it must be confirmed again."
                 } else {
                     ""
@@ -375,29 +367,12 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "notify_pending_approvers" => {
-            let current = current_design_card(tx, w)?;
-            let why = match &current {
-                Some((card, status)) if status == "open" => format!("design card {card} waits for a ruling"),
+            let why = match current_design_card(tx, w)? {
+                Some((card, status)) if status == "open" => format!("design card {card} waits for your ruling"),
                 Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
                 None => "it waits for the items it depends on to merge".to_string(),
             };
             notify(tx, Some(w), &format!("{} is ready to merge, but {why}.", ctx.about()))?;
-            // The architect is told by a matter of its own, unless it ruled on the card or one waits for it already.
-            if let Some((card, _)) = current {
-                let pending: i64 = tx
-                    .query_row(
-                        "SELECT (SELECT count(*) FROM json_each(c.rulings) r WHERE json_extract(r.value, '$.by') = 'architect')
-                              + (SELECT count(*) FROM architect_matters m WHERE m.kind = 'design_card'
-                                 AND m.handled_round IS NULL AND json_extract(m.body, '$.design_card') = c.id)
-                         FROM design_cards c WHERE c.id = ?1",
-                        [card],
-                        |r| r.get(0),
-                    )
-                    .map_err(sql)?;
-                if pending == 0 {
-                    design_card_matter(ctx, tx, card, ctx.round)?;
-                }
-            }
         }
         "revert_merge" => {
             let project = ctx.project()?;
@@ -501,8 +476,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "set_aside_checks" => {}
         "wake_architect" => {
-            // Each side report is one matter for the architect, queued once: an urgent one due at once, any other an
-            // hour after it came.
+            // Each side report is one matter for the architect, queued once and due at once, which wakes the
+            // architect when no wake runs; one marked urgent reaches a wake that runs through its input of urgent
+            // side reports, at the top of its next round.
             let reports = ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default();
             for (index, r) in reports.iter().enumerate() {
                 let queued: i64 = tx
@@ -534,7 +510,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     body: json!({ "report": r, "index": index, "cell": ctx.cell.id, "urgent": urgent }),
                     item: ctx.item.as_ref().map(|i| i.id),
                     raised: Some((ctx.round.work, ctx.round.n)),
-                    due: (!urgent).then(|| db::now() + crate::architect::HOUR),
                     ..Matter::default()
                 };
                 queue_matter(tx, &m).map_err(sql)?;

@@ -23,7 +23,7 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { controls, type Course, course, Loaded, OutcomeBadge } from '../components';
+import { controls, type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
@@ -158,9 +158,7 @@ function Going({ d, onCard, onAsk }: {
   const head = runs
     ? runningWords(c)
     : why !== null
-      ? c.held === 'engine'
-        ? t('course_stopped')
-        : t('course_paused')
+      ? heldName(c).name
       : c.waits !== null
         ? waitsWords(c.waits)
         : t('state_ready');
@@ -171,7 +169,7 @@ function Going({ d, onCard, onAsk }: {
         <strong>{head}</strong>
         {runs && since !== null ? <span className="muted">{duration(now - since)}</span> : null}
       </div>
-      {c.held === 'engine' && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
+      {(c.held === 'engine' || c.held === 'architect') && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
       {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
       {c.held === 'all' && !runs ? <p className="muted">{t('course_note_all')}</p> : null}
       {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}

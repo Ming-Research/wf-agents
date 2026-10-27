@@ -454,8 +454,8 @@ CREATE TABLE architect_matters (
   round INTEGER,
   -- When it came. Read by: the queue, for how long it waited.
   at INTEGER NOT NULL,
-  -- For a next look the architect set for a time, that time; for a side report that is not urgent, an hour after it
-  -- came; NULL for a matter due at once. A matter not due wakes no one and is not in the queue.
+  -- For a next look the architect set for a time, that time; NULL for a matter due at once. A matter not due wakes no
+  -- one and is not in the queue.
   due INTEGER,
   -- For a next look the architect set on an item's work ending: that item; the matter is due once the item's latest
   -- work has ended or reached its end. NULL for any other.

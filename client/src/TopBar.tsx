@@ -53,8 +53,10 @@ function Switch({ status }: { status: Status }) {
       post('/api/v1/engine/pause');
       return;
     }
-    // The works that go on once all start: those the engine stopped stay stopped.
-    const taken = (works.data ?? []).filter((w) => course(w, status).outdated && w.paused_by !== 'engine').length;
+    // The works that go on once all start: those the engine or the architect stopped stay stopped.
+    const taken = (works.data ?? []).filter(
+      (w) => course(w, status).outdated && w.paused_by !== 'engine' && w.paused_by !== 'architect',
+    ).length;
     const ask =
       taken > 0 ? t('confirm_start_all_takeover', { n: taken, version: status.flow_version }) : t('confirm_start_all');
     if (!window.confirm(ask)) return;

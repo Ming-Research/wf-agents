@@ -524,7 +524,7 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
             };
             design_card = what
                 .as_deref()
-                .filter(|x| x.starts_with("the owner's ruling on design card") || x.starts_with("the architect's look"))
+                .filter(|x| x.starts_with("the owner's ruling on design card"))
                 .and(values::design_card(e, &w)?.map(|c| c.id));
             waits = Some(what.unwrap_or_else(|| row.note.clone().unwrap_or_else(|| row.name.clone())));
         }

@@ -194,6 +194,7 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 #[derive(Debug, Clone)]
 pub struct DesignCard {
     pub id: i64,
+    pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
     /// How many decisions it holds; one for a card whose body holds none.
@@ -203,17 +204,18 @@ pub struct DesignCard {
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
+        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
                 max(1, coalesce(json_array_length(c.body), 1))
          FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
          WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(DesignCard {
-                id: r.get(2)?,
-                rulings: serde_json::from_str(&r.get::<_, String>(0)?).unwrap_or(Value::Null),
-                head: r.get(1)?,
-                decisions: r.get::<_, i64>(3)? as usize,
+                id: r.get(3)?,
+                status: r.get(0)?,
+                rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
+                head: r.get(2)?,
+                decisions: r.get::<_, i64>(4)? as usize,
             })
         },
     );
@@ -233,10 +235,10 @@ fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     }))
 }
 
+/// Whether the work may enter the merge queue: every item it depends on is merged, and the design paths did not
+/// change on the branch, or the owner confirmed its design card and they have not changed since.
 /// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the design tree
-/// unchanged on the branch, or changed only as the design card says that the architect looked at and the owner
-/// confirmed. Where the two differ, the owner's word goes: the architect's disagreement does not hold the merge once
-/// the owner confirmed every decision.
+/// unchanged on the branch, or changed only as the design card the owner confirmed says.
 pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
@@ -253,16 +255,13 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
     let Some(card) = design_card(e, w)? else {
         return Ok(Some("a design card for the change to the design tree".to_string()));
     };
-    let rulings = card.rulings.as_array().cloned().unwrap_or_default();
-    if !rulings.iter().any(|r| r["by"] == "architect") {
-        return Ok(Some(format!("the architect's look at design card {}", card.id)));
-    }
     // The owner's last ruling confirms every decision of the card.
-    let confirmed = rulings
-        .iter()
-        .rev()
-        .find(|r| r["by"] == "owner")
-        .is_some_and(|r| db::ruling_confirms(r, card.decisions));
+    let confirmed = card.status == "ruled"
+        && card
+            .rulings
+            .as_array()
+            .and_then(|rs| rs.last())
+            .is_some_and(|r| r["by"] == "owner" && db::ruling_confirms(r, card.decisions));
     if !confirmed {
         return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
     }

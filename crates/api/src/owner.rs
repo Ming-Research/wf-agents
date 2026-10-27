@@ -197,25 +197,128 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
 }
 
 /// Rules on a design card that is not replaced: a verdict on each of its decisions, all at once, is added to its
-/// rulings; the card is ruled once the architect has ruled on it too. The card counts as confirmed only when every
-/// decision is, and where the owner and the architect differ the owner's word goes. The decisions disagreed with reach
-/// the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that confirms
-/// every decision needs none.
+/// rulings, and it is ruled. The card counts as confirmed only when every decision is. The decisions disagreed with
+/// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
+/// confirms every decision needs none. The owner alone rules on a design card; once the owner confirms every decision,
+/// the architect has nothing to look at in it: the card leaves the architect's queue, unless a wake has it in hand.
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
-    let verdicts: Vec<db::Verdict> = r
-        .decisions
-        .iter()
-        .map(|d| db::Verdict {
-            decision: d.decision,
-            verdict: d.verdict.clone(),
-            option: d.option.clone(),
-            text: d.text.clone(),
-        })
-        .collect();
+    let found: Option<(String, i64, String)> = db
+        .conn()
+        .query_row(
+            "SELECT status, work, body FROM design_cards WHERE id = ?1",
+            [design_card],
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((status, work, body)) = found else {
+        return Err(format!("no design card {design_card}"));
+    };
+    if status == "replaced" {
+        return Err(format!(
+            "design card {design_card} is replaced: it can no longer be ruled"
+        ));
+    }
+    let body: Vec<Value> = match serde_json::from_str(&body).unwrap_or(Value::Null) {
+        Value::Array(xs) => xs,
+        Value::Null => Vec::new(),
+        other => vec![other],
+    };
+    // A card always has a decision; one whose body holds none is ruled as one decision.
+    let count = body.len().max(1) as i64;
+    let mut decisions: Vec<&crate::DecisionRuling> = r.decisions.iter().collect();
+    decisions.sort_by_key(|d| d.decision);
+    let numbers: Vec<i64> = decisions.iter().map(|d| d.decision).collect();
+    if numbers != (1..=count).collect::<Vec<_>>() {
+        return Err(format!(
+            "a ruling on design card {design_card} gives one verdict for each of its {count} decisions, by number"
+        ));
+    }
+    let mut verdicts = Vec::new();
+    let mut said = Vec::new();
+    for d in decisions {
+        let k = d.decision;
+        let text = d.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
+        let option = d.option.as_deref().map(str::trim).filter(|o| !o.is_empty());
+        let decision = body.get(k as usize - 1);
+        match d.verdict.as_str() {
+            "confirm" if option.is_none() => {}
+            "confirm" => return Err(format!("decision {k}: another approach is chosen only by disagreeing")),
+            "disagree" if text.is_none() && option.is_none() => {
+                return Err(format!(
+                    "decision {k}: a disagreement says why, or chooses another approach"
+                ));
+            }
+            "disagree" => {}
+            _ => return Err(format!("decision {k}: the verdict is confirm or disagree")),
+        }
+        let names: Vec<&str> = decision
+            .and_then(|x| x["options"].as_array())
+            .map(|os| os.iter().filter_map(|o| o["name"].as_str()).collect())
+            .unwrap_or_default();
+        if let Some(o) = option
+            && !names.is_empty()
+            && !names.contains(&o)
+        {
+            return Err(format!("decision {k} has no approach {o:?}"));
+        }
+        let mut v = json!({ "decision": k, "verdict": d.verdict });
+        if let Some(o) = option {
+            v["option"] = json!(o);
+        }
+        if let Some(t) = text {
+            v["text"] = json!(t);
+        }
+        verdicts.push(v);
+        if d.verdict == "disagree" {
+            let node = decision
+                .and_then(|x| x["node"].as_str())
+                .map(|n| format!(" ({n})"))
+                .unwrap_or_default();
+            let chosen = option
+                .map(|o| format!(", choosing the approach \"{o}\""))
+                .unwrap_or_default();
+            let why = text.map(|t| format!(": {t}")).unwrap_or_default();
+            said.push(format!("decision {k}{node}: disagree{chosen}{why}"));
+        } else {
+            said.push(format!("decision {k} confirmed"));
+        }
+    }
+    let disagree = verdicts.iter().any(|v| v["verdict"] == "disagree");
+    let ruling = json!({ "by": "owner", "at": db::now(), "decisions": verdicts });
     db.write(Actor::Owner, |tx| {
-        db::rule_design_card(tx, design_card, "owner", &verdicts).map_err(db::Error::Abort)
+        let rulings: String = tx.query_row("SELECT rulings FROM design_cards WHERE id = ?1", [design_card], |x| {
+            x.get(0)
+        })?;
+        let mut list: Vec<Value> = serde_json::from_str(&rulings).unwrap_or_default();
+        list.push(ruling.clone());
+        tx.execute(
+            "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
+            params![design_card, Value::Array(list).to_string()],
+        )?;
+        if disagree {
+            let lines: Vec<String> = said.iter().map(|s| format!("- {s}")).collect();
+            let text = format!("{} {design_card}:\n{}", db::DESIGN_CARD_RULING, lines.join("\n"));
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
+                params![work, text],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM architect_matters
+                 WHERE kind = 'design_card' AND json_extract(body, '$.design_card') = ?1 AND handled_round IS NULL
+                   AND held IS NULL AND id NOT IN (
+                     SELECT json_extract(p.output, '$.outcome.pick.chosen.queued') FROM rounds p
+                     JOIN works w ON w.id = p.work
+                     WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell = 'A6' AND p.transition = 'picked'
+                       AND json_extract(p.output, '$.outcome.pick.chosen.queued') IS NOT NULL)",
+                [design_card],
+            )?;
+        }
+        Ok(())
     })
-    .map_err(sql)
+    .map_err(sql)?;
+    Ok(format!("design card {design_card} ruled"))
 }
 
 /// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself until the owner
@@ -419,37 +522,41 @@ mod tests {
     }
 
     // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a confirmation
-    // does not. The card is ruled once the architect has ruled on it too.
+    // does not. Once the owner confirms every decision, the card waits no longer for the architect to look at it.
     #[test]
     fn the_owner_rules_on_a_design_card() {
         let mut db = setup();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (kind, what, body, item, work, round, at)
+                 VALUES ('design_card', 'Design card 1 to look at', '{\"design_card\":1}', 1, 1, 1, 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let looks = |db: &Db| -> i64 {
+            db.conn()
+                .query_row(
+                    "SELECT count(*) FROM architect_queue WHERE kind = 'design_card'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
         assert!(rule(&mut db, 1, &ruling(vec![one(1, "disagree", Some(" "), None)])).is_err());
         let disagree = ruling(vec![one(1, "disagree", Some("Keep the old name."), None)]);
         assert_eq!(rule(&mut db, 1, &disagree).unwrap(), "design card 1 ruled");
-        let status = |db: &Db| -> (String, Value) {
-            let (s, r): (String, String) = db
-                .conn()
-                .query_row("SELECT status, rulings FROM design_cards WHERE id = 1", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
-                .unwrap();
-            (s, serde_json::from_str(&r).unwrap())
-        };
-        let (s, rulings) = status(&db);
-        assert_eq!(s, "open");
+        let (status, rulings): (String, String) = db
+            .conn()
+            .query_row("SELECT status, rulings FROM design_cards WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let rulings: Value = serde_json::from_str(&rulings).unwrap();
+        assert_eq!(status, "ruled");
         assert_eq!(rulings[0]["decisions"][0]["text"], "Keep the old name.");
-        let confirm = [db::Verdict {
-            decision: 1,
-            verdict: "confirm".into(),
-            option: None,
-            text: None,
-        }];
-        db.write(Actor::Architect, |tx| {
-            db::rule_design_card(tx, 1, "architect", &confirm).map_err(db::Error::Abort)
-        })
-        .unwrap();
-        let (s, rulings) = status(&db);
-        assert_eq!((s.as_str(), &rulings[1]["by"]), ("ruled", &json!("architect")));
+        assert_eq!(looks(&db), 1);
         let said: String = db
             .conn()
             .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
@@ -464,6 +571,7 @@ mod tests {
             .query_row("SELECT count(*) FROM interjections", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 1);
+        assert_eq!(looks(&db), 0);
         assert!(rule(&mut db, 1, &ruling(vec![one(1, "maybe", Some("x"), None)])).is_err());
         assert!(rule(&mut db, 1, &ruling(Vec::new())).is_err());
     }

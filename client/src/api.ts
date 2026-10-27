@@ -154,7 +154,7 @@ n: number, cell: string | null, started_at: number, };
 /**
  * Who paused a work.
  */
-export type PausedBy = "owner" | "engine";
+export type PausedBy = "owner" | "engine" | "architect";
 
 /**
  * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
@@ -178,7 +178,8 @@ graph: string, flow_version: number,
  */
 at: string, at_title: string | null, stage: string | null, state: WorkState, 
 /**
- * Why it was paused, and who paused it; why it ended before its end.
+ * Why it was paused, and who paused it (for a work the architect stopped, the architect's reason); why it ended
+ * before its end.
  */
 paused: string | null, paused_by: PausedBy | null, ended: string | null, 
 /**

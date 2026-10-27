@@ -33,7 +33,10 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
       </button>
     );
   }
-  if (w.paused !== null) return <p className="step-waits warn">{t('progress_paused', { why: w.paused })}</p>;
+  if (w.paused !== null) {
+    const key = w.paused_by === 'architect' ? 'progress_stopped_architect' : 'progress_paused';
+    return <p className="step-waits warn">{t(key, { why: w.paused })}</p>;
+  }
   const state = liveState(w, status);
   const key =
     state === 'running'

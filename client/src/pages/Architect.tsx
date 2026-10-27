@@ -23,7 +23,7 @@ import type {
   WorkSummary,
 } from '../api';
 import { architectState, overWake, queueParts, shownWake } from '../architect';
-import { course, Loaded } from '../components';
+import { course, heldName, Loaded } from '../components';
 import { Controls, held, runningWords, useActions } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
@@ -111,9 +111,7 @@ function Awake({ w, handling, onAsk }: { w: WorkSummary; handling: string; onAsk
             {w.running ? <span className="muted"> {duration(Math.max(0, now - w.running.started_at))}</span> : null}
           </>
         ) : why !== null ? (
-          <span className={`badge ${c.held === 'engine' ? 'state-stopped' : 'state-paused'}`}>
-            {c.held === 'engine' ? t('course_stopped') : t('course_paused')}
-          </span>
+          <span className={`badge ${heldName(c).problem ? 'state-stopped' : 'state-paused'}`}>{heldName(c).name}</span>
         ) : null}
       </span>
       {waits?.kind === 'answer' ? (

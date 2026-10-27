@@ -8,7 +8,6 @@ use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
-use crate::architect::PAUSED_BY_ARCHITECT;
 use crate::work::{Work, query_json};
 use crate::{ENGINEER, Engine, actions};
 
@@ -782,7 +781,7 @@ fn write_one(
                 &[&key],
                 100_000,
             )?;
-            let why = format!("{PAUSED_BY_ARCHITECT}: segment {key} is deferred until {until}");
+            let why = format!("{}: segment {key} is deferred until {until}", db::STOPPED_BY_ARCHITECT);
             for w in works {
                 let id = w["id"].as_i64().unwrap_or_default();
                 tx.execute(
@@ -790,7 +789,7 @@ fn write_one(
                     params![id, why],
                 )
                 .map_err(sql)?;
-                actions::notify(tx, Some(id), &format!("Work {id} is paused: {why}"))?;
+                actions::notify(tx, Some(id), &format!("Work {id} is {why}"))?;
             }
         }
         "delete_segment" => {

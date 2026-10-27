@@ -16,10 +16,8 @@ use serde_json::Value;
 pub use rusqlite;
 
 mod matters;
-mod rulings;
 
 pub use matters::{Matter, one_sentence, queue_matter, say_to_architect};
-pub use rulings::{Verdict, rule_design_card};
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
@@ -94,6 +92,11 @@ pub fn ruling_disagrees(ruling: &serde_json::Value) -> bool {
 /// Why a work is paused when the owner paused it without saying why: its Pause on the page, and the round it asked
 /// for of a work the engine had paused, which takes the work into the owner's hands.
 pub const PAUSED_BY_OWNER: &str = "the owner paused it";
+
+/// What the reason of a work the architect stopped starts with: the engine pauses it as it pauses one for a problem,
+/// and the reason says the architect stopped it, then why. Only the architect's resume, or the owner's Continue of
+/// that work, lets it go on.
+pub const STOPPED_BY_ARCHITECT: &str = "stopped by the architect";
 
 #[derive(Debug)]
 pub enum Error {
@@ -1417,6 +1420,91 @@ mod tests {
         ];
         let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
         assert_eq!(cards, want);
+    }
+
+    // Taken to version 14, a database gives the architect a look at each design card not replaced that the owner has
+    // not confirmed, and one matter for the side reports handed in before, to look through them all; a database with
+    // no side report gets no such matter.
+    #[test]
+    fn the_architect_is_given_the_unconfirmed_cards_and_the_side_reports_handed_in_before() {
+        let mut old = at_version(13);
+        old.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '4')",
+                [],
+            )?;
+            let reports = r#"{"side_reports":[{"kind":"duplicate","what":"Item 7 does the same.","urgent":true},
+                {"kind":"other","what":"It needs a machine."}]}"#;
+            for (n, output) in [(1, reports), (2, r#"{"side_reports":[]}"#), (3, "{}")] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at)
+                     VALUES (1, ?1, '4', '{}', ?2, 'c', 1)",
+                    params![n, output],
+                )?;
+            }
+            let two = r#"[{"node":"a"},{"node":"b"}]"#;
+            let confirmed = r#"[{"by":"owner","at":1,"decisions":[{"decision":1,"verdict":"confirm"},
+                {"decision":2,"verdict":"confirm"}]}]"#;
+            let whole = r#"[{"by":"owner","verdict":"confirm","text":""}]"#;
+            let disagreed = r#"[{"by":"owner","at":1,"decisions":[{"decision":1,"verdict":"confirm"},
+                {"decision":2,"verdict":"disagree","text":"Keep it."}]}]"#;
+            let cards = [
+                (two, "open", "[]"),
+                (two, "ruled", confirmed),
+                ("[]", "ruled", whole),
+                (two, "ruled", disagreed),
+                (two, "replaced", "[]"),
+            ];
+            for (body, status, rulings) in cards {
+                tx.execute(
+                    "INSERT INTO design_cards (work, round, body, status, rulings) VALUES (1, 1, ?1, ?2, ?3)",
+                    params![body, status, rulings],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let mut st = old
+            .conn()
+            .prepare("SELECT kind, what, body FROM architect_matters ORDER BY id")
+            .unwrap();
+        let matters: Vec<(String, String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let kinds: Vec<(&str, &str)> = matters.iter().map(|m| (m.0.as_str(), m.1.as_str())).collect();
+        assert_eq!(
+            kinds,
+            [
+                ("design_card", "Design card 1 of work 1 to look at"),
+                ("design_card", "Design card 4 of work 1 to look at"),
+                (
+                    "other_question",
+                    "Look through the 2 side reports handed in before you ran"
+                ),
+            ]
+        );
+        let body: serde_json::Value = serde_json::from_str(&matters[2].2).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({ "side_reports": [
+                { "work": 1, "round": 1, "cell": "4", "index": 0,
+                  "report": { "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true } },
+                { "work": 1, "round": 1, "cell": "4", "index": 1,
+                  "report": { "kind": "other", "what": "It needs a machine." } }
+            ] })
+        );
+        let mut none = at_version(13);
+        none.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let n: i64 = none
+            .conn()
+            .query_row("SELECT count(*) FROM architect_matters", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     // A ruling with a verdict on each decision confirms its design card only when every decision is confirmed; one

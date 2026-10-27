@@ -27,7 +27,7 @@ const messages = {
   start_all: 'Start all',
   pause_all_hint: 'Every work stops at the end of the round it is in, and no new round or work starts.',
   start_all_hint:
-    'Every work you paused goes on, and new works start on ready items as slots free. A work the engine stopped for a problem stays stopped until you continue it.',
+    'Every work you paused goes on, and new works start on ready items as slots free. A work the engine stopped for a problem, or the architect stopped, stays stopped until you continue it.',
   confirm_start_all:
     'Start all? Every work you paused goes on with real rounds on your account, and new works start on ready items.',
   confirm_start_all_takeover:
@@ -99,6 +99,8 @@ const messages = {
   course_paused_why: 'paused by you: {why}',
   course_stopped: 'stopped by the engine',
   course_stopped_why: 'stopped by the engine: {why}',
+  course_stopped_architect: 'stopped by the architect',
+  course_stopped_architect_why: 'stopped by the architect: {why}',
   course_note_all: 'Every work is paused: Start all in the bar lets them go on, and Step runs one round of this one.',
   course_answered: 'your answer to ask {id} is in',
   course_answered_hint: 'The ask is answered: the next round takes the answer in and the work goes on.',
@@ -371,6 +373,7 @@ const messages = {
   progress_waits_card: 'Waits for your ruling on design card {id}',
   progress_waits_ask: 'Waits for your answer to ask {id}',
   progress_paused: 'Paused: {why}',
+  progress_stopped_architect: 'Stopped by the architect: {why}',
   progress_running: 'A round runs here now.',
   progress_waiting: 'Waits for other works, or for its turn.',
   progress_asking: 'Waits for the answer it asked for.',
@@ -498,7 +501,7 @@ const messages = {
   legend_number: "a row's number in its cell's transition table",
   legend_current: 'the cell the work is at',
   legend_running: 'a round runs at the cell now: a wide halo of colours runs round it and pulses outwards',
-  legend_held: 'the work is held back at the cell it goes on from: paused by you, or stopped by the engine; hover for why',
+  legend_held: 'the work is held back at the cell it goes on from: paused by you, or stopped by the engine or the architect; hover for why',
   legend_rounds: 'how many rounds the work had at the cell',
   legend_sent_back: 'how many of those returns were sent back',
   legend_failed: 'how many of those runs failed or were cut off',

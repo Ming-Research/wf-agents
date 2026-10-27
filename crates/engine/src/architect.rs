@@ -23,12 +23,8 @@ use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
 use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 
-/// An hour, in milliseconds: how long a side report that is not urgent waits before it is due, and the least time
-/// between two advances the engine raises.
+/// An hour, in milliseconds: the least time between two advances the engine raises.
 pub const HOUR: i64 = 3_600_000;
-
-/// Why a work the architect paused is paused: the start of its reason, by which the architect alone lets it go on.
-pub const PAUSED_BY_ARCHITECT: &str = "paused by the architect";
 
 /// The engine's inputs the architect's cells read, each computed by [`input`].
 pub const INPUTS: [&str; 10] = [
@@ -909,11 +905,12 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
             if work.paused.is_some() {
                 return Err(format!("work {} on item {i} is paused already", work.id));
             }
+            // The architect's stop is the engine's pause, its reason saying the architect stopped it and why.
             let why = match say {
-                Some(s) => format!("{PAUSED_BY_ARCHITECT}: {s}"),
-                None => format!("{PAUSED_BY_ARCHITECT} in its wake, work {}", w.id),
+                Some(s) => format!("{}: {s}", db::STOPPED_BY_ARCHITECT),
+                None => format!("{}: in its wake, work {}", db::STOPPED_BY_ARCHITECT, w.id),
             };
-            let text = format!("Work {} on item {i} is paused: {why}", work.id);
+            let text = format!("Work {} on item {i} is {why}", work.id);
             e.db.write(Actor::Architect, |tx| {
                 tx.execute(
                     "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
@@ -930,9 +927,9 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
                 && work
                     .paused
                     .as_deref()
-                    .is_some_and(|p| p.starts_with(PAUSED_BY_ARCHITECT));
+                    .is_some_and(|p| p.starts_with(db::STOPPED_BY_ARCHITECT));
             if !by_architect {
-                return Err(format!("work {} on item {i} is not paused by the architect", work.id));
+                return Err(format!("work {} on item {i} is not stopped by the architect", work.id));
             }
             e.db.write(Actor::Architect, |tx| {
                 tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work.id])?;
@@ -1001,25 +998,6 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
                 )?;
                 Ok(())
             })
-            .map_err(sql)
-        }
-        "rule_design_card" => {
-            let card = req["design_card"]
-                .as_i64()
-                .ok_or("rule_design_card needs the design card's number")?;
-            let verdicts: Vec<db::Verdict> = items(req.get("verdicts"))
-                .iter()
-                .map(|v| db::Verdict {
-                    decision: v["decision"].as_i64().unwrap_or_default(),
-                    verdict: v["verdict"].as_str().unwrap_or_default().to_string(),
-                    option: v["approach"].as_str().map(str::to_string),
-                    text: v["why"].as_str().map(str::to_string),
-                })
-                .collect();
-            e.db.write(Actor::Architect, |tx| {
-                db::rule_design_card(tx, card, ARCHITECT, &verdicts).map_err(db::Error::Abort)
-            })
-            .map(|_| ())
             .map_err(sql)
         }
         other => Err(format!("no such operation: {other}")),
