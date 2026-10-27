@@ -1,6 +1,7 @@
 // What agents and the engine told the owner: messages that need no answer, newest first. The engine's own notices (a
 // work stopped by a new flow version, a design card posted, every work halted until a limit resets) are marked as the
-// engine's. The owner marks one read, or all of them; read ones are shown on asking.
+// engine's; a notice of a new ask shows the kinds it asks about as chips coloured by their group. The owner marks one
+// read, or all of them; read ones are shown on asking.
 
 import { useState } from 'react';
 
@@ -10,6 +11,7 @@ import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Link } from '../route';
 import { t } from '../text';
+import { KindChip } from './Decide';
 
 /// Marks messages read: an agent's message or an engine's notice, or every one unread.
 async function markRead(body: { ids: number[] } | { notices: number[] } | { all: true }): Promise<void> {
@@ -55,7 +57,12 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
       </div>
       <p className="msg-text">{m.text}</p>
       {m.ask !== null && m.item !== null ? (
-        <Link to={`/items/${m.item}#ask-${m.ask}`}>{t('message_answer_ask', { id: m.ask })}</Link>
+        <div className="msg-ask">
+          {m.ask_kinds.map((k, i) => (
+            <KindChip key={i} k={k} />
+          ))}
+          <Link to={`/items/${m.item}#ask-${m.ask}`}>{t('message_answer_ask', { id: m.ask })}</Link>
+        </div>
       ) : null}
     </li>
   );

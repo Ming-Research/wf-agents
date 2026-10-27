@@ -232,6 +232,10 @@ button.link {
   color: var(--bad);
 }
 
+.good {
+  color: var(--good);
+}
+
 .error {
   color: var(--bad);
   padding: 8px 0;
@@ -354,26 +358,7 @@ td.clip {
   position: relative;
 }
 
-.dag {
-  height: 380px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
 /* The chart's cells */
-
-.item-node {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 12px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-  color: var(--text);
-}
 
 .cell-selected {
   outline: 2px solid var(--warn);
@@ -563,46 +548,377 @@ pre.prompt,
   line-height: 1.55;
 }
 
-/* What an item's works found and decided. */
+/* The items: the tree on the left, the item picked on the right, the grip between them that drags the split. */
 
-.shown-now {
-  border-left: 3px solid var(--accent);
-  padding: 4px 10px;
-  margin-bottom: 10px;
+.items-screen {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.items-tree {
+  flex: none;
+  overflow: auto;
+  padding: 8px 0 16px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.items-grip {
+  flex: none;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 1;
+}
+
+.items-grip:hover,
+.items-grip-on {
+  background: var(--accent-soft);
+}
+
+.items-item {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.items-pick,
+.tree-none {
+  padding: 16px;
+}
+
+.tree-project + .tree-project {
+  margin-top: 12px;
+}
+
+.tree-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0 12px 6px;
+}
+
+.tree-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.state-chip {
+  border: 0;
+  border-radius: 9px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.state-chip-off {
+  background: none;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 8px;
+  border-left: 4px solid var(--line);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tree-row:hover {
+  background-color: var(--accent-soft);
+}
+
+.tree-row.selected {
+  background-color: var(--accent-soft);
+  font-weight: 600;
+}
+
+/* The stage the item's work is at, as a bar behind its row that fills as the work goes through the stages. */
+.tree-staged {
+  background-image: linear-gradient(color-mix(in srgb, var(--running) 13%, transparent), color-mix(in srgb, var(--running) 13%, transparent));
+  background-repeat: no-repeat;
+}
+
+.tree-ref {
+  font-size: 12.5px;
+}
+
+.tree-fold {
+  flex: none;
+  width: 16px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.tree-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tree-row .chip {
+  flex: none;
+}
+
+.tree-facts {
+  margin-left: auto;
+  padding-left: 8px;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.item-edge-working {
+  border-left-color: var(--running);
+}
+
+.item-edge-queued {
+  border-left-color: var(--warn);
+}
+
+.item-edge-new {
+  border-left-color: var(--muted);
+}
+
+.item-edge-done {
+  border-left-color: var(--good);
+}
+
+.item-edge-stopped,
+.item-edge-cancelled {
+  border-left-color: var(--bad);
+}
+
+/* An item's page: what needs the owner, where the work stands, the problem, the design, the acceptance, the changes
+   on the way, and its history. */
+
+.item-page {
+  max-width: 1080px;
+}
+
+.item-page > .section {
+  margin: 10px 0;
 }
 
 .shown-from {
   color: var(--muted);
   font-size: 12px;
+  font-weight: 400;
 }
 
-.shown-path {
+.shown-old {
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.box-head {
+  margin-bottom: 4px;
+}
+
+.shape {
+  display: grid;
+  gap: 6px;
+}
+
+.field {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.fold {
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+  margin-top: 6px;
+}
+
+.fold > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.fold-body {
+  padding: 6px 0 2px;
+  display: grid;
+  gap: 6px;
+}
+
+.design-chosen {
+  margin: 0 0 4px;
+}
+
+.grounds {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.ground-verified {
+  background: color-mix(in srgb, var(--good) 16%, transparent);
+  color: var(--good);
+}
+
+.ground-inferred {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+.approaches td,
+.acceptance td {
+  vertical-align: top;
+}
+
+.approaches tr.recommended td:first-child {
+  box-shadow: inset 3px 0 var(--good);
+}
+
+.acceptance-by {
+  font-size: 12.5px;
+  width: 30%;
+}
+
+.change {
   border-top: 1px solid var(--line);
   padding: 6px 0;
 }
 
-.shown-path > summary {
+.change:first-child {
+  border-top: 0;
+}
+
+.labelled {
+  display: grid;
+  gap: 4px;
+}
+
+.labelled-field {
+  display: grid;
+  gap: 2px;
+}
+
+.labelled-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* The checklist of where the work stands: done ticked, the cell it is at with a filled dot, what is ahead hollow. */
+
+.checklist {
+  display: grid;
+  gap: 8px;
+}
+
+.checklist-stage-name {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.step > summary,
+.step-ahead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.step > summary {
   cursor: pointer;
-  margin-bottom: 4px;
+  list-style: none;
 }
 
-.shown-before {
-  margin-top: 6px;
+.step > summary::-webkit-details-marker {
+  display: none;
 }
 
-.shown-before > summary {
-  cursor: pointer;
+.step-mark {
+  width: 14px;
+  flex: none;
+  text-align: center;
 }
 
-.shown-old {
-  margin: 6px 0 0 12px;
+.step-done .step-mark {
+  color: var(--good);
 }
 
-.shown-log {
-  margin: 4px 0 0;
-  padding-left: 20px;
+.step-now .step-mark {
+  color: var(--running);
+}
+
+.step-now > summary {
+  font-weight: 600;
+}
+
+.step-ahead {
+  color: var(--muted);
+}
+
+.step-row {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.step-body {
+  margin: 0 0 6px 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.step-waits {
+  margin: 0;
+  text-align: left;
+}
+
+.step-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 3px;
+}
+
+/* Text an agent wrote, with its markdown drawn. */
+
+.md {
   display: grid;
   gap: 6px;
+  min-width: 0;
+}
+
+.md-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.md-list li + li {
+  margin-top: 2px;
+}
+
+.md-h {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.md-h1 {
+  font-size: 15px;
 }
 
 .j-str {
@@ -2079,8 +2395,108 @@ summary.works-label {
   white-space: normal;
 }
 
-.decision-options tr.chosen td {
+/* The option the agent recommends is marked green at its edge; the one the owner clicked is filled; both can be one. */
+
+.decision-options tr.recommended td:first-child {
+  box-shadow: inset 3px 0 var(--good);
+}
+
+.decision-options tr.pickable {
+  cursor: pointer;
+}
+
+.decision-options tr.pickable:hover td {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.decision-options tr.picked td {
   background: var(--accent-soft);
+}
+
+.decision-options tr.picked td:last-child {
+  box-shadow: inset -3px 0 var(--accent);
+}
+
+.option-recommended {
+  color: var(--good);
+  font-size: 12px;
+}
+
+.option-picked {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.option-picked::before {
+  content: '\2713  ';
+}
+
+.pick-hint {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.card-replaced {
+  margin: 0;
+}
+
+.card-was > summary {
+  cursor: pointer;
+}
+
+.card-was[open] > summary {
+  margin-bottom: 6px;
+}
+
+/* An ask's kind, coloured by its group, so that the sort of question shows at a glance. */
+
+.kind {
+  --kind: var(--muted);
+  background: color-mix(in srgb, var(--kind) 17%, transparent);
+  color: var(--kind);
+  font-weight: 600;
+}
+
+.kind-technical {
+  --kind: #5a4fcf;
+}
+
+.kind-coordination {
+  --kind: #0b7a75;
+}
+
+.kind-owner_only {
+  --kind: #b8442c;
+}
+
+.kind-environment {
+  --kind: #8a6200;
+}
+
+@media (prefers-color-scheme: dark) {
+  .kind-technical {
+    --kind: #a99cff;
+  }
+
+  .kind-coordination {
+    --kind: #4cc9c0;
+  }
+
+  .kind-owner_only {
+    --kind: #f2876c;
+  }
+
+  .kind-environment {
+    --kind: #e0b54f;
+  }
+}
+
+.msg-ask {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .rulings {

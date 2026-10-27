@@ -6,7 +6,7 @@ import { cost, duration } from './format';
 import { addHops, pathOf, type Route as Routed } from './graph/flowLayout';
 import { ASKING, chart, circled, MAIN, numbers, overlays, partsOf, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
-import { blocks } from './pages/Decide';
+import { parse as parseMarkdown } from './markdown';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 
@@ -296,11 +296,11 @@ describe('an ask', () => {
       'one line of code.',
       '```',
     ].join('\n');
-    expect(blocks(what)).toEqual([
-      { code: false, text: 'Please run a short probe on the Mac the engine runs on.' },
-      { code: true, text: "python3 - <data dir> <<'EOF'\nimport fcntl, os, sys\nfd = os.open(sys.argv[1], os.O_RDONLY)\nEOF" },
-      { code: false, text: 'Expected: line 1 taken\u3002' },
-      { code: true, text: 'one line of code.' },
+    expect(parseMarkdown(what)).toEqual([
+      { kind: 'para', text: 'Please run a short probe on the Mac the engine runs on.' },
+      { kind: 'code', text: "python3 - <data dir> <<'EOF'\nimport fcntl, os, sys\nfd = os.open(sys.argv[1], os.O_RDONLY)\nEOF" },
+      { kind: 'para', text: 'Expected: line 1 taken\u3002' },
+      { kind: 'code', text: 'one line of code.' },
     ]);
   });
 });

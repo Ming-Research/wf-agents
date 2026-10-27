@@ -248,6 +248,24 @@ pub struct DesignCard {
     pub body: Value,
     pub rulings: Value,
     pub replaced_by: Option<i64>,
+    /// For a design card a newer one replaced: that one, as the engine knows it.
+    pub replaced: Option<Replacement>,
+}
+
+/// The design card that replaced another: the round that handed it in, at which cell and when.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Replacement {
+    pub design_card: i64,
+    pub round: i64,
+    pub work: i64,
+    /// The cell of that round, and the cell's title in the work's flow version.
+    pub cell: Option<String>,
+    pub title: Option<String>,
+    /// When that round ended.
+    pub at: Option<i64>,
+    /// What the newer design card changed and why, in a sentence or two of its agent's; none while the flow asks no
+    /// agent for it.
+    pub changed: Option<String>,
 }
 
 /// An ask of the owner: what is asked, and the owner's answer.
@@ -259,8 +277,20 @@ pub struct OwnerAsk {
     pub work: i64,
     pub item: Option<i64>,
     pub body: Value,
+    /// The kind of each point it asks about, in order, with the kind's group.
+    pub kinds: Vec<AskKind>,
     /// None while it waits.
     pub answer: Option<Value>,
+}
+
+/// The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
+/// sort of question it is.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AskKind {
+    pub kind: String,
+    /// The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
+    /// an earlier flow version had.
+    pub group: Option<String>,
 }
 
 /// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -281,8 +311,9 @@ pub struct OwnerMessage {
     pub text: String,
     /// When the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
-    /// For the engine's notice of a new ask of the owner: that ask.
+    /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
     pub ask: Option<i64>,
+    pub ask_kinds: Vec<AskKind>,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -501,6 +532,14 @@ pub struct ItemSummary {
     /// Its latest work and the cell that work is at.
     pub work: Option<i64>,
     pub at: Option<String>,
+    /// The stage its latest work is at, and the stages of that work's graph in their order, among which it stands;
+    /// none and empty before a work starts.
+    pub stage: Option<String>,
+    pub stages: Vec<String>,
+    /// Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+    /// ruling.
+    pub open_asks: i64,
+    pub open_design_cards: i64,
     /// Its pull request: that of its latest work that has one, or the one it was imported with.
     pub pr: Option<i64>,
 }

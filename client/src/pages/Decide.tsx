@@ -1,32 +1,39 @@
 // What the owner decides on the page. A design card is laid out as the decisions it holds (for each: whether it is
 // settled, the node, what changes from what to what and why, the approaches compared with their verdicts, how sure and
 // what would overturn it), with its rulings, and while it waits for a ruling, the owner confirms it or disagrees with a
-// reason. An ask of the owner is laid out as what it asks about and, for a decision, the options with the one
-// recommended, and while it waits, the owner picks an option and says what more there is to say. Both write what the
-// command line writes, and the engine goes on at once.
+// reason, and may click another approach to rule for it. A replaced design card says only what replaced it, when, in
+// which round and at which cell, its full text folded. An ask of the owner is laid out as what it asks about, each
+// point under its kind coloured by the kind's group, and for a decision the options with the one recommended; while it
+// waits, the owner clicks an option and says what more there is to say. Both write what the command line writes, and
+// the engine goes on at once.
 
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 
-import type { DesignCard, JsonValue, OwnerAsk } from '../api';
-import { Json } from '../components';
+import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
 import { time } from '../format';
 import { postJson } from '../http';
+import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
+import { Markdown } from '../markdown';
+import { Link, navigate } from '../route';
 import { t } from '../text';
 
-type Obj = { [key in string]: JsonValue };
-
-const isObj = (v: JsonValue | undefined): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const str = (v: JsonValue | undefined): string =>
-  typeof v === 'string' ? v : v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-
-/// A name as words: `to_check` is "to check".
-export const words = (s: string | null | undefined) => (s ?? '').replaceAll('_', ' ');
+export { words };
 
 /// What the owner decided has been written: everything it shows is read again.
 function decided() {
   reread('works', 'work:*', 'items', 'item:*', 'round:*');
+}
+
+/// Brings an element of the page into view, opening whatever folds it; false when the page does not have it.
+export function bringIntoView(id: string): boolean {
+  const el = document.getElementById(id);
+  if (el === null) return false;
+  for (let p: HTMLElement | null = el; p !== null; p = p.parentElement) {
+    if (p instanceof HTMLDetailsElement) p.open = true;
+  }
+  el.scrollIntoView({ block: 'start' });
+  return true;
 }
 
 function Text({ label, value }: { label: string; value: JsonValue | undefined }) {
@@ -35,16 +42,76 @@ function Text({ label, value }: { label: string; value: JsonValue | undefined })
   return (
     <div className="decision-fact">
       <span className="decision-label">{label}</span>
-      <p className="prose">{s}</p>
+      <Markdown text={s} />
     </div>
   );
 }
 
+/// The options of a choice, which are also how the owner chooses: a click picks an option and a second click clears
+/// it. The option the agent recommends and the one the owner picked are marked apart, and may be the same.
+function Options(props: {
+  options: Obj[];
+  /// The fields shown beside each option's name: what it does, then the verdict or the cost.
+  fields: [string, string];
+  recommended: string;
+  /// What the recommended option is called here.
+  mark: string;
+  picked: string;
+  onPick: ((name: string) => void) | null;
+}) {
+  const pick = props.onPick;
+  return (
+    <table className="list decision-options">
+      <tbody>
+        {props.options.map((o, i) => {
+          const name = str(o.name);
+          const recommended = name !== '' && name === props.recommended;
+          const mine = name !== '' && name === props.picked;
+          const cls = [recommended ? 'recommended' : '', mine ? 'picked' : '', pick !== null ? 'pickable' : '']
+            .filter((c) => c !== '')
+            .join(' ');
+          return (
+            <tr
+              key={i}
+              className={cls === '' ? undefined : cls}
+              onClick={pick !== null ? () => pick(name) : undefined}
+              onKeyDown={
+                pick !== null
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        pick(name);
+                      }
+                    }
+                  : undefined
+              }
+              tabIndex={pick !== null ? 0 : undefined}
+              role={pick !== null ? 'radio' : undefined}
+              aria-checked={pick !== null ? mine : undefined}
+            >
+              <td>
+                <strong>{name}</strong>
+                {recommended ? <div className="option-recommended">{props.mark}</div> : null}
+                {mine ? <div className="option-picked">{t('option_yours')}</div> : null}
+              </td>
+              <td>
+                <Markdown text={str(o[props.fields[0]])} />
+              </td>
+              <td className="muted">
+                <Markdown text={str(o[props.fields[1]])} />
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 /// One decision of a design card.
-function Decision({ d }: { d: Obj }) {
+function Decision({ d, picked, onPick }: { d: Obj; picked: string; onPick: ((name: string) => void) | null }) {
   const settled = str(d.settled);
   const options = Array.isArray(d.options) ? d.options.filter(isObj) : [];
-  const chosen = str(d.chosen);
   const sure = str(d.sure);
   return (
     <div className="decision">
@@ -57,23 +124,14 @@ function Decision({ d }: { d: Obj }) {
       <Text label={t('decision_after')} value={d.after} />
       <Text label={t('decision_why')} value={d.why} />
       {options.length > 0 ? (
-        <table className="list decision-options">
-          <tbody>
-            {options.map((o, i) => {
-              const name = str(o.name);
-              return (
-                <tr key={i} className={name === chosen ? 'chosen' : undefined}>
-                  <td>
-                    <strong>{name}</strong>
-                    {name === chosen ? <div className="good">{t('decision_chosen')}</div> : null}
-                  </td>
-                  <td className="prose">{str(o.does)}</td>
-                  <td className="prose muted">{str(o.verdict)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <Options
+          options={options}
+          fields={['does', 'verdict']}
+          recommended={str(d.chosen)}
+          mark={t('decision_chosen')}
+          picked={picked}
+          onPick={onPick}
+        />
       ) : null}
       {sure !== '' ? (
         <Text label={t('decision_sure', { sure })} value={`${t(`sure_${sure}` as 'sure_1')}. ${str(d.sure_why)}`} />
@@ -100,18 +158,17 @@ function Rulings({ rulings }: { rulings: JsonValue }) {
           <strong>{t('ruling_by', { by: str(r.by), verdict: str(r.verdict) })}</strong>
           {r.option ? <span> · {t('ruling_option', { option: str(r.option) })}</span> : null}
           {typeof r.at === 'number' ? <span className="muted"> · {time(r.at)}</span> : null}
-          {str(r.text) !== '' ? <p className="prose">{str(r.text)}</p> : null}
+          {str(r.text) !== '' ? <Markdown text={str(r.text)} /> : null}
         </li>
       ))}
     </ul>
   );
 }
 
-/// The owner's ruling on a design card that waits for one: confirm, or disagree with a reason; another approach may be
-/// chosen instead of the one recommended.
-function RuleForm({ c, options }: { c: DesignCard; options: string[] }) {
+/// The owner's ruling on a design card that waits for one: confirm, or disagree with a reason; the approach clicked
+/// in the card, when one is, is ruled for instead of the one recommended.
+function RuleForm({ c, option, options }: { c: DesignCard; option: string; options: boolean }) {
   const [text, setText] = useState('');
-  const [option, setOption] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const send = (verdict: 'confirm' | 'disagree') => {
@@ -125,6 +182,11 @@ function RuleForm({ c, options }: { c: DesignCard; options: string[] }) {
   };
   return (
     <div className="decide">
+      {options ? (
+        <p className="muted pick-hint">
+          {option === '' ? t('rule_pick_hint') : t('rule_picked', { option })}
+        </p>
+      ) : null}
       <textarea
         value={text}
         rows={3}
@@ -132,19 +194,6 @@ function RuleForm({ c, options }: { c: DesignCard; options: string[] }) {
         onChange={(e) => setText(e.target.value)}
         disabled={busy}
       />
-      {options.length > 0 ? (
-        <label className="decide-row">
-          {t('rule_option')}{' '}
-          <select value={option} onChange={(e) => setOption(e.target.value)} disabled={busy}>
-            <option value="">{t('rule_option_none')}</option>
-            {options.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       <div className="decide-row">
         <button type="button" className="decide-button" onClick={() => send('confirm')} disabled={busy}>
           {t('rule_confirm')}
@@ -164,26 +213,88 @@ function RuleForm({ c, options }: { c: DesignCard; options: string[] }) {
   );
 }
 
-/// A design card as the owner reads and rules on it.
-export function DesignCardView({ c }: { c: DesignCard }) {
+/// A design card's decisions and rulings, and while it waits, the ruling: one approach may be clicked across the
+/// card, as a ruling chooses one.
+function CardBody({ c }: { c: DesignCard }) {
+  const [picked, setPicked] = useState('');
+  const open = c.status === 'open';
   const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const options = [
-    ...new Set(
-      decisions.flatMap((d) => (Array.isArray(d.options) ? d.options.filter(isObj).map((o) => str(o.name)) : [])),
-    ),
-  ].filter((o) => o !== '');
+  const options = decisions.some((d) => Array.isArray(d.options) && d.options.length > 0);
+  const pick = open ? (name: string) => setPicked((p) => (p === name ? '' : name)) : null;
   return (
     <div className="card-view">
-      {decisions.length === 0 ? <Json value={c.body} /> : decisions.map((d, i) => <Decision key={i} d={d} />)}
+      {decisions.length === 0 ? (
+        <Labelled value={c.body} />
+      ) : (
+        decisions.map((d, i) => <Decision key={i} d={d} picked={open ? picked : ''} onPick={pick} />)
+      )}
       <Rulings rulings={c.rulings} />
-      {c.status === 'open' ? <RuleForm c={c} options={options} /> : null}
+      {open ? <RuleForm c={c} option={picked} options={options} /> : null}
     </div>
   );
 }
 
-/// The owner's answer to an ask that waits: an option of its choice, when it has one, and words.
-function AnswerForm({ a, options }: { a: OwnerAsk; options: string[] }) {
-  const [picked, setPicked] = useState('');
+/// A link to a design card: brought into view where the page shows it, else on its item's page.
+function CardLink({ id, item }: { id: number; item: number | null }) {
+  const to = item !== null ? `/items/${item}#design-card-${id}` : null;
+  const go = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!bringIntoView(`design-card-${id}`) && to !== null) navigate(to);
+  };
+  return (
+    <a href={to ?? `#design-card-${id}`} onClick={go}>
+      {t('card_name', { id })}
+    </a>
+  );
+}
+
+/// A replaced design card: what replaced it, when, in which round and at which cell, and what the newer one changed
+/// and why when its agent said; the card as it was, folded.
+function Replaced({ c }: { c: DesignCard }) {
+  const r = c.replaced;
+  const cell = r === null || r.cell === null ? '' : r.title !== null ? `${r.cell} (${r.title})` : r.cell;
+  return (
+    <div className="card-view">
+      {r === null ? (
+        <p className="card-replaced muted">{t('card_replaced_none')}</p>
+      ) : (
+        <p className="card-replaced">
+          {t('card_replaced_by')} <CardLink id={r.design_card} item={c.item} />
+          {r.at !== null ? <span className="muted"> · {time(r.at)}</span> : null} ·{' '}
+          <Link to={`/works/${r.work}?round=${r.round}`}>{t('card_replaced_in', { round: r.round, cell })}</Link>
+        </p>
+      )}
+      {r?.changed ? <Markdown text={r.changed} /> : null}
+      <details className="card-was">
+        <summary className="muted">{t('card_as_it_was')}</summary>
+        <CardBody c={c} />
+      </details>
+    </div>
+  );
+}
+
+/// A design card as the owner reads and rules on it.
+export function DesignCardView({ c }: { c: DesignCard }) {
+  return c.status === 'replaced' ? <Replaced c={c} /> : <CardBody c={c} />;
+}
+
+/// The kind of a point an ask is about, as a chip coloured by the kind's group, so that the sort of question shows at
+/// a glance.
+export function KindChip({ k }: { k: AskKind }) {
+  return (
+    <span
+      className={`badge kind kind-${k.group ?? 'none'}`}
+      title={k.group !== null ? t('kind_group', { group: words(k.group) }) : undefined}
+    >
+      {words(k.kind)}
+    </span>
+  );
+}
+
+/// The owner's answer to an ask that waits: the option clicked in its choice, when one is, and words.
+function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string; options: boolean }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,19 +310,15 @@ function AnswerForm({ a, options }: { a: OwnerAsk; options: string[] }) {
   };
   return (
     <div className="decide">
-      {options.length > 0 ? (
-        <div className="decide-options">
-          {options.map((o) => (
-            <label key={o} className="decide-row">
-              <input type="radio" checked={picked === o} onChange={() => setPicked(o)} disabled={busy} /> {o}
-            </label>
-          ))}
-        </div>
+      {options ? (
+        <p className="muted pick-hint">
+          {picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}
+        </p>
       ) : null}
       <textarea
         value={text}
         rows={3}
-        placeholder={t(options.length > 0 ? 'answer_more_hint' : 'answer_text_hint')}
+        placeholder={t(options ? 'answer_more_hint' : 'answer_text_hint')}
         onChange={(e) => setText(e.target.value)}
         disabled={busy}
       />
@@ -225,45 +332,9 @@ function AnswerForm({ a, options }: { a: OwnerAsk; options: string[] }) {
   );
 }
 
-/// A text an agent wrote cut into its paragraphs, each prose or code: code is a block between ``` fences, or a
-/// paragraph of three lines or more none of which ends a sentence, such as a command to run.
-export function blocks(text: string): Array<{ code: boolean; text: string }> {
-  const out: Array<{ code: boolean; text: string }> = [];
-  text.split(/^```[^\n]*$/m).forEach((segment, i) => {
-    if (i % 2 === 1) {
-      const code = segment.replace(/^\n+|\n+$/g, '');
-      if (code !== '') out.push({ code: true, text: code });
-      return;
-    }
-    for (const para of segment.split(/\n[ \t]*\n/)) {
-      const p = para.replace(/^\n+|\n+$/g, '');
-      if (p.trim() === '') continue;
-      const lines = p.split('\n');
-      // A sentence ends with a full stop, an exclamation or a question mark, those of Chinese and Japanese too.
-      const ends = (l: string) => /[\u3002\uff01\uff1f.!?]\s*$/.test(l);
-      out.push({ code: lines.length >= 3 && !lines.some(ends), text: p });
-    }
-  });
-  return out;
-}
-
-/// A text an agent wrote, as it reads: prose paragraphs as prose, code kept as code.
+/// A text an agent wrote, as it reads.
 export function Written({ text }: { text: string }) {
-  return (
-    <>
-      {blocks(text).map((b, i) =>
-        b.code ? (
-          <pre key={i} className="code-block">
-            {b.text}
-          </pre>
-        ) : (
-          <p key={i} className="prose">
-            {b.text}
-          </p>
-        ),
-      )}
-    </>
-  );
+  return <Markdown text={text} />;
 }
 
 /// What an ask holds: what the cells handed in, each with its points and its choice. The engine keeps them under
@@ -278,28 +349,32 @@ function parts(body: Obj): Obj[] {
   return asked.length > 0 ? asked : [body];
 }
 
-/// An ask of the owner as the owner reads and answers it: for each point, its kind in words, what it says (its code
-/// kept as code) and what was tried; the choice, when there is one, with the option recommended; then the answer, or
-/// the form to give it.
+/// An ask of the owner as the owner reads and answers it: for each point, its kind as a chip, what it says (its code
+/// kept as code) and what was tried; the choice, when there is one, with the option recommended, which the owner
+/// answers by clicking an option; then the answer, or the form to give it.
 export function AskView({ a }: { a: OwnerAsk }) {
+  const [picked, setPicked] = useState('');
   const body = isObj(a.body) ? a.body : {};
   const held = parts(body);
   const points = held.flatMap((x) => (Array.isArray(x.points) ? x.points.filter(isObj) : []));
   const choice = held.map((x) => x.choice).find((c): c is Obj => c !== undefined && isObj(c)) ?? null;
   const options = choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [];
-  const recommended = choice !== null ? str(choice.recommended) : '';
   const answer = a.answer !== null && isObj(a.answer) ? a.answer : null;
+  const kind = (k: string): AskKind => a.kinds.find((x) => x.kind === k) ?? { kind: k, group: null };
+  const waits = answer === null;
   return (
     <div className="card-view">
       {body.to === 'architect' ? <p className="muted">{t('ask_for_architect')}</p> : null}
       {points.map((p, i) => (
         <div key={i} className="decision-fact">
-          <span className="decision-label">{words(str(p.kind))}</span>
-          <Written text={str(p.what)} />
+          <div>
+            <KindChip k={kind(str(p.kind))} />
+          </div>
+          <Markdown text={str(p.what)} />
           {str(p.tried) !== '' ? (
             <div className="ask-tried">
               <span className="decision-label">{t('ask_tried_label')}</span>
-              <Written text={str(p.tried)} />
+              <Markdown text={str(p.tried)} />
             </div>
           ) : null}
         </div>
@@ -307,39 +382,30 @@ export function AskView({ a }: { a: OwnerAsk }) {
       {choice !== null ? (
         <>
           <p className="ask-question">{str(choice.question)}</p>
-          <table className="list decision-options">
-            <tbody>
-              {options.map((o, i) => {
-                const name = str(o.name);
-                return (
-                  <tr key={i} className={name === recommended ? 'chosen' : undefined}>
-                    <td>
-                      <strong>{name}</strong>
-                      {name === recommended ? <div className="good">{t('ask_recommended')}</div> : null}
-                    </td>
-                    <td className="prose">{str(o.does)}</td>
-                    <td className="prose muted">{str(o.cost_risk)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <Options
+            options={options}
+            fields={['does', 'cost_risk']}
+            recommended={str(choice.recommended)}
+            mark={t('ask_recommended')}
+            picked={waits ? picked : ''}
+            onPick={waits ? (name) => setPicked((p) => (p === name ? '' : name)) : null}
+          />
           {choice.confidence !== undefined ? (
             <Text label={t('ask_confidence', { n: str(choice.confidence) })} value={choice.confidence_why} />
           ) : null}
         </>
       ) : null}
-      {points.length === 0 && choice === null ? <Json value={a.body} /> : null}
+      {points.length === 0 && choice === null ? <Labelled value={a.body} /> : null}
       {answer !== null ? (
         <div className="decision-fact">
           <span className="decision-label">
             {t('ask_answer_by', { by: str(answer.by) })}
             {typeof answer.at === 'number' ? ` · ${time(answer.at)}` : ''}
           </span>
-          <Written text={str(answer.text)} />
+          <Markdown text={str(answer.text)} />
         </div>
       ) : (
-        <AnswerForm a={a} options={options.map((o) => str(o.name)).filter((o) => o !== '')} />
+        <AnswerForm a={a} picked={picked} options={options.length > 0} />
       )}
     </div>
   );

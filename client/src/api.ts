@@ -215,7 +215,29 @@ export type DesignCard = { id: number, round: number, work: number, item: number
 /**
  * open, ruled or replaced.
  */
-status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, };
+status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, 
+/**
+ * For a design card a newer one replaced: that one, as the engine knows it.
+ */
+replaced: Replacement | null, };
+
+/**
+ * The design card that replaced another: the round that handed it in, at which cell and when.
+ */
+export type Replacement = { design_card: number, round: number, work: number, 
+/**
+ * The cell of that round, and the cell's title in the work's flow version.
+ */
+cell: string | null, title: string | null, 
+/**
+ * When that round ended.
+ */
+at: number | null, 
+/**
+ * What the newer design card changed and why, in a sentence or two of its agent's; none while the flow asks no
+ * agent for it.
+ */
+changed: string | null, };
 
 /**
  * An ask of the owner: what is asked, and the owner's answer.
@@ -226,9 +248,24 @@ export type OwnerAsk = { id: number,
  */
 round: number, work: number, item: number | null, body: JsonValue, 
 /**
+ * The kind of each point it asks about, in order, with the kind's group.
+ */
+kinds: Array<AskKind>, 
+/**
  * None while it waits.
  */
 answer: JsonValue | null, };
+
+/**
+ * The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
+ * sort of question it is.
+ */
+export type AskKind = { kind: string, 
+/**
+ * The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
+ * an earlier flow version had.
+ */
+group: string | null, };
 
 /**
  * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -248,9 +285,9 @@ round: number | null, cell: string | null, line: string | null, at: number | nul
  */
 read_at: number | null, 
 /**
- * For the engine's notice of a new ask of the owner: that ask.
+ * For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
  */
-ask: number | null, };
+ask: number | null, ask_kinds: Array<AskKind>, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -455,6 +492,16 @@ queued: number | null,
  * Its latest work and the cell that work is at.
  */
 work: number | null, at: string | null, 
+/**
+ * The stage its latest work is at, and the stages of that work's graph in their order, among which it stands;
+ * none and empty before a work starts.
+ */
+stage: string | null, stages: Array<string>, 
+/**
+ * Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+ * ruling.
+ */
+open_asks: number, open_design_cards: number, 
 /**
  * Its pull request: that of its latest work that has one, or the one it was imported with.
  */

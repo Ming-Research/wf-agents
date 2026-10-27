@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::Read as _;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use db::rusqlite::types::ValueRef;
 use db::rusqlite::{self, Connection, OptionalExtension, Row, params_from_iter};
@@ -15,9 +15,9 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    DesignCard, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
-    LinkedItem, OwnerAsk, OwnerMessage, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary,
-    RunningRound, Session, Shown, ToolRun, WorkDetail, WorkState, WorkSummary,
+    AskKind, DesignCard, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
+    KeptFile, LinkedItem, OwnerAsk, OwnerMessage, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
+    RoundSummary, RunningRound, Session, Shown, ToolRun, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -374,13 +374,35 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     })
 }
 
-const DESIGN_CARD: &str = "SELECT c.id, c.round, r.work, w.item, c.status, c.body, c.rulings, c.replaced_by
-FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work";
+/// A design card, with the one that replaced it: the round that handed that one in, and that round's work.
+const DESIGN_CARD: &str = "SELECT c.id, c.round, r.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
+       n.round, nr.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph
+FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
+LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.id = n.round
+LEFT JOIN works nw ON nw.id = nr.work";
 
-fn design_cards(conn: &Connection, filter: &str, id: i64) -> Result<Vec<DesignCard>> {
+fn design_cards(conn: &Connection, flows: &Flows, filter: &str, id: i64) -> Result<Vec<DesignCard>> {
     let mut st = conn.prepare(&format!("{DESIGN_CARD} {filter} ORDER BY c.id"))?;
     let rows = st.query_map([id], |r| {
-        Ok(DesignCard {
+        let by: Option<i64> = r.get(7)?;
+        let replaced = match (by, r.get::<_, Option<i64>>(8)?, r.get::<_, Option<i64>>(9)?) {
+            (Some(design_card), Some(round), Some(work)) => Some(Replacement {
+                design_card,
+                round,
+                work,
+                cell: r.get(10)?,
+                title: None,
+                at: r.get(11)?,
+                // The flow asks no agent yet for what a design card that replaces another changed and why.
+                changed: None,
+            }),
+            _ => None,
+        };
+        let pinned = match (r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?) {
+            (Some(version), Some(graph)) => Some((version, graph)),
+            _ => None,
+        };
+        let card = DesignCard {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
@@ -388,24 +410,74 @@ fn design_cards(conn: &Connection, filter: &str, id: i64) -> Result<Vec<DesignCa
             status: r.get(4)?,
             body: json(r.get(5)?).unwrap_or(Value::Null),
             rulings: json(r.get(6)?).unwrap_or(Value::Null),
-            replaced_by: r.get(7)?,
-        })
+            replaced_by: by,
+            replaced,
+        };
+        Ok((card, pinned))
     })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let mut out = Vec::new();
+    for row in rows {
+        let (mut card, pinned) = row?;
+        if let (Some(x), Some((version, graph))) = (card.replaced.as_mut(), pinned) {
+            let cell = x.cell.clone();
+            x.title = cell.and_then(|cell| {
+                let c = flows.get(conn, version).ok()?;
+                Some(c.graph(&graph)?.cell(&cell)?.title.clone())
+            });
+        }
+        out.push(card);
+    }
+    Ok(out)
 }
 
 const ASK: &str = "SELECT a.id, a.round, r.work, w.item, a.body, a.answer
 FROM owner_asks a JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work";
 
+/// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
+/// compiled flow version keeps the kinds, not their groups.
+static ASK_GROUPS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
+        return HashMap::new();
+    };
+    let mut out = HashMap::new();
+    for g in source.flows.iter().flat_map(|f| &f.ask_kinds) {
+        for (kind, _) in &g.kinds {
+            out.entry(kind.clone()).or_insert_with(|| g.group.clone());
+        }
+    }
+    out
+});
+
+/// The kind of each point an ask is about, in order, with its group. The engine keeps what the cells handed in under
+/// `asked`, each with its value; an ask written as one is its own.
+fn ask_kinds(body: &Value) -> Vec<AskKind> {
+    let asked: Vec<&Value> = body["asked"]
+        .as_array()
+        .map(|a| a.iter().map(|x| &x["value"]).filter(|v| v.is_object()).collect())
+        .unwrap_or_default();
+    let parts = if asked.is_empty() { vec![body] } else { asked };
+    parts
+        .into_iter()
+        .flat_map(|p| p["points"].as_array().into_iter().flatten())
+        .filter_map(|p| p["kind"].as_str())
+        .map(|kind| AskKind {
+            kind: kind.to_string(),
+            group: ASK_GROUPS.get(kind).cloned(),
+        })
+        .collect()
+}
+
 fn asks(conn: &Connection, filter: &str, id: i64) -> Result<Vec<OwnerAsk>> {
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
     let rows = st.query_map([id], |r| {
+        let body = json(r.get(4)?).unwrap_or(Value::Null);
         Ok(OwnerAsk {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
-            body: json(r.get(4)?).unwrap_or(Value::Null),
+            kinds: ask_kinds(&body),
+            body,
             answer: json(r.get(5)?),
         })
     })?;
@@ -432,13 +504,15 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             text: r.get(8)?,
             read_at: r.get(9)?,
             ask: None,
+            ask_kinds: Vec::new(),
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask
-FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body
+FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
+LEFT JOIN owner_asks a ON a.id = n.ask";
 
 /// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
 /// every one.
@@ -460,6 +534,7 @@ pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
             at: Some(r.get(5)?),
             read_at: r.get(6)?,
             ask: r.get(7)?,
+            ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
         })
     })?;
     for n in notices {
@@ -503,7 +578,7 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         waiting: json(w.waiting).unwrap_or(Value::Null),
         recorded: json(w.recorded).unwrap_or(Value::Null),
         rounds,
-        design_cards: design_cards(conn, "WHERE r.work = ?1", id)?,
+        design_cards: design_cards(conn, flows, "WHERE r.work = ?1", id)?,
         asks: asks(conn, "WHERE r.work = ?1", id)?,
         messages: messages_where(conn, "WHERE r.work = ?1", &[id])?,
         interjections: interjections(conn, "WHERE work = ?1", id)?,
@@ -687,7 +762,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         rejected,
         usage,
         tool_runs: tool_runs(conn, data, id)?,
-        design_cards: design_cards(conn, "WHERE c.round = ?1", id)?,
+        design_cards: design_cards(conn, flows, "WHERE c.round = ?1", id)?,
         asks: asks(conn, "WHERE a.round = ?1", id)?,
         interjections: interjections(conn, "WHERE delivered_round = ?1", id)?,
         round: summary,
@@ -761,6 +836,28 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
             }
         }
     }
+    // The stages of each graph a latest work runs, in their order: the order of the graph's cells, each stage where its
+    // first cell is.
+    let mut stages: HashMap<(i64, String), Vec<String>> = HashMap::new();
+    for w in latest.values() {
+        stages.entry((w.flow_version, w.graph.clone())).or_insert_with(|| {
+            let Ok(c) = flows.get(conn, w.flow_version) else {
+                return Vec::new();
+            };
+            let mut out: Vec<String> = Vec::new();
+            for s in c
+                .graph(&w.graph)
+                .into_iter()
+                .flat_map(|g| &g.cells)
+                .filter_map(|x| x.stage.as_ref())
+            {
+                if !out.contains(s) {
+                    out.push(s.clone());
+                }
+            }
+            out
+        });
+    }
     let mut st = conn.prepare(
         "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
@@ -783,6 +880,13 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 queued,
                 work: w.map(|w| w.id),
                 at: w.map(|w| w.at.clone()),
+                stage: w.and_then(|w| w.stage.clone()),
+                stages: w
+                    .and_then(|w| stages.get(&(w.flow_version, w.graph.clone())))
+                    .cloned()
+                    .unwrap_or_default(),
+                open_asks: w.map_or(0, |w| w.open_asks),
+                open_design_cards: w.map_or(0, |w| w.open_design_cards),
                 pr: prs.get(&id).copied().or(imported_pr),
             })
         })?
@@ -859,7 +963,7 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         imported_from,
         imported_branch,
         imported_pr,
-        design_cards: design_cards(conn, "WHERE w.item = ?1", id)?,
+        design_cards: design_cards(conn, flows, "WHERE w.item = ?1", id)?,
         asks: asks(conn, "WHERE w.item = ?1", id)?,
         shown: shown(conn, flows, id)?,
         item: summary,
@@ -1166,6 +1270,75 @@ mod tests {
         assert_eq!(second.depended_on_by[0].item.id, 1);
         assert!(second.works.is_empty());
         assert_eq!(flows(s.db.conn()).unwrap()[0].works, 1);
+        // The stage its work is at, among the stages of its graph in their order; nothing for an item never worked on.
+        assert_eq!(all.items[0].stage.as_deref(), Some("research"));
+        assert_eq!(all.items[0].stages[..2], ["queued", "research"]);
+        assert!(all.items[1].stage.is_none() && all.items[1].stages.is_empty());
+        assert_eq!((all.items[0].open_asks, all.items[0].open_design_cards), (0, 0));
+    }
+
+    // A replaced design card names the one that replaced it, with the round that handed that one in, its cell and
+    // when; the agent's own words on what changed are not asked for yet.
+    #[test]
+    fn a_replaced_design_card_says_what_replaced_it() {
+        let mut s = setup("replaced");
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO design_cards (round, body, status) VALUES (2, '[]', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO design_cards (round, body, status) VALUES (3, '[]', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE design_cards SET status = 'replaced', replaced_by = 2 WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let title = s.compiled.graph("engineer").unwrap().cell("1").unwrap().title.clone();
+        let d = item(s.db.conn(), &Flows::default(), 1).unwrap();
+        assert_eq!(
+            d.design_cards[0].replaced,
+            Some(Replacement {
+                design_card: 2,
+                round: 3,
+                work: 1,
+                cell: Some("1".into()),
+                title: Some(title),
+                at: Some(50),
+                changed: None,
+            })
+        );
+        assert_eq!(d.design_cards[1].replaced, None);
+        assert_eq!(
+            item(s.db.conn(), &Flows::default(), 1).unwrap().item.open_design_cards,
+            1
+        );
+    }
+
+    // An ask's kinds come with the group the flow puts each in; a kind the flow does not have has none.
+    #[test]
+    fn an_ask_says_the_group_of_each_kind_it_asks_about() {
+        let held = json!({ "asked": [{ "what": "w", "value": { "to": "owner", "points": [
+            { "kind": "blocked_by_permission", "what": "x" },
+            { "kind": "no_such_kind", "what": "y" },
+        ] } }] });
+        let kind = |kind: &str, group: Option<&str>| AskKind {
+            kind: kind.into(),
+            group: group.map(Into::into),
+        };
+        assert_eq!(
+            ask_kinds(&held),
+            [
+                kind("blocked_by_permission", Some("environment")),
+                kind("no_such_kind", None)
+            ]
+        );
+        let own = json!({ "to": "owner", "points": [{ "kind": "split", "what": "z" }] });
+        assert_eq!(ask_kinds(&own), [kind("split", Some("technical"))]);
     }
 
     #[test]
