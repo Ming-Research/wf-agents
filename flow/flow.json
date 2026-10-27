@@ -1200,6 +1200,1069 @@
           "desc": "Why you are that sure, and what fact would overturn the recommendation"
         }
       ]
+    },
+    "touch_kind": {
+      "type": "enum",
+      "values": [
+        [
+          "specification",
+          "A rule in the project's specification: added, removed or changed"
+        ],
+        [
+          "public_interface",
+          "An interface other projects or outsiders use: a library function, a command, a protocol"
+        ],
+        [
+          "data_format",
+          "The format of data that is stored or exchanged between components"
+        ]
+      ]
+    },
+    "arch_about": {
+      "type": "enum",
+      "values": [
+        [
+          "split",
+          "An engineer asks whether to split its work, and how"
+        ],
+        [
+          "duplicate",
+          "An engineer reported that its work duplicates another item"
+        ],
+        [
+          "depends_on_other_item",
+          "An engineer must wait for another item or project to deliver something"
+        ],
+        [
+          "out_of_scope_defect",
+          "An engineer met a defect that blocks it but does not belong to its work"
+        ],
+        [
+          "root_elsewhere",
+          "An engineer sees the root of its problem in another item, project or module"
+        ],
+        [
+          "too_costly",
+          "An engineer finds the change its work needs not worth it"
+        ],
+        [
+          "over_plan",
+          "An engineer's work must touch what its plan segment may not touch, or go past that segment's budget"
+        ],
+        [
+          "other_question",
+          "An engineer asks something of another kind"
+        ],
+        [
+          "owner_words",
+          "The owner said something to you, or answered a matter of yours that was held"
+        ],
+        [
+          "owner_approved",
+          "The owner approved the changes you collected: which were approved, and those that were not, with why"
+        ],
+        [
+          "constitution_violation",
+          "Something the second question found breaking the constitution, or about to"
+        ],
+        [
+          "judgment_mismatch",
+          "Something the second question found where the state of things no longer matches an earlier judgment of yours"
+        ],
+        [
+          "running_unfit",
+          "One place the fifth question found unfit in what runs or starts next"
+        ],
+        [
+          "advance",
+          "Arranging the works by the policy and the plan: the engine reports fewer works ready to start than there are slots, or a segment should be deferred or reordered"
+        ],
+        [
+          "tidy_board",
+          "Items placed wrongly, missing parts, duplicated or out of date"
+        ],
+        [
+          "policy_changed",
+          "The owner set a new version of the policy; the old one is no longer used"
+        ],
+        [
+          "design_card",
+          "A work's new design card, for you to look at before the owner rules on it"
+        ],
+        [
+          "tool_failed",
+          "A tool the engine runs for a work failed, and its retries failed too"
+        ],
+        [
+          "environment_changed",
+          "Main went red after a work merged, and is red on main's commit before the merge too"
+        ]
+      ]
+    },
+    "arch_judgment": {
+      "type": "obj",
+      "fields": [
+        {
+          "name": "principles",
+          "type": "list",
+          "desc": "Which articles of the constitution this touches and what each implies here, one per row; if it touches none, an empty list, and say why in fit",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "principle",
+                "type": "text",
+                "desc": "Which article, by its name in the constitution"
+              },
+              {
+                "name": "implies",
+                "type": "text",
+                "desc": "What it implies in this matter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "touches",
+          "type": "list",
+          "desc": "Which items this touches and how, one per row; an empty list if none",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "The item's number"
+              },
+              {
+                "name": "how",
+                "type": "text",
+                "desc": "How: a duplicate, a dependency, it blocks this, the root lies in it, or something else"
+              }
+            ]
+          }
+        },
+        {
+          "name": "options",
+          "type": "list",
+          "desc": "The ways you thought through, at least three",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "name",
+                "type": "text",
+                "desc": "What it is called, in a few words"
+              },
+              {
+                "name": "does",
+                "type": "text",
+                "desc": "What it does, concretely"
+              },
+              {
+                "name": "result",
+                "type": "text",
+                "desc": "What follows from it: the gain, the cost and the risk"
+              },
+              {
+                "name": "why",
+                "type": "text",
+                "desc": "For the one chosen, why it is chosen; for the others, why not"
+              }
+            ]
+          },
+          "min": 3
+        },
+        {
+          "name": "chosen",
+          "type": "text",
+          "desc": "Which one you chose: its name"
+        },
+        {
+          "name": "fit",
+          "type": "text",
+          "desc": "Whether it fits the policy and the plan: by which point of the policy, on which segment, against which gate and which budget; if the plan must change, what you change"
+        },
+        {
+          "name": "inferred",
+          "type": "text",
+          "desc": "Which conclusions were deduced from reading code and not yet checked; for an inference that decides the direction, which item you opened to check it. If all were checked, say so"
+        }
+      ],
+      "name": "judgment",
+      "desc": "What this touches, how you judged and why: the owner reads it as your log"
+    },
+    "arch_changes": {
+      "name": "changes",
+      "type": "list",
+      "desc": "Changes to the database, one per row, each with its reason. They are not written in this round: they are collected, and at the wrap-up the engine puts them all to the owner in one ask; once the owner approves, you write them. An empty list if there are none",
+      "item": {
+        "type": "union",
+        "by": "kind",
+        "common": [
+          {
+            "name": "reason",
+            "type": "text",
+            "desc": "Why this change. Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+          }
+        ],
+        "branches": [
+          {
+            "value": "create_item",
+            "desc": "Create a new item; splitting off a sub-item is this too, made under the item it is split from",
+            "fields": [
+              {
+                "name": "key",
+                "type": "text",
+                "desc": "A name for the new item within these changes, such as new-cover-check: later changes in this list refer to it by this name, and the engine gives it its number when it writes it"
+              },
+              {
+                "name": "project",
+                "type": "text",
+                "desc": "The project it belongs to"
+              },
+              {
+                "name": "title",
+                "type": "text",
+                "desc": "Its title: what to do, as an action"
+              },
+              {
+                "name": "under",
+                "type": "text",
+                "desc": "Where it hangs: the number of the item it is split from, which then depends on it; or for a root item, the key of the plan segment it hangs on"
+              },
+              {
+                "name": "touches",
+                "type": "list",
+                "desc": "What this work will touch, one per row: the engine checks that the segment it hangs on may touch it; an empty list if it touches none of them",
+                "item": {
+                  "type": "enum",
+                  "values": "touch_kind",
+                  "desc": "What it touches"
+                }
+              },
+              {
+                "name": "problem",
+                "type": "text",
+                "desc": "The problem: one sentence on what cannot be done or is wrong, with a smallest example"
+              },
+              {
+                "name": "why",
+                "type": "text",
+                "desc": "Why it is worth doing: the cost of not doing it, and who waits"
+              },
+              {
+                "name": "acceptance",
+                "type": "list",
+                "desc": "Its acceptance, one condition per row, each clearly true or false",
+                "item": {
+                  "type": "text",
+                  "desc": "One condition"
+                },
+                "min": 1
+              },
+              {
+                "name": "level",
+                "type": "text",
+                "desc": "Its level, by its name in the configuration: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change"
+              },
+              {
+                "$ref": "deliver_kind",
+                "name": "deliver",
+                "desc": "What it delivers"
+              },
+              {
+                "name": "takes",
+                "type": "list",
+                "desc": "The acceptance conditions it takes over from the item it is split from, by number; leave it out for an item not split off",
+                "item": {
+                  "type": "text",
+                  "desc": "The condition's number"
+                },
+                "optional": true,
+                "min": 1
+              }
+            ]
+          },
+          {
+            "value": "add_dependency",
+            "desc": "Make one item wait for another to deliver",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "on",
+                "type": "int",
+                "desc": "The item it waits for: its number"
+              }
+            ]
+          },
+          {
+            "value": "move",
+            "desc": "Hang an item elsewhere: a root item on another plan segment, or a sub-item under another item",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "to",
+                "type": "text",
+                "desc": "Where to: the key of a plan segment, for a root item; or the number of the item that is to depend on it instead of those that do now"
+              }
+            ]
+          },
+          {
+            "value": "merge",
+            "desc": "Merge duplicates into one: keep one, and merge the others into it",
+            "fields": [
+              {
+                "name": "keep",
+                "type": "int",
+                "desc": "The item kept: its number"
+              },
+              {
+                "name": "absorbed",
+                "type": "list",
+                "desc": "The items merged into it, one per row",
+                "item": {
+                  "type": "int",
+                  "desc": "An item's number"
+                },
+                "min": 1
+              }
+            ]
+          },
+          {
+            "value": "cancel",
+            "desc": "This item is not to be done: cancelled only once the owner approves; to stop it before then, pause its work",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "goes",
+                "type": "text",
+                "desc": "Where its work went: merged into which item, done by which item instead, or why it is not done"
+              }
+            ]
+          },
+          {
+            "value": "hold",
+            "desc": "Hold this item for now: no work starts on it",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              }
+            ]
+          },
+          {
+            "value": "release",
+            "desc": "A held item may start again",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              }
+            ]
+          },
+          {
+            "value": "edit_item",
+            "desc": "Change a part of an item's text",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "part",
+                "type": "enum",
+                "desc": "Which part",
+                "values": [
+                  [
+                    "title",
+                    "Its title"
+                  ],
+                  [
+                    "problem",
+                    "Its problem"
+                  ],
+                  [
+                    "why",
+                    "Why it is worth doing"
+                  ],
+                  [
+                    "approach",
+                    "How to do it"
+                  ]
+                ]
+              },
+              {
+                "name": "text",
+                "type": "text",
+                "desc": "What it becomes"
+              }
+            ]
+          },
+          {
+            "value": "edit_acceptance",
+            "desc": "Change an item's acceptance as written",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "acceptance",
+                "type": "list",
+                "desc": "The acceptance after the change, one condition per row",
+                "item": {
+                  "type": "text",
+                  "desc": "One condition"
+                },
+                "min": 1
+              }
+            ]
+          },
+          {
+            "value": "set_level",
+            "desc": "Set an item's level",
+            "fields": [
+              {
+                "name": "item",
+                "type": "int",
+                "desc": "Which item: its number"
+              },
+              {
+                "name": "level",
+                "type": "text",
+                "desc": "The level, by its name in the configuration"
+              }
+            ]
+          },
+          {
+            "value": "add_segment",
+            "desc": "Add a segment to the plan: one piece of delivery under a stage of the policy, the top of a project's items, which no engineer works on itself",
+            "fields": [
+              {
+                "name": "key",
+                "type": "text",
+                "desc": "The segment's key: name one, and the engine checks it is not taken"
+              },
+              {
+                "name": "title",
+                "type": "text",
+                "desc": "Its title: what it delivers, as an action"
+              },
+              {
+                "name": "project",
+                "type": "text",
+                "desc": "The project it is in"
+              },
+              {
+                "name": "stage",
+                "type": "text",
+                "desc": "Which stage of the policy it belongs to, by the stage's number; each project's standing maintenance segment says maintenance"
+              },
+              {
+                "name": "delivers",
+                "type": "text",
+                "desc": "What it delivers"
+              },
+              {
+                "name": "done_when",
+                "type": "text",
+                "desc": "When it counts as done: something that can be checked; it is the segment's acceptance"
+              },
+              {
+                "name": "after",
+                "type": "list",
+                "desc": "The segments that must be done first, by key; an empty list if none",
+                "item": {
+                  "type": "text",
+                  "desc": "A segment's key"
+                }
+              },
+              {
+                "name": "assumptions",
+                "type": "list",
+                "desc": "What it rests on, one per row",
+                "item": {
+                  "type": "obj",
+                  "fields": [
+                    {
+                      "name": "holds",
+                      "type": "text",
+                      "desc": "What is assumed to hold"
+                    },
+                    {
+                      "name": "wrong_if",
+                      "type": "text",
+                      "desc": "What would show it wrong"
+                    }
+                  ]
+                },
+                "min": 1
+              },
+              {
+                "name": "indicators",
+                "type": "list",
+                "desc": "What to watch: the engine computes them, and a line passed is a signal",
+                "item": {
+                  "type": "text",
+                  "desc": "An indicator and its line"
+                },
+                "min": 1
+              },
+              {
+                "name": "size",
+                "type": "text",
+                "desc": "Roughly how large: how many items, at what levels"
+              }
+            ]
+          },
+          {
+            "value": "edit_segment",
+            "desc": "Change a segment's delivery, order, assumptions, indicators or size",
+            "fields": [
+              {
+                "name": "segment",
+                "type": "text",
+                "desc": "Which segment: its key"
+              },
+              {
+                "name": "title",
+                "type": "text",
+                "desc": "Its new title; leave it out to keep it",
+                "optional": true
+              },
+              {
+                "name": "delivers",
+                "type": "text",
+                "desc": "What it delivers now; leave it out to keep it",
+                "optional": true
+              },
+              {
+                "name": "after",
+                "type": "list",
+                "desc": "The segments that must be done first now; leave it out to keep them",
+                "item": {
+                  "type": "text",
+                  "desc": "A segment's key"
+                },
+                "optional": true
+              },
+              {
+                "name": "assumptions",
+                "type": "list",
+                "desc": "Its assumptions now; leave it out to keep them",
+                "item": {
+                  "type": "obj",
+                  "fields": [
+                    {
+                      "name": "holds",
+                      "type": "text",
+                      "desc": "What is assumed to hold"
+                    },
+                    {
+                      "name": "wrong_if",
+                      "type": "text",
+                      "desc": "What would show it wrong"
+                    }
+                  ]
+                },
+                "optional": true,
+                "min": 1
+              },
+              {
+                "name": "indicators",
+                "type": "list",
+                "desc": "Its indicators now; leave it out to keep them",
+                "item": {
+                  "type": "text",
+                  "desc": "An indicator and its line"
+                },
+                "optional": true,
+                "min": 1
+              },
+              {
+                "name": "size",
+                "type": "text",
+                "desc": "Its size now; leave it out to keep it",
+                "optional": true
+              }
+            ]
+          },
+          {
+            "value": "edit_done_when",
+            "desc": "Change when a segment counts as done",
+            "fields": [
+              {
+                "name": "segment",
+                "type": "text",
+                "desc": "Which segment: its key"
+              },
+              {
+                "name": "done_when",
+                "type": "text",
+                "desc": "When it counts as done after the change: something that can be checked"
+              }
+            ]
+          },
+          {
+            "value": "defer_segment",
+            "desc": "Do not go on with a segment for now: the works of its items pause too",
+            "fields": [
+              {
+                "name": "segment",
+                "type": "text",
+                "desc": "Which segment: its key"
+              },
+              {
+                "name": "until",
+                "type": "text",
+                "desc": "Until when, or until what, before it goes on"
+              }
+            ]
+          },
+          {
+            "value": "delete_segment",
+            "desc": "Remove a segment from the plan: its unfinished items must be moved away first",
+            "fields": [
+              {
+                "name": "segment",
+                "type": "text",
+                "desc": "Which segment: its key"
+              }
+            ]
+          },
+          {
+            "value": "order_segments",
+            "desc": "Which segments not deferred go first: the engine works out the dispatch queue from it, the items' dependencies and the slots",
+            "fields": [
+              {
+                "name": "order",
+                "type": "list",
+                "desc": "First to last, one segment per row, by key; those not listed come after",
+                "item": {
+                  "type": "text",
+                  "desc": "A segment's key"
+                },
+                "min": 1
+              }
+            ]
+          },
+          {
+            "value": "add_gate",
+            "desc": "Add a gate: which segments may touch one thing; an item of any other segment that touches it may not merge",
+            "fields": [
+              {
+                "name": "name",
+                "type": "text",
+                "desc": "What the gate is called"
+              },
+              {
+                "name": "basis",
+                "type": "text",
+                "desc": "Which article of the constitution, which point of the policy it rests on"
+              },
+              {
+                "name": "what",
+                "type": "enum",
+                "values": "touch_kind",
+                "desc": "What it governs"
+              },
+              {
+                "name": "segments",
+                "type": "list",
+                "desc": "The segments that may touch it, one per row, by key; an empty list if none may",
+                "item": {
+                  "type": "text",
+                  "desc": "A segment's key"
+                }
+              }
+            ]
+          },
+          {
+            "value": "add_budget",
+            "desc": "Add a budget: a number the engine can measure, with a line shared out among the segments; an item past its segment's share may not merge",
+            "fields": [
+              {
+                "name": "name",
+                "type": "text",
+                "desc": "What the budget is called"
+              },
+              {
+                "name": "basis",
+                "type": "text",
+                "desc": "Which article of the constitution, which point of the policy it rests on"
+              },
+              {
+                "name": "measure",
+                "type": "text",
+                "desc": "What is measured and how: the engine measures it on the commit to merge, before each merge, such as the size of the specification in bytes"
+              },
+              {
+                "name": "line",
+                "type": "text",
+                "desc": "The whole line: the segments' shares add up to no more than it"
+              },
+              {
+                "name": "split",
+                "type": "list",
+                "desc": "The line shared out among the segments, one per row; a segment not listed has none",
+                "item": {
+                  "type": "obj",
+                  "fields": [
+                    {
+                      "name": "segment",
+                      "type": "text",
+                      "desc": "Which segment: its key"
+                    },
+                    {
+                      "name": "amount",
+                      "type": "text",
+                      "desc": "This segment's share: how much more it may use; one that must shrink is negative"
+                    }
+                  ]
+                },
+                "min": 1
+              }
+            ]
+          },
+          {
+            "value": "edit_gate",
+            "desc": "Change which segments a gate lets touch",
+            "fields": [
+              {
+                "name": "gate",
+                "type": "text",
+                "desc": "Which gate: its name"
+              },
+              {
+                "name": "segments",
+                "type": "list",
+                "desc": "The segments that may touch it after the change, by key; an empty list if none may",
+                "item": {
+                  "type": "text",
+                  "desc": "A segment's key"
+                }
+              }
+            ]
+          },
+          {
+            "value": "edit_budget",
+            "desc": "Change a budget's line or the segments' shares, at least one of them",
+            "fields": [
+              {
+                "name": "budget",
+                "type": "text",
+                "desc": "Which budget: its name"
+              },
+              {
+                "name": "line",
+                "type": "text",
+                "desc": "The whole line after the change; leave it out to keep it",
+                "optional": true
+              },
+              {
+                "name": "split",
+                "type": "list",
+                "desc": "Every segment's share after the change; leave it out to keep them",
+                "item": {
+                  "type": "obj",
+                  "fields": [
+                    {
+                      "name": "segment",
+                      "type": "text",
+                      "desc": "Which segment: its key"
+                    },
+                    {
+                      "name": "amount",
+                      "type": "text",
+                      "desc": "This segment's share: how much more it may use; one that must shrink is negative"
+                    }
+                  ]
+                },
+                "min": 1,
+                "optional": true
+              }
+            ]
+          },
+          {
+            "value": "add_known_red_check",
+            "desc": "Add a check known to fail for a reason outside any one work, so that full CI and the merge queue do not hold it against a work; it needs an item that fixes it",
+            "fields": [
+              {
+                "name": "project",
+                "type": "text",
+                "desc": "The project"
+              },
+              {
+                "name": "check",
+                "type": "text",
+                "desc": "The check's name, as the CI names it"
+              },
+              {
+                "name": "why",
+                "type": "text",
+                "desc": "Why it fails"
+              },
+              {
+                "name": "fix_item",
+                "type": "text",
+                "desc": "The item that fixes it: its number, or the key of an item these changes create"
+              }
+            ]
+          },
+          {
+            "value": "remove_known_red_check",
+            "desc": "A known red check is fixed: remove it",
+            "fields": [
+              {
+                "name": "project",
+                "type": "text",
+                "desc": "The project"
+              },
+              {
+                "name": "check",
+                "type": "text",
+                "desc": "The check's name"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "policy_study": {
+      "type": "obj",
+      "fields": [
+        {
+          "name": "intent",
+          "type": "text",
+          "desc": "What the owner wants and what for, in your own words"
+        },
+        {
+          "name": "now",
+          "type": "text",
+          "desc": "How the things concerned stand now, with numbers where there are numbers"
+        },
+        {
+          "name": "impact",
+          "type": "list",
+          "desc": "What the new policy touches, one per row",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "what",
+                "type": "text",
+                "desc": "The item, segment or project touched"
+              },
+              {
+                "name": "how",
+                "type": "text",
+                "desc": "How it is affected: stopped, changed, wasted, or not affected but to be watched"
+              }
+            ]
+          },
+          "min": 1
+        },
+        {
+          "name": "options",
+          "type": "list",
+          "desc": "At least three ways, one per row",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "does",
+                "type": "text",
+                "desc": "What it does"
+              },
+              {
+                "name": "then",
+                "type": "text",
+                "desc": "What follows: the gain, the cost, the risk"
+              }
+            ]
+          },
+          "min": 3
+        },
+        {
+          "name": "recommend",
+          "type": "text",
+          "desc": "Which you recommend, why, and why not the others"
+        },
+        {
+          "name": "basis",
+          "type": "list",
+          "desc": "What the study's conclusions rest on, one per row",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "claim",
+                "type": "text",
+                "desc": "Which conclusion"
+              },
+              {
+                "name": "kind",
+                "type": "enum",
+                "desc": "Checked or deduced",
+                "values": [
+                  [
+                    "checked",
+                    "It was checked"
+                  ],
+                  [
+                    "deduced",
+                    "It was deduced, and not yet checked"
+                  ]
+                ]
+              },
+              {
+                "name": "where",
+                "type": "text",
+                "desc": "For one checked, where; for one deduced, from what, and how to confirm it"
+              }
+            ]
+          },
+          "min": 1
+        },
+        {
+          "name": "questions",
+          "type": "list",
+          "desc": "What you ask the owner, one per row; an empty list if nothing",
+          "item": {
+            "type": "text",
+            "desc": "One question"
+          }
+        }
+      ],
+      "name": "study",
+      "desc": "The study of a new policy, for the owner to read"
+    },
+    "policy": {
+      "type": "obj",
+      "fields": [
+        {
+          "name": "goal",
+          "type": "text",
+          "desc": "The goal: where to get to, and how to tell it is reached, so that it can be checked"
+        },
+        {
+          "name": "why",
+          "type": "text",
+          "desc": "Why: the situation it was set in, the lessons drawn, why the other ways were ruled out, written so that someone who was not in the discussion can work out a situation never seen before"
+        },
+        {
+          "name": "points",
+          "type": "list",
+          "desc": "The points, one per row, numbered in order",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "no",
+                "type": "int",
+                "desc": "Its number, from 1"
+              },
+              {
+                "name": "text",
+                "type": "text",
+                "desc": "What it meets, how to judge it, why, and what it rules out"
+              }
+            ]
+          },
+          "min": 1
+        },
+        {
+          "name": "stages",
+          "type": "list",
+          "desc": "The stages: the large steps, in order, one per row",
+          "item": {
+            "type": "text",
+            "desc": "What this step delivers, and when it counts as done"
+          },
+          "min": 1
+        },
+        {
+          "name": "signals",
+          "type": "list",
+          "desc": "When to report: the signals that the policy may have to change, one per row",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "what",
+                "type": "text",
+                "desc": "Which signal"
+              },
+              {
+                "name": "how",
+                "type": "text",
+                "desc": "How it shows: a number the engine measures and its line, or something that happens"
+              }
+            ]
+          },
+          "min": 1
+        },
+        {
+          "name": "scope",
+          "type": "text",
+          "desc": "What it governs: what falls under it, and what does not"
+        }
+      ],
+      "name": "policy",
+      "desc": "The policy: the goal, why, the points, the stages, when to report and what it governs. Written in English: the architects that come after read it"
+    },
+    "policy_probes": {
+      "name": "probes",
+      "type": "list",
+      "min": 1,
+      "desc": "The probes, one per row; they are not written into the text. Written in English",
+      "item": {
+        "type": "obj",
+        "fields": [
+          {
+            "name": "id",
+            "type": "text",
+            "desc": "The probe's name, a few words, not used twice"
+          },
+          {
+            "name": "ask",
+            "type": "text",
+            "desc": "The probe: asking what the policy is and why, or giving a situation written out in full and asking how to judge it"
+          },
+          {
+            "name": "points",
+            "type": "list",
+            "desc": "Which points it probes",
+            "item": {
+              "type": "int",
+              "desc": "A point's number"
+            },
+            "min": 1
+          },
+          {
+            "name": "expect",
+            "type": "text",
+            "desc": "The answer you hold right: the points, how to judge, why"
+          }
+        ]
+      }
     }
   },
   "tools": [
@@ -1567,6 +2630,199 @@
           ]
         }
       ]
+    },
+    {
+      "name": "engine_op",
+      "desc": "Has the engine act at once, without the owner's approval: pause a work, let a paused work go on, stop starting new works, let them start again, reply to an engineer's question to you, interject to another item's engineer, or rule on a work's design card. It takes effect as it runs.",
+      "runs": "The engine does as asked: pause_work waits for the work's round under way to end, then stops it, keeping its worktree, branch and sessions; resume_work lets it go on from the cell it stopped at; hold_dispatch and release_dispatch change whether new works start from the queue; reply takes the reply back to the work that asked, which goes on; interject gives the words to that item's engineer; rule_design_card records the architect's verdict on each decision of the card, a disagreement reaching the work's engineer as an interjection.",
+      "in": [
+        {
+          "name": "op",
+          "type": "enum",
+          "desc": "Which operation",
+          "values": [
+            [
+              "pause_work",
+              "Pause a running work"
+            ],
+            [
+              "resume_work",
+              "Let a work you paused go on"
+            ],
+            [
+              "hold_dispatch",
+              "Start no new work from the queue"
+            ],
+            [
+              "release_dispatch",
+              "Start new works from the queue again"
+            ],
+            [
+              "reply",
+              "Reply to what an engineer asked you"
+            ],
+            [
+              "interject",
+              "Say something to another item's engineer"
+            ],
+            [
+              "rule_design_card",
+              "Rule on each decision of a work's design card, before the owner"
+            ]
+          ]
+        },
+        {
+          "name": "item",
+          "type": "int",
+          "desc": "Which item: its number; not for hold_dispatch, release_dispatch and rule_design_card",
+          "optional": true
+        },
+        {
+          "$ref": "architect_reply",
+          "optional": true,
+          "desc": "The reply: only for reply"
+        },
+        {
+          "name": "say",
+          "type": "text",
+          "desc": "What to say: only for interject",
+          "optional": true
+        },
+        {
+          "name": "design_card",
+          "type": "int",
+          "desc": "Which design card: its number; only for rule_design_card",
+          "optional": true
+        },
+        {
+          "name": "verdicts",
+          "type": "list",
+          "desc": "Your verdict on each decision of the design card, one per decision: only for rule_design_card",
+          "item": {
+            "type": "obj",
+            "fields": [
+              {
+                "name": "decision",
+                "type": "int",
+                "desc": "The decision's number on the card"
+              },
+              {
+                "name": "verdict",
+                "type": "enum",
+                "desc": "Your verdict",
+                "values": [
+                  [
+                    "confirm",
+                    "It fits the whole"
+                  ],
+                  [
+                    "disagree",
+                    "It does not fit the whole: say why, or choose another of its approaches"
+                  ]
+                ]
+              },
+              {
+                "name": "why",
+                "type": "text",
+                "desc": "Why you disagree; for a confirmation, leave it out",
+                "optional": true
+              },
+              {
+                "name": "approach",
+                "type": "text",
+                "desc": "Another of the decision's approaches you choose instead, by its name; leave it out if none",
+                "optional": true
+              }
+            ]
+          },
+          "optional": true,
+          "min": 1
+        }
+      ],
+      "out": [
+        {
+          "name": "done",
+          "type": "union",
+          "by": "verdict",
+          "desc": "Whether it was done",
+          "branches": [
+            {
+              "value": "done",
+              "desc": "The engine did it",
+              "fields": []
+            },
+            {
+              "value": "refused",
+              "desc": "The engine did not do it",
+              "fields": [
+                {
+                  "name": "why",
+                  "type": "text",
+                  "desc": "Why: no such item, the work is not running or not waiting for you, or what the operation needs was not handed in"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "db_write",
+      "desc": "Writes the changes the owner approved: hand in only those, exactly as approved; the engine says whether it wrote them.",
+      "runs": "The engine compares the changes handed in with those the owner approved, and writes them all in one transaction only when every one is approved word for word; then works out the dispatch queue anew by the plan.",
+      "in": [
+        {
+          "$ref": "arch_changes",
+          "desc": "The changes the owner approved, exactly as approved"
+        }
+      ],
+      "out": [
+        {
+          "name": "written",
+          "type": "union",
+          "by": "verdict",
+          "desc": "Whether they were written",
+          "branches": [
+            {
+              "value": "written",
+              "desc": "All were written; each item created with its number",
+              "fields": [
+                {
+                  "name": "created",
+                  "type": "list",
+                  "desc": "The items and segments created, one per row; an empty list if none",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "key",
+                        "type": "text",
+                        "desc": "The key it had in the changes"
+                      },
+                      {
+                        "name": "id",
+                        "type": "text",
+                        "desc": "What it is now: an item's number, or a segment's key"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "value": "refused",
+              "desc": "They do not match what the owner approved, and none was written",
+              "fields": [
+                {
+                  "name": "why",
+                  "type": "text",
+                  "desc": "Which does not match"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "enumText": {
@@ -1586,7 +2842,11 @@
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the work stops and waits without holding a slot. The owner's chosen option or sentence goes back unchanged to the side that asked.",
-      "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged."
+      "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
+      "wake": "Wakes the architect: a wake is a work of the architect's graph, which belongs to no item. It goes on in the session the last wake left; the first wake, and the first after a new policy took effect, start a new one. A wake holds no slot, and only one runs at a time.",
+      "submit_changes": "Puts every change the wake collected to the owner in one ask, each with its reason, the matter it belongs to and who waits; the owner approves all, some (naming which), or none (saying why). With none collected it puts nothing. The wake does not wait for the answer: once the owner answers, the answer is queued for the architect as a matter of its own, and wakes it.",
+      "end_wake": "Ends the wake. The architect is woken again by the next matter that comes to its queue, or at the next look it set.",
+      "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another."
     },
     "actions": {
       "lock_acceptance": "Writes the design's acceptance conditions onto the item and locks them; if they are the same as those already locked, nothing changes.",
@@ -1605,7 +2865,17 @@
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "An urgent side report starts a round of the architect at once.",
       "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries.",
-      "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back."
+      "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
+      "open_asks": "Puts each choice the architect handed in as open to the owner, as an ask that holds no wake; once the owner answers, the answer is queued for the architect as a matter of its own.",
+      "queue_fixes": "Queues each place the fifth question found to change as a matter of the kind running_unfit.",
+      "hold_for_tidying": "Starts no new work while the architect sets the whole straight; the works running go on.",
+      "release_tidy_hold": "New works start again, if they were stopped to set the whole straight.",
+      "hold_for_policy": "Holds the architect's side while the policy is set: the matters queued wait, and no new work starts; engineers that ask the architect wait.",
+      "release_policy_hold": "Lets the architect's side go on: the matters queued are handled again, and new works start.",
+      "hold_changes": "Holds the matter picked with the changes the architect collected for it: the engineer waiting on it goes on waiting, holding no slot, until the owner approves and the architect replies.",
+      "close_matter": "Marks the matter picked from the queue as handled by this wake, unless an ask of the owner or changes waiting for approval hold it.",
+      "new_architect_session": "Ends the architect's session: the next wake starts a new one with the new policy, which answers the first question from the start.",
+      "queue_policy_changed": "Queues a matter of the kind policy_changed at the head of the architect's queue, ahead of those already waiting."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -1640,7 +2910,16 @@
       "owner_kinds_to_owner": "A point of a kind in the owner_only group is asked of the owner.",
       "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
       "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card (the owner's or the architect's), the return is a redirect, not answers.",
-      "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind."
+      "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
+      "constitution_covered": "There is exactly one row for each article of each project's constitution the architect is given, in the constitution's order.",
+      "chosen_first": "The matter chosen is the first of the ranked list; one given by its number in the queue is in the queue and not handled.",
+      "changes_valid": "Every change has its reason; an item created has its project, title, problem, why, acceptance, level, deliverable, what it touches and where it hangs, and a key no other change uses; what the rules fix holds: after the dependencies and moves, the items' dependencies and the segments' order have no cycle, every item reaches a segment through the items that depend on it, an item touches only what its segment may touch, each budget's shares add up to no more than its line, and a segment removed has no unfinished item. Otherwise the return is sent back.",
+      "question_answered": "For an engineer's question: with no change waiting for approval, this round replied to it with reply; with changes waiting for approval, it did not reply yet.",
+      "approved_written": "For the owner's approval: every change approved was written with db_write, and every engineer waiting for them was replied to.",
+      "policy_text_clean": "The policy quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
+      "probes_cover_points": "Every probe names points the text has, and every point has at least one probe.",
+      "failed_probes_gone": "No probe a new architect answered wrongly is among the probes.",
+      "reading_complete": "Every point of the policy is restated, and every probe is answered."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -1651,7 +2930,17 @@
       "tree_changes_to_review": "The change to the design tree to review: across the whole branch at the first review, since the last review at a re-review; the engine lists the nodes changed.",
       "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
       "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
-      "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks."
+      "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
+      "since_last_wake": "What changed since the architect's last wake: items changed, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view: the items being worked on in each project, at which stage each is, what it waits for, and who waits for whom.",
+      "projects_guides": "Each project's guide: its AGENTS.md, its design goal, and the index of its design tree, with the nodes the matter at hand touches in full.",
+      "constitutions": "The constitution of each project, as its configuration names it.",
+      "policy_signals": "The signals the policy in force says to report on, each with the number the engine measured for it where it measures one.",
+      "running_and_next": "The works running, and the items the engine would start next, as many as there are slots, each with its plan segment, whether that segment is deferred, whether the segments before it are done, what it waits for and for how long.",
+      "slots": "The machines' slots: how many there are, how many works hold one, how many are free, and how many items are ready to start.",
+      "matter_material": "The matter the architect picked, with its material, by its kind.",
+      "whole_view": "The items being worked on, at which stage each is, what each waits for, and who waits for whom.",
+      "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
+      "changes_touch": "The items and segments the changes touch, with where each item hangs, who waits for it and what it waits for; each segment's order, delivery, done-when and assumptions; the gates and budgets touched."
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -1664,7 +2953,10 @@
       "came_by": "How the work came to choose the way on.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "waited": "Whether every item waited for is merged.",
-      "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with a decision of the design card."
+      "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with a decision of the design card.",
+      "session": "Whether the architect's session is new or goes on from its last wake.",
+      "about": "The kind of the matter the architect picked.",
+      "tidy_left": "Whether matters of the kind running_unfit still wait in the architect's queue."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
@@ -7706,27 +8998,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "what": "Side reports copied from every cell that did not stop their work (they go into their own flow and do not come back to this work). They are collected and taken in batches: an urgent one starts a round at once; when none is urgent, a round starts once the oldest has waited an hour",
-              "from": [
-                {
-                  "db": "side_reports"
-                }
-              ]
-            },
-            {
-              "what": "When the engine calls the architect to look at a design card: this work's design card, the design's description and the change to the design tree on the branch. Judge whether each of its decisions fits the whole, and say in the reply, decision by decision, whether it passes and why; none unless called to look at a design card",
-              "from": [
-                {
-                  "db": "item_design_cards",
-                  "by": "item"
-                },
-                {
-                  "engine": "design_tree_diff"
-                }
-              ],
-              "maybe": true
             }
           ],
           "out": [
@@ -7869,6 +9140,3378 @@
           }
         ]
       },
+      "rounds": {
+        "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
+        "sentBack": {
+          "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
+          "pauseAfter": 3,
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason; once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+        },
+        "failed": {
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
+          "kinds": [
+            {
+              "name": "usage_limit",
+              "when": "The account's usage limit is reached; the command line says when it resets",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the time the command line gives, tells the owner once, then carries on each work from the cell it recorded. One cause stops every work alike, so no work is retried or paused for it on its own."
+            },
+            {
+              "name": "offline",
+              "when": "The network cannot be reached",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the network is back, looking every half minute, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+            },
+            {
+              "name": "transient",
+              "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
+              "handle": "retry",
+              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+            },
+            {
+              "name": "cannot_run",
+              "when": "The login has expired, or the command line cannot be found",
+              "handle": "wait",
+              "desc": "Only the owner can log in again or install the command line, and one cause stops every work alike: the engine starts no new round for any work, tells the owner once, lets one round try every half minute, and once one runs carries on each work from the cell it recorded. The owner logs in or installs, and writes nothing."
+            },
+            {
+              "name": "prompt_too_long",
+              "when": "The prompt is too long for the model",
+              "handle": "pause",
+              "desc": "Running again cannot help: it is a defect of the engine's to fix. The engine pauses the work and tells the owner; once the owner lets the work go on, the same cell runs again."
+            }
+          ]
+        },
+        "record": [
+          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
+        ],
+        "environment": [
+          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
+        ]
+      }
+    },
+    {
+      "name": "architect",
+      "start": "A0",
+      "end": "A12",
+      "blocks": [
+        {
+          "name": "wake",
+          "nodes": [
+            "A0"
+          ],
+          "entries": [
+            "A0"
+          ]
+        },
+        {
+          "name": "understand",
+          "nodes": [
+            "A1",
+            "A2",
+            "A3",
+            "A4",
+            "A5"
+          ],
+          "entries": [
+            "A1",
+            "A4",
+            "A5"
+          ]
+        },
+        {
+          "name": "pick",
+          "nodes": [
+            "A6"
+          ],
+          "entries": [
+            "A6"
+          ]
+        },
+        {
+          "name": "handle",
+          "nodes": [
+            "A7",
+            "A8",
+            "A9",
+            "A11"
+          ],
+          "entries": [
+            "A7",
+            "A8"
+          ]
+        },
+        {
+          "name": "policy",
+          "nodes": [
+            "P1",
+            "P2",
+            "P3",
+            "P4",
+            "P5",
+            "P6",
+            "P7",
+            "P8",
+            "P9",
+            "P10"
+          ],
+          "entries": [
+            "P1"
+          ]
+        },
+        {
+          "name": "wrap_up",
+          "nodes": [
+            "A10",
+            "A15"
+          ],
+          "entries": [
+            "A10"
+          ]
+        },
+        {
+          "name": "asking",
+          "asking": true
+        },
+        {
+          "name": "tools",
+          "nodes": [
+            "A13"
+          ],
+          "entries": [
+            "A13"
+          ]
+        },
+        {
+          "name": "end",
+          "nodes": [
+            "A12"
+          ],
+          "entries": [
+            "A12"
+          ]
+        }
+      ],
+      "sessions": {
+        "lines": [
+          {
+            "name": "architect",
+            "desc": "The one architect over everything: a wake goes from the first question to the wrap-up in one session, and the next wake goes on in it"
+          }
+        ],
+        "rules": [
+          "A wake goes on in the session the last wake left. The first wake, and the first after a new policy took effect, start a new session, which answers the first question from the start: it is given the constitution, the policy, the last state of things, the recent decisions and the whole view, and none of how they came about.",
+          "Compaction still happens: the session's record marks it, and from then on the engine treats the session as new and gives later cells what they need as usual.",
+          "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
+          "When the architect hands in pause, the engine runs the same cell again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
+        ]
+      },
+      "rules": [],
+      "stages": {
+        "rules": [
+          "The owner's interface shows the architect on a tab of its own: whether it is awake or asleep, and when awake which question it is at and which matter it handles.",
+          "The stage is not stored: it follows from the cell the wake is at.",
+          "While asking the owner or running tools, the stage is that of the cell the wake stopped at."
+        ],
+        "list": [
+          {
+            "name": "waking",
+            "desc": "The engine wakes it, and readies its session",
+            "nodes": [
+              "A0"
+            ]
+          },
+          {
+            "name": "understanding",
+            "desc": "Answering the first five questions: how things stand, against the constitution, whether the policy needs setting again, what is missing, whether what runs fits",
+            "nodes": [
+              "A1",
+              "A2",
+              "A3",
+              "A4",
+              "A5"
+            ]
+          },
+          {
+            "name": "picking",
+            "desc": "Picking what is most urgent now",
+            "nodes": [
+              "A6"
+            ]
+          },
+          {
+            "name": "handling",
+            "desc": "Handling the matter picked: its crux, what to do, a second look; the engine records it",
+            "nodes": [
+              "A7",
+              "A8",
+              "A9",
+              "A11"
+            ]
+          },
+          {
+            "name": "setting_policy",
+            "desc": "Every other matter waits: studying a new policy, waiting for the owner to read it, writing the text, new sessions reading it, waiting for the owner's approval",
+            "nodes": [
+              "P1",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9",
+              "P10"
+            ]
+          },
+          {
+            "name": "wrapping_up",
+            "desc": "Wrapping up: what it learned joins its state of things, and when to wake next is set; changes waiting for approval go to the owner",
+            "nodes": [
+              "A10",
+              "A15"
+            ]
+          },
+          {
+            "name": "asleep",
+            "desc": "This wake is done; waiting for the next",
+            "nodes": [
+              "A12"
+            ]
+          }
+        ]
+      },
+      "asking": {
+        "nodes": [
+          "A14"
+        ],
+        "roles": [
+          {
+            "name": "owner",
+            "desc": "What only the owner can decide or do: the constitution and the policy, and the kinds of the owner_only group",
+            "node": "A14",
+            "row": "ask_owner",
+            "fields": [
+              {
+                "$ref": "choice",
+                "optional": true,
+                "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials). Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+              }
+            ]
+          }
+        ],
+        "counts": "asks"
+      },
+      "limits": {
+        "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the wake. The counters are in the wake's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
+        "waits": "Matters that come while the architect is awake wait in its queue, for the sixth question to pick; how long each waited is visible on the owner's interface. The rows that wait for the owner to read a study or to approve a policy count nothing: how many rounds the discussion takes is the owner's to decide.",
+        "over": "Past a limit, the engine still takes the row and tells the owner, without stopping.",
+        "counters": [
+          {
+            "name": "asks",
+            "desc": "The times the architect asked the owner"
+          },
+          {
+            "name": "tool_requests",
+            "desc": "The times the architect asked the engine to run tools, each return once"
+          },
+          {
+            "name": "total_time",
+            "desc": "The time the architect spends working in a wake, plus the time of the tools it has the engine run; waiting for the owner is recorded apart. When a stretch's budget is used up, the engine has it pause",
+            "time": true
+          },
+          {
+            "name": "rereviews",
+            "desc": "The times the second look found something to change, and went back to think again what to do"
+          },
+          {
+            "name": "handled",
+            "desc": "The matters handled in a wake: back to pick the next, once for each"
+          },
+          {
+            "name": "tidy_rounds",
+            "desc": "The times, after the fifth question found the whole had to be set straight, every matter that sets it straight was handled and the fifth question was asked again"
+          },
+          {
+            "name": "text_revisions",
+            "desc": "The times a new architect did not understand through, and the text was corrected and read again"
+          },
+          {
+            "name": "trial_reads",
+            "desc": "The times a new session passed and another new session had to read it"
+          },
+          {
+            "name": "policies_set",
+            "desc": "The times a new policy was set and a new architect started"
+          }
+        ]
+      },
+      "askKinds": [
+        {
+          "group": "owner_only",
+          "only": "owner",
+          "kinds": [
+            [
+              "constitution_and_policy",
+              "The constitution must change, or the policy must be set again: write it as a choice, with options and a recommendation"
+            ],
+            [
+              "big_direction",
+              "A large direction across projects must change, such as how standards are set"
+            ],
+            [
+              "irreversible_action",
+              "The next step cannot be undone"
+            ],
+            [
+              "publish_or_send",
+              "Something must be published, posted or sent outside"
+            ],
+            [
+              "change_live_data",
+              "Live data must change"
+            ],
+            [
+              "other_machine",
+              "Another of the owner's machines is needed (CI does not count)"
+            ],
+            [
+              "permission",
+              "The owner must grant a permission or approve"
+            ],
+            [
+              "return_format_unfit",
+              "A field of what this cell asks you to return cannot be filled in the situation at hand, or would mean nothing if filled. When you meet this you must ask; never force a value, invent one or fill in something empty to get past it. In what, say which field, what the situation is, and why it does not fit"
+            ]
+          ]
+        },
+        {
+          "group": "unclear",
+          "kinds": [
+            [
+              "other",
+              "None of the kinds above, and only the owner can answer it. Say it clearly in what"
+            ]
+          ]
+        }
+      ],
+      "agentCommon": {
+        "returns": {
+          "forms": [
+            {
+              "own": true,
+              "say": "this cell's own answer"
+            },
+            {
+              "field": "ask",
+              "say": "`ask`",
+              "lines": [
+                "architect"
+              ]
+            },
+            {
+              "field": "tools",
+              "say": "`tools`, without `progress`",
+              "without": [
+                "progress"
+              ],
+              "lines": [
+                "architect"
+              ]
+            },
+            {
+              "field": "pause",
+              "say": "`pause`"
+            }
+          ],
+          "every": [
+            "tell_owner",
+            "progress"
+          ],
+          "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
+          "in": {
+            "name": "outcome",
+            "desc": "What this round comes to: exactly one"
+          },
+          "join": ", ",
+          "name": "`{name}`",
+          "write": [
+            "Only your return is read: nothing you write outside it reaches anyone. To ask, hand in ask; to tell the owner what needs no answer, use tell_owner.",
+            "A field the owner reads (its description says so) is written so: explain a new term or label in half a sentence where it first appears; write the phenomenon, not internal nouns.",
+            "No internal names the owner does not know: no number of an internal function, file, branch, commit, version, CI run or specification clause, except as a link where the owner must act; a PR is followed by a few words saying what it is, with its link; only a PR description may give paths. Names a programmer writes (language constructs, library functions and types) are written in code font as they are, an external product's version when it matters, and quoted error messages verbatim, numbers included.",
+            "Say whether each claim was measured, read from source or deduced; put what is unconfirmed next to the claim, with how it will be confirmed. Every number carries its comparison: a percentage says faster or slower than what, a cited threshold gives its value.",
+            "An option the owner chose is written as its content, not only by its name. The design and the acceptance say the same thing, and their numbers agree. Each field reads on its own: full names, every PR linked, the background a reader needs.",
+            "Say each thing once, in the field it belongs to, and not in prose what a code comment says. Be concise without losing what matters: the most important first; never cut what the owner needs to understand and decide.",
+            "Code examples: only the lines the point needs; explain a name used but not defined in a comment. One comment per line, on its own line above the line it explains, about 80 characters at most; at the line that goes wrong, say what should hold, what happens and why. Before and after are two blocks, each with comments. Follow the language's syntax and format, saying so when a form cannot compile before the implementation. A tool's error text comes from the repository or a real run in CI, never from memory; otherwise describe it in words. The fence names the language; output, logs and errors take no label and no comments."
+          ]
+        },
+        "rows": [
+          {
+            "name": "tools",
+            "if": [
+              [
+                "has",
+                "tools"
+              ]
+            ],
+            "to": "A13",
+            "counts": "tool_requests",
+            "main": true
+          },
+          {
+            "name": "pause",
+            "if": [
+              [
+                "has",
+                "pause"
+              ]
+            ],
+            "to": "@self",
+            "counts": "total_time"
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Constitutions",
+            "what": "The constitution of each project you look after: its lasting values, from which every decision in it comes, as the project's configuration names it",
+            "from": [
+              {
+                "engine": "constitutions"
+              }
+            ]
+          },
+          {
+            "name": "Tool results",
+            "what": "The results of the tools you asked for, and those that failed",
+            "from": [
+              [
+                "@from",
+                "results"
+              ],
+              [
+                "@from",
+                "failed"
+              ]
+            ],
+            "maybe": true,
+            "with": "tools"
+          },
+          {
+            "name": "Owner's answer",
+            "what": "The owner's answer to what you asked; none when you did not ask",
+            "from": [
+              [
+                "@from",
+                "reply"
+              ]
+            ],
+            "maybe": true,
+            "with": "ask"
+          }
+        ],
+        "out": [
+          {
+            "$ref": "ask_form"
+          },
+          {
+            "$ref": "tools_form"
+          },
+          {
+            "$ref": "pause_form"
+          },
+          {
+            "name": "tell_owner",
+            "type": "list",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "item": {
+              "type": "text",
+              "desc": "One message"
+            }
+          },
+          {
+            "$ref": "progress_form"
+          }
+        ],
+        "always": [
+          {
+            "at": "tell_owner",
+            "do": "tell_owner"
+          }
+        ],
+        "checks": [],
+        "shown": [
+          "progress",
+          "tell_owner"
+        ],
+        "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original."
+      },
+      "nodes": [
+        {
+          "id": "A0",
+          "kind": "engine",
+          "title": "Wake",
+          "step": "wake",
+          "inputs": [
+            {
+              "what": "Why you woke: a matter someone waits for came (an engineer's question, the owner's words, the owner's answer to a matter you held, the owner's approval of the changes you collected, a design card to look at, a tool that failed), fewer works are ready to start than there are slots (the engine queues an advance), a side report that cannot wait came or the oldest has waited an hour, or the next look you set last time is due. Every matter that came is in your queue",
+              "from": [
+                {
+                  "db": "architect_queue"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "woke",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "A1",
+              "main": true
+            }
+          ]
+        },
+        {
+          "id": "A1",
+          "kind": "agent",
+          "title": "How things stand",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
+              "from": [
+                {
+                  "db": "plan"
+                },
+                {
+                  "db": "plan_gates"
+                },
+                {
+                  "db": "plan_budgets"
+                }
+              ]
+            },
+            {
+              "what": "The state of things you wrote last time, with what your last wrap-up changed of your understanding; none at your first wake",
+              "from": [
+                {
+                  "db": "architect_state"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "What changed since your last wake: items changed, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view instead: the items being worked on in each project, at which stage each is, what it waits for, and who waits for whom",
+              "from": [
+                {
+                  "engine": "since_last_wake"
+                }
+              ]
+            },
+            {
+              "what": "Your recent decisions: the latest few dozen entries of your log, each with its reasons",
+              "from": [
+                {
+                  "db": "architect_log"
+                }
+              ]
+            },
+            {
+              "what": "Each project's guide: its AGENTS.md, its design goal, and the index of its design tree (a title and one sentence per node)",
+              "from": [
+                {
+                  "engine": "projects_guides"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: how the whole stands now. You are the one architect over everything, and when the owner is away you make the judgments the owner would make. They rest on two things: the owner's intent, written in the constitution and the policy, and how the whole stands now. This question is about the second: until you know how things stand, take on no matter and make no judgment.",
+            "Answer line by line: for each line of work under way, which article of the constitution and which point of the policy it serves, how it is done, how far it got, where it is stuck, and what came of it lately. What you are not clear about, read yourself: the items, the PRs, the design trees, the code, until you can say it."
+          ],
+          "out": [
+            {
+              "name": "state",
+              "type": "obj",
+              "desc": "How the whole stands now",
+              "fields": [
+                {
+                  "name": "lines",
+                  "type": "list",
+                  "desc": "One row per line of work under way",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "line",
+                        "type": "text",
+                        "desc": "Which line: which large piece of which project"
+                      },
+                      {
+                        "name": "serves",
+                        "type": "text",
+                        "desc": "Which article of the constitution, which point of the policy it serves"
+                      },
+                      {
+                        "name": "approach",
+                        "type": "text",
+                        "desc": "How it is done"
+                      },
+                      {
+                        "name": "where",
+                        "type": "text",
+                        "desc": "How far it got"
+                      },
+                      {
+                        "name": "stuck",
+                        "type": "text",
+                        "desc": "Where it is stuck; if it is not, say so"
+                      },
+                      {
+                        "name": "recent",
+                        "type": "text",
+                        "desc": "What came of it lately; if nothing, say so"
+                      }
+                    ]
+                  },
+                  "min": 1
+                },
+                {
+                  "name": "changed",
+                  "type": "text",
+                  "desc": "What changed since last time; for a new session, what you read from the start"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "clear",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "A2",
+              "main": true
+            }
+          ],
+          "promptBy": {
+            "by": "session",
+            "cases": {
+              "new": [
+                "This is a new session and you remember nothing: read from the constitution, the policy and the whole view, then the design trees and key documents of the projects being worked on, and your recent decisions, until you can say each line."
+              ],
+              "continued": [
+                "This session goes on from last time, and you remember the state of things you wrote: read only what changed since, and correct your state; read a line again where much changed."
+              ]
+            }
+          },
+          "inenums": {
+            "session": [
+              [
+                "new",
+                "The session is new: your first wake, or the first after a new policy took effect"
+              ],
+              [
+                "continued",
+                "The session goes on from your last wake"
+              ]
+            ]
+          },
+          "shown": [
+            "state"
+          ]
+        },
+        {
+          "id": "A2",
+          "kind": "agent",
+          "title": "Against the constitution",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The state of things you just gave",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ]
+              ]
+            },
+            {
+              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
+              "from": [
+                {
+                  "db": "plan"
+                },
+                {
+                  "db": "plan_gates"
+                },
+                {
+                  "db": "plan_budgets"
+                }
+              ]
+            },
+            {
+              "what": "Your earlier judgments: the latest few dozen entries of your log, with their reasons",
+              "from": [
+                {
+                  "db": "architect_log"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: against the constitution, what is wrong now. Go through the constitution article by article and answer each: is it kept now, which line or item breaks it or is about to, and on what grounds you say so. Do not look only at the lines that went wrong: things that each look reasonable alone and together break it, such as a specification that grows by one rule at a time until it swells, are exactly what this question looks for.",
+            "Then see whether the state of things still matches your earlier judgments: whether the ways you set, the order you gave and the replies you made still stand. Where they do not, say how you judged before and what you see now."
+          ],
+          "out": [
+            {
+              "name": "against",
+              "type": "list",
+              "desc": "One row per article of the constitution",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "principle",
+                    "type": "text",
+                    "desc": "Which article, by its name in the constitution"
+                  },
+                  {
+                    "name": "status",
+                    "type": "enum",
+                    "desc": "How it stands now",
+                    "values": [
+                      [
+                        "kept",
+                        "It is kept"
+                      ],
+                      [
+                        "at_risk",
+                        "At the present course it is about to be broken"
+                      ],
+                      [
+                        "broken",
+                        "It is broken already"
+                      ]
+                    ]
+                  },
+                  {
+                    "name": "where",
+                    "type": "text",
+                    "desc": "Which line, which item; for one kept, where it is kept"
+                  },
+                  {
+                    "name": "evidence",
+                    "type": "text",
+                    "desc": "On what grounds: the facts or numbers seen; for an inference, say it is one"
+                  }
+                ]
+              },
+              "min": 1
+            },
+            {
+              "name": "mismatches",
+              "type": "list",
+              "desc": "Where the state of things no longer matches an earlier judgment of yours, one per row; an empty list if none",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "before",
+                    "type": "text",
+                    "desc": "How you judged before, and on what matter"
+                  },
+                  {
+                    "name": "now",
+                    "type": "text",
+                    "desc": "What you see now"
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "gone_through",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "A3",
+              "main": true
+            }
+          ],
+          "checks": [
+            {
+              "at": "against",
+              "check": "constitution_covered"
+            }
+          ],
+          "shown": [
+            "against",
+            "mismatches"
+          ]
+        },
+        {
+          "id": "A3",
+          "kind": "agent",
+          "title": "Does the policy need setting again",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The signals the policy says to report on, with the numbers the engine measured for them",
+              "from": [
+                {
+                  "engine": "policy_signals"
+                }
+              ]
+            },
+            {
+              "what": "What the last question found: what is broken or about to be, and what no longer matches your earlier judgments",
+              "from": [
+                [
+                  "A2",
+                  "against"
+                ],
+                [
+                  "A2",
+                  "mismatches"
+                ]
+              ]
+            },
+            {
+              "what": "The state of things you gave",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: whether the policy still governs. The policy is the owner's: you act by it and do not change it. Four things show it may no longer govern: a signal the policy says to report on, whose number the engine measured past its line; a conflict with the constitution the last question found; a fact the policy rests on that the state of things overturns; a new situation the policy does not cover and cannot be judged by. With no policy in force yet, there is nothing to govern by.",
+            "If you see any, hand in set_policy_again: every other matter of yours stops, you study the new policy first, give the study to the owner, and once the owner is satisfied write it as a text; until the new policy is set, nothing moves on. Most of the time there is none: say in one sentence why."
+          ],
+          "out": [
+            {
+              "name": "report",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether the policy needs setting again",
+              "branches": [
+                {
+                  "value": "no",
+                  "desc": "The policy still governs; carry on",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why it still governs"
+                    }
+                  ]
+                },
+                {
+                  "value": "set_policy_again",
+                  "desc": "The policy may no longer govern: stop the rest and set the policy",
+                  "fields": [
+                    {
+                      "name": "points",
+                      "type": "list",
+                      "desc": "What you saw, one per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "kind",
+                            "type": "enum",
+                            "desc": "Which kind",
+                            "values": [
+                              [
+                                "signal",
+                                "A signal the policy says to report on passed its line"
+                              ],
+                              [
+                                "constitution_conflict",
+                                "A conflict with the constitution the last question found"
+                              ],
+                              [
+                                "premise_overturned",
+                                "The state of things overturns a fact the policy rests on"
+                              ],
+                              [
+                                "not_covered",
+                                "A new situation the policy does not cover and cannot be judged by"
+                              ]
+                            ]
+                          },
+                          {
+                            "name": "seen",
+                            "type": "text",
+                            "desc": "What you saw: the number measured, which matter"
+                          },
+                          {
+                            "name": "why",
+                            "type": "text",
+                            "desc": "Why the policy may have to change"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "no",
+              "if": [
+                [
+                  "is",
+                  "report.verdict",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "main": true
+            },
+            {
+              "name": "set_policy_again",
+              "if": [
+                [
+                  "is",
+                  "report.verdict",
+                  [
+                    "set_policy_again"
+                  ]
+                ]
+              ],
+              "to": "P1",
+              "sets": {
+                "entered": "question_3"
+              },
+              "do": [
+                "hold_for_policy"
+              ]
+            }
+          ],
+          "shown": [
+            "report"
+          ]
+        },
+        {
+          "id": "A4",
+          "kind": "agent",
+          "title": "What is missing",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "Your answers to the first three questions",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ],
+                [
+                  "A2",
+                  "against"
+                ],
+                [
+                  "A2",
+                  "mismatches"
+                ],
+                [
+                  "A3",
+                  "report"
+                ]
+              ]
+            },
+            {
+              "what": "Your queue: each matter waiting, its kind, the item it concerns, who waits for it (an agent stopped waiting, the owner, or no one), how long it has waited, and what it is in one sentence",
+              "from": [
+                {
+                  "db": "architect_queue"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: what you still lack before you judge. Think of what you are about to judge: read the items, PRs, design trees and code you need yourself; for what only tools can find, hand in tools; for what only the owner can answer and without which you cannot judge, ask the owner with ask, and this wake stops here to wait.",
+            "What only the owner can answer but does not keep you from judging other matters goes in open: the engine puts each to the owner as an ask, and you leave the lines it touches alone for now. When all is filled in, hand in this cell's answer: what you filled in, and what is still open."
+          ],
+          "out": [
+            {
+              "name": "filled",
+              "type": "list",
+              "desc": "What this question filled in, one per row; an empty list if nothing",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "what",
+                    "type": "text",
+                    "desc": "What you read or looked up"
+                  },
+                  {
+                    "name": "how",
+                    "type": "enum",
+                    "desc": "How it was filled in",
+                    "values": [
+                      [
+                        "read",
+                        "You read it yourself"
+                      ],
+                      [
+                        "tools",
+                        "You looked it up with tools"
+                      ],
+                      [
+                        "owner_answered",
+                        "You asked the owner"
+                      ]
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "open",
+              "type": "list",
+              "desc": "What only the owner can answer and does not keep you from judging other matters, one per row; an empty list if none",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "$ref": "choice",
+                    "desc": "What the owner is asked to decide. Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+                  },
+                  {
+                    "name": "affects",
+                    "type": "list",
+                    "desc": "The lines or items you leave alone until the owner answers",
+                    "item": {
+                      "type": "text",
+                      "desc": "Which line or item"
+                    },
+                    "min": 1
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "filled",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "A5",
+              "main": true
+            }
+          ],
+          "always": [
+            {
+              "at": "open",
+              "do": "open_asks"
+            }
+          ],
+          "shown": [
+            "filled"
+          ]
+        },
+        {
+          "id": "A5",
+          "kind": "agent",
+          "title": "Does what runs fit",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
+              "from": [
+                {
+                  "db": "plan"
+                },
+                {
+                  "db": "plan_gates"
+                },
+                {
+                  "db": "plan_budgets"
+                }
+              ]
+            },
+            {
+              "what": "Two lists: the works running now; and the items the engine works out from the plan to start next, as many as there are slots. For each, what the engine checked first: the segment it hangs on, whether that segment is deferred, whether the segments before it are done, what it waits for, and for how long",
+              "from": [
+                {
+                  "engine": "running_and_next"
+                }
+              ]
+            },
+            {
+              "what": "The slots: each machine's slots, how many works hold one, how many are free, and how many items are ready to start",
+              "from": [
+                {
+                  "engine": "slots"
+                }
+              ]
+            },
+            {
+              "what": "Your answers to the first four questions",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ],
+                [
+                  "A2",
+                  "against"
+                ],
+                [
+                  "A2",
+                  "mismatches"
+                ],
+                [
+                  "A3",
+                  "report"
+                ],
+                [
+                  "A4",
+                  "open"
+                ]
+              ]
+            },
+            {
+              "what": "Your answer to this question last time; none at your first wake",
+              "from": [
+                {
+                  "db": "architect_last_fit"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: by the policy and the plan, whether what runs and what starts next fit. Once the policy is set, these two matter most of all: when they fit, keep the engine running at full and arrange what comes after; when they do not, set the projects straight first, and move on once they are.",
+            "Look at the two lists one by one: whether each still fits the policy's points, whether its direction drifted; whether it should be split, whether its dependencies are right, whether it duplicates another; for one the engine found on the wrong segment, on a deferred segment, or before its earlier segments are done, why it is still on the list. Then look at the whole list: whether the slots are shared rightly among the segments, whether the stages the policy puts first have the slots they should; whether something more urgent is missing from the list.",
+            "When only a few are wrong and the rest run as usual unaffected, answer some_to_change; when the structure is wrong, so that starting new works would start the wrong ones and their work would have to be redone, answer set_straight: the engine stops starting new works, queues each place to set straight as a matter of yours, you handle them one by one, and when they are done this question is asked again. For both, say what is wrong in each place and how you mean to change it. When all fit, answer fits, and say why."
+          ],
+          "out": [
+            {
+              "name": "fit",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether what runs and what starts next fit",
+              "branches": [
+                {
+                  "value": "fits",
+                  "desc": "All fit the policy and the plan",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why they fit: on which segments the slots are spent, and why those"
+                    }
+                  ]
+                },
+                {
+                  "value": "some_to_change",
+                  "desc": "A few are wrong; the rest run as usual, and new works start as usual",
+                  "fields": [
+                    {
+                      "name": "fixes",
+                      "type": "list",
+                      "desc": "What to change, one per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "where",
+                            "type": "text",
+                            "desc": "Which item, which segment, or where in the whole list"
+                          },
+                          {
+                            "name": "wrong",
+                            "type": "text",
+                            "desc": "What is wrong, on what grounds: the facts seen; for an inference, say it is one"
+                          },
+                          {
+                            "name": "fix",
+                            "type": "text",
+                            "desc": "How you mean to change it: move it to another segment, split it, change its dependencies, pause it, put it back in the pool, add an item"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                },
+                {
+                  "value": "set_straight",
+                  "desc": "The structure is wrong, and new works would start wrong: the engine stops starting new works until it is set straight",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why it is the whole: what in the structure is wrong"
+                    },
+                    {
+                      "name": "fixes",
+                      "type": "list",
+                      "desc": "What to change, one per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "where",
+                            "type": "text",
+                            "desc": "Which item, which segment, or where in the whole list"
+                          },
+                          {
+                            "name": "wrong",
+                            "type": "text",
+                            "desc": "What is wrong, on what grounds: the facts seen; for an inference, say it is one"
+                          },
+                          {
+                            "name": "fix",
+                            "type": "text",
+                            "desc": "How you mean to change it: move it to another segment, split it, change its dependencies, pause it, put it back in the pool, add an item"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "fits",
+              "if": [
+                [
+                  "is",
+                  "fit.verdict",
+                  [
+                    "fits"
+                  ]
+                ]
+              ],
+              "to": "A6",
+              "sets": {
+                "tidy": "not_tidying"
+              },
+              "do": [
+                "release_tidy_hold"
+              ],
+              "main": true
+            },
+            {
+              "name": "some_to_change",
+              "if": [
+                [
+                  "is",
+                  "fit.verdict",
+                  [
+                    "some_to_change"
+                  ]
+                ]
+              ],
+              "to": "A6",
+              "sets": {
+                "tidy": "not_tidying"
+              },
+              "do": [
+                {
+                  "at": "fit[some_to_change].fixes",
+                  "do": "queue_fixes"
+                },
+                "release_tidy_hold"
+              ]
+            },
+            {
+              "name": "set_straight",
+              "if": [
+                [
+                  "is",
+                  "fit.verdict",
+                  [
+                    "set_straight"
+                  ]
+                ]
+              ],
+              "to": "A6",
+              "sets": {
+                "tidy": "tidying"
+              },
+              "do": [
+                "hold_for_tidying",
+                {
+                  "at": "fit[set_straight].fixes",
+                  "do": "queue_fixes"
+                }
+              ]
+            }
+          ],
+          "promptBy": {
+            "by": "session",
+            "cases": {
+              "new": [
+                "This is a new session: judge both lists from the start, each one."
+              ],
+              "continued": [
+                "This session goes on from last time: do not judge again what you judged and what did not change; judge only what is new on the lists, what changed, and what you judged must change and is not changed yet."
+              ]
+            }
+          },
+          "inenums": {
+            "session": [
+              [
+                "new",
+                "The session is new: your first wake, or the first after a new policy took effect"
+              ],
+              [
+                "continued",
+                "The session goes on from your last wake"
+              ]
+            ]
+          },
+          "shown": [
+            "fit"
+          ]
+        },
+        {
+          "id": "A6",
+          "kind": "agent",
+          "title": "Pick the most urgent",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "Your queue: each matter waiting, its kind, the item it concerns, who waits for it (an agent stopped waiting, the owner, or no one), how long it has waited, and what it is in one sentence",
+              "from": [
+                {
+                  "db": "architect_queue"
+                }
+              ]
+            },
+            {
+              "what": "What the questions before found: what does not fit in what runs, what is broken or about to be, the judgments that no longer match, what to report to the owner, and the asks still open",
+              "from": [
+                [
+                  "A2",
+                  "against"
+                ],
+                [
+                  "A2",
+                  "mismatches"
+                ],
+                [
+                  "A3",
+                  "report"
+                ],
+                [
+                  "A4",
+                  "open"
+                ],
+                [
+                  "A5",
+                  "fit"
+                ]
+              ]
+            },
+            {
+              "what": "The matters already handled in this wake",
+              "from": [
+                {
+                  "db": "wake_handled",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "The slots: how many are free, and how many items are ready to start",
+              "from": [
+                {
+                  "engine": "slots"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: what is most urgent now. Rank these together: the matters waiting in your queue, what the questions before found wrong, the works to start or stop by the policy and the plan, what to set straight on the board, what to take to the owner. Rank by the constitution and the policy, not by the order they came in; where an agent is stopped waiting, every minute it waits is lost, so count it. While new works are stopped to set things straight, what sets them straight comes first, and agents stopped waiting still count.",
+            "Pick one, and say why it and why not the one ranked after it. When all is handled and nothing is left to do, say why, and go to the wrap-up."
+          ],
+          "out": [
+            {
+              "name": "pick",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Which to handle",
+              "branches": [
+                {
+                  "value": "picked",
+                  "desc": "One is picked to handle",
+                  "fields": [
+                    {
+                      "name": "ranked",
+                      "type": "list",
+                      "desc": "The ranked list, most urgent first",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "matter",
+                            "type": "text",
+                            "desc": "Which matter, in one sentence"
+                          },
+                          {
+                            "name": "why",
+                            "type": "text",
+                            "desc": "Why it is ranked here"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    },
+                    {
+                      "name": "chosen",
+                      "type": "obj",
+                      "desc": "The one picked",
+                      "fields": [
+                        {
+                          "name": "matter",
+                          "type": "text",
+                          "desc": "Which matter, as the ranked list writes it"
+                        },
+                        {
+                          "name": "queued",
+                          "type": "int",
+                          "desc": "Its number in your queue; leave it out for a matter not in your queue, such as one the questions before found",
+                          "optional": true
+                        },
+                        {
+                          "name": "about",
+                          "type": "enum",
+                          "values": "arch_about",
+                          "desc": "What kind of matter it is"
+                        },
+                        {
+                          "name": "why",
+                          "type": "text",
+                          "desc": "Why it, and why not the one ranked after it"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "value": "nothing_to_do",
+                  "desc": "All is handled: go to the wrap-up",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why nothing is left to do"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "picked",
+              "if": [
+                [
+                  "is",
+                  "pick.verdict",
+                  [
+                    "picked"
+                  ]
+                ]
+              ],
+              "to": "A7",
+              "main": true
+            },
+            {
+              "name": "nothing_to_do",
+              "if": [
+                [
+                  "is",
+                  "pick.verdict",
+                  [
+                    "nothing_to_do"
+                  ]
+                ]
+              ],
+              "to": "A10"
+            }
+          ],
+          "checks": [
+            {
+              "at": "pick[picked].chosen",
+              "check": "chosen_first"
+            }
+          ],
+          "shown": [
+            "pick"
+          ]
+        },
+        {
+          "id": "A7",
+          "kind": "agent",
+          "title": "The crux",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries",
+              "from": [
+                {
+                  "engine": "matter_material"
+                }
+              ]
+            },
+            {
+              "what": "Why you picked it",
+              "from": [
+                [
+                  "A6",
+                  "pick[picked]"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: what the crux of this matter is. Do not think about what to do yet: what is the question that really has to be answered? What the asking side asks, and what shows on the surface, is often not the crux. Then think whether it is one corner of a deeper problem: whether the same kind of thing happened elsewhere, whether its root lies in another item or project, or where the constitution does not reach. If it is a corner, say what the deeper problem is, and whether to handle it now with this one or as one of its own.",
+            "If this matter cannot be judged by the policy in force, or the owner said the policy must be set again, hand in policy_must_change and do not think about what to do yet: every other matter of yours stops, and you study the new policy first."
+          ],
+          "out": [
+            {
+              "name": "crux",
+              "type": "union",
+              "by": "root",
+              "desc": "The crux",
+              "common": [
+                {
+                  "name": "question",
+                  "type": "text",
+                  "desc": "What this matter really has to answer"
+                }
+              ],
+              "branches": [
+                {
+                  "value": "itself",
+                  "desc": "It is no corner of a deeper problem",
+                  "fields": []
+                },
+                {
+                  "value": "deeper",
+                  "desc": "Its root lies deeper",
+                  "fields": [
+                    {
+                      "name": "deeper",
+                      "type": "text",
+                      "desc": "What the deeper problem is, and where"
+                    },
+                    {
+                      "name": "handle",
+                      "type": "enum",
+                      "desc": "What to do",
+                      "values": [
+                        [
+                          "together",
+                          "Handle the deeper one now, with this"
+                        ],
+                        [
+                          "separately",
+                          "Handle only this now; the deeper one becomes an item of its own, created in the changes"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "value": "policy_must_change",
+                  "desc": "This matter cannot be judged by the policy in force, or the owner said the policy must be set again",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why: what the owner said, or where the policy in force cannot judge it"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "found",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "none",
+                  "crux.root",
+                  [
+                    "policy_must_change"
+                  ]
+                ]
+              ],
+              "to": "A8",
+              "main": true
+            },
+            {
+              "name": "set_policy_again",
+              "if": [
+                [
+                  "is",
+                  "crux.root",
+                  [
+                    "policy_must_change"
+                  ]
+                ]
+              ],
+              "to": "P1",
+              "sets": {
+                "entered": "question_7"
+              },
+              "do": [
+                "hold_for_policy"
+              ]
+            }
+          ],
+          "shown": [
+            "crux"
+          ]
+        },
+        {
+          "id": "A8",
+          "kind": "agent",
+          "title": "What to do",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query",
+            "engine_op",
+            "db_write"
+          ],
+          "inputs": [
+            {
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries",
+              "from": [
+                {
+                  "engine": "matter_material"
+                }
+              ]
+            },
+            {
+              "what": "The crux you gave",
+              "from": [
+                [
+                  "A7",
+                  "crux"
+                ]
+              ]
+            },
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
+              "from": [
+                {
+                  "db": "plan"
+                },
+                {
+                  "db": "plan_gates"
+                },
+                {
+                  "db": "plan_budgets"
+                }
+              ]
+            },
+            {
+              "what": "The whole: the items being worked on, at which stage each is, what it waits for; who waits for whom",
+              "from": [
+                {
+                  "engine": "whole_view"
+                }
+              ]
+            },
+            {
+              "what": "Your recent decisions: the latest few dozen entries of your log, each with its reasons",
+              "from": [
+                {
+                  "db": "architect_log"
+                }
+              ]
+            },
+            {
+              "what": "Each project's guide: its AGENTS.md, its design goal, and the index of its design tree (a title and one sentence per node); the nodes this matter touches, in full",
+              "from": [
+                {
+                  "engine": "projects_guides"
+                }
+              ]
+            },
+            {
+              "what": "What the engine looked up for you: the items whose title or problem is close to this matter's; the works under way whose branches changed the same paths",
+              "from": [
+                {
+                  "engine": "similar_items"
+                }
+              ]
+            },
+            {
+              "what": "What the second look found wrong last round: which places must change, and why; none the first time",
+              "from": [
+                [
+                  "A9",
+                  "verdict[must_change]"
+                ]
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "This round thinks through what to do about this matter. The crux was answered last round: think by it, and do not go back to the question on the surface. First see which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked: open an item to check it first, and do not change the structure on it.",
+            "Whatever changes the database (creating, splitting, adding dependencies, moving, merging, cancelling, changing a text or the acceptance, setting a level; the plan's segments, gates, budgets and order) goes into changes, each with its reason: it is not written in this round but collected, and at the wrap-up the engine puts them all to the owner in one ask; once approved, you write them. What does not change the database, do at once with engine_op: pausing or resuming a work, stopping or releasing new works, replying, interjecting. Someone who asked you is answered with reply, concretely enough that the asking side can carry on from it: if sub-items were split off, say plainly that the work must redesign for the part that remains; if the work must stop now and wait for other items to deliver, list them in the reply's waits, while a dependency is enough for what it waits for only before merging; if the work should not be done, put its cancellation in changes and pause it first. A reply that can only be given once changes are approved and written is not given in this round: give it once the owner approves. What the engineer of another item must know, say with interject.",
+            "Every item hangs on the plan: a root item on a segment, a sub-item with its root; when creating an item, say what it touches, and it can be created only on a segment that may touch it. One that hangs on no segment goes into the pool, and no one is put on it; one to cancel is cancelled as cancelling goes. Each project has a standing maintenance segment, which takes only defects of committed behaviour, and security defects at any time; new features, and changes that make the specification larger, do not go on it. The engine works out the dispatch queue from the segments' order, the items' dependencies and the slots, and you do not order it yourself: to change the order, order the segments.",
+            "The constitution, the policy and what goes outside are the owner's: what must be decided there, ask the owner with ask, with its choice; this matter is held, and you go back to pick the next."
+          ],
+          "out": [
+            {
+              "$ref": "arch_judgment"
+            },
+            {
+              "$ref": "arch_changes"
+            }
+          ],
+          "cases": [
+            {
+              "name": "changed_structure",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "any",
+                  "changes.kind",
+                  [
+                    "create_item",
+                    "add_dependency",
+                    "move",
+                    "merge",
+                    "cancel",
+                    "add_segment",
+                    "edit_segment",
+                    "edit_done_when",
+                    "defer_segment",
+                    "delete_segment",
+                    "order_segments",
+                    "add_gate",
+                    "add_budget",
+                    "edit_gate",
+                    "edit_budget"
+                  ]
+                ]
+              ],
+              "to": "A9",
+              "main": true
+            },
+            {
+              "name": "left_structure",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "none",
+                  "changes.kind",
+                  [
+                    "create_item",
+                    "add_dependency",
+                    "move",
+                    "merge",
+                    "cancel",
+                    "add_segment",
+                    "edit_segment",
+                    "edit_done_when",
+                    "defer_segment",
+                    "delete_segment",
+                    "order_segments",
+                    "add_gate",
+                    "add_budget",
+                    "edit_gate",
+                    "edit_budget"
+                  ]
+                ]
+              ],
+              "to": "A11"
+            }
+          ],
+          "promptBy": {
+            "by": "about",
+            "cases": {
+              "split": [
+                "What is asked is whether to split, and how. Given the structure already split, look at whether what remains must be split again: each sub-item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of that work goes to one sub-item, or the work keeps it. Sub-items are created under that work, and hang on the same segment with it."
+              ],
+              "duplicate": [
+                "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is a duplicate, keep the one further along and with more waiting for it, and merge the others into it: items waiting for them wait for the one kept, their unfinished sub-items move to it, then they are cancelled, the reason saying which item they were merged into. When the one merged away is the asking work's, what is useful on its branch goes into the log of the one kept."
+              ],
+              "depends_on_other_item": [
+                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now (it needs a feature added to the compiler first, say) or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a dependency is enough. If what it waits for has no item on the board yet, create it in the project that delivers it, under that project's segment that may do it; if no segment may, put it in the pool, and have the asking work depend on it and wait, saying so in the reply."
+              ],
+              "out_of_scope_defect": [
+                "What is asked is a defect that blocks that work but does not belong to it. Create an item to fix it, on the segment of the plan it belongs to; a defect of committed behaviour goes on the maintenance segment. If that work cannot go on until it is fixed, list it in waits; if it is not blocked, it carries on as usual. Do not let that work get around the defect."
+              ],
+              "root_elsewhere": [
+                "What is asked is a root that lies in another item, project or module. Find the item the root lies in, and create one if there is none; then decide what that work does: wait for the root to be fixed, have the root's item do it instead (cancel this one, saying where its work went), or go on with the part that remains. If the root overturns an assumption the plan rests on, change the plan."
+              ],
+              "too_costly": [
+                "What is asked is a change so large for this work that it is not worth it. The cost is no reason in itself: a design is judged only on itself, and the cost only decides the order. See where the burden lies: in a flaw of the design itself (the wrong abstraction, the change belongs elsewhere), or in doing it too early (the plan should put it later). Giving up a goal, or changing how goals are traded against each other, is the owner's: ask the owner."
+              ],
+              "over_plan": [
+                "The engineer's work must touch what its segment may not touch, or go past that segment's budget: what it touches, by how much, and why it cannot be smaller are in its ask. First see whether it can be smaller: leanness is an article of the constitution, so if it can, reply that it must shrink, saying to what. If it cannot and should be done, move it to a segment that may touch it, or change the gate or the budget, saying by which article of the constitution and which point of the policy; a line the policy writes may only be made stricter, and loosening it is the owner's: ask with ask. If it should not be done, defer the segment or cancel this one."
+              ],
+              "other_question": [
+                "What is asked is of another kind. First think whether it really must touch other items or the overall structure; if not, say in the reply whom to ask, and touch nothing on the board."
+              ],
+              "owner_words": [
+                "The owner said something, left words, or answered a matter you held. First find out what the owner wants and what for: when the owner wants one thing done, ask what it is for. If it touches the constitution or the policy, report it to the owner as the third question does, and do not change it yourself; if it answers a matter you held, carry on with that matter by the answer."
+              ],
+              "owner_approved": [
+                "The owner approved changes you collected: which were approved, those that were not and why are in the input. Write those approved exactly as approved with db_write; once written, reply with reply to the engineers waiting for them, and interject to the items that need it. For those not approved, think the matter again by the owner's why; if the database must still change, collect the changes again for the next approval."
+              ],
+              "constitution_violation": [
+                "What the second question found breaking the constitution, or about to. Find the root: which works and which way of doing them piled it up little by little; the correction lands on items: which to stop, which to do differently, which to create to make up for it. If the policy must change, report it to the owner as the third question does."
+              ],
+              "judgment_mismatch": [
+                "What the second question found where the state of things no longer matches an earlier judgment of yours. First find out whether you judged wrongly before or the situation changed; if you judged wrongly, correct that decision and the items it touched; if the situation changed, judge again by the new one."
+              ],
+              "running_unfit": [
+                "One place the fifth question found unfit in what runs or starts next: what is wrong and how you meant to change it are in the input. Change it by the policy and the plan: move one on the wrong segment, split one too large, correct wrong dependencies, pause or put back in the pool one that should not be done now, correct the text and acceptance of one whose direction drifted, create the items missing; interject what the engineer of a running one must know. While the whole is being set straight, handle these one by one, and the engine asks the fifth question again."
+              ],
+              "advance": [
+                "Arrange the works by the policy and the plan. The engine works out the dispatch queue: do not order it yourself. When the engine reports fewer items ready to start than there are slots, or slots are free and not enough items are ready, pick the next batch from the pool or the segments' plans, hang them on the segments that may do them, set the items straight and their levels, until there are enough; for a segment that should go first, order the segments; for a segment that should wait, defer it, saying what becomes of each running work under it."
+              ],
+              "tidy_board": [
+                "What to set straight on the board: items placed wrongly, missing their parts or acceptance, duplicated or out of date. Set them straight one by one; do not force what you cannot make clear: find out first, then change it."
+              ],
+              "policy_changed": [
+                "The owner set a new version of the policy, and the old one is no longer used. Go over everything by the new version: which segments must change, be deferred or be added, which running and queued works no longer fit the policy and what becomes of each; the gates and budgets change with them. Items that hang on none of the new segments go into the pool, not cancelled, and the list goes into your log for the owner. Where the policy holds something you cannot judge by, report it to the owner as the third question does, and do not fill it in yourself."
+              ],
+              "design_card": [
+                "A work's new design card, which you look at before the owner rules on it: whether each of its decisions fits the whole. Rule on each decision with rule_design_card: confirm it, or disagree saying why, or choose another of its approaches. A disagreement reaches the work's engineer as an interjection, and the owner rules on the card the work hands in next; what you confirm goes to the owner with your view. Where you and the owner differ, the owner's word goes."
+              ],
+              "tool_failed": [
+                "A tool the engine runs for a work failed, and its retries failed too: which tool, which kind of failure, what happened and how many retries are in the input. Fix it if you can, and reply once it is fixed, saying what you fixed: the engine runs that step again. What only the owner can fix, ask the owner."
+              ],
+              "environment_changed": [
+                "Main went red after a work merged, and is red on main's commit before the merge too: the red checks and that earlier run are in the input. Fix the environment, or add the check to the known red checks with an item that fixes it, then reply, and the engine runs that step again."
+              ]
+            }
+          },
+          "inenums": {
+            "about": "arch_about"
+          },
+          "checks": [
+            {
+              "at": "changes",
+              "check": "changes_valid"
+            },
+            {
+              "at": "changes",
+              "check": "question_answered"
+            },
+            {
+              "at": "changes",
+              "check": "approved_written"
+            }
+          ],
+          "shown": [
+            "judgment"
+          ]
+        },
+        {
+          "id": "A9",
+          "kind": "agent",
+          "title": "Look again",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "Your judgment just now, and the changes collected",
+              "from": [
+                [
+                  "A8",
+                  "judgment"
+                ],
+                [
+                  "A8",
+                  "changes"
+                ]
+              ]
+            },
+            {
+              "what": "The items and segments the changes touch: where each item hangs, who waits for it, what it waits for; each segment's order, delivery, when it counts as done, its assumptions; which segments the gates touched let touch, the budgets' lines, each segment's share and how much of it is used",
+              "from": [
+                {
+                  "engine": "changes_touch"
+                }
+              ]
+            },
+            {
+              "what": "The policy: the owner's guiding thought for now, the version in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "What the engine looked up for you: the items whose title or problem is close to those in the changes; the works under way whose branches changed the same paths",
+              "from": [
+                {
+                  "engine": "similar_items"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round looks again at the changes you just made, in the whole, without hurrying to a conclusion. Answer four things: whether the items created or kept duplicate existing ones, touching the same code not counting; whether their places and dependencies stand among who waits for whom, and whether they block more urgent works; which conclusions were deduced from reading code and not checked, an inference that decides the direction to be checked first by opening an item; whether they fit the constitution and the policy: whether the changes do what the articles touched imply, and whether they drift from the policy. If all four stand, hand in stands, with one sentence each; if one does not, hand in must_change, saying which, what the problem is and how to change it, and judge again."
+          ],
+          "out": [
+            {
+              "name": "verdict",
+              "type": "union",
+              "by": "verdict",
+              "desc": "The second look's conclusion",
+              "branches": [
+                {
+                  "value": "stands",
+                  "desc": "All four stand",
+                  "fields": [
+                    {
+                      "name": "duplicates",
+                      "type": "text",
+                      "desc": "Why there is no duplicate"
+                    },
+                    {
+                      "name": "place",
+                      "type": "text",
+                      "desc": "Why the places and dependencies stand"
+                    },
+                    {
+                      "name": "checked",
+                      "type": "text",
+                      "desc": "Which conclusions were deduced, and why they need no checking first; if all were checked, say so"
+                    },
+                    {
+                      "name": "fits",
+                      "type": "text",
+                      "desc": "Why they fit the constitution and the policy"
+                    }
+                  ]
+                },
+                {
+                  "value": "must_change",
+                  "desc": "Something does not stand: judge again",
+                  "fields": [
+                    {
+                      "name": "issues",
+                      "type": "list",
+                      "desc": "What does not stand, one per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "about",
+                            "type": "enum",
+                            "desc": "Which of the four",
+                            "values": [
+                              [
+                                "duplicate",
+                                "It duplicates an existing item"
+                              ],
+                              [
+                                "place",
+                                "The place or dependencies do not stand, or block more urgent works"
+                              ],
+                              [
+                                "unchecked",
+                                "A conclusion that decides the direction was deduced and not checked"
+                              ],
+                              [
+                                "constitution_and_policy",
+                                "It does not fit the constitution or the policy"
+                              ]
+                            ]
+                          },
+                          {
+                            "name": "what",
+                            "type": "text",
+                            "desc": "What the problem is"
+                          },
+                          {
+                            "name": "fix",
+                            "type": "text",
+                            "desc": "How to change it"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "stands",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "stands"
+                  ]
+                ]
+              ],
+              "to": "A11",
+              "main": true
+            },
+            {
+              "name": "must_change",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "must_change"
+                  ]
+                ]
+              ],
+              "to": "A8",
+              "counts": "rereviews"
+            }
+          ],
+          "shown": [
+            "verdict"
+          ]
+        },
+        {
+          "id": "A10",
+          "kind": "agent",
+          "title": "Wrap up",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The matters handled in this wake, and how each was handled",
+              "from": [
+                {
+                  "db": "wake_handled",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "The state of things you gave this time",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "This round wraps up, and answers two things. First, what you learned this time: whether what you saw while handling matters changes your understanding of the whole; if it does, say what changed: the engine adds it to your state of things, and gives it to you at your next wake. Second, when to wake next and what to look at: which line to look at again at what time, or when which item's work ends. You are woken anyway when a matter someone waits for comes: you need not write that."
+          ],
+          "out": [
+            {
+              "name": "learned",
+              "type": "text",
+              "desc": "What you learned this time, and what changed in your understanding; if nothing changed, say so"
+            },
+            {
+              "name": "next_look",
+              "type": "list",
+              "desc": "What to look at next time, one per row; an empty list if nothing",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "when",
+                    "type": "union",
+                    "by": "kind",
+                    "desc": "When: a time, or an item's work ending",
+                    "branches": [
+                      {
+                        "value": "at",
+                        "desc": "At a time",
+                        "fields": [
+                          {
+                            "name": "time",
+                            "type": "text",
+                            "desc": "The time, in UTC, as 2026-10-27T14:00Z"
+                          }
+                        ]
+                      },
+                      {
+                        "value": "item_done",
+                        "desc": "When the work on an item ends: merged, or stopped",
+                        "fields": [
+                          {
+                            "name": "item",
+                            "type": "int",
+                            "desc": "The item's number"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "what",
+                    "type": "text",
+                    "desc": "What to look at, and why"
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "wrapped_up",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "A15",
+              "main": true
+            }
+          ],
+          "shown": [
+            "learned",
+            "next_look"
+          ]
+        },
+        {
+          "id": "A11",
+          "kind": "engine",
+          "title": "Record this matter",
+          "inputs": [
+            {
+              "id": "jd",
+              "what": "The architect's judgment",
+              "from": [
+                [
+                  "A8",
+                  "judgment"
+                ]
+              ]
+            },
+            {
+              "id": "cx",
+              "what": "The crux the architect gave",
+              "from": [
+                [
+                  "A7",
+                  "crux"
+                ]
+              ]
+            },
+            {
+              "id": "ch",
+              "what": "The changes collected",
+              "from": [
+                [
+                  "A8",
+                  "changes"
+                ]
+              ]
+            },
+            {
+              "id": "ok",
+              "what": "The second look's conclusion; none when the structure did not change",
+              "from": [
+                [
+                  "A9",
+                  "verdict[stands]"
+                ]
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "matter_done",
+              "if": [
+                [
+                  "or",
+                  [
+                    [
+                      "inp",
+                      "tidy",
+                      [
+                        "not_tidying"
+                      ]
+                    ],
+                    [
+                      "inp",
+                      "tidy_left",
+                      [
+                        "some"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              "to": "A6",
+              "counts": "handled",
+              "main": true
+            },
+            {
+              "name": "set_straight",
+              "if": [
+                [
+                  "inp",
+                  "tidy",
+                  [
+                    "tidying"
+                  ]
+                ],
+                [
+                  "inp",
+                  "tidy_left",
+                  [
+                    "none"
+                  ]
+                ]
+              ],
+              "to": "A5",
+              "counts": "tidy_rounds"
+            }
+          ],
+          "always": [
+            {
+              "at": "@ch",
+              "do": "hold_changes"
+            },
+            {
+              "at": "@jd",
+              "do": "close_matter"
+            },
+            {
+              "at": "@cx",
+              "do": "close_matter"
+            },
+            {
+              "at": "@ok",
+              "do": "close_matter"
+            }
+          ],
+          "inenums": {
+            "tidy": [
+              [
+                "tidying",
+                "The fifth question answered set_straight: new works are stopped"
+              ],
+              [
+                "not_tidying",
+                "The fifth question answered fits or some_to_change"
+              ]
+            ],
+            "tidy_left": [
+              [
+                "some",
+                "Matters of the kind running_unfit are still waiting in the queue"
+              ],
+              [
+                "none",
+                "Every matter of the kind running_unfit is handled"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "A15",
+          "kind": "engine",
+          "title": "Put the changes to the owner",
+          "step": "submit_changes",
+          "inputs": [
+            {
+              "what": "The changes collected in this wake: each one's reason, the matter it belongs to, and who waits",
+              "from": [
+                {
+                  "db": "wake_changes",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "put",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "A12",
+              "main": true
+            }
+          ]
+        },
+        {
+          "id": "A12",
+          "kind": "engine",
+          "title": "This wake is done",
+          "step": "end_wake",
+          "inputs": [
+            {
+              "what": "Everything to handle is handled, and when to wake next is set",
+              "from": [
+                [
+                  "A10",
+                  "next_look"
+                ]
+              ]
+            }
+          ],
+          "out": []
+        },
+        {
+          "id": "A13",
+          "kind": "tool",
+          "title": "Run tools",
+          "step": "run_tools",
+          "inputs": [
+            {
+              "what": "The tools to run: the list the calling cell handed in",
+              "from": [
+                [
+                  "@caller",
+                  "tools"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "results",
+              "type": "list",
+              "desc": "The results of the tools that ran, one per row",
+              "item": {
+                "type": "union",
+                "by": "tool",
+                "branches": "toolResults"
+              }
+            },
+            {
+              "name": "failed",
+              "type": "list",
+              "desc": "The tools that failed, one per row; an empty list if all ran",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "tool",
+                    "type": "text",
+                    "desc": "Which tool"
+                  },
+                  {
+                    "$ref": "failure_kind"
+                  },
+                  {
+                    "$ref": "failure_what"
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "ran",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true
+            }
+          ],
+          "always": [
+            {
+              "at": "results",
+              "do": "record_tool_runs"
+            }
+          ]
+        },
+        {
+          "id": "A14",
+          "kind": "owner",
+          "title": "Owner",
+          "step": "ask_owner",
+          "inputs": [
+            {
+              "what": "What is asked: the ask the architect handed in, with its choice when it has one",
+              "from": [
+                [
+                  "@caller",
+                  "ask"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "reply",
+              "type": "obj",
+              "desc": "The owner's answer or ruling",
+              "fields": [
+                {
+                  "name": "text",
+                  "type": "text",
+                  "desc": "The answer, or which option of the choice was chosen"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "answered",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@asker",
+              "main": true,
+              "note": "The answer goes back to the cell that asked. An ask from the eighth question holds that matter and waits for no answer: the architect goes back to pick another, and the owner's answer comes to its queue as a matter of its own, saying which held matter it answers and who waits. An ask from any other cell waits for the answer, and that cell goes on with it."
+            }
+          ]
+        },
+        {
+          "id": "P1",
+          "kind": "agent",
+          "title": "Study the new policy",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "Why it is set again: what the third question saw, or the crux of the seventh question's matter and what the owner said",
+              "from": [
+                [
+                  "A3",
+                  "report[set_policy_again]"
+                ],
+                [
+                  "A7",
+                  "crux[policy_must_change]"
+                ]
+              ]
+            },
+            {
+              "what": "The policy in force: the goal, why, the points, the stages, when to report and what it governs; none before the first policy takes effect",
+              "from": [
+                {
+                  "db": "policy_current"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The state of things you gave",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ]
+              ]
+            },
+            {
+              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
+              "from": [
+                {
+                  "db": "plan"
+                },
+                {
+                  "db": "plan_gates"
+                },
+                {
+                  "db": "plan_budgets"
+                }
+              ]
+            },
+            {
+              "what": "What the owner said after reading the study; none the first time",
+              "from": [
+                [
+                  "@from",
+                  "ruling"
+                ]
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "This round studies the new policy: every other matter of yours waits until the policy is set. The policy is the guiding thought for now that the owner derives from the constitution and the state of things; it affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
+            "First find out what the owner wants and what for; then read until you can say it: the documents, design trees, code and specifications concerned, and the items, segments and running works concerned on the board. Answer: how the things concerned stand now, with numbers where there are numbers; which items, segments and projects the new policy touches, and how each is affected, which works stop, change or are wasted; at least three ways, with what follows from each, which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
+            "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions."
+          ],
+          "out": [
+            {
+              "$ref": "policy_study"
+            }
+          ],
+          "cases": [
+            {
+              "name": "studied",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "P2",
+              "main": true
+            }
+          ],
+          "shown": [
+            "study"
+          ]
+        },
+        {
+          "id": "P2",
+          "kind": "owner",
+          "title": "Owner reads the study",
+          "step": "ask_owner",
+          "inputs": [
+            {
+              "what": "The architect's study",
+              "from": [
+                [
+                  "P1",
+                  "study"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "ruling",
+              "type": "obj",
+              "desc": "The owner's view of the study",
+              "fields": [
+                {
+                  "name": "choice",
+                  "type": "enum",
+                  "desc": "Satisfied, study on, or the policy need not change",
+                  "values": [
+                    [
+                      "satisfied",
+                      "It is understood right, and can be written as a text"
+                    ],
+                    [
+                      "study_on",
+                      "Something is wrong or missing: study on"
+                    ],
+                    [
+                      "no_change",
+                      "The policy in force need not change: go back and carry on"
+                    ]
+                  ]
+                },
+                {
+                  "name": "text",
+                  "type": "text",
+                  "desc": "What is wrong, what is missing, what to add; it may be empty when satisfied"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "satisfied",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "satisfied"
+                  ]
+                ]
+              ],
+              "to": "P3",
+              "main": true
+            },
+            {
+              "name": "study_on",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "study_on"
+                  ]
+                ]
+              ],
+              "to": "P1",
+              "waits": true
+            },
+            {
+              "name": "no_change_back_to_4",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "no_change"
+                  ]
+                ],
+                [
+                  "inp",
+                  "entered",
+                  [
+                    "question_3"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "do": [
+                "release_policy_hold"
+              ]
+            },
+            {
+              "name": "no_change_back_to_8",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "no_change"
+                  ]
+                ],
+                [
+                  "inp",
+                  "entered",
+                  [
+                    "question_7"
+                  ]
+                ]
+              ],
+              "to": "A8",
+              "do": [
+                "release_policy_hold"
+              ]
+            }
+          ],
+          "shown": [
+            "ruling"
+          ],
+          "inenums": {
+            "entered": [
+              [
+                "question_3",
+                "Came from the third question: the architect found the policy may no longer govern"
+              ],
+              [
+                "question_7",
+                "Came from the seventh question: while handling a matter, the owner said to set it again, or the architect judged the policy in force cannot judge it"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "P3",
+          "kind": "agent",
+          "title": "Write the policy and its probes",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The study the owner was satisfied with",
+              "from": [
+                [
+                  "P1",
+                  "study"
+                ]
+              ]
+            },
+            {
+              "what": "What the owner said when satisfied",
+              "from": [
+                [
+                  "P2",
+                  "ruling"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "The owner is satisfied. This round writes what you understand as the policy's text, then sets the probes. Every architect session started later gets only this text and the constitution: it does not see the study or the discussion, cannot ask the owner, and must think and judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion. Write why most fully: the situation, the lessons, why the other ways were ruled out, so that a reader meeting a situation never seen can still work it out.",
+            "The probes test whether a new architect understood, and are not written into the text: some ask what the policy is and why, most give a situation written out in full and ask how to judge it, picking cases on the edge, where two points or two articles of the constitution meet, or where reading the words literally judges wrong. For each probe, write the answer you hold right. Every point has at least one probe."
+          ],
+          "out": [
+            {
+              "$ref": "policy"
+            },
+            {
+              "$ref": "policy_probes"
+            }
+          ],
+          "cases": [
+            {
+              "name": "written",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "P4",
+              "main": true
+            }
+          ],
+          "checks": [
+            {
+              "at": "policy",
+              "check": "policy_text_clean"
+            },
+            {
+              "at": "probes",
+              "check": "probes_cover_points"
+            }
+          ]
+        },
+        {
+          "id": "P4",
+          "kind": "engine",
+          "title": "A new session reads it",
+          "inputs": [
+            {
+              "what": "This version's text",
+              "from": [
+                {
+                  "db": "policy_text",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "new_session",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "P5",
+              "main": true,
+              "note": "The reader is on no line, so its every round is a new session: it is given only the text, the constitution and the probes, without their answers, and a session that has seen the probes is never used again."
+            }
+          ]
+        },
+        {
+          "id": "P5",
+          "kind": "agent",
+          "title": "A new architect reads the policy",
+          "inputs": [
+            {
+              "what": "The policy's text",
+              "from": [
+                {
+                  "db": "policy_text",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "The probes: the questions only, without their answers",
+              "from": [
+                {
+                  "db": "policy_probes_asked",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "You are an architect just taking up the post, and the owner is away. The policy below is the owner's guiding thought for now, and from now on you act by it; apart from it and the constitution you know nothing, and can ask no one.",
+            "First read it and say it again in your own words, one point per row. Then ask what you do not understand, are unsure of, or the text does not make clear, one per row: these are used to correct the text, and no one answers you. Last, answer the probes: by the policy, how you would judge and why; answer even when unsure, saying where you are unsure."
+          ],
+          "out": [
+            {
+              "name": "reading",
+              "type": "obj",
+              "desc": "The restatement, the questions and the answers to the probes",
+              "fields": [
+                {
+                  "name": "restate",
+                  "type": "list",
+                  "desc": "The restatement, one point per row",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "no",
+                        "type": "int",
+                        "desc": "The point's number"
+                      },
+                      {
+                        "name": "text",
+                        "type": "text",
+                        "desc": "In your own words, how this point has you judge, and why"
+                      }
+                    ]
+                  },
+                  "min": 1
+                },
+                {
+                  "name": "asks",
+                  "type": "list",
+                  "desc": "What you do not understand, are unsure of, or the text does not make clear, one per row; an empty list if nothing",
+                  "item": {
+                    "type": "text",
+                    "desc": "One question"
+                  }
+                },
+                {
+                  "name": "answers",
+                  "type": "list",
+                  "desc": "The answers to the probes, one per row",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "text",
+                        "desc": "Which probe"
+                      },
+                      {
+                        "name": "answer",
+                        "type": "text",
+                        "desc": "How you judge, and why; when unsure, where"
+                      }
+                    ]
+                  },
+                  "min": 1
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "answered",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "P6",
+              "main": true
+            }
+          ],
+          "checks": [
+            {
+              "at": "reading",
+              "check": "reading_complete"
+            }
+          ]
+        },
+        {
+          "id": "P6",
+          "kind": "agent",
+          "title": "Did the new architect understand",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "What the new architect handed in: the restatement, the questions and the answers to the probes",
+              "from": [
+                [
+                  "P5",
+                  "reading"
+                ]
+              ]
+            },
+            {
+              "what": "This version's text and the probes' answers",
+              "from": [
+                {
+                  "db": "policy_draft",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks."
+          ],
+          "out": [
+            {
+              "name": "verdict",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether the new architect understood",
+              "branches": [
+                {
+                  "value": "understood",
+                  "desc": "The restatement is right, the text answers all it asked, and every probe is judged rightly",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "On what grounds you say it understood"
+                    }
+                  ]
+                },
+                {
+                  "value": "gaps",
+                  "desc": "Something was said off, left out or judged wrongly, or the text does not answer what it asked",
+                  "fields": [
+                    {
+                      "name": "gaps",
+                      "type": "list",
+                      "desc": "One per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "what",
+                            "type": "text",
+                            "desc": "Which point, which probe, or which of its questions"
+                          },
+                          {
+                            "name": "seen",
+                            "type": "text",
+                            "desc": "What the new architect said"
+                          },
+                          {
+                            "name": "missing",
+                            "type": "text",
+                            "desc": "What the text lacks, or where it is vague"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "understood",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "understood"
+                  ]
+                ]
+              ],
+              "to": "P8",
+              "main": true
+            },
+            {
+              "name": "gaps",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "gaps"
+                  ]
+                ]
+              ],
+              "to": "P7"
+            }
+          ],
+          "shown": [
+            "verdict"
+          ]
+        },
+        {
+          "id": "P7",
+          "kind": "agent",
+          "title": "Correct the text",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "Where it is missing: which point, which probe, which of its questions, and what the text lacks",
+              "from": [
+                [
+                  "P6",
+                  "verdict[gaps]"
+                ]
+              ]
+            },
+            {
+              "what": "This version's text and probes",
+              "from": [
+                {
+                  "db": "policy_draft",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "By this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe."
+          ],
+          "out": [
+            {
+              "name": "revision",
+              "type": "obj",
+              "desc": "The corrected text and probes",
+              "fields": [
+                {
+                  "name": "why",
+                  "type": "text",
+                  "desc": "Where the text lacked something, was vague or read off, and how you corrected it"
+                },
+                {
+                  "$ref": "policy"
+                },
+                {
+                  "$ref": "policy_probes"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "corrected",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "P4",
+              "counts": "text_revisions"
+            }
+          ],
+          "checks": [
+            {
+              "at": "revision.policy",
+              "check": "policy_text_clean"
+            },
+            {
+              "at": "revision.probes",
+              "check": "probes_cover_points"
+            },
+            {
+              "at": "revision.probes",
+              "check": "failed_probes_gone"
+            }
+          ],
+          "shown": [
+            "revision.why"
+          ]
+        },
+        {
+          "id": "P8",
+          "kind": "engine",
+          "title": "Count the readings passed",
+          "step": "count_trials",
+          "inputs": [
+            {
+              "what": "How many new sessions in a row this version of the text passed",
+              "from": [
+                {
+                  "db": "policy_trials",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "count",
+              "type": "obj",
+              "desc": "How many it passed",
+              "fields": [
+                {
+                  "name": "verdict",
+                  "type": "enum",
+                  "desc": "Whether it is enough",
+                  "values": [
+                    [
+                      "two_passed",
+                      "This version of the text passed two new sessions in a row"
+                    ],
+                    [
+                      "one_more",
+                      "This new session passed, and one more is needed"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "two_passed",
+              "if": [
+                [
+                  "is",
+                  "count.verdict",
+                  [
+                    "two_passed"
+                  ]
+                ]
+              ],
+              "to": "P9",
+              "main": true
+            },
+            {
+              "name": "one_more",
+              "if": [
+                [
+                  "is",
+                  "count.verdict",
+                  [
+                    "one_more"
+                  ]
+                ]
+              ],
+              "to": "P4",
+              "counts": "trial_reads"
+            }
+          ]
+        },
+        {
+          "id": "P9",
+          "kind": "owner",
+          "title": "Owner approves",
+          "step": "ask_owner",
+          "inputs": [
+            {
+              "what": "The policy's text, the probes, and every new architect's reading",
+              "from": [
+                {
+                  "db": "policy_trials",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "ruling",
+              "type": "obj",
+              "desc": "The owner's approval",
+              "fields": [
+                {
+                  "name": "choice",
+                  "type": "enum",
+                  "desc": "Approved, or not good enough",
+                  "values": [
+                    [
+                      "approved",
+                      "Act by this version"
+                    ],
+                    [
+                      "not_good_enough",
+                      "The architect did not understand it through: study and discuss it again"
+                    ]
+                  ]
+                },
+                {
+                  "name": "text",
+                  "type": "text",
+                  "desc": "What is not good enough; it may be empty when approved"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "approved",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "approved"
+                  ]
+                ]
+              ],
+              "to": "P10",
+              "main": true
+            },
+            {
+              "name": "not_good_enough",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "not_good_enough"
+                  ]
+                ]
+              ],
+              "to": "P1",
+              "waits": true
+            }
+          ],
+          "shown": [
+            "ruling"
+          ]
+        },
+        {
+          "id": "P10",
+          "kind": "engine",
+          "title": "The new policy takes effect",
+          "inputs": [
+            {
+              "what": "The version the owner approved",
+              "from": [
+                {
+                  "db": "policy_trials",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "new_architect",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "A0",
+              "counts": "policies_set",
+              "main": true,
+              "do": [
+                "new_architect_session",
+                "queue_policy_changed",
+                "release_policy_hold"
+              ],
+              "note": "The approved version is the policy in force from now on; the old one is kept to look at, and given to no agent."
+            }
+          ]
+        }
+      ],
       "rounds": {
         "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
         "sentBack": {
