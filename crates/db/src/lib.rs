@@ -538,6 +538,16 @@ pub fn open_read(path: &Path) -> Result<Connection> {
 /// of the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
 /// its comments included, with [`DEFINITION`] through the query tool.
 pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    described(conn, first_sentence)
+}
+
+/// Each table and view agents can read, by its name, with the whole first comment of its definition: what it holds,
+/// why it exists and who reads it, in the order the schema defines them.
+pub fn descriptions(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    described(conn, description)
+}
+
+fn described(conn: &Connection, say: fn(&str) -> String) -> rusqlite::Result<Vec<(String, String)>> {
     let mut st = conn.prepare(
         "SELECT name, sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
          AND instr(sql, ?1) = 0 ORDER BY rowid",
@@ -546,14 +556,13 @@ pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for row in rows {
         let (name, sql) = row?;
-        out.push((name, first_sentence(&sql)));
+        out.push((name, say(&sql)));
     }
     Ok(out)
 }
 
-/// The first sentence of the first comment of a definition: its lines joined, up to the first full stop that ends a
-/// sentence, so that a sentence that goes on to the next line is not cut short.
-fn first_sentence(sql: &str) -> String {
+/// The first comment of a definition, its lines joined.
+fn description(sql: &str) -> String {
     let comment: Vec<&str> = sql
         .lines()
         .map(str::trim)
@@ -561,7 +570,13 @@ fn first_sentence(sql: &str) -> String {
         .map_while(|l| l.strip_prefix("--"))
         .map(str::trim)
         .collect();
-    let text = comment.join(" ");
+    comment.join(" ")
+}
+
+/// The first sentence of the first comment of a definition: its lines joined, up to the first full stop that ends a
+/// sentence, so that a sentence that goes on to the next line is not cut short.
+fn first_sentence(sql: &str) -> String {
+    let text = description(sql);
     match text.find(". ") {
         Some(i) => text[..=i].to_string(),
         None => text,

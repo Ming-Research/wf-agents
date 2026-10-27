@@ -2718,6 +2718,18 @@ summary.works-label {
   cursor: pointer;
 }
 
+/* What an input holds in one project, in the cell window. */
+
+.holds-project {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.holds-project summary {
+  cursor: pointer;
+}
+
 .also-sent {
   display: grid;
   gap: 2px;

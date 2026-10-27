@@ -27,7 +27,8 @@ pub use events::events;
 pub use marks::mark_read;
 pub use owner::{answer, pause, resume, rule, start_all};
 pub use read::{
-    Error, Flows, compiled_flow, file, flow_view, flows, item, items, messages, round, version_of, work, works,
+    Error, Flows, compiled_flow, file, flow_view, flows, inputs_now, item, items, messages, round, version_of, work,
+    works,
 };
 pub use source::{Sources, refs};
 pub use types::*;

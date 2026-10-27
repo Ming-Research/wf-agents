@@ -83,6 +83,7 @@ fn graph(g: &CompiledGraph, lines: Vec<Named>) -> GraphView {
         name: g.name.clone(),
         lines,
         cells,
+        common_format: flow::formats::common_format(g, &[]),
     }
 }
 
@@ -329,12 +330,19 @@ impl<'a> Ways<'a> {
             of,
             address: Some(address),
             cells: Vec::new(),
+            holds: None,
         };
         if agent {
             out.push(given(CellInputOf::CommonFormat, "format:common".into()));
-            out.push(given(CellInputOf::CellFormat, format!("format:{}", c.id)));
+            out.push(CellInput {
+                holds: Some(flow::formats::cell_format(self.g, c, &[])),
+                ..given(CellInputOf::CellFormat, format!("format:{}", c.id))
+            });
             if c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {
-                out.push(given(CellInputOf::CellInputs, format!("inputs:{}", c.id)));
+                out.push(CellInput {
+                    holds: Some(flow::formats::cell_inputs(c)),
+                    ..given(CellInputOf::CellInputs, format!("inputs:{}", c.id))
+                });
             }
             out.push(given(CellInputOf::ProjectRules, "rule:‹name›".into()));
             for r in &c.rules {
@@ -358,6 +366,7 @@ impl<'a> Ways<'a> {
                     of: CellInputOf::Input { input: i, source: j },
                     address,
                     cells,
+                    holds: None,
                 });
             }
         }

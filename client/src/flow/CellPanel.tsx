@@ -9,9 +9,11 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CellInput, CompiledCell, CompiledInput, GraphView, Named, RoundSummary } from '../api';
+import type { CellDiff, CellInput, CompiledCell, CompiledInput, GraphView, InputsNow, Named, RoundSummary, Src } from '../api';
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
+import { useResource } from '../live';
+import { Markdown } from '../markdown';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 import { Changes } from './Changes';
@@ -100,37 +102,119 @@ function Filled({ text }: { text: string }) {
   );
 }
 
+/// What a conditional input holds as far as the page can know outside a round, folded under its row as a round's
+/// inputs are.
+function Holds({ children }: { children: ReactNode }) {
+  return (
+    <details className="input-held">
+      <summary className="muted">{t('input_open')}</summary>
+      <div className="input-content">{children}</div>
+    </details>
+  );
+}
+
+/// A text the flow writes, in full.
+function FlowText({ text }: { text: string }) {
+  return <pre className="j-text file-text">{text}</pre>;
+}
+
+/// What one source of an input holds now: a setting, as each project's configuration has it; the project guide, as
+/// each project's checkout has it, the nodes an item cites added for each item; what else the engine computes, as the
+/// flow says; a table or view, as its definition describes it; nothing for a place of a return, which the cell it
+/// comes from shows, or what rows recorded.
+function SourceHolds({ src, now }: { src: Src; now: InputsNow | undefined }) {
+  const f = useFlow();
+  if (Array.isArray(src) || src === 'self' || 'recorded' in src) return null;
+  if ('engine' in src && src.engine !== 'project_guide') {
+    return <p>{f.compiled.engine.inputs[src.engine] ?? src.engine}</p>;
+  }
+  if (now === undefined) return <p className="muted">{t('loading')}</p>;
+  if ('db' in src) {
+    const table = now.tables.find((x) => x.name === src.db);
+    return table !== undefined ? <p>{table.text}</p> : null;
+  }
+  if ('config' in src) {
+    return (
+      <>
+        {now.projects.map((p) => {
+          const value = p.settings.find((s) => s.name === src.config);
+          return (
+            <div key={p.project} className="holds-project">
+              <span className="decision-label">{p.project}</span>
+              {value !== undefined ? <Markdown text={value.text} /> : <p className="muted">{t('holds_unset')}</p>}
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+  return (
+    <>
+      {now.projects.map((p) => (
+        <div key={p.project} className="holds-project">
+          <span className="decision-label">{p.project}</span>
+          <details>
+            <summary>AGENTS.md</summary>
+            <Markdown text={p.agents_md} />
+          </details>
+          <details>
+            <summary>{t('holds_design_tree', { n: p.design_tree.length })}</summary>
+            <ul className="bl">
+              {p.design_tree.map((n) => (
+                <li key={n.name}>
+                  <code>{n.name}</code> {n.text}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      ))}
+      <p className="muted">{t('holds_guide_cited')}</p>
+    </>
+  );
+}
+
 /// One input of the cell the conditional inputs list, by the number the message's list to work from gives it: what it
-/// is, and each of its sources with its address.
-function NumberedInput({ no, x, sources }: { no: number; x: CompiledInput; sources: CellInput[] }) {
+/// is, each of its sources with its address, and, folded, what it holds as far as the page can know.
+function NumberedInput(props: { no: number; x: CompiledInput; sources: CellInput[]; now: InputsNow | undefined }) {
+  const { no, x, sources, now } = props;
+  const srcs = sources.flatMap((m) => {
+    if (m.of.kind !== 'input') return [];
+    const src = x.from[m.of.source];
+    return src === undefined ? [] : [{ m, src }];
+  });
+  const holding = srcs.filter(({ src }) => !Array.isArray(src) && src !== 'self' && !('recorded' in src));
   return (
     <li>
-      <span className="in-no">{no}.</span> {x.what}
+      <span className="in-no">{no}.</span> {x.name ? <strong>{x.name}</strong> : null} {x.what}
       {x.maybe ? <span className="fw"> · {t('input_maybe')}</span> : null}
       <div className="srcs">
         <span className="ul">{t('input_source')}</span>
-        {sources.map((m, i) => {
-          if (m.of.kind !== 'input') return null;
-          const src = x.from[m.of.source];
-          return src === undefined ? null : (
-            <span key={i} className="src">
-              <SourceChip src={src} cells={m.cells} />
-              {m.address ? (
-                <code className="addr">
-                  <Filled text={m.address} />
-                </code>
-              ) : null}
-            </span>
-          );
-        })}
+        {srcs.map(({ m, src }, i) => (
+          <span key={i} className="src">
+            <SourceChip src={src} cells={m.cells} />
+            {m.address ? (
+              <code className="addr">
+                <Filled text={m.address} />
+              </code>
+            ) : null}
+          </span>
+        ))}
       </div>
+      {holding.length > 0 ? (
+        <Holds>
+          {holding.map(({ src }, i) => (
+            <SourceHolds key={i} src={src} now={now} />
+          ))}
+        </Holds>
+      ) : null}
     </li>
   );
 }
 
 /// A conditional input that is none of the cell's own: a rule, a return format, what each numbered input is, the
-/// project's rules, the worktree.
-function OtherInput({ c, m }: { c: CompiledCell; m: CellInput }) {
+/// project's rules, the worktree; each with what it holds folded under it, and a rule with a link to its own window.
+function OtherInput({ c, m, now }: { c: CompiledCell; m: CellInput; now: InputsNow | undefined }) {
   const f = useFlow();
   const addr = m.address ? (
     <code className="addr">
@@ -148,14 +232,13 @@ function OtherInput({ c, m }: { c: CompiledCell; m: CellInput }) {
         {rule ? <span className="fw"> · {rule.desc}</span> : null}
         <div className="srcs">{addr}</div>
         {rule ? (
-          <details className="rule-text">
-            <summary>{t('rule_full_text')}</summary>
+          <Holds>
             <ul className="bl">
               {rule.text.map((line, i) => (
                 <li key={i}>{inline(line)}</li>
               ))}
             </ul>
-          </details>
+          </Holds>
         ) : null}
       </li>
     );
@@ -167,10 +250,36 @@ function OtherInput({ c, m }: { c: CompiledCell; m: CellInput }) {
     cell_inputs: 'input_cell_inputs',
     workspace: 'input_workspace',
   };
+  const holds =
+    m.of.kind === 'common_format' ? (
+      <FlowText text={f.view.common_format} />
+    ) : m.holds !== null ? (
+      <FlowText text={m.holds} />
+    ) : m.of.kind === 'project_rules' ? (
+      now === undefined ? (
+        <p className="muted">{t('loading')}</p>
+      ) : (
+        now.projects.map((p) => (
+          <div key={p.project} className="holds-project">
+            <span className="decision-label">{p.project}</span>
+            {p.rules.length === 0 ? <p className="muted">{t('none')}</p> : null}
+            {p.rules.map((r) => (
+              <details key={r.name}>
+                <summary>{t('input_rule', { name: r.name })}</summary>
+                <Markdown text={r.text} />
+              </details>
+            ))}
+          </div>
+        ))
+      )
+    ) : m.of.kind === 'workspace' ? (
+      <p>{t('holds_workspace')}</p>
+    ) : null;
   return (
     <li>
       {t(key[m.of.kind] ?? 'input_common_format', { cell: c.id })}
       <div className="srcs">{addr}</div>
+      {holds !== null ? <Holds>{holds}</Holds> : null}
     </li>
   );
 }
@@ -200,6 +309,8 @@ function AgentInputs({ c }: { c: CompiledCell }) {
   const view = f.cellView(c.id);
   const inputs = view?.inputs ?? [];
   const own = numbered(c);
+  // What the inputs from outside the flow hold now: the projects' settings, guides and rules, and the database.
+  const now = useResource<InputsNow>('inputs-now', '/api/v1/inputs-now').data;
   const sources = (i: number) => inputs.filter((m) => m.of.kind === 'input' && m.of.input === i);
   const others = inputs.filter((m) => m.of.kind !== 'input');
   const rules = others.filter((m) => m.of.kind === 'project_rules' || m.of.kind === 'rule').map((m) => m.address ?? '');
@@ -290,13 +401,13 @@ function AgentInputs({ c }: { c: CompiledCell }) {
       <Section title={t('inputs_conditional')}>
         <ul className="bl">
           {own.map(({ x, i, no }) =>
-            no === null || !projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
+            no === null || !projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} now={now} />,
           )}
           {others.map((m, i) => (
-            <OtherInput key={i} c={c} m={m} />
+            <OtherInput key={i} c={c} m={m} now={now} />
           ))}
           {own.map(({ x, i, no }) =>
-            no === null || projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
+            no === null || projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} now={now} />,
           )}
         </ul>
       </Section>

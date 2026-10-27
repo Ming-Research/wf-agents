@@ -15,9 +15,10 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    AskKind, DesignCard, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
-    KeptFile, LinkedItem, OwnerAsk, OwnerMessage, PausedBy, Replacement, RoundConditional, RoundDetail, RoundInput,
-    RoundOutcome, RoundSummary, RunningRound, Session, Shown, ToolRun, Waits, WorkDetail, WorkState, WorkSummary,
+    AskKind, DesignCard, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary,
+    Items, KeptFile, LinkedItem, NamedText, OwnerAsk, OwnerMessage, PausedBy, ProjectNow, Replacement,
+    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RunningRound, Session, Shown, ToolRun,
+    Waits, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -969,6 +970,60 @@ pub fn compiled_flow(conn: &Connection, version: i64) -> Result<String> {
 pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowView> {
     let c = flows.get(conn, version)?;
     Ok(view::view(&c))
+}
+
+/// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+/// project's settings, project guide and rules, as the configuration and the project's checkout have them, and what
+/// each table and view of the database holds.
+pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNow> {
+    let text = |v: Value| match v {
+        Value::String(s) => s,
+        other => other.to_string(),
+    };
+    let projects = config
+        .projects
+        .iter()
+        .map(|(name, p)| {
+            let guide = config::project_guide(&p.checkout, &p.design_paths, "");
+            ProjectNow {
+                project: name.clone(),
+                settings: config::SETTINGS
+                    .iter()
+                    .filter_map(|s| {
+                        p.setting(s).filter(|v| !v.is_null()).map(|v| NamedText {
+                            name: s.to_string(),
+                            text: text(v),
+                        })
+                    })
+                    .collect(),
+                agents_md: guide["agents_md"].as_str().unwrap_or_default().to_string(),
+                design_tree: guide["design_tree"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(node, first)| NamedText {
+                        name: node.clone(),
+                        text: first.as_str().unwrap_or_default().to_string(),
+                    })
+                    .collect(),
+                rules: p
+                    .rules
+                    .iter()
+                    .filter_map(|r| {
+                        config.rules.get(r).map(|t| NamedText {
+                            name: r.clone(),
+                            text: t.trim().to_string(),
+                        })
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    let tables = db::descriptions(conn)?
+        .into_iter()
+        .map(|(name, text)| NamedText { name, text })
+        .collect();
+    Ok(InputsNow { projects, tables })
 }
 
 /// The stored flow version a compiled flow is, by its digest.

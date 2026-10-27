@@ -132,6 +132,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
         .route("/api/v1/flows/{id}/view", get(flow_view))
+        .route("/api/v1/inputs-now", get(inputs_now))
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/messages", get(messages))
@@ -303,6 +304,16 @@ async fn flow(State(app): State<App>, Path(id): Path<i64>) -> Result<Response, F
 
 async fn flow_view(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::FlowView>, Fail> {
     read(&app, move |c, a| api::flow_view(c, &a.flows, id)).await.map(Json)
+}
+
+/// What the inputs from outside the flow hold now, by the committed configuration and the projects' checkouts.
+async fn inputs_now(State(app): State<App>) -> Result<Json<api::InputsNow>, Fail> {
+    read(&app, move |c, a| {
+        let committed = config::committed(&a.data).map_err(|e| api::Error::Failed(e.to_string()))?;
+        api::inputs_now(c, &committed.config)
+    })
+    .await
+    .map(Json)
 }
 
 /// The checkout of each project the committed configuration names, as it is now.

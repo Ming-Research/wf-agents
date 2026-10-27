@@ -664,7 +664,12 @@ lines: Array<Named>,
 /**
  * Each cell, in the order the graph has them.
  */
-cells: Array<CellView>, };
+cells: Array<CellView>, 
+/**
+ * The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
+ * their names and no kind of question left out.
+ */
+common_format: string, };
 
 /**
  * One cell, as the flow page explains it.
@@ -712,12 +717,55 @@ address: string | null,
  * For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
  * it can be.
  */
-cells: Array<string>, };
+cells: Array<string>, 
+/**
+ * What it holds, for a text the flow itself writes: the cell's own return format and what each of its inputs
+ * is, as the engine gives them, with no project's settings beside their names.
+ */
+holds: string | null, };
 
 /**
  * What an input is.
  */
 export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "common_format" } | { "kind": "cell_format" } | { "kind": "cell_inputs" } | { "kind": "workspace" };
+
+/**
+ * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+ * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
+ * of the database holds.
+ */
+export type InputsNow = { projects: Array<ProjectNow>, 
+/**
+ * Each table and view agents can read, with what its definition says it holds.
+ */
+tables: Array<NamedText>, };
+
+/**
+ * One project's part of what the inputs from outside the flow hold now.
+ */
+export type ProjectNow = { project: string, 
+/**
+ * Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
+ */
+settings: Array<NamedText>, 
+/**
+ * The project's AGENTS.md as its checkout has it now.
+ */
+agents_md: string, 
+/**
+ * The index of its design tree as its checkout has it now: each node's path with its first line. The full text
+ * of the nodes an item cites is added for each item.
+ */
+design_tree: Array<NamedText>, 
+/**
+ * The project's own rules, each by its name with its text.
+ */
+rules: Array<NamedText>, };
+
+/**
+ * A name with a text.
+ */
+export type NamedText = { name: string, text: string, };
 
 /**
  * What a cell hands back, as a tree of fields.

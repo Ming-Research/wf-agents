@@ -485,7 +485,11 @@ const messages = {
   input_cell_format: "This cell's own answer, and which of the shared forms it has",
   input_cell_inputs: "What each of this cell's inputs is, by the number a round's list of inputs gives it",
   input_workspace: "The work's worktree and branch, and the project's branch the flow calls main",
-  rule_full_text: 'Full text',
+  holds_unset: 'Not set in this project.',
+  holds_design_tree: 'The design tree ({n} nodes, each with its first line)',
+  holds_guide_cited: 'For each item, the full text of the nodes the item cites is added.',
+  holds_workspace:
+    "Known when the work runs: the worktree's path and its branch, and the branch the flow calls main; an agent on a line that only reads is told it changes and commits nothing there.",
   src_from: 'the cell the work came from',
   src_caller: 'the cell that called',
   src_stopped: 'the cell the work stopped at',

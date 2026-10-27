@@ -686,6 +686,9 @@ pub struct GraphView {
     pub lines: Vec<flow::format::Named>,
     /// Each cell, in the order the graph has them.
     pub cells: Vec<CellView>,
+    /// The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
+    /// their names and no kind of question left out.
+    pub common_format: String,
 }
 
 /// One cell, as the flow page explains it.
@@ -724,6 +727,41 @@ pub struct CellInput {
     /// For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
     /// it can be.
     pub cells: Vec<String>,
+    /// What it holds, for a text the flow itself writes: the cell's own return format and what each of its inputs
+    /// is, as the engine gives them, with no project's settings beside their names.
+    pub holds: Option<String>,
+}
+
+/// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+/// project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
+/// of the database holds.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct InputsNow {
+    pub projects: Vec<ProjectNow>,
+    /// Each table and view agents can read, with what its definition says it holds.
+    pub tables: Vec<NamedText>,
+}
+
+/// One project's part of what the inputs from outside the flow hold now.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ProjectNow {
+    pub project: String,
+    /// Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
+    pub settings: Vec<NamedText>,
+    /// The project's AGENTS.md as its checkout has it now.
+    pub agents_md: String,
+    /// The index of its design tree as its checkout has it now: each node's path with its first line. The full text
+    /// of the nodes an item cites is added for each item.
+    pub design_tree: Vec<NamedText>,
+    /// The project's own rules, each by its name with its text.
+    pub rules: Vec<NamedText>,
+}
+
+/// A name with a text.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NamedText {
+    pub name: String,
+    pub text: String,
 }
 
 /// What an input is.
