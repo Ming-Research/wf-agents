@@ -2685,7 +2685,7 @@
         {
           "name": "say",
           "type": "text",
-          "desc": "What to say: only for interject",
+          "desc": "What to say, for interject; why, for pause_work",
           "optional": true
         }
       ],
@@ -2804,7 +2804,7 @@
       "post_design_card": "When the design tree changed, puts the design card in the database for the owner to rule on, and queues it for the architect to look at: it blocks nothing yet, so the owner can look and stop it early. A card that a new design brings after a redesign replaces the cards of this work the redesign set aside, and keeps what the design said changed from them.",
       "update_design_card": "Replaces the work's design card with the one handed in, and keeps what the return says changed from it. Only the decisions that changed go through again; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
       "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner can no longer rule on them. A new design brings a new design card; without one there is nothing to mark.",
-      "notify_pending_approvers": "Tells each side that has not gone through the design card that the design card is holding up the merge.",
+      "notify_pending_approvers": "Tells the owner that the design card, not yet confirmed, is holding up the merge.",
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
@@ -9068,8 +9068,8 @@
         "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded, with a word to the engineer; the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
         "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to 11 to choose the way on, and 11 may not carry on: to change the design, back to 2 to design again; if what the item needs has changed, back to 1; if unsure, ask the owner. 2 and 2a can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, 2a must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor.",
         "When 11 chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
-        "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner and the architect went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At 19, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
-        "At 19, the engine compares the change to the design tree in the commit to be merged with the version both sides went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at 19, and the engine tells the side that has not gone through it that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
+        "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At 19, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
+        "At 19, the engine compares the change to the design tree in the commit to be merged with the version the owner went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at 19, and the engine tells the owner that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
       ],
       "interject": {
         "name": "interjection",

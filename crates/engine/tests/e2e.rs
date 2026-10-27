@@ -3039,7 +3039,9 @@ fn the_architect_runs_at_the_level_the_installation_names() {
                   [agents]\narchitect = \"2\"\n";
     write(&s.data, "install.toml", &format!("{install}\n{levels}"));
     git(&s.data, &["commit", "-q", "-am", "the architect's level"]);
-    let (mut e, said) = engine(&s, scripts());
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     // The round, its model and its call, of a cell of a wake.
     let ran = |e: &Engine, wake: i64, cell: &str| -> Option<(String, Value)> {
