@@ -95,6 +95,10 @@ flow_version: number,
  */
 config_commit: string, 
 /**
+ * Each project's GitHub repository, as owner/name, by the project's name: the page links a work's pull request.
+ */
+repos: { [key in string]: string }, 
+/**
  * When the engine started.
  */
 started_at: number, 

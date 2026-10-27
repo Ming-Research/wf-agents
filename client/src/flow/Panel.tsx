@@ -1,16 +1,10 @@
-// The panel that floats over the right side of a chart while something on it is open: its title and who does it,
-// a way back to what it showed before, a close button (Escape closes it too), its left edge to drag to set its width
-// and its bottom edge to set its height, which this browser keeps. The window over a work's chart on the left drags
-// its width the same way, by its right edge, and its height by its bottom edge.
+// The panel of what is open on a chart, in the column docked at the chart's right: its title and who does it, a way
+// back to what it showed before, a close button (Escape closes it too). The edges that drag the column's width and
+// the share of it a work's panel takes are here too, kept in this browser.
 
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { t } from '../text';
-
-const WIDTH_KEY = 'wf-agents.panel-width';
-const HEIGHT_KEY = 'wf-agents.panel-height';
-const PANEL_MIN = 320;
-const PANEL_MIN_HEIGHT = 160;
 
 /// A floating window's width or height as the owner dragged it, kept in this browser where it lets the page keep it;
 /// none for the window's own.
@@ -23,9 +17,9 @@ export function savedSize(key: string, min: number): number | null {
   }
 }
 
-/// The edge of a floating window that drags its size: the left edge of a window on the right of the chart and the right
-/// edge of one on its left drag its width, the bottom edge of either its height, from its top. The size is kept in
-/// this browser when the drag ends; a double click gives the window its own size again.
+/// The edge of a part of the page that drags its size: a left edge its width, from its right, and a bottom edge its
+/// height, from its top. The size is kept in this browser when the drag ends; a double click gives the part its own
+/// size again.
 export function Grip({ edge, min, storage, label, onSize }: {
   edge: 'left' | 'right' | 'bottom';
   min: number;
@@ -100,8 +94,6 @@ export function Panel(props: {
   ref?: Ref<HTMLElement>;
 }) {
   const { title, who, back, onBack, onClose, shown, children, ref } = props;
-  const [width, setWidth] = useState<number | null>(() => savedSize(WIDTH_KEY, PANEL_MIN));
-  const [height, setHeight] = useState<number | null>(() => savedSize(HEIGHT_KEY, PANEL_MIN_HEIGHT));
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -114,22 +106,7 @@ export function Panel(props: {
     return () => document.removeEventListener('keydown', key);
   }, [onClose]);
   return (
-    <aside
-      className="panel"
-      ref={ref}
-      style={{
-        ...(width !== null ? { width: `min(${width}px, calc(100vw - 24px))` } : {}),
-        ...(height !== null ? { height: `min(${height}px, calc(100% - 20px))`, bottom: 'auto' } : {}),
-      }}
-    >
-      <Grip edge="left" min={PANEL_MIN} storage={WIDTH_KEY} label={t('panel_grip')} onSize={setWidth} />
-      <Grip
-        edge="bottom"
-        min={PANEL_MIN_HEIGHT}
-        storage={HEIGHT_KEY}
-        label={t('panel_height_grip')}
-        onSize={setHeight}
-      />
+    <section className="panel" ref={ref}>
       <div className="panel-head">
         {back !== null ? (
           <button type="button" className="panel-back" onClick={onBack}>
@@ -147,7 +124,7 @@ export function Panel(props: {
       <div className="panel-body" ref={body}>
         {children}
       </div>
-    </aside>
+    </section>
   );
 }
 

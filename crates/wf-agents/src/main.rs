@@ -438,6 +438,13 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         slots,
         flow_version: e.flow_now,
         config_commit: e.config.commit.clone(),
+        repos: e
+            .config
+            .config
+            .projects
+            .iter()
+            .map(|(name, p)| (name.clone(), p.repo.clone()))
+            .collect(),
         started_at,
         version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
         halt: e.halt.as_ref().map(|h| api::Halt {

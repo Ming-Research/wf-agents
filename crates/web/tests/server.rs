@@ -204,6 +204,7 @@ fn status() -> api::Status {
         slots_used: 0,
         flow_version: 1,
         config_commit: "c".into(),
+        repos: std::collections::BTreeMap::new(),
         started_at: 1,
         version: "v".into(),
         halt: None,

@@ -1,12 +1,12 @@
-// Every work, and below the list the one picked: those running or waiting at the top, in an area four rows high
-// that scrolls and whose height can be dragged; those that have ended folded under them, opening to a list that
-// scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays. Both lists
-// have the same columns at the same widths, so that they read as one table. A row says how its work goes on (a round
-// running, what holds it back, what it waits for) and holds the owner's Pause, Continue and Step of it. What waits
-// for the owner opens that tab of the work, and the marks of rounds that went wrong open the work with only those
-// rounds.
+// Every work, or the one open. The list shows every row: those running or waiting, then those that have ended,
+// folded at first; both have the same columns at the same widths, which the owner drags, so that they read as one
+// table, and every cell stays on one line. A row says how its work goes on (a round running, what holds it back, what
+// it waits for) and holds the owner's Pause, Continue and Step of it. A work opened from it takes the whole window
+// under the bar, its chart under a line that says which work it is, how it goes on and where, holds the owner's
+// controls, and leads to the other works running or waiting with what each needs of the owner. What waits for the owner
+// opens that tab of the work, and the marks of rounds that went wrong open the work with only those rounds.
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { WorkSummary } from '../api';
 import { type Course, WorkBadge, Loaded } from '../components';
@@ -18,19 +18,6 @@ import { t } from '../text';
 import { Work } from './Work';
 
 const ENDED = new Set(['done', 'ended']);
-
-/// The height of a list's area: a header and four rows.
-const FOUR_ROWS = 4 * 33 + 30;
-
-/// A list's height as the owner dragged it, kept in this browser where it lets the page keep it.
-function savedHeight(key: string): number {
-  try {
-    const v = Number(window.localStorage.getItem(`wf-agents.works-height.${key}`));
-    return Number.isFinite(v) && v >= 60 ? v : FOUR_ROWS;
-  } catch {
-    return FOUR_ROWS;
-  }
-}
 
 /// The time now, ticking every second while `ticking`, so that a running work's time goes on.
 function useNow(ticking: boolean): number {
@@ -137,14 +124,14 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
 
 /// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
 /// its controls act without opening it.
-function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab: WorkTab; now: number }) {
+function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
   const status = useStatus();
   const a = useActions(w, status, true);
   const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : w.graph;
   const at = `${w.at} ${w.at_title ?? ''}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
-    <tr className={`clickable${selected ? ' selected' : ''}`} onClick={() => navigate(workHref(w.id, { tab }))}>
+    <tr className="clickable" onClick={() => navigate(workHref(w.id, { tab }))}>
       <td title={`#${w.id}`}>#{w.id}</td>
       <td title={item}>
         {w.item !== null ? (
@@ -321,12 +308,10 @@ function ColumnGrip({ column, widths, onWidths }: {
   );
 }
 
-/// The works as rows. A row opens its work with the tab the open work shows, so that going from work to work (to rule on
-/// their design cards, say) keeps to what the owner is doing; what waits for the owner and the rounds that went wrong
-/// open that tab, or only those rounds.
-function Table({ works, selected, tab, widths, onWidths }: {
+/// The works as rows. A row opens its work; what waits for the owner and the rounds that went wrong open that tab, or
+/// only those rounds.
+function Table({ works, tab, widths, onWidths }: {
   works: WorkSummary[];
-  selected: number | null;
   tab: WorkTab;
   widths: Widths;
   onWidths: (w: Widths) => void;
@@ -358,75 +343,127 @@ function Table({ works, selected, tab, widths, onWidths }: {
       </thead>
       <tbody>
         {works.map((w) => (
-          <Row key={w.id} w={w} selected={w.id === selected} tab={tab} now={now} />
+          <Row key={w.id} w={w} tab={tab} now={now} />
         ))}
       </tbody>
     </table>
   );
 }
 
-/// A list in an area of its own that scrolls, with a grip under it that drags its height.
-function Scroll({ name, works, selected, tab, widths, onWidths }: {
-  name: string;
+/// A list with every row, or a word that it has none.
+function List({ works, tab, widths, onWidths }: {
   works: WorkSummary[];
-  selected: number | null;
   tab: WorkTab;
   widths: Widths;
   onWidths: (w: Widths) => void;
 }) {
-  const [height, setHeight] = useState(() => savedHeight(name));
-  const from = useRef<{ y: number; h: number } | null>(null);
-  const grip = (e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    from.current = { y: e.clientY, h: height };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (from.current === null) return;
-    setHeight(Math.max(60, from.current.h + e.clientY - from.current.y));
-  };
-  const up = () => {
-    if (from.current === null) return;
-    from.current = null;
-    try {
-      window.localStorage.setItem(`wf-agents.works-height.${name}`, String(height));
-    } catch {
-      // The height is kept only where the browser lets it be.
-    }
-  };
   if (works.length === 0) return <p className="muted works-none">{t('none')}</p>;
   return (
-    <>
-      <div className="works-scroll" style={{ height }}>
-        <Table works={works} selected={selected} tab={tab} widths={widths} onWidths={onWidths} />
-      </div>
-      <div
-        className="works-grip"
-        role="separator"
-        aria-orientation="horizontal"
-        title={t('works_drag')}
-        onPointerDown={grip}
-        onPointerMove={move}
-        onPointerUp={up}
-        onPointerCancel={up}
-      />
-    </>
+    <div className="works-wide">
+      <Table works={works} tab={tab} widths={widths} onWidths={onWidths} />
+    </div>
+  );
+}
+
+/// The line above an open work's chart: back to the list; which work it is; how it goes on; where it is, its rounds,
+/// cost and pull request; the owner's controls of it; and the other works running or waiting, each with what it needs
+/// of the owner, to go from one to the next keeping the tab open.
+function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; tab: WorkTab }) {
+  const status = useStatus();
+  const a = useActions(w, status, true);
+  const now = useNow(status !== null && status.running === w.id);
+  const repo = w.project !== null ? status?.repos[w.project] : undefined;
+  const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : `#${w.id}`;
+  const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
+  const at = `${w.at} ${w.at_title ?? ''}${stage ? ` · ${stage}` : ''}`;
+  return (
+    <div className="work-line">
+      <Link to="/works" className="work-back" title={t('work_back')}>
+        ← {t('nav_works')}
+      </Link>
+      <span className="work-name" title={name}>
+        <strong>#{w.id}</strong>{' '}
+        {w.item !== null ? (
+          <Link to={`/items/${w.item}`} className="row-link" title={`${name}\n${t('open_item')}`}>
+            <span className="muted">#{w.item} </span>
+            {w.title}
+            {w.project ? <span className="muted"> · {w.project}</span> : null}
+          </Link>
+        ) : (
+          w.graph
+        )}
+      </span>
+      <span className="work-state" title={held(a.c, w) ?? w.ended ?? undefined}>
+        <State w={w} c={a.c} now={now} />
+      </span>
+      <span className="work-where" title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
+        <span className="cell-id">{w.at}</span>
+        {a.c.outdated ? (
+          <span className="chip warn" title={takeoverWords(w, status)}>
+            {t('course_outdated', { version: w.flow_version })}
+          </span>
+        ) : null}{' '}
+        {w.at_title}
+        {stage ? <span className="muted"> · {stage}</span> : null}
+      </span>
+      <span className="muted">{t('work_rounds_n', { n: w.rounds })}</span>
+      <span className="muted">{cost(w.cost_usd)}</span>
+      {w.pr !== null ? (
+        repo !== undefined ? (
+          <a href={`https://github.com/${repo}/pull/${w.pr}`} target="_blank" rel="noreferrer" title={t('work_pr_hint')}>
+            {t('work_pr', { n: w.pr })}
+          </a>
+        ) : (
+          <span>{t('work_pr', { n: w.pr })}</span>
+        )
+      ) : null}
+      <Controls a={a} w={w} status={status} onStep={() => a.step()} />
+      {a.error !== null ? (
+        <span className="bad why" title={a.error}>
+          {t('request_failed', { error: a.error })}
+        </span>
+      ) : null}
+      {others.length > 0 ? (
+        <nav className="work-others" aria-label={t('work_others')}>
+          <span className="muted">{t('work_others')}</span>
+          {others.map((o) => {
+            const needs = [
+              o.open_design_cards > 0 ? t('open_design_cards_chip', { n: o.open_design_cards }) : null,
+              o.open_asks > 0 ? t('open_asks_chip', { n: o.open_asks }) : null,
+            ].filter((x) => x !== null);
+            const title = `#${o.id}${o.title ? ` · ${o.title}` : ''}${needs.length > 0 ? ` · ${needs.join(', ')}` : ''}`;
+            return (
+              <Link key={o.id} to={workHref(o.id, { tab })} className="work-other" title={title}>
+                #{o.id}
+                {needs.map((x) => (
+                  <span key={x} className="chip warn">
+                    {x}
+                  </span>
+                ))}
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
+    </div>
   );
 }
 
 export function Works({ work }: { work: WorkRoute | null }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
-  const selected = work?.id ?? null;
   const tab = work?.tab ?? 'rounds';
   // Both lists have the same columns at the same widths.
   const [widths, setWidths] = useState<Widths>(savedWidths);
+  const all = works.data ?? [];
+  const active = all.filter((w) => !ENDED.has(w.state)).sort((a, b) => b.id - a.id);
+  const open = work !== null ? all.find((w) => w.id === work.id) : undefined;
   return (
     <div className="works-screen">
-      <div className="works-lists">
+      {/* The list stays as it was, its ended works folded or not, while a work is open in its place. */}
+      <div className="works-lists" style={work !== null ? { display: 'none' } : undefined}>
         <Loaded r={works}>
-          {(all) => {
-            const active = all.filter((w) => !ENDED.has(w.state)).sort((a, b) => b.id - a.id);
-            const ended = all
+          {(list) => {
+            const ended = list
               .filter((w) => ENDED.has(w.state))
               .sort((a, b) => (b.last_at ?? 0) - (a.last_at ?? 0));
             return (
@@ -434,12 +471,12 @@ export function Works({ work }: { work: WorkRoute | null }) {
                 <div className="works-label">
                   {t('works_active')} ({active.length})
                 </div>
-                <Scroll name="active" works={active} selected={selected} tab={tab} widths={widths} onWidths={setWidths} />
+                <List works={active} tab={tab} widths={widths} onWidths={setWidths} />
                 <details className="works-ended">
                   <summary className="works-label">
                     {t('works_ended')} ({ended.length})
                   </summary>
-                  <Scroll name="ended" works={ended} selected={selected} tab={tab} widths={widths} onWidths={setWidths} />
+                  <List works={ended} tab={tab} widths={widths} onWidths={setWidths} />
                 </details>
               </>
             );
@@ -447,10 +484,19 @@ export function Works({ work }: { work: WorkRoute | null }) {
         </Loaded>
       </div>
       {work !== null ? (
-        <Work r={work} />
-      ) : (
-        <p className="muted works-pick">{t('works_pick')}</p>
-      )}
+        <>
+          {open !== undefined ? (
+            <WorkLine w={open} others={active.filter((w) => w.id !== open.id)} tab={tab} />
+          ) : (
+            <div className="work-line">
+              <Link to="/works" className="work-back" title={t('work_back')}>
+                ← {t('nav_works')}
+              </Link>
+            </div>
+          )}
+          <Work r={work} />
+        </>
+      ) : null}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { t } from '../text';
 import { FlowSvg, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { type Laid, layoutChart } from './flowLayout';
 import { chart as build, MAIN } from './flowModel';
-import { type Covered, type Rect, Viewer, type ViewerHandle } from './Viewer';
+import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
 /// What a click on the chart picked.
 export type Pick =
@@ -38,8 +38,6 @@ export type FlowChartProps = {
   /// The cell the chart opens on; with none, the top of the flow.
   start: string | null;
   onPick: (p: Pick) => void;
-  /// What floats over the chart: a drawer over its left side and the panel over its right side.
-  covered: () => Covered;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
   legend: 'flow' | 'work' | 'compare';
   ref?: Ref<FlowChartHandle>;
@@ -252,7 +250,7 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { g, view, marks, start, onPick, covered, legend, ref } = props;
+  const { g, view, marks, start, onPick, legend, ref } = props;
   const numbered = legend !== 'work';
   const model = useMemo(() => build(g, view), [g, view]);
   const measured = useMemo(() => sizes(g, model), [g, model]);
@@ -353,7 +351,6 @@ export function FlowChart(props: FlowChartProps) {
           width={current.bounds.width + 2 * PAD}
           height={current.bounds.height + 2 * PAD}
           onPick={pick}
-          covered={covered}
         >
           <FlowSvg g={g} chart={model} laid={current} lines={measured.lines} marks={marks} numbered={numbered} />
         </Viewer>

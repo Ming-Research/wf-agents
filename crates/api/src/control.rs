@@ -181,6 +181,7 @@ mod tests {
             slots_used: 1,
             flow_version: 3,
             config_commit: "c".into(),
+            repos: std::collections::BTreeMap::new(),
             started_at: 1,
             version: "v".into(),
             halt: None,

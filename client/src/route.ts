@@ -4,7 +4,7 @@ import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type Rea
 
 import { roundName } from './format';
 
-/// What the window over the left of a work's chart shows: its rounds, its design cards, or its messages and asks.
+/// What the work's panel beside its chart shows: its rounds, its design cards, or its messages and asks.
 export type WorkTab = 'rounds' | 'cards' | 'messages';
 
 /// Which of a work's rounds its list shows besides all of them: those whose return was sent back, or those whose run

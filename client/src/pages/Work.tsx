@@ -1,12 +1,11 @@
-// A work, under its row in the list of works (which holds its facts): the state machine of the flow version it is
-// pinned to, filling the rest of the window, with what the work did on it: the cell it is at ringed, each cell it
-// visited with its rounds and the rounds sent back or failed, the arrows it took standing out, the cell a round runs
-// at pulsing and the cell a work held back stands at marked. A window over the left of the chart, whose width and
-// height drag, has three tabs: its rounds, under how it goes on (with the owner's Pause and Continue) and, while it
-// does not go on by itself, its next round with the Step that runs it; its design cards, the one waiting for the
-// owner's ruling first with its controls; and its messages, the asks waiting for the owner's answer first with their
-// forms, then what its agents and the engine told the owner. A round opens in the panel with its cell brought into
-// view, a cell with its rounds.
+// A work's page, under its line above the chart, which holds its facts and the owner's controls: the state machine of
+// the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
+// on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
+// it took standing out, the cell a round runs at breathing and the cell a work held back stands at marked. The column
+// holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by itself,
+// its next round with the Step that runs it; its design cards, the one waiting for the owner's ruling first with its
+// controls; and its messages, the asks waiting for the owner's answer first with their forms, then what its agents and
+// the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought into view.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -22,9 +21,8 @@ import type {
   WorkDetail,
 } from '../api';
 import { controls, course, Loaded, OutcomeBadge } from '../components';
-import { Controls, held, runningWords, takeoverWords, useActions, waitsWords } from '../course';
+import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
-import { Grip, savedSize } from '../flow/Panel';
 import { cost, duration, roundName, time } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
@@ -100,8 +98,8 @@ function Timeline(props: {
 }
 
 /// How the work goes on, at the top of its rounds: whether a round of it runs (how long, and what the agent is doing),
-/// what holds it back and what it waits for, with where the owner gives it, and the owner's Pause and Continue; on an
-/// older flow version, that it is taken over when it goes on.
+/// what holds it back and why in full, and what it waits for, with where the owner gives it; on an older flow version,
+/// that it is taken over when it goes on. The owner's controls of it are in its line above the chart.
 function Going({ d, onCard, onAsk }: {
   d: WorkDetail;
   /// Open the design card, or the ask, the work waits for, in its tab of the window.
@@ -110,8 +108,7 @@ function Going({ d, onCard, onAsk }: {
 }) {
   const status = useStatus();
   const w = d.work;
-  const a = useActions(w, status, false);
-  const { c } = a;
+  const c = course(w, status);
   const activity = useActivity(w.id);
   const [now, setNow] = useState(() => Date.now());
   const runs = c.running !== null;
@@ -138,7 +135,6 @@ function Going({ d, onCard, onAsk }: {
       <div className="next-head">
         <strong>{head}</strong>
         {runs && since !== null ? <span className="muted">{duration(now - since)}</span> : null}
-        <Controls a={a} w={w} status={status} onStep={null} />
       </div>
       {c.held === 'engine' && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
       {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
@@ -178,7 +174,6 @@ function Going({ d, onCard, onAsk }: {
           ))}
         </ol>
       ) : null}
-      {a.error !== null ? <p className="bad">{t('request_failed', { error: a.error })}</p> : null}
     </section>
   );
 }
@@ -472,23 +467,15 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
   );
 }
 
-const DRAWER_KEY = 'wf-agents.drawer-width';
-const DRAWER_HEIGHT_KEY = 'wf-agents.drawer-height';
-const DRAWER_MIN = 300;
-const DRAWER_MIN_HEIGHT = 120;
-
-/// The window over the left of the chart: its tabs, the rounds (under how the work goes on and its next round), the
-/// design cards and the messages; its width drags by its right edge, its height by its bottom edge.
-function Drawer({ d, g, r, go }: {
+/// The work's panel, on top of the column docked at the right of its chart: its tabs, the rounds (under how the work
+/// goes on and its next round), the design cards and the messages.
+function WorkPanel({ d, g, r, go }: {
   d: WorkDetail;
   g: CompiledGraph;
   r: WorkRoute;
   go: (to: Partial<WorkRoute>) => void;
 }) {
   const status = useStatus();
-  const [open, setOpen] = useState(true);
-  const [width, setWidth] = useState<number | null>(() => savedSize(DRAWER_KEY, DRAWER_MIN));
-  const [height, setHeight] = useState<number | null>(() => savedSize(DRAWER_HEIGHT_KEY, DRAWER_MIN_HEIGHT));
   // What to bring into view once its tab is shown: the design card or the ask the owner was sent to; else a tab shows
   // from its top.
   const want = useRef<string | null>(null);
@@ -501,7 +488,6 @@ function Drawer({ d, g, r, go }: {
   });
   const show = (tab: WorkTab, at: string | null) => {
     want.current = at;
-    setOpen(true);
     go({ tab });
   };
   const onRound = (round: number) => go({ round, cell: null });
@@ -527,90 +513,58 @@ function Drawer({ d, g, r, go }: {
     },
   ];
   const shown = roundsShown(d.rounds, r.only);
-  const style = open
-    ? {
-        ...(width !== null ? { width: `min(${width}px, calc(100vw - 32px))` } : {}),
-        ...(height !== null ? { height: `min(${height}px, calc(100% - 80px))` } : {}),
-      }
-    : undefined;
   return (
-    <div className={`drawer${open ? '' : ' drawer-closed'}`} style={style}>
+    <div className="drawer">
       <div className="drawer-head">
-        <button
-          type="button"
-          className="drawer-toggle"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-label={t(open ? 'drawer_fold' : 'drawer_unfold')}
-          title={t(open ? 'drawer_fold' : 'drawer_unfold')}
-        >
-          {open ? '‹' : '›'}
-        </button>
         <div className="tabs" role="tablist">
-          {tabs
-            .filter((x) => open || x.tab === r.tab)
-            .map((x) => (
-              <button
-                key={x.tab}
-                type="button"
-                role="tab"
-                className="tab"
-                aria-selected={x.tab === r.tab}
-                onClick={() => show(x.tab, null)}
-              >
-                {x.label}
-                <span className="tab-n">{x.n}</span>
-                {x.chip !== null ? (
-                  <span className="chip warn" title={x.hint}>
-                    {x.chip}
-                  </span>
-                ) : null}
-              </button>
-            ))}
+          {tabs.map((x) => (
+            <button
+              key={x.tab}
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={x.tab === r.tab}
+              onClick={() => show(x.tab, null)}
+            >
+              {x.label}
+              <span className="tab-n">{x.n}</span>
+              {x.chip !== null ? (
+                <span className="chip warn" title={x.hint}>
+                  {x.chip}
+                </span>
+              ) : null}
+            </button>
+          ))}
         </div>
       </div>
-      {open ? (
-        <div className="drawer-body" role="tabpanel" ref={body}>
-          {r.tab === 'rounds' ? (
-            <>
-              <Going d={d} onCard={onCard} onAsk={onAsk} />
-              <Next d={d} onRound={onRound} onCard={onCard} onAsk={onAsk} />
-              {r.only !== null ? (
-                <div className="rounds-only">
-                  <span>
-                    {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}
-                  </span>
-                  <button type="button" className="link" onClick={() => go({ only: null })}>
-                    {t('rounds_show_all', { n: d.rounds.length })}
-                  </button>
-                </div>
-              ) : null}
-              <Timeline
-                work={d.work.id}
-                rounds={shown}
-                g={g}
-                stale={status !== null && status.running !== d.work.id}
-                selected={r.round}
-                onRound={(x) => onRound(x.n)}
-              />
-            </>
-          ) : null}
-          {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
-          {r.tab === 'messages' ? <Messages d={d} onRound={onRound} onAsk={onAsk} /> : null}
-        </div>
-      ) : null}
-      {open ? (
-        <>
-          <Grip edge="right" min={DRAWER_MIN} storage={DRAWER_KEY} label={t('drawer_grip')} onSize={setWidth} />
-          <Grip
-            edge="bottom"
-            min={DRAWER_MIN_HEIGHT}
-            storage={DRAWER_HEIGHT_KEY}
-            label={t('drawer_height_grip')}
-            onSize={setHeight}
-          />
-        </>
-      ) : null}
+      <div className="drawer-body" role="tabpanel" ref={body}>
+        {r.tab === 'rounds' ? (
+          <>
+            <Going d={d} onCard={onCard} onAsk={onAsk} />
+            <Next d={d} onRound={onRound} onCard={onCard} onAsk={onAsk} />
+            {r.only !== null ? (
+              <div className="rounds-only">
+                <span>
+                  {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}
+                </span>
+                <button type="button" className="link" onClick={() => go({ only: null })}>
+                  {t('rounds_show_all', { n: d.rounds.length })}
+                </button>
+              </div>
+            ) : null}
+            <Timeline
+              work={d.work.id}
+              rounds={shown}
+              g={g}
+              stale={status !== null && status.running !== d.work.id}
+              selected={r.round}
+              onRound={(x) => onRound(x.n)}
+            />
+          </>
+        ) : null}
+        {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
+        {r.tab === 'messages' ? <Messages d={d} onRound={onRound} onAsk={onAsk} /> : null}
+      </div>
     </div>
   );
 }
@@ -625,29 +579,27 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
   const model = chart(g, v);
   const c = course(d.work, status);
   return (
-    <>
-      <Drawer d={d} g={g} r={r} go={go} />
-      <FlowScreen
-        compiled={compiled}
-        g={g}
-        view={v}
-        legend="work"
-        marks={{
-          overlays: overlays(d.rounds, d.work.at, { running: c.running !== null, held: held(c, d.work) }),
-          taken: taken(model, g, d.rounds),
-          added: new Set(),
-          changed: new Set(),
-        }}
-        cell={r.cell}
-        onCell={(c) => go({ round: null, cell: c })}
-        start={roundCell ?? d.work.at}
-        work={d.work.id}
-        rounds={d.rounds}
-        round={r.round}
-        onRound={(x) => go({ round: x, cell: null })}
-        renderRound={(x) => <RoundView work={d.work.id} n={x} rounds={d.rounds} />}
-      />
-    </>
+    <FlowScreen
+      compiled={compiled}
+      g={g}
+      view={v}
+      legend="work"
+      marks={{
+        overlays: overlays(d.rounds, d.work.at, { running: c.running !== null, held: held(c, d.work) }),
+        taken: taken(model, g, d.rounds),
+        added: new Set(),
+        changed: new Set(),
+      }}
+      cell={r.cell}
+      onCell={(c) => go({ round: null, cell: c })}
+      start={roundCell ?? d.work.at}
+      work={d.work.id}
+      rounds={d.rounds}
+      round={r.round}
+      onRound={(x) => go({ round: x, cell: null })}
+      renderRound={(x) => <RoundView work={d.work.id} n={x} rounds={d.rounds} />}
+      side={<WorkPanel d={d} g={g} r={r} go={go} />}
+    />
   );
 }
 

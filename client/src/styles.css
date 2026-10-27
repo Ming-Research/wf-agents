@@ -105,7 +105,7 @@ main {
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  /* Above the panel that floats over a chart, so that what the bar opens is seen. */
+  /* Above the chart, which moves under it. */
   z-index: 40;
   flex-wrap: wrap;
 }
@@ -1631,45 +1631,66 @@ svg.fc {
   min-width: 16ch;
 }
 
-/* A work's rounds, design cards and messages, in tabs of a window over the left of its chart. */
+/* A flow's chart, and the column docked at its right: on a work's page the work's panel on top and what is open on
+   the chart under it, split by a divider that drags; on the flow page what is open alone. */
 
-.drawer {
-  position: absolute;
-  z-index: 6;
-  top: 10px;
-  left: 10px;
-  width: min(500px, calc(100vw - 32px));
-  max-height: calc(100% - 80px);
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
+.flow-screen {
+  flex-direction: row;
 }
 
-.drawer-closed {
-  width: auto !important;
+.flow-chart-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dock {
+  position: relative;
+  flex: none;
+  width: 560px;
+  min-width: 320px;
+  max-width: calc(100% - 160px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+.dock-top {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-top-split {
+  flex: none;
+  max-height: calc(100% - 120px);
+  border-bottom: 1px solid var(--line);
+}
+
+.dock > .panel {
+  flex: 1;
+}
+
+/* A work's rounds, design cards and messages, in tabs on top of the column. */
+
+.drawer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .drawer-head {
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
-}
-
-.drawer-closed .drawer-head {
-  border-bottom: 0;
-}
-
-.drawer-toggle {
-  border: 0;
-  background: none;
-  text-align: left;
-  padding: 6px 10px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--accent);
+  padding-left: 6px;
 }
 
 /* Tabs: of the window over a work's chart, and of the cell's panel. */
@@ -1781,40 +1802,34 @@ table.list.mini td.nowrap {
   white-space: nowrap;
 }
 
-/* The panel that floats over the right side while something on the chart is open. */
+/* The panel of what is open on the chart, in the docked column. */
 
 .panel {
-  position: absolute;
-  z-index: 20;
-  top: 10px;
-  bottom: 10px;
-  right: 10px;
-  width: min(620px, calc(100vw - 24px));
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--panel);
 }
 
 @media (max-width: 600px) {
-  .panel {
-    top: 35%;
-    left: 8px;
-    right: 8px;
-    bottom: 10px !important;
-    width: auto !important;
-    height: auto !important;
+  .flow-screen {
+    flex-direction: column;
   }
 
-  .width-grip,
-  .height-grip {
+  .dock {
+    width: auto !important;
+    max-width: none;
+    height: 55%;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .width-grip {
     display: none;
   }
 }
 
-/* The bottom edge of a floating window that drags its height. */
+/* The bottom edge of a part that drags its height: the divider between a work's panel and what is open. */
 
 .height-grip {
   position: absolute;
@@ -1843,7 +1858,7 @@ table.list.mini td.nowrap {
   background: var(--accent);
 }
 
-/* The edge of a floating window that drags its width. */
+/* The left edge of the docked column, which drags its width. */
 
 .width-grip {
   position: absolute;
@@ -1857,10 +1872,6 @@ table.list.mini td.nowrap {
 
 .width-grip-left {
   left: -6px;
-}
-
-.width-grip-right {
-  right: -6px;
 }
 
 .width-grip::after {
@@ -2409,9 +2420,12 @@ ol.tt .no {
 }
 
 .works-lists {
-  flex: none;
-  padding: 6px 16px 4px;
-  display: grid;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 16px 16px;
+  display: flex;
+  flex-direction: column;
   gap: 2px;
 }
 
@@ -2426,36 +2440,22 @@ summary.works-label {
   cursor: pointer;
 }
 
-.works-scroll {
-  overflow-y: auto;
+.works-wide {
+  flex: none;
+  overflow-x: auto;
   background: var(--panel);
   box-shadow: var(--shadow);
   border-radius: 8px;
 }
 
-.works-scroll table.list {
+.works-wide table.list {
   box-shadow: none;
   border-radius: 0;
-}
-
-.works-scroll thead th {
-  position: sticky;
-  top: 0;
-  background: var(--panel);
-  z-index: 1;
-}
-
-.works-table tr.selected td {
-  background: var(--accent-soft);
 }
 
 /* Both lists of works have the same columns at the same widths, which the owner drags at the right edge of each
    header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
    lists sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
-
-.works-scroll {
-  overflow-x: auto;
-}
 
 .works-table {
   table-layout: fixed;
@@ -2501,41 +2501,64 @@ summary.works-label {
   text-decoration: underline;
 }
 
-.works-pick {
-  padding: 16px;
-  border-top: 1px solid var(--line);
-  margin: 0;
-}
-
-.works-grip {
-  height: 8px;
-  cursor: ns-resize;
-  touch-action: none;
-  position: relative;
-}
-
-.works-grip::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 2px;
-  width: 40px;
-  height: 4px;
-  margin-left: -20px;
-  border-radius: 2px;
-  background: var(--line);
-}
-
-.works-grip:hover::after {
-  background: var(--accent);
-}
-
 .works-none {
   margin: 2px 0 6px;
 }
 
-.works-screen > .screen {
-  border-top: 1px solid var(--line);
+/* The line above an open work's chart, on one line: back to the list, the work, how it goes on and where, its facts,
+   its controls, and the other works running or waiting. */
+
+.work-line {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.work-line > * {
+  flex: none;
+}
+
+.work-back {
+  text-decoration: none;
+}
+
+.work-name,
+.work-state,
+.work-where {
+  flex: 0 1 auto;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-others {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.work-other {
+  flex: none;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 6px;
+}
+
+.work-other:hover {
+  border-color: var(--accent);
 }
 
 /* A work's next round, at the top of its rounds. */
@@ -2768,7 +2791,8 @@ tr.acc-removed td {
 /* A work's state on one line: the badge, how long it has run, what waits for the owner as small chips; the reason the
    engine stopped it or it ended after them, the whole on hovering. */
 
-.works-table td .why {
+.works-table td .why,
+.work-line .why {
   white-space: nowrap;
   max-width: none;
   margin-left: 6px;

@@ -70,6 +70,8 @@ pub struct Status {
     pub flow_version: i64,
     /// The configuration commit the engine runs with.
     pub config_commit: String,
+    /// Each project's GitHub repository, as owner/name, by the project's name: the page links a work's pull request.
+    pub repos: BTreeMap<String, String>,
     /// When the engine started.
     pub started_at: i64,
     /// The version of wf-agents that runs.
