@@ -724,7 +724,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     let id = known_as(&table, row["id"].as_str().unwrap_or_default());
                     if matches!(row["answer"].as_str(), Some("test_wrong" | "advisor_ruled"))
                         && c.accepted("6")?.first().is_some_and(|r| mentions(r, &id))
-                        && !tests.iter().any(|t| *t == id)
+                        && !tests.contains(&id)
                     {
                         return fail(format!(
                             "no row for {id}, which the engineer answered {}",
