@@ -678,11 +678,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let before: i64 =
                 c.e.db
                     .conn()
-                    .query_row(
-                        "SELECT count(*) FROM design_cards d JOIN rounds r ON r.id = d.round WHERE r.work = ?1",
-                        [c.w.id],
-                        |r| r.get(0),
-                    )
+                    .query_row("SELECT count(*) FROM design_cards WHERE work = ?1", [c.w.id], |r| {
+                        r.get(0)
+                    })
                     .map_err(|e| e.to_string())?;
             match (card.is_some(), said, before > 0) {
                 (false, true, _) => fail("what changed is said only with a design card"),

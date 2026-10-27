@@ -324,7 +324,7 @@ mod tests {
         ]);
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO design_cards (round, body, status) VALUES (1, ?1, 'open')",
+                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, ?1, 'open')",
                 [body.to_string()],
             )?;
             Ok(())
