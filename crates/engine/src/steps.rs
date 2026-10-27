@@ -163,6 +163,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         prompt: msg.text.clone(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         refused: e.config.config.install.agents.permissions.refused(&line),
+        readable: readable_dirs(e),
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
@@ -917,6 +918,19 @@ fn what_is_asked(asked: &[Value]) -> String {
     let kind = point["kind"].as_str().unwrap_or_default().replace('_', " ");
     let what = point["what"].as_str().unwrap_or_default();
     format!(" ({kind}): {}", first_sentence(what))
+}
+
+/// The directories outside the worktree an agent may read: where the engine saves a tool's output too long to give
+/// inline, and the logs of red checks it names; made when missing, by their real paths, so that the CLI's rules match.
+fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
+    ["tool-output", "logs"]
+        .iter()
+        .filter_map(|name| {
+            let dir = e.data.join(name);
+            std::fs::create_dir_all(&dir).ok()?;
+            std::fs::canonicalize(&dir).ok()
+        })
+        .collect()
 }
 
 /// The first sentence of a text, at most 200 characters: up to its first full stop, question or exclamation mark, or

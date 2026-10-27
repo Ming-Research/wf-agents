@@ -115,6 +115,18 @@ impl Ctx<'_> {
             .collect()
     }
 
+    /// Where the attempts of this cell that came just before this round, each sent back, cut off or failed, began: the
+    /// head at the start of the earliest of them; none when the round before at this cell was not one.
+    fn attempts_start(&self) -> Result<Option<String>, String> {
+        let rounds = work::rounds_at(self.e.db.conn(), self.w.id, &self.cell.id)?;
+        Ok(rounds
+            .iter()
+            .filter(|r| r.ended_at.is_some())
+            .take_while(|r| r.rejected.is_some())
+            .last()
+            .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
+    }
+
     /// The rounds of a cell of this work that handed in its own answer, newest first.
     fn accepted(&self, cell: &str) -> Result<Vec<Round>, String> {
         answered(self.e, self.w, self.g, cell)
@@ -229,14 +241,46 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
-            let mut files = git::changed(wt, start, "HEAD")?;
-            files.extend(git::changed_since(wt, "HEAD")?);
-            let tree = c.design(&files);
-            if tree.is_empty() {
-                Ok(())
-            } else {
-                fail(format!("this round changed the design paths: {}", tree.join(", ")))
+            // The change is counted from where the attempts of this cell began: commits an earlier attempt made and was
+            // sent back for are still on the branch, and a revert in this round that undoes them leaves no change.
+            let base = c.attempts_start()?.unwrap_or_else(|| start.clone());
+            let net = c.design(&git::changed(wt, &base, "HEAD")?);
+            let loose = c.design(&git::changed_since(wt, "HEAD")?);
+            if net.is_empty() && loose.is_empty() {
+                return Ok(());
             }
+            let own = c.design(&git::changed(wt, start, "HEAD")?);
+            let earlier = if base != *start && !c.design(&git::changed(wt, &base, start)?).is_empty() {
+                let range = format!("{base}..{start}");
+                let mut args = vec!["log", "--format=%h %s", range.as_str(), "--"];
+                args.extend(c.project.design_paths.iter().map(String::as_str));
+                git::git(wt, &args)?.lines().map(str::to_string).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let mut why = Vec::new();
+            if !own.is_empty() {
+                why.push(format!("this round changed the design paths: {}", own.join(", ")));
+            }
+            if !earlier.is_empty() {
+                why.push(format!(
+                    "commits that an earlier attempt of this cell made, and was sent back for, are still on the branch \
+                     and change the design paths: {}; this round did not make them: revert them (git revert <commit>) \
+                     before handing in",
+                    earlier.join("; ")
+                ));
+            }
+            if !loose.is_empty() {
+                why.push(format!(
+                    "the worktree holds changes to the design paths that are not committed, made in this round or \
+                     left by an earlier attempt of this cell: {}; undo them before handing in",
+                    loose.join(", ")
+                ));
+            }
+            if why.is_empty() {
+                why.push(format!("the design paths changed: {}", net.join(", ")));
+            }
+            fail(why.join(". "))
         }
         "measure_matches_runs" => {
             let measured = v.and_then(|m| m["verdict"].as_str()) == Some("measured");

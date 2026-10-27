@@ -661,6 +661,67 @@ fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A cell that may not change the design paths is sent back for a change an earlier attempt of it made and left on the
+// branch, with a reason that names that commit and says to revert it; once reverted, the cell's return is taken.
+#[test]
+fn an_earlier_attempts_design_change_is_named_and_reverted() {
+    let s = setup("earlier-attempt");
+    let mut agents = scripts();
+    agents.insert(
+        "2b",
+        Box::new(|r: &Request, n: usize| {
+            let wt = &r.worktree;
+            if n == 1 {
+                write(wt, "design/sneaked.md", "Decision: not here.\n");
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Sneak a decision in"]);
+            }
+            if n == 3 {
+                let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
+                git(wt, &["revert", "--no-edit", sha.trim()]);
+            }
+            (vec![("outcome.better", "no")], Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at_2b = |e: &Engine| -> Vec<(Option<String>, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
+                     WHERE w.item = ?1 AND r.cell = '2b' AND r.ended_at IS NOT NULL ORDER BY r.id",
+                )
+                .unwrap();
+        st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    for _ in 0..40 {
+        if at_2b(&e).iter().any(|(t, _)| t.is_some()) {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let rounds = at_2b(&e);
+    assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
+    let first = rounds[0].1.clone().unwrap_or_default();
+    assert!(
+        first.contains("this round changed the design paths: design/sneaked.md"),
+        "{first}"
+    );
+    let second = rounds[1].1.clone().unwrap_or_default();
+    assert!(
+        second.contains("an earlier attempt of this cell") && second.contains("Sneak a decision in"),
+        "{second}"
+    );
+    assert!(second.contains("revert them"), "{second}");
+    assert!(!second.contains("this round changed"), "{second}");
+    assert!(rounds[2].0.is_some(), "{rounds:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The advisor is the engineer with a higher model: an item's advisor round runs on the level one above the item's,
 // with that level's command line and model.
 #[test]
