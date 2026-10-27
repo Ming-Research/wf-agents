@@ -28,7 +28,11 @@ pub struct Source {
     /// Every name the flow gives the engine to carry out, each with what it does. The engine has one
     /// implementation for each name, and the compiler checks that every name is used.
     pub engine: EngineNames,
-    /// The graphs: for now the engineer's only.
+    /// The rules every graph shares: each is given to every agent's cell on the lines it names, in whichever graph,
+    /// before the graph's own rules.
+    #[serde(default)]
+    pub rules: Vec<Rule>,
+    /// The graphs: the engineer's, which works on items run, and the architect's, which its wakes run.
     pub flows: Vec<Flow>,
 }
 
@@ -167,7 +171,7 @@ pub struct Flow {
     pub blocks: Vec<Block>,
     /// The lines: an agent's cell on a line resumes the session the line's earlier cells left.
     pub sessions: Sessions,
-    /// The rules the engine gives the agents that name them, as written.
+    /// The graph's own rules the engine gives the agents that name them, as written.
     pub rules: Vec<Rule>,
     /// The stages the owner sees a work at.
     pub stages: Stages,
@@ -522,7 +526,8 @@ pub struct Node {
     pub checks: Option<Vec<Check>>,
     /// Paths of the output that the cell hands to whoever takes over.
     pub handoff: Option<Vec<String>>,
-    /// Paths of the output the owner's page shows on the item the work is on: the owner reads them there.
+    /// Paths of the output the owner's page shows: on the item the work is on, or for a wake of the architect, which
+    /// is on no item, on the architect's view. The owner reads them there.
     pub shown: Option<Vec<String>>,
     /// The values the engine knows that the cell's rows or prompt read: each a list of values with what each
     /// means, or the name of an enum shape.

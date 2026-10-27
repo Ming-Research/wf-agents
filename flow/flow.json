@@ -1296,6 +1296,10 @@
         [
           "environment_changed",
           "Main went red after a work merged, and is red on main's commit before the merge too"
+        ],
+        [
+          "next_look",
+          "A look you set yourself at a wrap-up has come due"
         ]
       ]
     },
@@ -2964,6 +2968,30 @@
       "plan": "The work hangs on a segment of the plan. No plan exists yet."
     }
   },
+  "rules": [
+    {
+      "name": "general",
+      "desc": "How every agent works, whatever its cell",
+      "lines": [
+        "engineer",
+        "review",
+        "adversarial",
+        "advisor",
+        "architect"
+      ],
+      "text": [
+        "Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.",
+        "Keep nothing in the command line's own memory: what must last goes into this round's return.",
+        "Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.",
+        "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: ask the owner to allow it.",
+        "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. sqlite3 runs only as `sqlite3 -safe -readonly <database> ...`, and python3 does not run at all.",
+        "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
+        "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
+        "Subagents only do chores within this round, such as reading documents or searching code: at most `agents.subagents.most` of them, each on a model no larger than your own. They never stand in for an engineer, a reviewer or another cell's agent.",
+        "Read only what the question needs: find the place first (grep, `git diff --stat`), then read that range, not the whole file or diff. Do not reread what this session already read, unless it changed or the session was compacted since."
+      ]
+    }
+  ],
   "flows": [
     {
       "name": "engineer",
@@ -3070,27 +3098,6 @@
         ]
       },
       "rules": [
-        {
-          "name": "general",
-          "desc": "How every agent works, whatever its cell",
-          "lines": [
-            "engineer",
-            "review",
-            "adversarial",
-            "advisor"
-          ],
-          "text": [
-            "Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.",
-            "Keep nothing in the command line's own memory: what must last goes into this round's return.",
-            "Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.",
-            "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: ask the owner to allow it.",
-            "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. sqlite3 runs only as `sqlite3 -safe -readonly <database> ...`, and python3 does not run at all.",
-            "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
-            "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
-            "Subagents only do chores within this round, such as reading documents or searching code: at most `agents.subagents.most` of them, each on a model no larger than your own. They never stand in for an engineer, a reviewer or another cell's agent.",
-            "Read only what the question needs: find the place first (grep, `git diff --stat`), then read that range, not the whole file or diff. Do not reread what this session already read, unless it changed or the session was compacted since."
-          ]
-        },
         {
           "name": "engineering",
           "desc": "How an engineer works: writing code, design, evidence, experiments and the repository. The advisor is an engineer too",
@@ -10742,7 +10749,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why",
               "from": [
                 {
                   "engine": "matter_material"
@@ -10877,7 +10884,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why",
               "from": [
                 {
                   "engine": "matter_material"
@@ -11095,6 +11102,9 @@
               ],
               "environment_changed": [
                 "Main went red after a work merged, and is red on main's commit before the merge too: the red checks and that earlier run are in the input. Fix the environment, or add the check to the known red checks with an item that fixes it, then reply, and the engine runs that step again."
+              ],
+              "next_look": [
+                "A look you set yourself at a wrap-up has come due: what to look at and why are in the input. Look at it by the policy and the plan, and handle what it calls for."
               ]
             }
           },

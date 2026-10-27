@@ -104,6 +104,21 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
             }
         }
     }
+    // A rule every graph shares names lines, each a line of some graph.
+    let all_lines: BTreeSet<&str> = source
+        .flows
+        .iter()
+        .flat_map(|f| f.sessions.lines.iter().map(|l| l.name.as_str()))
+        .collect();
+    for r in &source.rules {
+        let ok = !r.lines.is_empty() && r.lines.iter().all(|l| all_lines.contains(l.as_str()));
+        if !ok {
+            return Err(fail(format!(
+                "a rule every graph shares, given to no such line: {} {:?}",
+                r.name, r.lines
+            )));
+        }
+    }
     let mut problems = Vec::new();
     let mut graphs = Vec::new();
     let mut stats = Vec::new();

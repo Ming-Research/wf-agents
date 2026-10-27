@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, ReadBy, Role, Source, Src,
+    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, ReadBy, Role, Rule, Source,
+    Src,
 };
 
 macro_rules! ensure {
@@ -123,6 +124,8 @@ pub(crate) struct Cell {
 pub(crate) struct Graph<'s> {
     pub source: &'s Source,
     pub flow: &'s Flow,
+    /// The rules of this graph: those every graph shares that name a line of it, for those lines, then its own.
+    pub rules: Vec<Rule>,
     pub cells: Vec<Cell>,
     pub at: BTreeMap<String, usize>,
     pub start: usize,
@@ -293,8 +296,20 @@ impl<'s> Graph<'s> {
             lines.iter().collect::<BTreeSet<_>>().len() == lines.len(),
             "two lines with one name"
         );
-        let rule_names: BTreeSet<&str> = flow.rules.iter().map(|r| r.name.as_str()).collect();
-        ensure!(rule_names.len() == flow.rules.len(), "two rules with one name");
+        // The rules every graph shares come first, for the lines of this graph they name; then the graph's own.
+        let rules: Vec<Rule> = source
+            .rules
+            .iter()
+            .filter(|r| r.lines.iter().any(|l| lines.contains(l)))
+            .map(|r| {
+                let mut r = r.clone();
+                r.lines.retain(|l| lines.contains(l));
+                r
+            })
+            .chain(flow.rules.iter().cloned())
+            .collect();
+        let rule_names: BTreeSet<&str> = rules.iter().map(|r| r.name.as_str()).collect();
+        ensure!(rule_names.len() == rules.len(), "two rules with one name");
         for r in &flow.rules {
             ensure!(
                 r.lines.iter().all(|l| flow.sessions.lines.iter().any(|x| &x.name == l)),
@@ -682,8 +697,7 @@ impl<'s> Graph<'s> {
                 "no such rule, or one twice: {nid} {own_rules:?}"
             );
             // The rules every cell of the line is given come first; a cell does not name one of them again.
-            let shared: Vec<String> = flow
-                .rules
+            let shared: Vec<String> = rules
                 .iter()
                 .filter(|r| line.as_ref().is_some_and(|l| r.lines.contains(l)))
                 .map(|r| r.name.clone())
@@ -865,6 +879,7 @@ impl<'s> Graph<'s> {
         let mut g = Graph {
             source,
             flow,
+            rules,
             cells,
             at,
             start,

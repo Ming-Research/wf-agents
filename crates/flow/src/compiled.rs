@@ -733,7 +733,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .map(|r| RuleUse {
                     name: r.clone(),
                     shared: g
-                        .flow
                         .rules
                         .iter()
                         .any(|x| &x.name == r && c.line.as_ref().is_some_and(|l| x.lines.contains(l))),
@@ -789,7 +788,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         asking: f.asking.nodes.clone(),
         receive: f.asking.receive.clone(),
         counters: f.limits.counters.clone(),
-        rules: f.rules.clone(),
+        rules: g.rules.clone(),
         interject: f.interject.as_ref().map(|i| CompiledInterject {
             name: i.name.clone(),
             desc: i.desc.clone(),
