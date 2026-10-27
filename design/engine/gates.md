@@ -1,0 +1,1 @@
+Decision: Each gate in the flow states what it needs (a setting in the project's configuration, or the plan in the database); a gate whose need is not met for the project is taken by the engine down its not-applicable row and recorded, without running a round, instead of asking an agent, because the answer is fixed by the configuration and a round spent on it is wasted.

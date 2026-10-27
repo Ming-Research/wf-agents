@@ -96,7 +96,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -
                 (true, false) => "all_split",
             })
         }
-        "card" => s(if card_disputed(e, w)? { "yes" } else { "no" }),
+        // A flow version stored before this value was named so calls it `card`.
+        "design_card_disputed" | "card" => s(if design_card_disputed(e, w)? { "yes" } else { "no" }),
         "came_by" => {
             let from = w.pos.from.clone().unwrap_or_default();
             let fc = g.cell(&from);
@@ -177,21 +178,21 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 
 /// A design card of a work, with the head of the round that handed it in, when the design paths matched it.
 #[derive(Debug, Clone)]
-pub struct Card {
+pub struct DesignCard {
     pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
 }
 
 /// The work's latest design card that was not replaced, if any.
-pub fn design_card(e: &Engine, w: &Work) -> Result<Option<Card>, String> {
+pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
         "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after')
-         FROM cards c JOIN rounds r ON r.id = c.round
-         WHERE r.work = ?1 AND c.kind = 'design' AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+         FROM design_cards c JOIN rounds r ON r.id = c.round
+         WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
-            Ok(Card {
+            Ok(DesignCard {
                 status: r.get(0)?,
                 rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
                 head: r.get(2)?,
@@ -206,7 +207,7 @@ pub fn design_card(e: &Engine, w: &Work) -> Result<Option<Card>, String> {
 }
 
 /// Whether the work's design card has a ruling that disagrees.
-fn card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
+fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(design_card(e, w)?.is_some_and(|c| {
         c.rulings
             .as_array()

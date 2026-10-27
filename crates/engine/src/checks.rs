@@ -9,7 +9,7 @@
 //! yet: CI gives each job's result, not each test's, so test results are checked only against what the jobs show;
 //! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
 //! a red check said not to be caused by the change and a ruling said to be the advisor's are taken as written once
-//! the advisor was asked; and a decision copied from a parent's card is not compared with it.
+//! the advisor was asked; and a decision copied from a parent's design card is not compared with it.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -23,7 +23,7 @@ use crate::work::{self, Item, Round, Work};
 use crate::{Engine, form_of, git, values};
 
 /// The text a ruling on a design card is interjected with; a disagreement says so after it.
-pub const CARD_RULING: &str = "Ruling on design card";
+pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
 
 pub struct Ctx<'a> {
     pub e: &'a Engine,
@@ -206,31 +206,8 @@ fn owner_only() -> &'static BTreeSet<String> {
     })
 }
 
-/// File paths a text cites: each run of the characters a path is written with that has a slash in it, cut before
-/// a line number, whatever language the text around it is in.
-fn cited_paths(text: &str) -> Vec<String> {
-    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '*')))
-        .map(|w| w.trim_end_matches('.'))
-        .filter(|w| w.contains('/') && !w.starts_with('/'))
-        .map(str::to_string)
-        .collect()
-}
-
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
     match check {
-        "cited_places_exist" => {
-            let wt = c.wt()?;
-            for text in strs(v) {
-                for p in cited_paths(&text) {
-                    // A path whose first part is not in the worktree is not taken for a file path.
-                    let first = p.split('/').next().unwrap_or_default();
-                    if wt.join(first).exists() && !wt.join(&p).exists() {
-                        return fail(format!("{p} is not in the worktree"));
-                    }
-                }
-            }
-            Ok(())
-        }
         "research_only" => {
             let wt = c.wt()?;
             if !git::is_clean(wt)? {
@@ -301,14 +278,14 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 let node = d["node"].as_str().unwrap_or_default().to_string();
                 if !tree.iter().any(|f| in_node(&node, f)) {
                     return fail(format!(
-                        "the card has a decision in {node}, which did not change on the branch"
+                        "the design card has a decision in {node}, which did not change on the branch"
                     ));
                 }
                 nodes.push(node);
             }
             if let Some(f) = tree.iter().find(|f| !nodes.iter().any(|n| in_node(n, f))) {
                 return fail(format!(
-                    "{f} changed on the branch, and no decision on the card is in it"
+                    "{f} changed on the branch, and no decision on the design card is in it"
                 ));
             }
             if at.is_some_and(|a| a.contains("design_paths_only")) {
@@ -374,8 +351,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let chosen = v.and_then(Value::as_str).unwrap_or_default();
             let rulings = work::query_json(
                 c.e.db.conn(),
-                "SELECT c.rulings FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND c.kind = 'design' ORDER BY c.id DESC",
+                "SELECT c.rulings FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 ORDER BY c.id DESC",
                 &[&c.item.id],
                 100,
             )?;
@@ -595,10 +572,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let tree = c.design(&git::changed(wt, &base, "HEAD")?);
             match (tree.is_empty(), v.is_some()) {
                 (false, false) => fail(format!(
-                    "the design paths changed since the last card ({}): hand in the new card",
+                    "the design paths changed since the last design card ({}): hand in the new design card",
                     tree.join(", ")
                 )),
-                (true, true) => fail("the design paths did not change since the last card: hand in no card"),
+                (true, true) => fail("the design paths did not change since the last design card: hand in none"),
                 _ => Ok(()),
             }
         }
@@ -852,10 +829,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 _ => Ok(()),
             }
         }
-        "card_disagreement_redirects" => {
+        // A flow version stored before this check was named so calls it `card_disagreement_redirects`.
+        "design_card_disagreement_redirects" | "card_disagreement_redirects" => {
             let disagreed = c.interjections.iter().any(|i| {
                 let t = i["text"].as_str().unwrap_or_default();
-                t.starts_with(CARD_RULING) && t.contains("disagree")
+                t.starts_with(DESIGN_CARD_RULING) && t.contains("disagree")
             });
             if disagreed && v.is_some() {
                 fail("this round's interjections disagree with the design card: hand in redirect, not answers")
@@ -981,19 +959,5 @@ mod tests {
         assert!(names_failing(log, "breaks"));
         assert!(names_failing(log, "panics"));
         assert!(!names_failing(log, ""));
-    }
-
-    #[test]
-    fn cited_paths_are_found_in_text() {
-        assert_eq!(
-            cited_paths("see crates/flow/src/run.rs:42 and `db/schema.sql`."),
-            ["crates/flow/src/run.rs", "db/schema.sql"]
-        );
-        assert!(cited_paths("https://github.com/a/b/actions/runs/1").is_empty());
-        assert!(cited_paths("/etc/passwd").is_empty());
-        assert_eq!(
-            cited_paths("见 crates/wf-agents/src/main.rs：第 12 行"),
-            ["crates/wf-agents/src/main.rs"]
-        );
     }
 }

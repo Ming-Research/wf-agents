@@ -1,0 +1,17 @@
+[package]
+name = "api"
+description = "The owner's interface: its types, from which the page's TypeScript types are generated, the reads that fill them, and the bus its live events go through."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+db = { path = "../db" }
+flow = { path = "../flow" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
+
+[lints]
+workspace = true

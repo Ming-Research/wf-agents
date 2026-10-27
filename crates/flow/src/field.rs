@@ -184,6 +184,70 @@ impl Shapes<'_> {
 }
 
 /// What a list holds, or the field itself.
+/// A list's item, or the field itself.
+fn inner_mut(f: &mut Field) -> &mut Field {
+    if f.kind == Kind::List && f.item.is_some() {
+        f.item.as_deref_mut().expect("a list's item")
+    } else {
+        f
+    }
+}
+
+/// Adds a sentence to the description of the field, or the branch, at path `p` of `fields`: a list's item is
+/// followed, and below a union, the fields every branch has and those of the branch named. False when the path names
+/// nothing.
+pub(crate) fn add_to_desc(fields: &mut [Field], p: &str, say: &str) -> bool {
+    let (seg, rest) = match p.split_once('.') {
+        Some((a, b)) => (a, Some(b)),
+        None => (p, None),
+    };
+    let Some((name, branch)) = segment(seg) else {
+        return false;
+    };
+    let Some(f) = fields.iter_mut().find(|x| x.name == name) else {
+        return false;
+    };
+    let said = |d: &str| {
+        if d.is_empty() {
+            say.to_string()
+        } else if d.ends_with('.') {
+            format!("{d} {say}")
+        } else {
+            format!("{d}. {say}")
+        }
+    };
+    let Some(rest) = rest else {
+        if let Some(b) = branch {
+            let g = inner_mut(f);
+            return match g.branches.iter_mut().find(|x| x.value == b) {
+                Some(x) => {
+                    x.desc = said(&x.desc);
+                    true
+                }
+                None => false,
+            };
+        }
+        f.desc = said(&f.desc);
+        return true;
+    };
+    let g = inner_mut(f);
+    let mut found = add_to_desc(&mut g.common, rest, say);
+    match branch {
+        Some(b) => {
+            if let Some(x) = g.branches.iter_mut().find(|x| x.value == b) {
+                found |= add_to_desc(&mut x.fields, rest, say);
+            }
+        }
+        None => {
+            found |= add_to_desc(&mut g.fields, rest, say);
+            for x in &mut g.branches {
+                found |= add_to_desc(&mut x.fields, rest, say);
+            }
+        }
+    }
+    found
+}
+
 pub(crate) fn inner(f: &Field) -> &Field {
     match &f.item {
         Some(i) if f.kind == Kind::List => i,

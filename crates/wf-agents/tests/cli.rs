@@ -12,7 +12,6 @@ heavy = "builds"
 poll_interval = 60
 [machines.hosts.here]
 slots = 1
-worktrees = "/tmp"
 [agents.clis.claude]
 kind = "claude"
 command = "claude"
@@ -43,15 +42,18 @@ fixes = 5
 "#;
 
 /// The commands that open the database with nothing checked before, each as the owner types it.
-const UNCHECKED: [&str; 15] = [
+const UNCHECKED: [&str; 18] = [
     "item list",
     "item depend 2 1 --needs x",
     "item cancel 1 --why x",
     "queue list",
     "queue put 1",
-    "cards",
-    "card 1",
+    "asks",
+    "ask 1",
     "answer 1 --text x",
+    "design-cards",
+    "design-card 1",
+    "rule 1 --verdict confirm --text x",
     "say 1 hello",
     "pause 1 --why x",
     "resume 1",
@@ -62,9 +64,10 @@ const UNCHECKED: [&str; 15] = [
 ];
 
 /// The commands that read the committed configuration before they open the database.
-const CHECKED: [&str; 3] = [
+const CHECKED: [&str; 4] = [
     "item add --project p --title t --problem x --why y --level l",
     "anomalies",
+    "message 1",
     "run --once",
 ];
 

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 /// The whole of `flow.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -32,7 +33,7 @@ pub struct Source {
 }
 
 /// The engine's part of the flow, by name. Each map takes a name to what it does.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct EngineNames {
     /// What a cell that is not an agent does when the work reaches it: a cell's `step`.
@@ -73,6 +74,9 @@ pub struct Tool {
     pub desc: String,
     /// What the engine does to run it.
     pub runs: String,
+    /// For a tool that reads the database: what leads the index of the tables and views it reads, which the
+    /// compiler adds to its description, one line for each with the first line of what it holds.
+    pub tables: Option<String>,
     /// What the agent hands in.
     #[serde(rename = "in")]
     pub input: Vec<RawField>,
@@ -184,6 +188,62 @@ pub struct Flow {
     pub design_card: Vec<String>,
     /// What the owner or the architect says to a running work, and who may.
     pub interject: Option<Interject>,
+    /// What the engine does with an agent's round that does not end in a return the cell takes.
+    pub rounds: Option<Rounds>,
+}
+
+/// What the engine does with an agent's round that does not end in a return the cell takes: a return sent back, or
+/// a run of the agent's command line that ended without one. Every agent's cell has this alike.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Rounds {
+    pub desc: String,
+    #[serde(rename = "sentBack")]
+    pub sent_back: SentBack,
+    pub failed: Failed,
+    /// What every round records.
+    pub record: Vec<String>,
+    /// What an agent's command line starts with, apart from what the flow gives it.
+    pub environment: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SentBack {
+    pub desc: String,
+    /// How many returns of one cell in a row may be sent back before the engine pauses the work.
+    #[serde(rename = "pauseAfter")]
+    pub pause_after: u32,
+    pub pause: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Failed {
+    pub desc: String,
+    pub kinds: Vec<Failure>,
+}
+
+/// One kind of run that ended without a return; every agent's cell has a shared row of its name for it.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Failure {
+    pub name: String,
+    /// What the command line reports when this happens.
+    pub when: String,
+    pub handle: Handle,
+    pub desc: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Handle {
+    /// No new round starts for any work until the cause passes; then each work goes on from its cell.
+    Wait,
+    /// The same round runs again, waiting longer each time, until it passes.
+    Retry,
+    /// The work pauses, and the owner is told; once the owner lets it go on, the same round runs again.
+    Pause,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -196,7 +256,7 @@ pub struct Block {
     pub asking: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Named {
     pub name: String,
@@ -211,12 +271,15 @@ pub struct Sessions {
     pub rules: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
     pub name: String,
     pub desc: String,
     pub text: Vec<String>,
+    /// The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -274,7 +337,7 @@ pub struct Limits {
     pub counters: Vec<Counter>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Counter {
     pub name: String,
@@ -308,6 +371,25 @@ pub struct AgentCommon {
     pub always: Vec<Always>,
     #[serde(default)]
     pub checks: Vec<Check>,
+    /// Paths of every agent's return the owner's page shows on the item the work is on.
+    #[serde(default)]
+    pub shown: Vec<String>,
+    /// What the description of each field an agent's cell shows on the item adds: the language it is written in.
+    #[serde(default, rename = "shownSay")]
+    pub shown_say: String,
+    /// Places of every agent's return a role reads outside this flow, through the database.
+    #[serde(default, rename = "readBy")]
+    pub read_by: Vec<ReadBy>,
+}
+
+/// A place of a return a role reads outside this flow, through the database, such as the architect reading side
+/// reports: what the role does with it is not a cell of this flow.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ReadBy {
+    pub at: String,
+    /// The role that reads it, one of the roles an agent may ask.
+    pub role: String,
 }
 
 /// What one return of an agent holds: exactly one form, inside the field `in`, and every field of `every`.
@@ -324,6 +406,10 @@ pub struct Returns {
     pub join: String,
     /// How a field is named in `say`, with `{name}`.
     pub name: String,
+    /// How every return is written, said once in the forms every return shares: that only the return is read, and
+    /// how a field the owner reads is written.
+    #[serde(default)]
+    pub write: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -334,7 +420,7 @@ pub struct InField {
 }
 
 /// One form of an agent's return: the cell's own answer, or one of the common fields.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -380,7 +466,6 @@ pub struct GateNa {
     /// With `{about}`, and `{na}` for the gate's example of when it does not apply.
     pub prompt: String,
     pub out: RawField,
-    pub always: Always,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -432,6 +517,8 @@ pub struct Node {
     pub checks: Option<Vec<Check>>,
     /// Paths of the output that the cell hands to whoever takes over.
     pub handoff: Option<Vec<String>>,
+    /// Paths of the output the owner's page shows on the item the work is on: the owner reads them there.
+    pub shown: Option<Vec<String>>,
     /// The values the engine knows that the cell's rows or prompt read: each a list of values with what each
     /// means, or the name of an enum shape.
     pub inenums: Option<BTreeMap<String, Values>>,
@@ -452,7 +539,7 @@ pub struct Node {
     pub rows: Option<Vec<RawRow>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct PromptBy {
     pub by: String,
@@ -485,14 +572,14 @@ pub struct RawRow {
 }
 
 /// An action on a row: a name, or a name done for a place of the output.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(untagged)]
 pub enum Do {
     Name(String),
     At(DoAt),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct DoAt {
     pub at: String,
@@ -516,10 +603,12 @@ impl Do {
     }
 }
 
-/// What the engine does every time a cell returns a place: shows it in a view, or carries out an action.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+/// What the engine does every time a cell's return holds a place: the place that sets it off, and the action. The
+/// flow names only actions here; a flow version stored before may name a view instead, which did nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Always {
+    /// The place of the return whose presence sets the action off.
     pub at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
@@ -528,7 +617,7 @@ pub struct Always {
 }
 
 /// A check the engine makes on a return, on a place of it or on the whole.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,8 +640,11 @@ pub struct Input {
 }
 
 /// Where an input comes from.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(try_from = "Value", into = "Value")]
+#[ts(
+    type = "[string, string] | \"self\" | { config: string } | { db: string, by?: string } | { engine: string } | { recorded: string }"
+)]
 pub enum Src {
     /// A place of a cell's last return: a cell, or `@stopped`, `@caller` or `@from`, and a path.
     Place(String, String),
@@ -628,9 +720,15 @@ impl From<Src> for Value {
 /// A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
 /// `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
 /// them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
-/// `["inp", name, values]` (a value the engine knows or rows recorded is one of them).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Two hold for no return, and
+/// only the shared rows the rounds section gives every agent's cell have them: `["sent_back"]` (the return is sent
+/// back), with a number (that many of the cell's returns in a row are), and `["failed", kind]` (the run ended
+/// without a return, of that kind).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(try_from = "Value", into = "Value")]
+#[ts(
+    type = "[\"all\"] | [\"own\"] | [\"or\", Array<Atom>] | [\"has\", string] | [\"is\" | \"any\" | \"none\" | \"inp\", string, Array<string>] | [\"sent_back\"] | [\"sent_back\", number] | [\"failed\", string]"
+)]
 pub enum Atom {
     All,
     Own,
@@ -640,6 +738,19 @@ pub enum Atom {
     AnyOf(String, BTreeSet<String>),
     NoneOf(String, BTreeSet<String>),
     Inp(String, BTreeSet<String>),
+    SentBack(Option<u32>),
+    Failed(String),
+}
+
+impl Atom {
+    /// Whether the condition is about a round that ended in no return the cell takes, which no return meets.
+    pub fn about_no_return(&self) -> bool {
+        match self {
+            Atom::SentBack(_) | Atom::Failed(_) => true,
+            Atom::Or(xs) => xs.iter().any(Atom::about_no_return),
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<Value> for Atom {
@@ -674,6 +785,13 @@ impl TryFrom<Value> for Atom {
                     .map(Atom::Or)
             }
             "has" => len(2).and_then(|_| text(1)).map(Atom::Has),
+            "sent_back" if a.len() == 1 => Ok(Atom::SentBack(None)),
+            "sent_back" => {
+                len(2)?;
+                let n = a[1].as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(bad)?;
+                Ok(Atom::SentBack(Some(n)))
+            }
+            "failed" => len(2).and_then(|_| text(1)).map(Atom::Failed),
             "is" | "any" | "none" | "inp" => {
                 len(3)?;
                 let (p, s) = (text(1)?, set(2)?);
@@ -701,6 +819,9 @@ impl From<Atom> for Value {
             Atom::AnyOf(p, s) => serde_json::json!(["any", p, set(s)]),
             Atom::NoneOf(p, s) => serde_json::json!(["none", p, set(s)]),
             Atom::Inp(p, s) => serde_json::json!(["inp", p, set(s)]),
+            Atom::SentBack(None) => serde_json::json!(["sent_back"]),
+            Atom::SentBack(Some(n)) => serde_json::json!(["sent_back", n]),
+            Atom::Failed(k) => serde_json::json!(["failed", k]),
         }
     }
 }

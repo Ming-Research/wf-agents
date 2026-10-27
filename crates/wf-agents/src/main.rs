@@ -4,9 +4,10 @@ mod owner;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
@@ -31,11 +32,18 @@ enum Command {
     /// opens the database that is there, and fails when there is none.
     Init,
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
-    /// appears in the data directory.
+    /// appears in the data directory. The owner's page is served beside it, on the loopback address.
     Run {
-        /// Takes one pass only: carries out the outbox, starts what can start, and takes each work one step.
+        /// Takes one pass only, without the page: carries out the outbox, starts what can start, and takes each work
+        /// one step.
         #[arg(long)]
         once: bool,
+        /// How the engine starts dispatching; the owner can switch it on the page while it runs.
+        #[arg(long, value_enum, default_value_t = RunMode::Run)]
+        mode: RunMode,
+        /// The port of the owner's page on the loopback address.
+        #[arg(long, default_value_t = 7480)]
+        port: u16,
     },
     /// Items: what to do.
     #[command(subcommand)]
@@ -43,32 +51,47 @@ enum Command {
     /// The dispatch queue: which items start next.
     #[command(subcommand)]
     Queue(QueueCommand),
-    /// The cards waiting for the owner: questions, and design cards to rule on.
-    Cards {
-        /// Every card, ruled and replaced ones too.
+    /// The asks of the owner waiting for an answer.
+    Asks {
+        /// Every ask of the owner, those answered too.
         #[arg(long)]
         all: bool,
     },
-    /// One card in full, with its rulings.
-    Card { id: i64 },
-    /// Answers a question card, or rules on a design card.
+    /// One ask of the owner in full, with its answer.
+    Ask { id: i64 },
+    /// Answers an ask of the owner.
     Answer {
-        card: i64,
-        /// The answer, or what the ruling says.
+        ask: i64,
+        /// The answer.
         #[arg(long)]
         text: String,
-        /// For a question the architect is asked: why it was decided this way.
+        /// For what the architect is asked: why it was decided this way.
         #[arg(long)]
         why: Option<String>,
-        /// For a design card: confirm or disagree.
-        #[arg(long)]
-        verdict: Option<String>,
-        /// For a design card: the approach chosen instead.
-        #[arg(long)]
-        option: Option<String>,
-        /// For a question the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
+        /// For what the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
         #[arg(long)]
         reply: Option<String>,
+    },
+    /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
+    DesignCards {
+        /// Every design card, replaced ones too.
+        #[arg(long)]
+        all: bool,
+    },
+    /// One design card in full, with its rulings.
+    DesignCard { id: i64 },
+    /// Rules on a design card.
+    Rule {
+        design_card: i64,
+        /// Confirm or disagree.
+        #[arg(long)]
+        verdict: String,
+        /// What the ruling says.
+        #[arg(long)]
+        text: String,
+        /// The approach chosen instead of the one recommended.
+        #[arg(long)]
+        option: Option<String>,
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
@@ -94,6 +117,14 @@ enum Command {
         #[arg(long)]
         full: bool,
     },
+    /// The message the work's next agent round would be sent, built as the engine builds it, with nothing run or
+    /// recorded.
+    Message {
+        work: i64,
+        /// As JSON: the message, and each conditional input it gives or refers to, as a round records them.
+        #[arg(long)]
+        json: bool,
+    },
     /// How many times a work took the rows that count each counter.
     Counters { work: i64 },
     /// Returns sent back, compactions, counters past their limits, and works paused.
@@ -102,36 +133,68 @@ enum Command {
     Cost { work: Option<i64> },
 }
 
+/// How the engine dispatches.
+#[derive(Clone, Copy, ValueEnum)]
+enum RunMode {
+    /// Takes every work as far as it can, pass after pass.
+    Run,
+    /// Starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
+    /// asks for on the work's page; the page stays up.
+    Hold,
+}
+
+impl From<RunMode> for api::Mode {
+    fn from(m: RunMode) -> api::Mode {
+        match m {
+            RunMode::Run => api::Mode::Run,
+            RunMode::Hold => api::Mode::Hold,
+        }
+    }
+}
+
+/// What a new item is.
+#[derive(clap::Args)]
+struct AddItem {
+    #[arg(long)]
+    project: String,
+    #[arg(long)]
+    title: String,
+    /// What cannot be done or is wrong.
+    #[arg(long)]
+    problem: String,
+    /// Why it is worth doing.
+    #[arg(long)]
+    why: String,
+    /// How to do it, when it is already known.
+    #[arg(long)]
+    approach: Option<String>,
+    /// change or report.
+    #[arg(long, default_value = "change")]
+    deliver: String,
+    /// The agent level, as the configuration names it.
+    #[arg(long)]
+    level: String,
+    /// An item it depends on and what it needs of it, as N:what.
+    #[arg(long = "depends-on")]
+    depends_on: Vec<String>,
+    /// Puts it last in the dispatch queue.
+    #[arg(long)]
+    queue: bool,
+    /// For an item imported from outside this flow: where it came from, such as an item of another board.
+    #[arg(long = "imported-from")]
+    imported_from: Option<String>,
+    /// For an item imported from outside this flow: the branch work on it had, which its first work takes over.
+    #[arg(long)]
+    branch: Option<String>,
+    /// For an item imported from outside this flow: the pull request of that branch, which its first work keeps.
+    #[arg(long, requires = "branch")]
+    pr: Option<i64>,
+}
+
 #[derive(Subcommand)]
 enum ItemCommand {
     /// Creates an item.
-    Add {
-        #[arg(long)]
-        project: String,
-        #[arg(long)]
-        title: String,
-        /// What cannot be done or is wrong.
-        #[arg(long)]
-        problem: String,
-        /// Why it is worth doing.
-        #[arg(long)]
-        why: String,
-        /// How to do it, when it is already known.
-        #[arg(long)]
-        approach: Option<String>,
-        /// change or report.
-        #[arg(long, default_value = "change")]
-        deliver: String,
-        /// The agent level, as the configuration names it.
-        #[arg(long)]
-        level: String,
-        /// An item it depends on and what it needs of it, as N:what.
-        #[arg(long = "depends-on")]
-        depends_on: Vec<String>,
-        /// Puts it last in the dispatch queue.
-        #[arg(long)]
-        queue: bool,
-    },
+    Add(Box<AddItem>),
     /// Every item.
     List,
     /// Makes an item depend on another.
@@ -214,7 +277,8 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
         None => db::SCHEMA.to_string(),
     };
     let relations = db::relations(&schema).map_err(|e| format!("the database definition: {e}"))?;
-    let compiled = flow::compile(&text, &flow::Context { relations }).map_err(|e| e.to_string())?;
+    let tables = db::index_of(&schema).map_err(|e| format!("the database definition: {e}"))?;
+    let compiled = flow::compile(&text, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
     for s in &compiled.stats {
         println!(
             "{}: {} cells, {} rows, {} states, {} output places",
@@ -251,18 +315,22 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) => Ok(()),
         Command::Init => init(d),
-        Command::Run { once } => run(d, once),
-        Command::Item(ItemCommand::Add {
-            project,
-            title,
-            problem,
-            why,
-            approach,
-            deliver,
-            level,
-            depends_on,
-            queue,
-        }) => {
+        Command::Run { once, mode, port } => run(d, once, mode.into(), port),
+        Command::Item(ItemCommand::Add(add)) => {
+            let AddItem {
+                project,
+                title,
+                problem,
+                why,
+                approach,
+                deliver,
+                level,
+                depends_on,
+                queue,
+                imported_from,
+                branch,
+                pr,
+            } = *add;
             let mut deps = Vec::new();
             for x in depends_on {
                 let (n, needs) = x
@@ -285,6 +353,11 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     level,
                     depends_on: deps,
                     queue,
+                    imported: owner::Imported {
+                        from: imported_from,
+                        branch,
+                        pr,
+                    },
                 },
             )?;
             println!("item {id}");
@@ -309,37 +382,37 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             };
             owner::queue(d, item, place)
         }
-        Command::Cards { all } => print(owner::cards(d, all)),
-        Command::Card { id } => print(owner::card(d, id)),
-        Command::Answer {
-            card,
-            text,
-            why,
-            verdict,
-            option,
-            reply,
-        } => {
+        Command::Asks { all } => print(owner::asks(d, all)),
+        Command::Ask { id } => print(owner::ask(d, id)),
+        Command::Answer { ask, text, why, reply } => {
             let reply = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            print(owner::answer(
-                d,
-                owner::Answer {
-                    card,
-                    text,
-                    why,
-                    verdict,
-                    option,
-                    reply,
-                },
-            ))
+            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
         }
+        Command::DesignCards { all } => print(owner::design_cards(d, all)),
+        Command::DesignCard { id } => print(owner::design_card(d, id)),
+        Command::Rule {
+            design_card,
+            verdict,
+            text,
+            option,
+        } => print(owner::rule(
+            d,
+            owner::Ruling {
+                design_card,
+                verdict,
+                text,
+                option,
+            },
+        )),
         Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),
         Command::Pause { work, why } => owner::pause(d, work, Some(&why)),
         Command::Resume { work } => owner::pause(d, work, None),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
+        Command::Message { work, json } => message(d, work, json),
         Command::Counters { work } => print(owner::counters(d, work)),
         Command::Anomalies => print(owner::anomalies(d)),
         Command::Cost { work } => print(owner::cost(d, work)),
@@ -356,8 +429,57 @@ fn init(d: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Runs the engine on the data directory with `claude -p` and the gh CLI.
-fn run(d: &Path, once: bool) -> Result<(), String> {
+/// How the engine stands, for the page.
+fn status(
+    e: &mut engine::Engine,
+    asked: api::Asked,
+    last: Option<&api::StepTaken>,
+    started_at: i64,
+) -> Result<api::Status, String> {
+    let slots: i64 = e
+        .config
+        .config
+        .install
+        .machines
+        .hosts
+        .values()
+        .map(|h| i64::from(h.slots))
+        .sum();
+    Ok(api::Status {
+        mode: asked.mode,
+        stepping: asked.step,
+        last_step: last.cloned(),
+        slots_used: slots - e.free_slots()?,
+        slots,
+        flow_version: e.flow_now,
+        config_commit: e.config.commit.clone(),
+        started_at,
+        version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
+        halt: e.halt.as_ref().map(|h| api::Halt {
+            kind: h.kind.clone(),
+            until: h.until,
+            why: h.why.clone(),
+        }),
+    })
+}
+
+/// Prints the message the work's next agent round would be sent.
+fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
+    let committed = config::committed(d).map_err(|e| e.to_string())?;
+    let github = engine::hub::Gh::new(d.join("logs"));
+    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
+    let m = engine::next_message(&mut e, work)?;
+    if json {
+        let v = serde_json::json!({ "message": m.text, "conditional": m.record() });
+        println!("{v}");
+    } else {
+        print!("{}", m.text);
+    }
+    Ok(())
+}
+
+/// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it.
+fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
     let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
@@ -366,10 +488,88 @@ fn run(d: &Path, once: bool) -> Result<(), String> {
         e.tick()?;
         return Ok(());
     }
+    let started_at = db::now();
+    let bus = Arc::new(api::Bus::new(started_at));
+    let events = Arc::clone(&bus);
+    e.db.on_commit(Box::new(move |conn, rows| {
+        for ev in api::events(conn, rows) {
+            events.publish(ev);
+        }
+    }))
+    .map_err(|x| x.to_string())?;
+    let control = Arc::new(api::Control::new(mode));
+    // What a running agent is doing goes to the page as it happens.
+    let told = Arc::clone(&bus);
+    e.activity = Box::new(move |work, round, what| {
+        told.publish(api::Event::Activity {
+            work,
+            round,
+            what: what.to_string(),
+            at: db::now(),
+        });
+    });
+    let first = status(&mut e, control.asked(), None, started_at)?;
+    bus.publish(api::Event::Status {
+        status: Box::new(first),
+    });
+    let port = web::start(web::Options {
+        data: d.to_path_buf(),
+        db: config::database(d),
+        port,
+        bus: Arc::clone(&bus),
+        control: Arc::clone(&control),
+    })?;
+    let shown = format!("{mode:?}").to_lowercase();
+    (e.say)(&format!(
+        "the page is at http://127.0.0.1:{port}/; the engine starts in {shown} mode"
+    ));
     // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
     let stop = d.join("stop");
     let _ = std::fs::remove_file(&stop);
-    e.run(&|| stop.exists(), Duration::from_secs(10))?;
+    let idle = Duration::from_secs(10);
+    let mut last: Option<api::StepTaken> = None;
+    while !stop.exists() {
+        // What a work's next round would be, for the page that asked: built between steps, nothing run.
+        for (work, answer) in control.take_previews() {
+            let next = engine::next_round(&mut e, work).map(|n| api::NextRound {
+                work,
+                cell: n.cell,
+                title: n.title,
+                kind: n.kind,
+                line: n.line,
+                message: n.message,
+                step: n.step,
+                not_asked: n.not_asked,
+            });
+            let _ = answer.send(next);
+        }
+        let asked = control.asked();
+        e.reload_config();
+        let now = status(&mut e, asked, last.as_ref(), started_at)?;
+        bus.publish(api::Event::Status { status: Box::new(now) });
+        match asked.next() {
+            api::Next::Pass => {
+                if !e.tick()? {
+                    control.wait(asked, idle);
+                }
+            }
+            api::Next::Step(work) => {
+                let s = e.step_work(work)?;
+                (e.say)(&format!(
+                    "the next round of work {work}, as the owner asked: rounds {:?}",
+                    s.rounds
+                ));
+                last = Some(api::StepTaken {
+                    at: db::now(),
+                    work,
+                    rounds: s.rounds,
+                    cell: s.cell,
+                });
+                control.stepped();
+            }
+            api::Next::Wait => control.wait(asked, idle),
+        }
+    }
     let _ = std::fs::remove_file(&stop);
     eprintln!("{} stopped: {} exists", db::now() / 1000, stop.display());
     Ok(())

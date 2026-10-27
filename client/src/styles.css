@@ -1,0 +1,1989 @@
+:root {
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --text: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #deded8;
+  --accent: #2f6fdf;
+  --accent-soft: #e5eefc;
+  --good: #23855a;
+  --warn: #b26b00;
+  --bad: #c43d3d;
+  --running: #2f6fdf;
+  --code: #f0f0ec;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --panel: #1f1f1d;
+    --text: #e8e8e3;
+    --muted: #9a9a93;
+    --line: #34342f;
+    --accent: #6ea0f5;
+    --accent-soft: #1f2c44;
+    --good: #4fbf8a;
+    --warn: #e0a243;
+    --bad: #ec6b6b;
+    --running: #6ea0f5;
+    --code: #2a2a27;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre,
+.cell-id {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 20px 0 8px;
+}
+
+h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The bar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  /* Above the panel that floats over a chart, so that what the bar opens is seen. */
+  z-index: 40;
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.nav {
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.nav-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.engine {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-off,
+.dot-halt {
+  background: var(--bad);
+}
+
+.dot-run {
+  background: var(--good);
+}
+
+.dot-hold {
+  background: var(--muted);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.engine-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.engine-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.engine-panel p {
+  margin: 0;
+}
+
+.engine-mode {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.engine-mode-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+button.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* Views */
+
+.page {
+  padding: 16px;
+  max-width: 1280px;
+  width: 100%;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.bad {
+  color: var(--bad);
+}
+
+.error {
+  color: var(--bad);
+  padding: 8px 0;
+}
+
+.why {
+  color: var(--warn);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  max-width: 60ch;
+}
+
+table.list {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+table.list th,
+table.list td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+table.list th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+table.list .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover {
+  background: var(--accent-soft);
+}
+
+tr.selected {
+  background: var(--accent-soft);
+}
+
+td.clip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 12px;
+  background: var(--code);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.state-running,
+.outcome-running,
+.item-working {
+  background: var(--accent-soft);
+  color: var(--running);
+}
+
+.state-asking,
+.state-paused,
+.outcome-sent_back,
+.item-queued {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+.state-done,
+.outcome-took,
+.item-done {
+  background: color-mix(in srgb, var(--good) 16%, transparent);
+  color: var(--good);
+}
+
+.state-ended,
+.outcome-failed,
+.outcome-interrupted,
+.item-stopped,
+.item-cancelled {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad);
+}
+
+.work-head {
+  padding: 12px 16px 8px;
+}
+
+.head-item {
+  font-weight: 500;
+}
+
+.head-facts {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  align-items: center;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.dag {
+  height: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* The chart's cells */
+
+.item-node {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.cell-selected {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+}
+
+.cell-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cell-id {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cell-title {
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Folding parts and facts */
+
+.section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-body {
+  padding-top: 8px;
+  overflow-x: auto;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+}
+
+.fact {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.round {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+details.input {
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+}
+
+details.input > summary {
+  cursor: pointer;
+}
+
+.input-what {
+  font-weight: 500;
+}
+
+.boxed {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.nav-count {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 11px;
+}
+
+.msg-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.msgs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.msg {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+.msg-unread .msg-text {
+  font-weight: 600;
+}
+
+.msg-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.msg-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
+.kept {
+  margin: 2px 0;
+}
+
+.file-text {
+  max-height: 420px;
+  overflow: auto;
+}
+
+pre.prompt {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.prompt-line {
+  margin: 4px 0;
+}
+
+/* JSON */
+
+/* Text the agents and the owner wrote is prose and reads in the page's font; a message as sent, a file and what a tool
+   printed keep the fixed width they were written in. */
+
+.j-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code);
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin: 2px 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+pre.prompt,
+.file-text,
+.next-message,
+.tool-run .j-text {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.prose {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* What an item's works found and decided. */
+
+.shown-now {
+  border-left: 3px solid var(--accent);
+  padding: 4px 10px;
+  margin-bottom: 10px;
+}
+
+.shown-from {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shown-path {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.shown-path > summary {
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.shown-before {
+  margin-top: 6px;
+}
+
+.shown-before > summary {
+  cursor: pointer;
+}
+
+.shown-old {
+  margin: 6px 0 0 12px;
+}
+
+.shown-log {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.j-str {
+  color: var(--good);
+  overflow-wrap: anywhere;
+}
+
+.j-lit,
+.j-null {
+  color: var(--accent);
+}
+
+.j-tree > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.j-entries {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+
+.j-entry {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 1px 0;
+}
+
+.j-key {
+  color: var(--muted);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.j-key::after {
+  content: ':';
+}
+
+/* Cell definitions */
+
+table.defs td {
+  font-size: 12.5px;
+}
+
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.page > .section {
+  margin: 10px 0;
+}
+
+ul.linked {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* The flow's chart. Each kind of box has a fill of its own: an agent's round its line's, a cell on no line white and
+   dotted, the engine's own step purple, a tool the engine runs grey, the owner orange, a rule blue, the interjection
+   orange, the shared rows and a way to another part lavender, a way from another part shaded orange. */
+
+:root {
+  --fc-group: #fffde4;
+  --fc-group-line: #b3ab3f;
+  --fc-engineer: #2f8a5f;
+  --fc-engineer-fill: #d3e8dc;
+  --fc-review: #0891b2;
+  --fc-review-fill: #cfeaf2;
+  --fc-adversarial: #dc2626;
+  --fc-adversarial-fill: #f9d6d6;
+  --fc-advisor: #c026d3;
+  --fc-advisor-fill: #f4d4f7;
+  --fc-architect: #4d7c0f;
+  --fc-architect-fill: #e2f2c7;
+  --fc-other: #0f766e;
+  --fc-other-fill: #ccebe7;
+  --fc-fresh: #4d7c0f;
+  --fc-fresh-fill: #ffffff;
+  --fc-engine: #7c5cbf;
+  --fc-engine-fill: #e3dcf3;
+  --fc-tool: #6b7280;
+  --fc-tool-fill: #e6e7ea;
+  --fc-owner: #c26a1b;
+  --fc-owner-fill: #f4e1cf;
+  --fc-rule: #2563eb;
+  --fc-rule-fill: #dae5fd;
+  --fc-flag: #c26a1b;
+  --fc-flag-fill: #f8e7d7;
+  --fc-shared: #7c7c96;
+  --fc-shared-fill: #e9e9fb;
+  --fc-out: #6b7280;
+  --fc-out-fill: #ececff;
+  --fc-in: #ea580c;
+  --fc-in-fill: #fdd8bd;
+  --fc-arrow: #55554f;
+  --fc-arrow-main: #1d1d1b;
+  --fc-taken: #2f6fdf;
+  --fc-label: rgb(234 234 230 / 92%);
+  --fc-text: #1d1d1b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fc-group: #24231a;
+    --fc-group-line: #77732f;
+    --fc-engineer: #4fbf8a;
+    --fc-engineer-fill: #1c3a2c;
+    --fc-review: #2bbbd9;
+    --fc-review-fill: #123846;
+    --fc-adversarial: #f26060;
+    --fc-adversarial-fill: #4b1f1f;
+    --fc-advisor: #d968e8;
+    --fc-advisor-fill: #3f1f46;
+    --fc-architect: #94c24a;
+    --fc-architect-fill: #2b3a17;
+    --fc-other: #3cc2b4;
+    --fc-other-fill: #143a37;
+    --fc-fresh: #94c24a;
+    --fc-fresh-fill: #0e0e0d;
+    --fc-engine: #a88fe3;
+    --fc-engine-fill: #2e2646;
+    --fc-tool: #a3a8b1;
+    --fc-tool-fill: #2c2e33;
+    --fc-owner: #e6914a;
+    --fc-owner-fill: #46301b;
+    --fc-rule: #6d9df6;
+    --fc-rule-fill: #1b2a4b;
+    --fc-flag: #e6a04a;
+    --fc-flag-fill: #3f2f1e;
+    --fc-shared: #a0a0c0;
+    --fc-shared-fill: #2b2b47;
+    --fc-out: #a3a8b1;
+    --fc-out-fill: #2a2a45;
+    --fc-in: #f9813a;
+    --fc-in-fill: #4c2a13;
+    --fc-arrow: #b4b4ac;
+    --fc-arrow-main: #f2f2ec;
+    --fc-taken: #6ea0f5;
+    --fc-label: rgb(44 44 41 / 92%);
+    --fc-text: #e8e8e3;
+  }
+}
+
+svg.fc {
+  display: block;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+
+.fc text {
+  fill: var(--fc-text);
+}
+
+.fc-group rect {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: 1;
+}
+
+.fc-group text {
+  font-size: 14px;
+  font-weight: 600;
+  fill: var(--muted);
+}
+
+.fc-cell,
+.fc-circle,
+.fc-rule,
+.fc-flag {
+  cursor: pointer;
+}
+
+.fc-cell > rect:not(.fc-ring) {
+  stroke-width: 2;
+}
+
+.fc-id {
+  font-weight: 700;
+}
+
+.line-engineer > rect:not(.fc-ring) {
+  fill: var(--fc-engineer-fill);
+  stroke: var(--fc-engineer);
+}
+
+.line-review > rect:not(.fc-ring) {
+  fill: var(--fc-review-fill);
+  stroke: var(--fc-review);
+}
+
+.line-adversarial > rect:not(.fc-ring) {
+  fill: var(--fc-adversarial-fill);
+  stroke: var(--fc-adversarial);
+}
+
+.line-advisor > rect:not(.fc-ring) {
+  fill: var(--fc-advisor-fill);
+  stroke: var(--fc-advisor);
+}
+
+.line-architect > rect:not(.fc-ring) {
+  fill: var(--fc-architect-fill);
+  stroke: var(--fc-architect);
+}
+
+.line-other > rect:not(.fc-ring) {
+  fill: var(--fc-other-fill);
+  stroke: var(--fc-other);
+}
+
+.fresh > rect:not(.fc-ring) {
+  fill: var(--fc-fresh-fill);
+  stroke: var(--fc-fresh);
+  stroke-dasharray: 2 2;
+}
+
+.kind-engine > rect:not(.fc-ring) {
+  fill: var(--fc-engine-fill);
+  stroke: var(--fc-engine);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+
+.kind-tool > rect:not(.fc-ring) {
+  fill: var(--fc-tool-fill);
+  stroke: var(--fc-tool);
+  stroke-dasharray: 4 3;
+}
+
+.kind-owner > rect:not(.fc-ring) {
+  fill: var(--fc-owner-fill);
+  stroke: var(--fc-owner);
+}
+
+.fc-circle ellipse {
+  stroke-width: 1.5;
+}
+
+.fc-circle text {
+  font-size: 12px;
+}
+
+.fc-shared ellipse {
+  fill: var(--fc-shared-fill);
+  stroke: var(--fc-shared);
+}
+
+.fc-shared text {
+  font-size: 11px;
+}
+
+.fc-out ellipse {
+  fill: var(--fc-out-fill);
+  stroke: var(--fc-out);
+}
+
+.fc-in ellipse {
+  fill: var(--fc-in-fill);
+  stroke: var(--fc-in);
+}
+
+.fc-rule polygon {
+  fill: var(--fc-rule-fill);
+  stroke: var(--fc-rule);
+  stroke-width: 1.5;
+}
+
+.fc-flag polygon {
+  fill: var(--fc-flag-fill);
+  stroke: var(--fc-flag);
+  stroke-width: 1.5;
+}
+
+.fc-rule text,
+.fc-flag text {
+  font-size: 12px;
+}
+
+.fc-selected > rect:not(.fc-ring),
+.fc-selected > polygon,
+.fc-selected > ellipse {
+  filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 7px var(--accent));
+}
+
+.fc-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: 3;
+}
+
+.fc-unvisited {
+  opacity: 0.55;
+}
+
+.fc-added > rect:not(.fc-ring) {
+  stroke: var(--good);
+  stroke-width: 3.5;
+  stroke-dasharray: none;
+}
+
+.fc-changed > rect:not(.fc-ring) {
+  stroke: var(--warn);
+  stroke-width: 3.5;
+  stroke-dasharray: none;
+}
+
+.fc-mark {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fc-added .fc-mark {
+  fill: var(--good);
+}
+
+.fc-changed .fc-mark {
+  fill: var(--warn);
+}
+
+.fc-badge rect {
+  fill: var(--accent);
+}
+
+.fc-badge text {
+  fill: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fc-b-back rect {
+  fill: var(--warn);
+}
+
+.fc-b-failed rect {
+  fill: var(--bad);
+}
+
+.fc-b-running rect {
+  fill: var(--good);
+}
+
+.fc-edge {
+  fill: none;
+  stroke: var(--fc-arrow);
+  stroke-width: 1.6;
+}
+
+.fc-edge-main {
+  stroke: var(--fc-arrow-main);
+  stroke-width: 3;
+}
+
+.fc-edge-shared {
+  stroke-dasharray: 5 3;
+}
+
+.fc-edge-rule {
+  stroke: var(--fc-rule);
+  stroke-width: 1.4;
+}
+
+.fc-edge-taken {
+  stroke: var(--fc-taken);
+  stroke-width: 3.5;
+}
+
+.fc-edge-quiet {
+  opacity: 0.35;
+}
+
+.fc-head path {
+  fill: var(--fc-arrow);
+}
+
+.fc-head-main path {
+  fill: var(--fc-arrow-main);
+}
+
+.fc-head-rule path {
+  fill: var(--fc-rule);
+}
+
+.fc-head-taken path {
+  fill: var(--fc-taken);
+}
+
+.fc-head-quiet path {
+  fill: var(--fc-arrow);
+  opacity: 0.35;
+}
+
+.fc-label rect {
+  fill: var(--fc-label);
+}
+
+.fc-label text {
+  font-size: 12px;
+}
+
+.fc-label-main text {
+  font-weight: 600;
+}
+
+.fc-label-taken text {
+  fill: var(--fc-taken);
+  font-weight: 700;
+}
+
+/* A view that fills the window under the bar: the flow's chart, or a work on it. */
+
+.app-screen {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-screen main {
+  min-height: 0;
+  position: relative;
+}
+
+.screen,
+.flow-screen,
+.flowchart {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.screen > .muted,
+.screen > .error {
+  padding: 16px;
+}
+
+.flowchart-note {
+  padding: 16px;
+}
+
+.viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background: var(--bg);
+}
+
+.viewer.dragging {
+  cursor: grabbing;
+}
+
+.viewer-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.legend summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.legend ul {
+  list-style: none;
+  margin: 6px 0 3px;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-swatch {
+  flex: none;
+}
+
+.legend-keys {
+  margin: 4px 0 2px;
+  color: var(--muted);
+}
+
+/* The bar keeps the engine at its right end. */
+
+.bar-gap {
+  flex: 1;
+}
+
+/* Which flow is shown and what it is compared with, over the chart's top left corner. */
+
+.flow-tools {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  left: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+}
+
+.flow-tools-graph {
+  top: 52px;
+}
+
+.bar-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  position: relative;
+  white-space: nowrap;
+}
+
+.bar-version {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.bar-at,
+.bar-compare {
+  font-size: 12.5px;
+  color: var(--muted);
+  display: inline-flex;
+  gap: 8px;
+}
+
+.bar-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.bar-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 22%);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  white-space: normal;
+  min-width: 380px;
+}
+
+.bar-pop-h {
+  font-weight: 600;
+}
+
+.bar-pop-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bar-pop input[type='text'],
+.bar-pop input:not([type]) {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: var(--panel);
+  color: var(--text);
+  min-width: 16ch;
+}
+
+/* A work's rounds, over the left of its chart. */
+
+.drawer {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  left: 10px;
+  width: min(500px, calc(100vw - 32px));
+  max-height: calc(100% - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
+}
+
+.drawer-closed {
+  width: auto;
+}
+
+.drawer-toggle {
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.drawer-body {
+  overflow: auto;
+  padding: 0 8px 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.drawer table.list {
+  box-shadow: none;
+}
+
+.drawer td.clip {
+  max-width: 200px;
+}
+
+table.list.mini td {
+  padding: 3px 6px;
+  font-size: 12.5px;
+}
+
+/* The panel that floats over the right side while something on the chart is open. */
+
+.panel {
+  position: absolute;
+  z-index: 20;
+  top: 10px;
+  bottom: 10px;
+  right: 10px;
+  width: min(620px, calc(100vw - 24px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 600px) {
+  .panel {
+    top: 35%;
+    left: 8px;
+    right: 8px;
+    width: auto !important;
+  }
+
+  .panel-grip {
+    display: none;
+  }
+}
+
+.panel-grip {
+  position: absolute;
+  left: -6px;
+  top: 12px;
+  bottom: 12px;
+  width: 12px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.panel-grip::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 4px;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.panel-grip:hover::after {
+  background: var(--accent);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: flex-start;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-back {
+  flex: 0 0 100%;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.panel-back-to {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-name {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.panel-title {
+  font-size: 17px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.panel-who {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.panel-close {
+  margin-left: auto;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.panel-body {
+  overflow: auto;
+  padding: 12px 14px 24px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ds {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ds h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ds p {
+  margin: 0;
+}
+
+.fmt {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.fw {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.fd {
+  font-size: 13.5px;
+}
+
+ul.bl {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 6px;
+}
+
+.ig {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.il {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.prompt {
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.prompt-by {
+  display: grid;
+  gap: 6px;
+}
+
+.case {
+  border-left: 3px dashed var(--line);
+  padding-left: 10px;
+}
+
+.case-h code {
+  font-weight: 600;
+}
+
+.srcs,
+.uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  align-items: baseline;
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.ul {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.src,
+.use {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 6px;
+  background: var(--panel);
+}
+
+.src.plain {
+  color: var(--muted);
+}
+
+code.addr {
+  background: var(--code);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+
+.go {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.go-extra {
+  color: var(--text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag-main {
+  color: var(--accent);
+}
+
+.tag-added {
+  color: var(--good);
+  margin-left: 0;
+}
+
+.tag-removed {
+  color: var(--bad);
+  margin-left: 0;
+}
+
+.tag-changed {
+  color: var(--warn);
+  margin-left: 0;
+}
+
+/* A cell's return, as the approved page showed it. */
+
+.tog-all {
+  display: flex;
+  gap: 8px;
+}
+
+.tog-btn {
+  font-size: 12px;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.tog-btn:hover {
+  border-color: var(--accent);
+}
+
+.tog {
+  font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+  align-self: center;
+}
+
+.tog:hover {
+  color: var(--accent);
+}
+
+.fld {
+  border-left: 2px solid var(--line);
+  padding: 3px 0 3px 10px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fh {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.fh code {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.ft {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.vals {
+  display: grid;
+  gap: 1px;
+  font-size: 13px;
+}
+
+.vals code {
+  background: var(--code);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 6px;
+}
+
+.sub-f,
+.kids {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.pick {
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pick-h {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.or {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--accent);
+}
+
+.brs {
+  margin-top: 4px;
+}
+
+.br {
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bh {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.bh code {
+  font-weight: 600;
+  color: var(--good);
+}
+
+/* A cell's transition table. */
+
+ol.tt {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+ol.tt li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border-radius: 6px;
+}
+
+ol.tt li.tt-on {
+  background: var(--accent-soft);
+}
+
+.no {
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 1.4em;
+}
+
+.tb {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tx {
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  align-items: baseline;
+}
+
+/* Changes from one flow to another. */
+
+.chg-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.chg-before,
+.chg-after {
+  font-size: 13px;
+  white-space: pre-wrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+.chg-before {
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
+.chg-after {
+  background: color-mix(in srgb, var(--good) 10%, transparent);
+}
+
+.rule-text summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.chg-long summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The works: the lists at the top, each in an area that scrolls and whose height is dragged, and the work picked
+   below, filling the rest of the window. */
+
+.works-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.works-lists {
+  flex: none;
+  padding: 6px 16px 4px;
+  display: grid;
+  gap: 2px;
+}
+
+.works-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: default;
+}
+
+summary.works-label {
+  cursor: pointer;
+}
+
+.works-scroll {
+  overflow-y: auto;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+}
+
+.works-scroll table.list {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.works-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.works-table tr.selected td {
+  background: var(--accent-soft);
+}
+
+/* Both lists of works have the same columns at the same widths; the item takes what is left. */
+
+.works-scroll {
+  overflow-x: auto;
+}
+
+.works-table {
+  table-layout: fixed;
+  min-width: 1000px;
+}
+
+.works-table .w-id {
+  width: 56px;
+}
+
+.works-table .w-state {
+  width: 240px;
+}
+
+.works-table .w-at {
+  width: 200px;
+}
+
+.works-table .w-stage {
+  width: 120px;
+}
+
+.works-table .w-rounds {
+  width: 90px;
+}
+
+.works-table .w-time {
+  width: 140px;
+}
+
+.works-table td.nowrap {
+  white-space: nowrap;
+}
+
+.works-table .w-cost {
+  width: 80px;
+}
+
+.works-table .w-pr {
+  width: 50px;
+}
+
+.row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.row-link:hover {
+  text-decoration: underline;
+}
+
+.works-pick {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  margin: 0;
+}
+
+.works-grip {
+  height: 8px;
+  cursor: ns-resize;
+  touch-action: none;
+  position: relative;
+}
+
+.works-grip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.works-grip:hover::after {
+  background: var(--accent);
+}
+
+.works-none {
+  margin: 2px 0 6px;
+}
+
+.works-screen > .screen {
+  border-top: 1px solid var(--line);
+}
+
+/* A work's next round, at the top of its rounds. */
+
+.next {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.next-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.next-run {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.next-button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.next-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.next-message {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.next-activity {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+
+.page-wide {
+  max-width: none;
+}
+
+/* A round: what happened, its inputs and what it was given, what it handed back. */
+
+.round-what p {
+  margin: 0 0 4px;
+}
+
+.round-inputs {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.addr {
+  display: inline-block;
+  margin: 2px 6px 0 0;
+}
+
+.addr-held code {
+  color: var(--muted);
+}
+
+.given summary {
+  cursor: pointer;
+}

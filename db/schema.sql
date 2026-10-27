@@ -5,9 +5,10 @@
 -- existing database.
 --
 -- Inside each CREATE statement, the first comment says what the table holds, why it exists and who reads it; the
--- comment above each column does the same for the column. SQLite keeps these comments in the database, and the engine
--- gives them to agents as the description of the tables they can query, so they are written for agents as much as
--- for the people who maintain this file. A column nobody reads is removed. A table whose description has the line
+-- comment above each column does the same for the column. SQLite keeps these comments in the database. The engine
+-- gives agents an index of the tables and views, each with the first line of its first comment, and an agent reads a
+-- definition in full, its comments included, through the query tool; so they are written for agents as much as for
+-- the people who maintain this file. A column nobody reads is removed. A table whose description has the line
 -- "Hidden from agents." is left out of what agents can read and query.
 --
 -- Rules every table follows:
@@ -56,6 +57,15 @@ CREATE TABLE items (
   acceptance_round INTEGER REFERENCES rounds(id),
   -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell 1 for the items around this one.
   cancelled TEXT,
+  -- For an item imported from outside this flow, such as an item of an earlier board: where it came from, as the
+  -- import wrote it; NULL for an item made here. Read by: cell 1, through what already exists for the item; the
+  -- owner's interface.
+  imported_from TEXT,
+  -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL
+  -- when there were none. Read by: cell 0, which takes them over when the item had no work here before; cell 1; the
+  -- owner's interface.
+  imported_branch TEXT,
+  imported_pr INTEGER,
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL))
 ) STRICT;
 
@@ -82,36 +92,73 @@ CREATE TABLE dispatch_queue (
   position REAL NOT NULL UNIQUE
 ) STRICT;
 
-CREATE TABLE cards (
-  -- What the owner is asked to look at: design cards to confirm before a merge, and questions an agent puts to the
-  -- owner. A card is handed in by one round and belongs to that round; its work and item are found through it. A
-  -- ruled card never changes; a decision that has to change becomes a new card that replaces the old one.
-  -- Read by: cell 1 (cards ruled on this item and on the items that depend on it), 2 and 2a (rulings that disagreed or
-  -- chose another option), 2a (the latest design card of the items that depend on this one), 15 (the design card to
-  -- look at), 16 (the question), 19 (whether the design card has been confirmed).
+CREATE TABLE design_cards (
+  -- A change to the design tree for the owner to confirm before it is merged: each decision the change adds, changes
+  -- or removes. It asks the owner nothing; what the owner is asked is an ask of the owner. A design card is handed in
+  -- by one round and belongs to that round; its work and item are found through it. A ruled design card never
+  -- changes; a decision that has to change comes in a new design card that replaces the old one.
+  -- Read by: cell 1 (design cards ruled on this item), 2 and 2a (rulings that disagreed or chose another option), 2a
+  -- (the latest design card of the items that depend on this one), 15 (the design card to look at), 19 (whether the
+  -- design card has been confirmed).
   id INTEGER PRIMARY KEY,
-  -- The round that handed the card in.
+  -- The round that handed the design card in.
   round INTEGER NOT NULL REFERENCES rounds(id),
-  -- design: a change to the design tree, to confirm before the merge. ask: a question for the owner.
-  kind TEXT NOT NULL CHECK (kind IN ('design', 'ask')),
-  -- The card as the round handed it in, JSON, in the flow's design card or card shape. Copied from that round's
+  -- The design card as the round handed it in, JSON, in the flow's design card shape. Copied from that round's
   -- output, which never changes, so the copy cannot drift.
   body TEXT NOT NULL CHECK (json_valid(body)),
-  -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer card took its place and it
-  -- can no longer be ruled. Read by: the engine; cell 19.
+  -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer design card took its place
+  -- and it can no longer be ruled. Read by: the engine; cell 19.
   status TEXT NOT NULL CHECK (status IN ('open', 'ruled', 'replaced')),
   -- The rulings in the order given, JSON list: who ruled (owner or architect), the verdict, the option chosen and
   -- their own words. Read by: cells 1, 2, 2a and 19.
   rulings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rulings)),
-  -- The card that replaced this one. Read by: people following a decision to its latest card.
-  replaced_by INTEGER REFERENCES cards(id),
-  -- A replaced card names its successor, unless its work ended without one.
+  -- The design card that replaced this one. Read by: people following a decision to its latest design card.
+  replaced_by INTEGER REFERENCES design_cards(id),
+  -- A replaced design card names its successor, unless its work ended without one.
   CHECK (replaced_by IS NULL OR status = 'replaced')
 ) STRICT;
 
+CREATE TABLE owner_asks (
+  -- An ask of the owner: what an agent asks the owner, or asks the architect while the owner answers for the
+  -- architect. The work waits for the answer, which goes back unchanged to the cell that asked. It belongs to the
+  -- round of the asking cell that put it to the owner; its work and item are found through it.
+  -- Read by: cell 1 (the asks of the owner on this item, with their answers); the engine, which waits for the answer.
+  id INTEGER PRIMARY KEY,
+  -- The round that put it to the owner.
+  round INTEGER NOT NULL REFERENCES rounds(id),
+  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
+  -- round was given, which never changes.
+  body TEXT NOT NULL CHECK (json_valid(body)),
+  -- The owner's answer, JSON: who answered and when, and the text; for an ask of the architect, the rest of the
+  -- architect's reply too. NULL while it waits. Read by: the engine; cell 1.
+  answer TEXT CHECK (answer IS NULL OR json_valid(answer))
+) STRICT;
+
+CREATE TABLE owner_messages (
+  -- What an agent tells the owner in a return, one row for each message: something the owner should know that needs
+  -- no decision and no answer. The work goes on. It belongs to the round whose return holds it; its work and item are
+  -- found through it. Read by: the owner's interface, which shows those unread.
+  id INTEGER PRIMARY KEY,
+  round INTEGER NOT NULL REFERENCES rounds(id),
+  -- The message, copied from that round's return, which never changes.
+  text TEXT NOT NULL,
+  -- When the owner marked it read; NULL while it is unread. Read by: the owner's interface.
+  read_at INTEGER
+) STRICT;
+
+CREATE TABLE contents (
+  -- Each large text a round's record holds, once: a conditional input given in a message, a cell's task, the
+  -- structured-output schema of a command line. The record refers to it by the SHA-256 of the text, as
+  -- {"content": hash}, and the text it was is that record with each reference put back. Written once, never changed.
+  -- Read by: the engine and the owner's interface, putting a round's record back together.
+  hash TEXT PRIMARY KEY,
+  text TEXT NOT NULL
+) STRICT;
+
 CREATE TABLE flow_versions (
-  -- Every compiled flow a work has run on. A work keeps the version it started with until it ends, and a new version
-  -- applies only to works started after it, so old rounds stay readable after the flow changes.
+  -- Every compiled flow a work has run on. A work runs on the version it started with; when the flow moves to a new
+  -- version, the works still running on an older one stop, and their items start again on the new one. Old rounds
+  -- stay readable after the flow changes.
   -- Read by: the engine; people and agents reading old rounds.
   id INTEGER PRIMARY KEY,
   -- Hash of compiled, so each version is stored once.
@@ -177,18 +224,23 @@ CREATE TABLE sessions (
 ) STRICT;
 
 CREATE TABLE rounds (
-  -- One round: one CLI run of an agent, from the input the engine gives to the return the agent hands in; or one step
-  -- the engine takes itself, one run of a tool cell, one answer from the owner. A pause, a question and a request for
-  -- tools each end a round. The row is inserted when the round starts, completed when it ends, and never changed after.
-  -- Read by: every cell input that names a field another cell returned; the work's history, which cells 5a, 6, 12 and
-  -- 15 read; the views of counters, anomalies and time.
+  -- One round: one CLI run of an agent, from the message the engine sends to the return the agent hands in, or to a
+  -- run that ends without one; or one step the engine takes itself, one run of a tool cell, one answer from the owner.
+  -- A pause, a question and a request for tools each end a round. The row is inserted when the round starts,
+  -- completed when it ends, and never changed after.
+  -- Read by: every cell input that names a field another cell returned; the engine, to tell what each session already
+  -- holds; the views of counters, anomalies and time; the owner's history command.
   id INTEGER PRIMARY KEY,
   work INTEGER NOT NULL REFERENCES works(id),
   -- The cell; NULL for a round off the graph, in which a line that is not running only answers an interjection.
   cell TEXT,
   -- The session the agent ran in; NULL for the engine's own steps, tool cells and the owner.
   session INTEGER REFERENCES sessions(id),
-  -- What the engine gave, JSON: each input and rule as it was given. Read by: the history.
+  -- What the engine gave, JSON. For an agent's round: the message, word for word; each conditional input in it, by its
+  -- address and the hash of its content, and whether it was given or only referred to; and the call (the whole
+  -- command line, the session it started or resumed, the engine's version and the command line's). For another step,
+  -- the values of its inputs; for cell 0, nothing. Rounds recorded before this format keep the prompt and inputs.
+  -- Read by: the engine, to tell what a session already holds; the owner's interface.
   input TEXT NOT NULL CHECK (json_valid(input)),
   -- The whole return, JSON: for the engine's own step what it computed, for a tool cell the tools' results, for the
   -- owner the answer. NULL while the round runs. Read by: every input that names a returned field.
@@ -196,8 +248,9 @@ CREATE TABLE rounds (
   -- The transition row the return took. NULL while the round runs, and when the return was rejected.
   -- Read by: the engine; the views of counters and anomalies.
   transition TEXT,
-  -- Why the engine sent the return back or the run failed, JSON: a check it failed, a wrong format, an error, a
-  -- timeout. NULL when the return was accepted. Read by: the history; the anomalies view.
+  -- Why the engine sent the return back or the run failed, JSON: a check it failed or a wrong format; or a run that
+  -- ended without a return, with its kind as the flow names them. NULL when the return was accepted.
+  -- Read by: the engine, which counts returns sent back apart from failed runs; the anomalies view.
   rejected TEXT CHECK (rejected IS NULL OR json_valid(rejected)),
   -- The commit of the configuration the round ran with. The engine reads only committed configuration, so this
   -- names every setting behind the round, including those that shaped the engine's own decisions and never reached
@@ -320,8 +373,12 @@ CREATE INDEX works_by_item ON works (item);
 CREATE INDEX rounds_by_work ON rounds (work, id);
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (round);
--- The cards a round handed in.
-CREATE INDEX cards_by_round ON cards (round);
+-- The design cards a round handed in.
+CREATE INDEX design_cards_by_round ON design_cards (round);
+-- The ask of the owner a round put.
+CREATE INDEX owner_asks_by_round ON owner_asks (round);
+-- The messages to the owner still unread.
+CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
 -- Interjections still to hand in to a work.
 CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
 -- The history of one row.
@@ -334,11 +391,18 @@ CREATE INDEX outbox_by_run_after ON outbox (run_after);
 -- engineer's graph.
 
 CREATE VIEW ready_items AS
-  -- Items waiting to start, in the order they start: queued, not cancelled, and never worked on.
+  -- Items waiting to start, in the order they start: queued, not cancelled, and with no work running. An item leaves
+  -- the queue when a work starts on it, and may be queued again once its works ended. A work runs until it ends or
+  -- its last round, at the cell it is at, completed without taking a row, which only the end of its graph does.
   -- Read by: cell 0.
   SELECT i.id AS item, i.project, i.title, i.level, q.position
   FROM dispatch_queue q JOIN items i ON i.id = q.item
-  WHERE i.cancelled IS NULL AND NOT EXISTS (SELECT 1 FROM works w WHERE w.item = i.id)
+  WHERE i.cancelled IS NULL AND NOT EXISTS (
+    SELECT 1 FROM works w
+    WHERE w.item = i.id AND w.ended IS NULL AND NOT EXISTS (
+      SELECT 1 FROM rounds r
+      WHERE r.id = (SELECT max(x.id) FROM rounds x WHERE x.work = w.id)
+        AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL))
   ORDER BY q.position;
 
 CREATE VIEW item_body AS
@@ -361,20 +425,25 @@ CREATE VIEW item_acceptance AS
   -- Read by: cells 2a, 4, 5, 5a and 6.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_round FROM items;
 
-CREATE VIEW item_cards AS
-  -- Every card of the item's works, with its rulings. Read by: cells 1, 2, 2a, 15 and 19.
-  SELECT w.item, r.work, c.id AS card, c.round, c.kind, c.body, c.status, c.rulings, c.replaced_by
-  FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work;
+CREATE VIEW item_design_cards AS
+  -- Every design card of the item's works, with its rulings. Read by: cells 1, 2, 2a, 15 and 19.
+  SELECT w.item, r.work, c.id AS design_card, c.round, c.body, c.status, c.rulings, c.replaced_by
+  FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work;
+
+CREATE VIEW item_asks AS
+  -- Every ask of the owner of the item's works, with its answer. Read by: cell 1.
+  SELECT w.item, r.work, a.id AS ask, a.round, a.body, a.answer
+  FROM owner_asks a JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work;
 
 CREATE VIEW parent_design_cards AS
   -- The design cards of the items that depend on this one, not yet replaced: what a split-off item's parent
   -- decided. Read by: cell 2a.
-  SELECT l.depends_on AS item, l.item AS parent, c.id AS card, c.body, c.status, c.rulings
+  SELECT l.depends_on AS item, l.item AS parent, c.id AS design_card, c.body, c.status, c.rulings
   FROM item_links l
   JOIN works w ON w.item = l.item
   JOIN rounds r ON r.work = w.id
-  JOIN cards c ON c.round = r.id
-  WHERE c.kind = 'design' AND c.status <> 'replaced';
+  JOIN design_cards c ON c.round = r.id
+  WHERE c.status <> 'replaced';
 
 CREATE VIEW item_dependencies AS
   -- What the item depends on, with what it needs of each and how far each is: the cell its latest work is at, or
@@ -411,7 +480,7 @@ CREATE VIEW work_state AS
 
 CREATE VIEW work_history AS
   -- Every round of each work in order: the cell, what the engine gave, the return, the row taken or why the
-  -- return was sent back, and the tools it ran. Read by: cells 5a, 6, 12 and 15.
+  -- return was sent back, and the tools it ran. Read by: the owner's history command.
   SELECT r.work, r.id AS round, r.cell, r.input, r.output, r.transition, r.rejected, r.started_at, r.ended_at,
     (SELECT json_group_array(json_object('tool', t.tool, 'attempt', t.attempt, 'result', json(t.result)))
      FROM tool_runs t WHERE t.round = r.id) AS tools
@@ -485,10 +554,8 @@ CREATE VIEW work_followups AS
   WHERE r.cell IN ('4', '8') AND json_extract(r.output, '$.outcome.end.followup') IS NOT NULL;
 
 CREATE VIEW work_progress AS
-  -- What each round said it did, paused for or redirected to. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.progress') AS progress,
-    json_extract(r.output, '$.outcome.pause') AS pause, json_extract(r.output, '$.outcome.redirect') AS redirect,
-    r.ended_at
+  -- What each round said it did, how far a paused or redirected round got included. Read by: the owner's interface.
+  SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.progress') AS progress, r.ended_at
   FROM rounds r
   WHERE r.output IS NOT NULL;
 
@@ -506,20 +573,6 @@ CREATE VIEW adversarial_directions AS
   FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.directions') d
   WHERE r.cell = '6';
 
-CREATE VIEW not_applicable_columns AS
-  -- Review columns answered not applicable, with the reasons. Read by: the owner's interface, to see which
-  -- columns do not fit the work.
-  SELECT r.work, r.id AS round, r.cell, json_extract(c.value, '$.id') AS col,
-    json_extract(c.value, '$.reason') AS reason
-  FROM rounds r, json_each(r.output, '$.outcome.columns') c
-  WHERE r.cell IN ('5a', '5b') AND json_extract(c.value, '$.verdict') = 'not_applicable';
-
-CREATE VIEW withdrawn_findings AS
-  -- Blind review findings the table review withdrew, with the reasons. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, json_extract(x.value, '$.fid') AS finding, json_extract(x.value, '$.reason') AS reason
-  FROM rounds r, json_each(r.output, '$.outcome.withdrawn') x
-  WHERE r.cell = '5a';
-
 CREATE VIEW advisor_rulings AS
   -- Disputes the fix took to the advisor, and the ruling it carried out. Read by: the owner's interface.
   SELECT r.work, r.id AS round, json_extract(x.value, '$.id') AS finding, json_extract(x.value, '$.ruling') AS ruling
@@ -532,12 +585,6 @@ CREATE VIEW not_applicable_answers AS
   SELECT r.work, r.id AS round, r.cell, json_extract(r.output, '$.outcome.answer.why') AS why
   FROM rounds r
   WHERE json_extract(r.output, '$.outcome.answer.verdict') = 'not_applicable';
-
-CREATE VIEW flaky_reds AS
-  -- Checks that were red on main and green again on the same commit. Read by: the owner's interface.
-  SELECT r.work, r.id AS round, json_extract(r.output, '$.main.checks') AS checks
-  FROM rounds r
-  WHERE r.cell = '10' AND json_extract(r.output, '$.main.kind') = 'flaky';
 
 CREATE VIEW known_red_counts AS
   -- How often main was red only on known red checks, by project. Read by: the owner's interface.

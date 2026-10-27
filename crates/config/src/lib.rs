@@ -7,7 +7,9 @@
 //!   from, merged in order: a later table merges into an earlier one key by key, and any other value, a list
 //!   included, replaces the earlier one whole;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
-//! - `db/`: the database, kept out of git; `wf-agents init` makes it.
+//! - `db/`: the database, kept out of git; `wf-agents init` makes it;
+//! - `agents/<cli>/`: the configuration directory each CLI runs agents with, unless the CLI names another, kept out
+//!   of git; the owner logs in to the CLI there once.
 //!
 //! The engine reads only what is committed, so each round names the configuration it ran with by its commit.
 //! `config check` reads the working tree instead, to check a change before it is committed. A field the types do not
@@ -86,8 +88,6 @@ pub struct Machines {
 pub struct Host {
     /// How many works may run on it at once.
     pub slots: u32,
-    /// The directory each work's worktree is made in.
-    pub worktrees: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +97,138 @@ pub struct Agents {
     pub clis: BTreeMap<String, Cli>,
     /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with.
     pub levels: BTreeMap<String, Level>,
+    /// What the agents of each line may not do on this machine.
+    #[serde(default)]
+    pub permissions: Permissions,
+    /// How many subagents a round may start for chores.
+    #[serde(default)]
+    pub subagents: Subagents,
+}
+
+/// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine
+/// gives each round's command line these as commands and tools it refuses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Permissions {
+    /// Heavy work no agent runs here, each a command with the start of its arguments: compiling, type checking,
+    /// building, test suites, benchmarks and measurements run in CI.
+    #[serde(default = "heavy")]
+    pub heavy: Vec<String>,
+    /// The lines whose agents only read: they edit no file and commit nothing.
+    #[serde(default = "read_only")]
+    pub read_only: Vec<String>,
+}
+
+impl Default for Permissions {
+    fn default() -> Permissions {
+        Permissions {
+            heavy: heavy(),
+            read_only: read_only(),
+        }
+    }
+}
+
+fn heavy() -> Vec<String> {
+    [
+        "cargo",
+        "rustc",
+        "rustup",
+        "make",
+        "cmake",
+        "ninja",
+        "bazel",
+        "tsc",
+        "npx",
+        "pnpm",
+        "yarn",
+        "bun",
+        "deno",
+        "npm run",
+        "npm test",
+        "npm ci",
+        "npm install",
+        "npm exec",
+        "node --test",
+        "vitest",
+        "jest",
+        "go build",
+        "go test",
+        "go run",
+        "pytest",
+        "python -m pytest",
+        "mvn",
+        "gradle",
+        "swift build",
+        "swift test",
+        "xcodebuild",
+        "hyperfine",
+        "git push",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+fn read_only() -> Vec<String> {
+    ["review", "advisor"].iter().map(|s| s.to_string()).collect()
+}
+
+impl Permissions {
+    /// What a round on `line` may not use, as the CLI's tool rules name it: each heavy command, and for a line that
+    /// only reads, the tools that edit files and the git commands that change the repository.
+    pub fn refused(&self, line: &str) -> Vec<String> {
+        let mut out: Vec<String> = self.heavy.iter().map(|c| format!("Bash({c} *)")).collect();
+        if self.read_only.iter().any(|l| l == line) {
+            out.extend(
+                ["Edit", "Write", "MultiEdit", "NotebookEdit"]
+                    .iter()
+                    .map(|t| t.to_string()),
+            );
+            for g in [
+                "add",
+                "commit",
+                "reset",
+                "checkout",
+                "switch",
+                "restore",
+                "stash",
+                "merge",
+                "rebase",
+                "rm",
+                "mv",
+                "cherry-pick",
+                "revert",
+                "tag",
+                "branch",
+                "worktree",
+                "apply",
+                "am",
+                "clean",
+            ] {
+                out.push(format!("Bash(git {g} *)"));
+            }
+        }
+        out
+    }
+}
+
+/// How many subagents a round may start for chores within it, such as reading documents or searching code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Subagents {
+    /// At most this many in one round.
+    #[serde(default = "most_subagents")]
+    pub most: u32,
+}
+
+impl Default for Subagents {
+    fn default() -> Subagents {
+        Subagents { most: most_subagents() }
+    }
+}
+
+fn most_subagents() -> u32 {
+    3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +241,21 @@ pub struct Cli {
     /// Arguments put before the ones the engine adds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// The directory the CLI keeps its own configuration in when it runs an agent (its settings, memory, plugins,
+    /// tool servers and login), apart from the owner's own: relative to the data directory, or absolute. By default
+    /// `agents/<the CLI's name>` in the data directory; the engine keeps it out of git.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<PathBuf>,
+}
+
+impl Cli {
+    /// The directory the CLI named `name` runs agents with, for the data directory `data`.
+    pub fn home(&self, data: &Path, name: &str) -> PathBuf {
+        match &self.config_dir {
+            Some(d) => data.join(d),
+            None => data.join("agents").join(name),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,7 +333,8 @@ pub struct Project {
     /// The limits of the flow's counters, by counter. A counter with no limit is only counted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub limits: BTreeMap<String, u64>,
-    /// The rules every agent on the project is given, by their names under `rules/`.
+    /// Rule texts particular to this project, by their names under `rules/`, given to every agent's cell beside the
+    /// flow's own rules; how agents work in every project is the flow's, and is not repeated here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
 }
@@ -568,6 +716,12 @@ pub fn database(dir: &Path) -> PathBuf {
     dir.join("db").join("wf-agents.sqlite")
 }
 
+/// The directory each work's worktree is made in: `worktrees/` in the data directory, which the data directory's git
+/// leaves out.
+pub fn worktrees(dir: &Path) -> PathBuf {
+    dir.join("worktrees")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,7 +740,6 @@ poll_interval = 300
 
 [machines.hosts.laptop]
 slots = 2
-worktrees = "/tmp/worktrees"
 
 [agents.clis.claude]
 kind = "claude"
@@ -681,6 +834,14 @@ asks = 9
         assert_eq!(p.setting("deploy"), Some(serde_json::Value::Null));
         assert_eq!(p.has("under_test"), Some(false));
         assert!(p.setting("nope").is_none());
+        // Agents run with a configuration directory of their own, inside the data directory unless one is set.
+        let cli = &c.install.agents.clis["claude"];
+        assert_eq!(cli.home(Path::new("/data"), "claude"), Path::new("/data/agents/claude"));
+        let set = Cli {
+            config_dir: Some(PathBuf::from("/elsewhere")),
+            ..cli.clone()
+        };
+        assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

@@ -40,6 +40,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -60,6 +61,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -71,6 +73,7 @@
    "json": {
     "outcome": {},
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -94,6 +97,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -118,6 +122,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -148,6 +153,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -225,6 +231,7 @@
      "estimate": "outcome.estimate"
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {
@@ -246,6 +253,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -266,6 +274,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -282,6 +291,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -298,6 +308,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -314,6 +325,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -325,6 +337,7 @@
    "json": {
     "outcome": {},
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -341,6 +354,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -352,6 +366,7 @@
    "json": {
     "outcome": {},
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {
@@ -381,6 +396,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -400,6 +416,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -429,6 +446,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -469,6 +487,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -531,18 +550,17 @@
       },
       {
        "verdict": "not_applicable",
-       "id": "outcome.columns.id",
-       "reason": "outcome.columns.reason"
+       "id": "outcome.columns.id"
       }
      ],
      "withdrawn": [
       {
-       "fid": "R2",
-       "reason": "outcome.withdrawn.reason"
+       "fid": "R2"
       }
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {
@@ -589,12 +607,12 @@
       },
       {
        "verdict": "not_applicable",
-       "id": "to_check",
-       "reason": "outcome.columns.reason"
+       "id": "to_check"
       }
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -676,6 +694,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -720,6 +739,7 @@
      "deviations": []
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -756,12 +776,13 @@
      "next": "carry_on"
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {
     "stage": "design_on",
     "split": "not_split",
-    "card": "no",
+    "design_card_disputed": "no",
     "must_wait": "no"
    }
   }
@@ -780,6 +801,7 @@
      ]
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -799,6 +821,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}
@@ -890,6 +913,7 @@
      }
     },
     "side_reports": [],
+    "tell_owner": [],
     "progress": "progress"
    },
    "given": {}

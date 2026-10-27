@@ -1,6 +1,6 @@
 //! The checks over a whole graph, in order: every return takes one row; every state the engine can be in is walked;
-//! every loop counts; every value returned is read; every input is there; and what each agent's session already
-//! holds. A check that fails names the place and an example; all failures are reported together.
+//! every loop counts; every value returned is read; and every input is there. A check that fails names the place and
+//! an example; all failures are reported together.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -131,10 +131,6 @@ pub(crate) struct Analysis<'g, 's> {
     pub points: BTreeMap<(usize, &'static str), BTreeSet<usize>>,
     /// What the cell at each state reads of earlier returns, as (cell, place).
     pub reads: Vec<BTreeSet<(usize, usize)>>,
-    /// For an agent's cell on a line, whether each input is already in the line's session on every way there.
-    pub held: BTreeMap<(usize, usize), bool>,
-    /// The same for each rule it is given; `None` is the project's rules.
-    pub rule_held: BTreeMap<(usize, Option<String>), bool>,
 }
 
 impl<'g, 's> Analysis<'g, 's> {
@@ -159,8 +155,6 @@ impl<'g, 's> Analysis<'g, 's> {
             takes: Vec::new(),
             points: BTreeMap::new(),
             reads: Vec::new(),
-            held: BTreeMap::new(),
-            rule_held: BTreeMap::new(),
         };
         for c in &g.cells {
             let mut ps = Vec::new();
@@ -191,7 +185,6 @@ impl<'g, 's> Analysis<'g, 's> {
         a.reads = (0..a.states.len()).map(|s| a.reads_at(s)).collect();
         a.dropped();
         a.missing();
-        a.sessions();
         Ok(a)
     }
 
