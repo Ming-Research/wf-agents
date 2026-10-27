@@ -2450,7 +2450,7 @@ summary.works-label {
 }
 
 /* Both lists of works have the same columns at the same widths; the item takes what is left, at least about 280px:
-   the other columns take 1316px, and a narrower window scrolls the lists sideways. */
+   the other columns take 1336px, and a narrower window scrolls the lists sideways. */
 
 .works-scroll {
   overflow-x: auto;
@@ -2458,7 +2458,7 @@ summary.works-label {
 
 .works-table {
   table-layout: fixed;
-  min-width: 1596px;
+  min-width: 1616px;
 }
 
 .works-table .w-id {
@@ -2466,7 +2466,7 @@ summary.works-label {
 }
 
 .works-table .w-state {
-  width: 340px;
+  width: 360px;
 }
 
 .works-table .w-control {
