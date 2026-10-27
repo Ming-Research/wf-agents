@@ -139,8 +139,14 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         "record_place" => {
             let p = &ctx.output["place"];
             tx.execute(
-                "UPDATE works SET machine = ?2, worktree = ?3, branch = ?4 WHERE id = ?1",
-                params![w, p["machine"].as_str(), p["worktree"].as_str(), p["branch"].as_str()],
+                "UPDATE works SET machine = ?2, worktree = ?3, branch = ?4, pr = coalesce(?5, pr) WHERE id = ?1",
+                params![
+                    w,
+                    p["machine"].as_str(),
+                    p["worktree"].as_str(),
+                    p["branch"].as_str(),
+                    p["pr"].as_i64()
+                ],
             )
             .map_err(sql)?;
             if let (Some(cli), Some(s)) = (&ctx.cli, p["session"].as_str()) {

@@ -6,7 +6,7 @@ Decision: A field of a return counts as read when a cell's input, a row, a check
 
 Decision: The language each field of an agent's return is written in is said in the return's schema, and in no rule: every field is in English, as is everything that goes into the repository (commit messages, the PR's title and description); a field shown on the item, and the design card, are in the owner's language, `owner.language`, with technical terms in their English original, because the agent writes a field by its description, and what is read in the repository and by agents is English while what the owner reads on the item is in the owner's language.
 
-Decision: A work is pinned to the flow version it started with and runs on it to the end; a new version applies only to works started after it, because changing the flow under a running work could leave it in a cell or a state the new flow no longer has.
+Decision: A work is pinned to the flow version it started with, and is never moved onto another; when the flow moves to a new version, the works still running on an older one stop and their items start again on the new one (design/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, and a work that ran on to its end would follow a flow that is no longer the flow.
 
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.

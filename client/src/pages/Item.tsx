@@ -151,13 +151,27 @@ function Detail({ d }: { d: ItemDetail }) {
                   <td>{time(w.started_at)}</td>
                   <td className="num">{w.rounds}</td>
                   <td className="num">{cost(w.cost_usd)}</td>
+                  <td>{w.branch ?? ''}</td>
                   <td>{w.pr !== null ? `PR #${w.pr}` : ''}</td>
+                  <td className="muted">{w.ended ?? ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </Section>
+      {d.imported_from !== null || d.imported_branch !== null ? (
+        <Section title={t('item_imported')}>
+          <p className="muted">{t('item_imported_note')}</p>
+          <Facts
+            rows={[
+              [t('item_imported_from'), d.imported_from ?? ''],
+              [t('branch'), d.imported_branch ?? ''],
+              ['PR', d.imported_pr !== null ? `#${d.imported_pr}` : ''],
+            ]}
+          />
+        </Section>
+      ) : null}
       <Section title={t('item_shown')}>
         <p className="muted">{t('item_shown_note')}</p>
         <Shown d={d} />

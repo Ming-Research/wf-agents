@@ -138,7 +138,74 @@ impl Engine {
         for name in names {
             e.cli_version(&name);
         }
+        e.restart_on_new_flow()?;
         Ok(e)
+    }
+
+    /// Every work still running on an older flow version stops, saying why: the round it was in is cut off, its design
+    /// cards are replaced, and its asks of the owner need no answer. Each of their items gets a new work on this
+    /// version at once, before any item from the queue: its cell 0 takes over the stopped work's branch, worktree and
+    /// pull request, and its cell 1 is told what exists. A work that reached the end of its graph is not running.
+    fn restart_on_new_flow(&mut self) -> Result<(), String> {
+        let now = self.flow_now;
+        let old: Vec<i64> = {
+            let mut st = self
+                .db
+                .conn()
+                .prepare("SELECT id FROM works WHERE ended IS NULL AND flow_version <> ?1 ORDER BY id")
+                .map_err(|e| e.to_string())?;
+            st.query_map([now], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?
+        };
+        for id in old {
+            let w = self.work(id)?;
+            if self.done(&w)? {
+                continue;
+            }
+            let why = format!("the flow moved to version {now}, and a new work on it takes the item over");
+            let at = db::now();
+            let open = work::open_round(self.db.conn(), id)?;
+            self.db
+                .write(Actor::Engine, |tx| {
+                    if let Some(r) = &open {
+                        let cut = work::Ended {
+                            rejected: Some(serde_json::json!({ "interrupted": why })),
+                            ..work::Ended::default()
+                        };
+                        work::finish_round(tx, r.id, &cut).map_err(db::Error::Abort)?;
+                    }
+                    tx.execute(
+                        "UPDATE works SET ended = ?2 WHERE id = ?1",
+                        params![id, format!("stopped: {why}")],
+                    )?;
+                    tx.execute(
+                        "UPDATE design_cards SET status = 'replaced'
+                         WHERE status <> 'replaced' AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                        [id],
+                    )?;
+                    let answer = serde_json::json!({
+                        "by": "engine",
+                        "at": at,
+                        "text": format!("No answer is needed: the work stopped, since {why}."),
+                    });
+                    tx.execute(
+                        "UPDATE owner_asks SET answer = ?2
+                         WHERE answer IS NULL AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                        params![id, answer.to_string()],
+                    )?;
+                    actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
+                    Ok(())
+                })
+                .map_err(|e| e.to_string())?;
+            (self.say)(&format!("work {id} stopped: {why}"));
+            if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
+                let new = self.create_work(item)?;
+                (self.say)(&format!("work {new} started on item {item}, after work {id}"));
+            }
+        }
+        Ok(())
     }
 
     /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of git even
@@ -322,7 +389,8 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// Starts a work on the item: at the start cell of the engineer's graph, on the flow built into the engine.
+    /// Starts a work on the item: at the start cell of the engineer's graph, on the flow built into the engine. The
+    /// item leaves the queue: it is no longer waiting to start.
     pub fn create_work(&mut self, item: i64) -> Result<i64, String> {
         let v = self.flow_now;
         let start = self
@@ -336,7 +404,9 @@ impl Engine {
                     "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, ?3, ?4)",
                     params![item, v, ENGINEER, start],
                 )?;
-                Ok(tx.last_insert_rowid())
+                let id = tx.last_insert_rowid();
+                tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])?;
+                Ok(id)
             })
             .map_err(|e| e.to_string())
     }

@@ -180,7 +180,7 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(required, ["outcome", "side_reports"]);
+    assert_eq!(required, ["outcome", "side_reports", "tell_owner"]);
 }
 
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,

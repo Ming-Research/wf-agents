@@ -285,7 +285,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
     let registry = message::registry(&work_rounds);
     let gathered = inputs::gather(e, w, g, cell, item)?;
     let given = values::given(e, w, g, cell, item, &gathered)?;
-    let interjections: Vec<Value> = inputs::db_rows(e, w, item, "waiting_interjections", Some("work"))?
+    let mut interjections: Vec<Value> = inputs::db_rows(e, w, item, "waiting_interjections", Some("work"))?
         .into_iter()
         .filter(|r| r["line"] == line.as_str())
         .collect();
@@ -306,6 +306,16 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         registry: &registry,
     }
     .build();
+    // A short message gives no interjection: those the round it goes on from was given are still this round's, and
+    // any that came since wait for the next whole message.
+    if let Some(prev) = msg.continues {
+        let given: Vec<Value> = work_rounds
+            .iter()
+            .find(|r| r.id == prev)
+            .and_then(|r| r.input["engine"]["interjections"].as_array().cloned())
+            .unwrap_or_default();
+        interjections.retain(|i| given.contains(&i["interjection"]));
+    }
     Ok(Composed {
         line,
         session,
@@ -607,26 +617,57 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None)
 }
 
-/// Cell 0: a worktree on a new branch from main, and the id the engineer's session will have.
+/// Cell 0: where the work runs, and the id the engineer's session will have. An item worked on here before takes over
+/// its latest earlier work's branch, worktree (reused when it is there, made afresh from the branch otherwise) and
+/// pull request; an item imported with a branch takes that branch and the pull request imported with it; any other
+/// gets a new branch from main.
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let hosts = &e.config.config.install.machines.hosts;
     let (machine, host) = hosts.iter().next().ok_or("the configuration names no machine")?;
-    let dir = host.worktrees.join(format!("{}-{}", item.project, w.id));
-    let branch = format!("wf-agents/{}-{}", item.id, w.id);
-    if let Some(parent) = dir.parent() {
+    let fresh = host.worktrees.join(format!("{}-{}", item.project, w.id));
+    if let Some(parent) = fresh.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
-    let head = git::create_worktree(&project.checkout, &dir, &branch, &project.main)?;
-    Ok(json!({
-        "place": {
-            "machine": machine,
-            "worktree": dir.display().to_string(),
-            "branch": branch,
-            "head": head,
-            "session": agent::new_session_id(),
+    let earlier: Option<(Option<String>, String, Option<i64>)> =
+        e.db.conn()
+            .query_row(
+                "SELECT worktree, branch, pr FROM works
+                 WHERE item = ?1 AND id <> ?2 AND branch IS NOT NULL ORDER BY id DESC LIMIT 1",
+                params![item.id, w.id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .ok();
+    let (dir, branch, pr, head) = match (earlier, &item.imported_branch) {
+        (Some((worktree, branch, pr)), _) => {
+            let dir = worktree
+                .map(std::path::PathBuf::from)
+                .filter(|d| d.join(".git").exists())
+                .unwrap_or(fresh);
+            let head = git::take_over_worktree(&project.checkout, &dir, &branch)?;
+            (dir, branch, pr, head)
         }
-    }))
+        (None, Some(branch)) => {
+            let head = git::take_over_worktree(&project.checkout, &fresh, branch)?;
+            (fresh, branch.clone(), item.imported_pr, head)
+        }
+        (None, None) => {
+            let branch = format!("wf-agents/{}-{}", item.id, w.id);
+            let head = git::create_worktree(&project.checkout, &fresh, &branch, &project.main)?;
+            (fresh, branch, None, head)
+        }
+    };
+    let mut place = json!({
+        "machine": machine,
+        "worktree": dir.display().to_string(),
+        "branch": branch,
+        "head": head,
+        "session": agent::new_session_id(),
+    });
+    if let Some(n) = pr {
+        place["pr"] = json!(n);
+    }
+    Ok(json!({ "place": place }))
 }
 
 /// Cell 20: the worktree is removed once the round is written; the branch stays.

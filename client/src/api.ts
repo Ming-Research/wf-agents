@@ -407,7 +407,17 @@ acceptance: JsonValue | null, acceptance_round: number | null,
 /**
  * The items it depends on, and the items that depend on it.
  */
-depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, works: Array<WorkSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
+depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, 
+/**
+ * Its works, the earlier ones too: a work stopped when the flow moved to a new version, and the work after it
+ * that took the item over.
+ */
+works: Array<WorkSummary>, 
+/**
+ * What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
+ * request; none for an item made here.
+ */
+imported_from: string | null, imported_branch: string | null, imported_pr: number | null, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
 /**
  * What the rounds of its works handed back that their flow versions show on the item, oldest first.
  */

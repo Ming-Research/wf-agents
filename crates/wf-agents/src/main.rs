@@ -151,36 +151,49 @@ impl From<RunMode> for api::Mode {
     }
 }
 
+/// What a new item is.
+#[derive(clap::Args)]
+struct AddItem {
+    #[arg(long)]
+    project: String,
+    #[arg(long)]
+    title: String,
+    /// What cannot be done or is wrong.
+    #[arg(long)]
+    problem: String,
+    /// Why it is worth doing.
+    #[arg(long)]
+    why: String,
+    /// How to do it, when it is already known.
+    #[arg(long)]
+    approach: Option<String>,
+    /// change or report.
+    #[arg(long, default_value = "change")]
+    deliver: String,
+    /// The agent level, as the configuration names it.
+    #[arg(long)]
+    level: String,
+    /// An item it depends on and what it needs of it, as N:what.
+    #[arg(long = "depends-on")]
+    depends_on: Vec<String>,
+    /// Puts it last in the dispatch queue.
+    #[arg(long)]
+    queue: bool,
+    /// For an item imported from outside this flow: where it came from, such as an item of another board.
+    #[arg(long = "imported-from")]
+    imported_from: Option<String>,
+    /// For an item imported from outside this flow: the branch work on it had, which its first work takes over.
+    #[arg(long)]
+    branch: Option<String>,
+    /// For an item imported from outside this flow: the pull request of that branch, which its first work keeps.
+    #[arg(long, requires = "branch")]
+    pr: Option<i64>,
+}
+
 #[derive(Subcommand)]
 enum ItemCommand {
     /// Creates an item.
-    Add {
-        #[arg(long)]
-        project: String,
-        #[arg(long)]
-        title: String,
-        /// What cannot be done or is wrong.
-        #[arg(long)]
-        problem: String,
-        /// Why it is worth doing.
-        #[arg(long)]
-        why: String,
-        /// How to do it, when it is already known.
-        #[arg(long)]
-        approach: Option<String>,
-        /// change or report.
-        #[arg(long, default_value = "change")]
-        deliver: String,
-        /// The agent level, as the configuration names it.
-        #[arg(long)]
-        level: String,
-        /// An item it depends on and what it needs of it, as N:what.
-        #[arg(long = "depends-on")]
-        depends_on: Vec<String>,
-        /// Puts it last in the dispatch queue.
-        #[arg(long)]
-        queue: bool,
-    },
+    Add(Box<AddItem>),
     /// Every item.
     List,
     /// Makes an item depend on another.
@@ -311,17 +324,21 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) => Ok(()),
         Command::Run { once, mode, port } => run(d, once, mode.into(), port),
-        Command::Item(ItemCommand::Add {
-            project,
-            title,
-            problem,
-            why,
-            approach,
-            deliver,
-            level,
-            depends_on,
-            queue,
-        }) => {
+        Command::Item(ItemCommand::Add(add)) => {
+            let AddItem {
+                project,
+                title,
+                problem,
+                why,
+                approach,
+                deliver,
+                level,
+                depends_on,
+                queue,
+                imported_from,
+                branch,
+                pr,
+            } = *add;
             let mut deps = Vec::new();
             for x in depends_on {
                 let (n, needs) = x
@@ -344,6 +361,11 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     level,
                     depends_on: deps,
                     queue,
+                    imported: owner::Imported {
+                        from: imported_from,
+                        branch,
+                        pr,
+                    },
                 },
             )?;
             println!("item {id}");

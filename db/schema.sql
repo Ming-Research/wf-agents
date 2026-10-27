@@ -57,6 +57,15 @@ CREATE TABLE items (
   acceptance_round INTEGER REFERENCES rounds(id),
   -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell 1 for the items around this one.
   cancelled TEXT,
+  -- For an item imported from outside this flow, such as an item of an earlier board: where it came from, as the
+  -- import wrote it; NULL for an item made here. Read by: cell 1, through what already exists for the item; the
+  -- owner's interface.
+  imported_from TEXT,
+  -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL
+  -- when there were none. Read by: cell 0, which takes them over when the item had no work here before; cell 1; the
+  -- owner's interface.
+  imported_branch TEXT,
+  imported_pr INTEGER,
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL))
 ) STRICT;
 
@@ -138,8 +147,9 @@ CREATE TABLE owner_messages (
 ) STRICT;
 
 CREATE TABLE flow_versions (
-  -- Every compiled flow a work has run on. A work keeps the version it started with until it ends, and a new version
-  -- applies only to works started after it, so old rounds stay readable after the flow changes.
+  -- Every compiled flow a work has run on. A work runs on the version it started with; when the flow moves to a new
+  -- version, the works still running on an older one stop, and their items start again on the new one. Old rounds
+  -- stay readable after the flow changes.
   -- Read by: the engine; people and agents reading old rounds.
   id INTEGER PRIMARY KEY,
   -- Hash of compiled, so each version is stored once.
@@ -372,11 +382,18 @@ CREATE INDEX outbox_by_run_after ON outbox (run_after);
 -- engineer's graph.
 
 CREATE VIEW ready_items AS
-  -- Items waiting to start, in the order they start: queued, not cancelled, and never worked on.
+  -- Items waiting to start, in the order they start: queued, not cancelled, and with no work running. An item leaves
+  -- the queue when a work starts on it, and may be queued again once its works ended. A work runs until it ends or
+  -- its last round, at the cell it is at, completed without taking a row, which only the end of its graph does.
   -- Read by: cell 0.
   SELECT i.id AS item, i.project, i.title, i.level, q.position
   FROM dispatch_queue q JOIN items i ON i.id = q.item
-  WHERE i.cancelled IS NULL AND NOT EXISTS (SELECT 1 FROM works w WHERE w.item = i.id)
+  WHERE i.cancelled IS NULL AND NOT EXISTS (
+    SELECT 1 FROM works w
+    WHERE w.item = i.id AND w.ended IS NULL AND NOT EXISTS (
+      SELECT 1 FROM rounds r
+      WHERE r.id = (SELECT max(x.id) FROM rounds x WHERE x.work = w.id)
+        AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL))
   ORDER BY q.position;
 
 CREATE VIEW item_body AS

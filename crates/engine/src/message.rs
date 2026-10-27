@@ -41,6 +41,9 @@ pub struct Conditional {
 pub struct Message {
     pub text: String,
     pub conditional: Vec<Conditional>,
+    /// The round a short message goes on from, a return sent back or a round cut off midway: the session holds
+    /// everything that round was given, and only the interjections it was given are this round's.
+    pub continues: Option<i64>,
 }
 
 impl Message {
@@ -628,7 +631,7 @@ impl Context<'_> {
     }
 
     /// Why the cell's last return was sent back, when this round only rewrites it: the session holds everything else.
-    fn sent_back(&self) -> Option<String> {
+    fn sent_back(&self) -> Option<(i64, String)> {
         let r = self.rounds.last()?;
         if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() {
             return None;
@@ -642,7 +645,16 @@ impl Context<'_> {
             .and_then(|o| o.values().next())
             .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
             .unwrap_or_default();
-        Some(reason)
+        Some((r.id, reason))
+    }
+
+    /// The cell's last round, when the engine stopped in the middle of it and the session it ran in goes on: a
+    /// session that handed in a return before is resumed, and holds what that round was given.
+    fn cut_off(&self) -> Option<i64> {
+        let r = self.rounds.last()?;
+        let here = r.cell.as_deref() == Some(self.cell.id.as_str()) && r.transition.is_none();
+        let cut = r.rejected.as_ref().is_some_and(|x| x.get("interrupted").is_some());
+        (here && cut && !self.held.rounds.is_empty()).then_some(r.id)
     }
 
     /// Why this round happens, and the conditional inputs it says it with.
@@ -719,13 +731,25 @@ impl Context<'_> {
     /// The message. After a return sent back it only says why, and that the return is to be rewritten.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
-        if let Some(reason) = self.sent_back() {
+        if let Some((prev, reason)) = self.sent_back() {
             return Message {
                 text: format!(
                     "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
                     self.round, c.id, c.id
                 ),
                 conditional: Vec::new(),
+                continues: Some(prev),
+            };
+        }
+        if let Some(prev) = self.cut_off() {
+            return Message {
+                text: format!(
+                    "# R{} · cell {}\n\nR{prev} was cut off midway. First look at the worktree as it is now (files \
+                     changed, commits made), then go on with its work, and hand it in as format:{} says.\n",
+                    self.round, c.id, c.id
+                ),
+                conditional: Vec::new(),
+                continues: Some(prev),
             };
         }
         let mut m = Conditionals {
@@ -858,6 +882,7 @@ impl Context<'_> {
         Message {
             text: out,
             conditional: m.list,
+            continues: None,
         }
     }
 }

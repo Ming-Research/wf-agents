@@ -1568,7 +1568,7 @@
   },
   "engine": {
     "steps": {
-      "start_work": "Takes the next ready item when a slot is free and has the session manager create the worktree, branch and engineer session.",
+      "start_work": "Takes the next ready item when a slot is free and has the session manager set up where the work runs and the engineer's session. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
       "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
       "full_ci_on_draft": "Catches the draft PR up with main and runs the full CI the project's configuration names on it, running a red check once more on the same commit; checks in the table of known red checks do not count.",
       "choose_checks": "Decides what runs next, from whether the design chose adversarial testing, whether the review accepted none, the change reviewed last, each side's last results, and the rows the fix cell answered.",
@@ -1590,7 +1590,7 @@
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
       "record_waits": "Records the items the architect's reply has this work wait for. The engineer's session is kept, and the work holds no slot while it waits.",
-      "record_place": "Records where the work runs: every later round runs there, and each push is checked against the last pushed head.",
+      "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
       "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
@@ -1640,7 +1640,8 @@
       "plan_usage": "What the engine measured on the commit to merge: what the PR touches, and how much more of each budget it uses.",
       "tree_changes_to_review": "The change to the design tree to review: across the whole branch at the first review, since the last review at a re-review; the engine lists the nodes changed.",
       "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
-      "design_tree_diff": "The change to the design paths on the branch against main, decision by decision."
+      "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
+      "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks."
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -2517,17 +2518,23 @@
                 {
                   "name": "worktree",
                   "type": "text",
-                  "desc": "The worktree's path"
+                  "desc": "The worktree's path: the earlier work's when it is still there, otherwise a new one"
                 },
                 {
                   "name": "branch",
                   "type": "text",
-                  "desc": "The branch"
+                  "desc": "The branch: the earlier work's, or the one imported with the item, or a new one from main"
                 },
                 {
                   "name": "head",
                   "type": "text",
                   "desc": "The commit the work starts from"
+                },
+                {
+                  "name": "pr",
+                  "type": "int",
+                  "optional": true,
+                  "desc": "The PR the work keeps: the earlier work's, or the one imported with the item; none for a new branch"
                 },
                 {
                   "name": "session",
@@ -2606,6 +2613,15 @@
               ]
             },
             {
+              "what": "What already exists for this item, when it was worked on before: its earlier works here, how far each got and why it ended, where an imported item came from, the branch your worktree took over and the PR kept, each with how to read it; read them yourself. None for an item nothing was done on",
+              "from": [
+                {
+                  "engine": "existing_work"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "what": "The code, documents, the full text of design tree nodes and other items: read them yourself with the read-only tools",
               "from": [
                 "self"
@@ -2613,7 +2629,8 @@
             }
           ],
           "prompt": [
-            "You are the engineer of this work. This round only researches: change no file except code that reproduces the problem. First read what you are given; read the code, documents, design tree nodes and other items you need yourself. Lay out how you understand this work: what really must be solved (with a minimal example); why it must be solved, who is waiting, and who uses it next; why the problem exists, and whether it is one corner of a more basic problem elsewhere; where your understanding differs from what the item says and from a view that looks only at the local part; and what all this rests on: for each verified point where you checked it, for each inferred one what it follows from and how to confirm it. What you research is the problem itself, not how to solve it: how comes later, in design; whether the work stands is asked in the next round. If an example in the item has never been run, or the error only shows under some conditions and must be run to be seen clearly, you may write code that reproduces it, put it in `research/`, commit it locally and run it with measure; judge the results yourself. If you cannot read something, a tool is missing, or you find something more pressing, ask."
+            "You are the engineer of this work. This round only researches: change no file except code that reproduces the problem. First read what you are given; read the code, documents, design tree nodes and other items you need yourself. Lay out how you understand this work: what really must be solved (with a minimal example); why it must be solved, who is waiting, and who uses it next; why the problem exists, and whether it is one corner of a more basic problem elsewhere; where your understanding differs from what the item says and from a view that looks only at the local part; and what all this rests on: for each verified point where you checked it, for each inferred one what it follows from and how to confirm it. What you research is the problem itself, not how to solve it: how comes later, in design; whether the work stands is asked in the next round. If an example in the item has never been run, or the error only shows under some conditions and must be run to be seen clearly, you may write code that reproduces it, put it in `research/`, commit it locally and run it with measure; judge the results yourself. If you cannot read something, a tool is missing, or you find something more pressing, ask.",
+            "If what already exists for this item is given, it was half done before: first see clearly how far the work got, then research as usual; keep what still holds, and say why for what does not."
           ],
           "out": [
             {

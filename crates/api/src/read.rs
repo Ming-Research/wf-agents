@@ -774,6 +774,11 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
             ))
         },
     )?;
+    let (imported_from, imported_branch, imported_pr) = conn.query_row(
+        "SELECT imported_from, imported_branch, imported_pr FROM items WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
     let linked = |other: i64, needs: &str| {
         by_id.get(&other).map(|i| LinkedItem {
             item: (*i).clone(),
@@ -799,6 +804,9 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
             .filter_map(|l| linked(l.item, &l.needs))
             .collect(),
         works: works.into_iter().filter(|w| w.item == Some(id)).collect(),
+        imported_from,
+        imported_branch,
+        imported_pr,
         design_cards: design_cards(conn, "WHERE w.item = ?1", id)?,
         asks: asks(conn, "WHERE w.item = ?1", id)?,
         shown: shown(conn, flows, id)?,

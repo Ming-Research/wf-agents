@@ -467,7 +467,14 @@ pub struct ItemDetail {
     /// The items it depends on, and the items that depend on it.
     pub depends_on: Vec<LinkedItem>,
     pub depended_on_by: Vec<LinkedItem>,
+    /// Its works, the earlier ones too: a work stopped when the flow moved to a new version, and the work after it
+    /// that took the item over.
     pub works: Vec<WorkSummary>,
+    /// What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
+    /// request; none for an item made here.
+    pub imported_from: Option<String>,
+    pub imported_branch: Option<String>,
+    pub imported_pr: Option<i64>,
     pub design_cards: Vec<DesignCard>,
     pub asks: Vec<OwnerAsk>,
     /// What the rounds of its works handed back that their flow versions show on the item, oldest first.

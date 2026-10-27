@@ -34,6 +34,17 @@ pub struct NewItem {
     pub depends_on: Vec<(i64, String)>,
     /// Puts it last in the dispatch queue.
     pub queue: bool,
+    pub imported: Imported,
+}
+
+/// What an import knows of work done on an item outside this flow; all none for an item made here.
+#[derive(Default)]
+pub struct Imported {
+    /// Where the item came from, such as an item of another board.
+    pub from: Option<String>,
+    /// The branch work on it had, and that branch's pull request.
+    pub branch: Option<String>,
+    pub pr: Option<i64>,
 }
 
 pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
@@ -52,19 +63,40 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
     if !matches!(x.deliver.as_str(), "change" | "report") {
         return Err("deliver is change or report".into());
     }
+    if x.imported.pr.is_some() && x.imported.branch.is_none() {
+        return Err("an imported pull request is recorded with its branch".into());
+    }
     let mut db = open(data)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO items (project, title, problem, why, approach, deliver, level) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![x.project, x.title, x.problem, x.why, x.approach, x.deliver, x.level],
+            "INSERT INTO items (project, title, problem, why, approach, deliver, level, imported_from, imported_branch,
+                                imported_pr)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                x.project,
+                x.title,
+                x.problem,
+                x.why,
+                x.approach,
+                x.deliver,
+                x.level,
+                x.imported.from,
+                x.imported.branch,
+                x.imported.pr
+            ],
         )?;
         let id = tx.last_insert_rowid();
         for (d, needs) in &x.depends_on {
             db::add_dependency(tx, id, *d, needs)?;
         }
         if x.queue {
-            let last: f64 = tx.query_row("SELECT coalesce(max(position), 0) FROM dispatch_queue", [], |r| r.get(0))?;
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)", params![id, last + 1.0])?;
+            let last: f64 = tx.query_row("SELECT coalesce(max(position), 0) FROM dispatch_queue", [], |r| {
+                r.get(0)
+            })?;
+            tx.execute(
+                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                params![id, last + 1.0],
+            )?;
         }
         Ok(id)
     })

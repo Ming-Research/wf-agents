@@ -352,6 +352,7 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
         "plan_segment" | "plan_usage" => None,
+        "existing_work" => existing_work(e, w, item, &main)?.map(Value::String),
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
                 let base = if name == "tree_changes_to_review" {
@@ -391,6 +392,54 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
         }
         other => return Err(format!("no such engine input: {other}")),
     })
+}
+
+/// What already exists for the item, as pointers the agent follows itself: its earlier works here, with how far each
+/// got and why it ended, and the queries that read their rounds; what an import recorded of work outside this flow;
+/// the branch and the pull request the work took over. None for an item nothing was done on.
+fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option<String>, String> {
+    let earlier = work::query_json(
+        e.db.conn(),
+        "SELECT w.id, w.flow_version, w.at, w.ended, w.branch, w.pr,
+                (SELECT count(*) FROM rounds r WHERE r.work = w.id) AS rounds
+         FROM works w WHERE w.item = ?1 AND w.id <> ?2 ORDER BY w.id",
+        &[&item.id, &w.id],
+        100,
+    )?;
+    if earlier.is_empty() && item.imported_from.is_none() && item.imported_branch.is_none() {
+        return Ok(None);
+    }
+    let mut out = vec!["This item was worked on before. Read what exists yourself:".to_string()];
+    for x in &earlier {
+        let id = x["id"].as_i64().unwrap_or_default();
+        let ended = x["ended"].as_str().unwrap_or("it reached the end of its graph");
+        out.push(format!(
+            "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, with the cell, \
+             the row taken and what each said it did: query `SELECT id, cell, transition, json_extract(output, \
+             '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY id`; a round's whole return: `SELECT \
+             output FROM rounds WHERE id = <round>`; its design cards and asks of the owner: the views \
+             `item_design_cards` and `item_asks` with `work = {id}`.",
+            x["flow_version"],
+            x["rounds"],
+            x["at"].as_str().unwrap_or("?"),
+        ));
+    }
+    if let Some(from) = &item.imported_from {
+        out.push(format!("- The item was imported from outside this flow: {from}."));
+    }
+    if let Some(branch) = &w.branch {
+        out.push(format!(
+            "- Your worktree is on the branch {branch}, taken over as it was: what it adds beyond main is `git log \
+             --oneline origin/{main}..HEAD` and `git diff origin/{main}...HEAD`; what is not committed is `git status`."
+        ));
+    }
+    if let Some(pr) = w.pr {
+        out.push(format!(
+            "- The pull request #{pr}, kept: its description and comments with the tool gh, `pr view {pr} --comments`; \
+             its reviews, `pr view {pr} --json reviews`; its checks, `pr checks {pr}`."
+        ));
+    }
+    Ok(Some(out.join("\n")))
 }
 
 /// The project's AGENTS.md, the index of its design tree (each node's path and first line), and the full text of the

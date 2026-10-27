@@ -426,6 +426,24 @@ fn scripts() -> BTreeMap<&'static str, Script> {
 
 /// The engine over a setup, with what it says kept, and one item in the queue.
 fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefCell<Vec<String>>>, i64) {
+    let (mut e, said) = engine(s, scripts);
+    let item = e
+        .db
+        .write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add the feature', 'It is missing.', 'People need it.', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", params![id])?;
+            Ok(id)
+        })
+        .unwrap();
+    (e, said, item)
+}
+
+/// The engine over a setup as it starts, with what it says kept.
+fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefCell<Vec<String>>>) {
     let agents = Scripted {
         scripts,
         rounds: RefCell::new(BTreeMap::new()),
@@ -441,19 +459,7 @@ fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefC
     let said = Rc::new(RefCell::new(Vec::<String>::new()));
     let log = said.clone();
     e.say = Box::new(move |x| log.borrow_mut().push(x.to_string()));
-    let item = e
-        .db
-        .write(Actor::Owner, |tx| {
-            tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add the feature', 'It is missing.', 'People need it.', 'change', 'l')",
-                [],
-            )?;
-            let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", params![id])?;
-            Ok(id)
-        })
-        .unwrap();
-    (e, said, item)
+    (e, said)
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
@@ -603,6 +609,195 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
         ("1", "The item's example does not run as written.", None)
     );
     assert_eq!(told(&s, "tells you: The item's example"), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The latest work of an item: its id, cell, worktree, branch, pull request and why it ended.
+type WorkRow = (i64, String, Option<String>, Option<String>, Option<i64>, Option<String>);
+
+fn works_of(e: &Engine, item: i64) -> Vec<WorkRow> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT id, at, worktree, branch, pr, ended FROM works WHERE item = ?1 ORDER BY id")
+            .unwrap();
+    st.query_map([item], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+    })
+    .unwrap()
+    .map(|x| x.unwrap())
+    .collect()
+}
+
+// When the engine stopped in the middle of a round, the same work goes on in the same session: the round is cut off,
+// and the next one is only told so and where to look.
+#[test]
+fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
+    let s = setup("cut");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    let session: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM sessions WHERE work = ?1 AND line = 'engineer'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    // The engine stops while cell 1a runs.
+    let cut = e
+        .db
+        .write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, cell, session, input, config_commit, started_at) VALUES (?1, '1a', ?2, '{}', 'c', 1)",
+                params![work, session],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    e.step(None).unwrap();
+    let rounds = agent_rounds(&e, item);
+    let (id, cell, input) = rounds.last().unwrap();
+    assert_eq!(cell, "1a");
+    let m = input["message"].as_str().unwrap();
+    assert!(
+        m.starts_with(&format!(
+            "# R{id} · cell 1a\n\nR{cut} was cut off midway. First look at the worktree"
+        )),
+        "{m}"
+    );
+    assert_eq!(input["conditional"], json!([]));
+    assert!(input["call"]["session"]["resumed"].is_string(), "{input}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// When the flow moves to a new version, a work running on the old one stops, saying why, and its item gets a new
+// work at once: it takes over the branch, the worktree and the pull request, and its cell 1 is told what exists. An
+// item whose works ended can be queued again.
+#[test]
+fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() {
+    let s = setup("version");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..80 {
+        e.tick().unwrap();
+        if works_of(&e, item)[0].4.is_some() {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (old, _, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
+    assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
+    // The work ran on a flow version the engine no longer has built in.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+            [],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![old, v])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(e);
+    let (mut e, said) = engine(&s, scripts());
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}");
+    assert!(
+        works[0]
+            .5
+            .as_deref()
+            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
+        "{works:?}"
+    );
+    let new = works[1].0;
+    assert_eq!(works[1].1, "0");
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(
+        (&works[1].2, &works[1].3, works[1].4),
+        (&worktree, &branch, pr),
+        "{log}"
+    );
+    let input: String =
+        e.db.conn()
+            .query_row("SELECT input FROM rounds WHERE work = ?1 AND cell = '1'", [new], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    let input: Value = serde_json::from_str(&input).unwrap();
+    let m = input["message"].as_str().unwrap();
+    for want in [
+        "This item was worked on before.".to_string(),
+        format!("- Work {old} "),
+        format!("WHERE work = {old} ORDER BY id"),
+        "git log --oneline origin/main..HEAD".to_string(),
+        format!("pr view {} --comments", pr.unwrap()),
+        "it was half done before".to_string(),
+    ] {
+        assert!(m.contains(&want), "{want}\n{m}");
+    }
+    // Once its works ended, the item can be queued again.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [new])?;
+        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [item])?;
+        Ok(())
+    })
+    .unwrap();
+    let ready: i64 =
+        e.db.conn()
+            .query_row("SELECT item FROM ready_items", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(ready, item);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An item imported with a branch and its pull request takes them over in its first work, and its cell 1 is told
+// where it came from.
+#[test]
+fn an_imported_item_takes_over_its_branch_and_pull_request() {
+    let s = setup("imported");
+    let checkout = s.root.join("checkout");
+    git(&checkout, &["checkout", "-q", "-b", "outside/feature"]);
+    write(&checkout, "src/lib.txt", "half done\n");
+    git(&checkout, &["commit", "-q", "-am", "Half of the feature"]);
+    git(&checkout, &["push", "-q", "origin", "outside/feature"]);
+    let tip = git(&checkout, &["rev-parse", "HEAD"]).trim().to_string();
+    git(&checkout, &["checkout", "-q", "main"]);
+    git(&checkout, &["branch", "-q", "-D", "outside/feature"]);
+    let (mut e, said, item) = start(&s, scripts());
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE items SET imported_from = 'item 41 of the earlier board', imported_branch = 'outside/feature',
+             imported_pr = 9 WHERE id = ?1",
+            [item],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(
+        (works[0].3.as_deref(), works[0].4),
+        (Some("outside/feature"), Some(9)),
+        "{log}"
+    );
+    let head = git(Path::new(works[0].2.as_deref().unwrap()), &["rev-parse", "HEAD"]);
+    assert_eq!(head.trim(), tip);
+    let rounds = agent_rounds(&e, item);
+    let m = rounds[0].2["message"].as_str().unwrap();
+    assert!(
+        m.contains("imported from outside this flow: item 41 of the earlier board"),
+        "{m}"
+    );
+    assert!(m.contains("pr view 9 --comments"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

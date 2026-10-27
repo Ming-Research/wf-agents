@@ -37,6 +37,11 @@ pub struct Item {
     pub acceptance: Option<Value>,
     pub acceptance_round: Option<i64>,
     pub cancelled: Option<String>,
+    /// What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
+    /// request.
+    pub imported_from: Option<String>,
+    pub imported_branch: Option<String>,
+    pub imported_pr: Option<i64>,
 }
 
 /// A round as `rounds` holds it.
@@ -145,7 +150,8 @@ impl Work {
 impl Item {
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
         conn.query_row(
-            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_round, cancelled
+            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_round, cancelled,
+                    imported_from, imported_branch, imported_pr
              FROM items WHERE id = ?1",
             [id],
             |r| {
@@ -161,6 +167,9 @@ impl Item {
                     acceptance: json_col(r.get(8)?),
                     acceptance_round: r.get(9)?,
                     cancelled: r.get(10)?,
+                    imported_from: r.get(11)?,
+                    imported_branch: r.get(12)?,
+                    imported_pr: r.get(13)?,
                 })
             },
         )
