@@ -26,8 +26,14 @@ fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> 
     if keep {
         return Ok(Some(r));
     }
+    // A round left open when the work was paused, and the work let go on since, ended with the pause; any other was
+    // cut off by the engine stopping.
+    let rejected = match work::last_resume(e.db.conn(), w.id)? {
+        Some((at, why)) if at > r.started_at => json!({ "error": format!("the work was paused: {why}") }),
+        _ => json!({ "interrupted": "the engine stopped before this round ended; it runs again" }),
+    };
     let ended = Ended {
-        rejected: Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" })),
+        rejected: Some(rejected),
         ..Ended::default()
     };
     e.db.write(Actor::Engine, |tx| {

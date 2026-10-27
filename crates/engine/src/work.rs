@@ -230,6 +230,20 @@ pub fn resumed_at(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     .map_err(sql)
 }
 
+/// When the owner last let the work go on after it paused, and why it had been paused, if ever.
+pub fn last_resume(conn: &Connection, work: i64) -> Result<Option<(i64, String)>, String> {
+    conn.query_row(
+        "SELECT at, json_extract(old_row, '$.paused') FROM changes
+         WHERE table_name = 'works' AND json_extract(row_key, '$.id') = ?1
+           AND json_extract(old_row, '$.paused') IS NOT NULL AND json_extract(new_row, '$.paused') IS NULL
+         ORDER BY at DESC LIMIT 1",
+        [work],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(sql)
+}
+
 /// The round of the work still running or waiting, if any.
 pub fn open_round(conn: &Connection, work: i64) -> Result<Option<Round>, String> {
     conn.query_row(

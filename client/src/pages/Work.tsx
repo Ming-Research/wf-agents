@@ -12,7 +12,7 @@ import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
-import { useActivity, useResource, useStatus } from '../live';
+import { reread, useActivity, useResource, useStatus } from '../live';
 import { href, navigate } from '../route';
 import { t } from '../text';
 import { AskView, DesignCardView, words } from './Decide';
@@ -181,6 +181,39 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
   );
 }
 
+/// Why the work is paused, and the button that lets it go on, once the owner confirms the cell that runs again.
+function Paused({ d }: { d: WorkDetail }) {
+  const w = d.work;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = () => {
+    const cell = `${w.at}${w.at_title ? ` (${w.at_title})` : ''}`;
+    if (!window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
+    setBusy(true);
+    setError(null);
+    postJson(`/api/v1/works/${w.id}/resume`, {}).then(
+      () => reread('works', `work:${w.id}`),
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  return (
+    <section className="next paused">
+      <strong>{t('paused_title')}</strong>
+      <p className="prose">{w.paused}</p>
+      <div className="next-run">
+        <button type="button" className="decide-button" onClick={go} disabled={busy}>
+          {t('resume')}
+        </button>
+        <span className="muted">{t('resume_note', { cell: w.at })}</span>
+      </div>
+      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+    </section>
+  );
+}
+
 /// The work's rounds and records, in a drawer over the left of the chart.
 function Drawer({ d, g, round, onRound }: {
   d: WorkDetail;
@@ -196,6 +229,7 @@ function Drawer({ d, g, round, onRound }: {
       </button>
       {open ? (
         <div className="drawer-body">
+          {d.work.paused !== null ? <Paused d={d} /> : null}
           <Next d={d} onRound={onRound} />
           <Timeline rounds={d.rounds} g={g} selected={round} onRound={(r) => onRound(r.id)} />
           {d.messages.length > 0 ? (

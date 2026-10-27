@@ -122,6 +122,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}", get(work))
         .route("/api/v1/works/{id}/next", get(next_round))
         .route("/api/v1/works/{id}/step", post(step))
+        .route("/api/v1/works/{id}/resume", post(resume))
         .route("/api/v1/rounds/{id}", get(round))
         .route("/api/v1/flows", get(flows))
         .route("/api/v1/flows/sources", get(flow_sources))
@@ -405,6 +406,11 @@ async fn rule(
     Json(r): Json<api::Ruling>,
 ) -> Result<Json<api::Done>, Fail> {
     decide(&app, move |db| api::rule(db, id, &r)).await
+}
+
+/// Lets a paused work go on, as the owner, as the command line does; the engine is woken to go on.
+async fn resume(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::resume(db, id)).await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

@@ -116,6 +116,20 @@ fn tree_changed(w: &Work, project: &config::Project) -> Result<bool, String> {
         .any(|f| git::under(f, &project.design_paths)))
 }
 
+/// The work's design cards not yet replaced, newest first: their ids and statuses.
+fn current_design_cards(tx: &Transaction<'_>, work: i64) -> Result<Vec<(i64, String)>, String> {
+    let mut st = tx
+        .prepare(
+            "SELECT c.id, c.status FROM design_cards c JOIN rounds r ON r.id = c.round
+             WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC",
+        )
+        .map_err(sql)?;
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(sql)?
+        .collect::<Result<_, _>>()
+        .map_err(sql)
+}
+
 /// The work's design card not yet replaced: its id and status.
 fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
     tx.query_row(
@@ -245,28 +259,37 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "update_design_card" => {
             let Some(body) = at_value else { return Ok(()) };
+            // The cards it replaces are read before it is made: read after, the newest not replaced is itself.
+            let before = current_design_cards(tx, w)?;
             let card = new_design_card(tx, ctx.round, &body)?;
-            if let Some((old, status)) = current_design_card(tx, w)?.filter(|(id, _)| *id != card) {
-                tx.execute(
-                    "UPDATE design_cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
-                    params![old, card],
-                )
-                .map_err(sql)?;
-                let again = if status == "ruled" {
+            if before.is_empty() {
+                notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
+            } else {
+                for (old, _) in &before {
+                    tx.execute(
+                        "UPDATE design_cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
+                        params![old, card],
+                    )
+                    .map_err(sql)?;
+                }
+                let again = if before.iter().any(|(_, status)| status == "ruled") {
                     " A decision you ruled on changed: it must be confirmed again."
                 } else {
                     ""
                 };
+                let olds = before
+                    .iter()
+                    .map(|(id, _)| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 notify(
                     tx,
                     Some(w),
                     &format!(
-                        "Design card {card} of {} replaces design card {old}.{again}",
+                        "Design card {card} of {} replaces design card {olds}.{again}",
                         ctx.about()
                     ),
                 )?;
-            } else {
-                notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
             }
         }
         "replace_design_card" => {
