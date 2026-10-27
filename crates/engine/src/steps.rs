@@ -10,7 +10,7 @@ use crate::agent::{self, Request};
 use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message::{self, Held};
-use crate::work::{self, Ended, Item, Round, Work};
+use crate::work::{self, Ended, Item, Round, RoundId, Work};
 use crate::{Advance, Engine, actions, checks, git, tools, values};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -97,12 +97,15 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
+    // The advisor runs one level above the item's: it is the engineer, with a higher model.
+    let line_of_cell = cell.line.clone().unwrap_or_else(|| "engineer".to_string());
+    let level_name = e.config.config.level_of_line(&item.level, &line_of_cell);
     let (level, cli) = e
         .config
         .config
-        .level(&item.level)
+        .level(&level_name)
         .map(|(l, c)| (l.clone(), c.clone()))
-        .ok_or_else(|| format!("item {}: no such level in the configuration: {}", item.id, item.level))?;
+        .ok_or_else(|| format!("item {}: no such level in the configuration: {}", item.id, level_name))?;
     let cli_name = level.cli.clone();
     let Composed {
         line,
@@ -111,6 +114,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         given,
         interjections,
         columns,
+        table,
         number,
         msg,
     } = compose(e, w, g, cell, &item)?;
@@ -160,36 +164,33 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         prompt: msg.text.clone(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         refused: e.config.config.install.agents.permissions.refused(&line),
+        readable: readable_dirs(e),
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
     // structured-output schema.
     let mut kept = msg.kept.clone();
-    let call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
+    let mut call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
+    // The level the round runs at, which the configuration maps to its model and effort: the owner reads the round by
+    // it.
+    call["level"] = Value::String(level_name.clone());
     let input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
-        "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
+        "engine": { "head": head, "change": change, "columns": columns, "table": table, "interjections": ids },
     });
     let round =
         e.db.write(Actor::Engine, |tx| {
             db::keep(tx, &kept)?;
-            work::start_numbered(
-                tx,
-                Some(number),
-                w.id,
-                &cell.id,
-                Some(sid),
-                &input,
-                &commit,
-                Some(&level.model),
-            )
-            .map_err(db::Error::Abort)
+            work::start_numbered(tx, number, &cell.id, Some(sid), &input, &commit, Some(&level.model))
+                .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
-    (e.say)(&format!("work {} cell {}: round {round} of the {line}", w.id, cell.id));
-    let reply = e.agents.run(&req, &|what: &str| (e.activity)(w.id, round, what));
+    (e.say)(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
+    let reply = e
+        .agents
+        .run(&req, &|what: &str| (e.activity)(round.work, round.n, what));
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
         e.db.write(Actor::Engine, |tx| {
@@ -241,6 +242,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         unwrapped: g.unwrap(&output),
         head_start: head.clone(),
         columns: &columns,
+        table: &table,
         interjections: &interjections,
     };
     if let Err(why) = checks::run(&ctx) {
@@ -285,8 +287,10 @@ struct Composed {
     /// The interjections waiting for the line.
     interjections: Vec<Value>,
     columns: Vec<(String, String)>,
-    /// The number the round gets.
-    number: i64,
+    /// The rows of the cell's numbered table, each with its number.
+    table: Vec<Value>,
+    /// The round it will be.
+    number: RoundId,
     msg: message::Message,
 }
 
@@ -319,7 +323,8 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         .filter(|r| r["line"] == line.as_str())
         .collect();
     let columns = message::columns(e, w, g, cell, item);
-    let number = work::next_round(e.db.conn())?;
+    let table = inputs::table(&gathered);
+    let number = work::next_round(e.db.conn(), w.id)?;
     let msg = message::Context {
         e,
         w,
@@ -331,6 +336,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         gathered: &gathered,
         given: &given,
         columns: &columns,
+        table: &table,
         held: &held,
         registry: &registry,
     }
@@ -352,6 +358,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         given,
         interjections,
         columns,
+        table,
         number,
         msg,
     })
@@ -372,12 +379,27 @@ pub struct NextRound {
     pub not_asked: Option<String>,
     /// For a tool cell: what each tool asked for will do.
     pub tools: Vec<String>,
+    /// For a cell whose judgment now takes a row that waits, such as the merge gate waiting for the owner's ruling
+    /// on a design card: what it waits for. No round is offered until that comes.
+    pub waits: Option<String>,
+    /// The design card it waits for a ruling on, when it does.
+    pub design_card: Option<i64>,
+    /// The ask of the owner it waits for an answer to, when it does.
+    pub ask: Option<i64>,
 }
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     let w = e.work(work)?;
-    if w.ended.is_some() || w.paused.is_some() || e.done(&w)? {
-        return Err(format!("work {work} has no next round: it is ended, paused or done"));
+    if w.ended.is_some() || e.done(&w)? {
+        return Err(format!("work {work} has no next round: it is ended or done"));
+    }
+    // A paused work's next round is the one the owner's step runs; a work on an older flow version is taken over
+    // instead of taking a step.
+    if w.flow_version != e.flow_now {
+        return Err(format!(
+            "work {work} is on flow version {}, older than {}: when it goes on, a new work takes its item over",
+            w.flow_version, e.flow_now
+        ));
     }
     let g = e.graph_of(&w)?;
     let cell = g
@@ -394,6 +416,41 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     }
     let agent = cell.kind == "agent" && not_asked.is_none();
     let message = if agent { Some(next_message(e, work)?.text) } else { None };
+    // A judgment that would take a row that waits records nothing new: the work waits for what the row says.
+    let mut waits = None;
+    let mut design_card = None;
+    let mut ask = None;
+    if matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect"))
+        && let Some(r) = work::open_round(e.db.conn(), w.id)?.filter(|r| r.cell.as_deref() == Some(cell.id.as_str()))
+    {
+        let asked: Option<(i64, Option<String>)> =
+            e.db.conn()
+                .query_row(
+                    "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    [r.id.work, r.id.n],
+                    |x| Ok((x.get(0)?, x.get(1)?)),
+                )
+                .ok();
+        if let Some((id, None)) = asked {
+            waits = Some(format!("your answer to ask {id}"));
+            ask = Some(id);
+        }
+    }
+    if cell.kind == "engine" && cell.step.is_none() && !cell.rows.is_empty() {
+        let item = e.item_of(&w)?;
+        let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
+        let given = values::given(e, &w, &g, &cell, &item, &gathered)?;
+        if let Ok(row) = g.take(&cell.id, &json!({}), &given)
+            && row.waits
+        {
+            let what = values::gates_waiting_for(e, &w, &item)?;
+            design_card = what
+                .as_deref()
+                .filter(|x| x.starts_with("the owner's ruling on design card"))
+                .and(values::design_card(e, &w)?.map(|c| c.id));
+            waits = Some(what.unwrap_or_else(|| row.note.clone().unwrap_or_else(|| row.name.clone())));
+        }
+    }
     let tools = if cell.kind == "tool" {
         let item = e.item_of(&w)?;
         let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
@@ -402,6 +459,9 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
         Vec::new()
     };
     Ok(NextRound {
+        waits,
+        design_card,
+        ask,
         tools,
         title: cell.title.clone(),
         kind: cell.kind.clone(),
@@ -448,8 +508,8 @@ fn round_cost(mut usage: Value, line_rounds: &[Round]) -> Value {
     usage
 }
 
-fn reject(e: &mut Engine, round: i64, ended: Ended, why: Value) -> Result<Advance, String> {
-    (e.say)(&format!("round {round} sent back: {why}"));
+fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
+    (e.say)(&format!("{round} sent back: {why}"));
     let ended = Ended {
         rejected: Some(why),
         transition: None,
@@ -527,7 +587,7 @@ pub fn finish(
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
-    round: i64,
+    round: RoundId,
     output: Value,
     row: &CompiledRow,
     ended: Ended,
@@ -566,14 +626,14 @@ pub fn finish(
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
         if let Some(h) = &head_after {
             tx.execute(
-                "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?2) WHERE id = ?1",
-                params![round, h],
+                "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?3) WHERE work = ?1 AND n = ?2",
+                params![round.work, round.n, h],
             )?;
         }
         for id in delivered {
             tx.execute(
                 "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
-                params![id, round],
+                params![id, round.n],
             )?;
         }
         for a in &cell.always {
@@ -605,7 +665,7 @@ pub fn finish(
 }
 
 /// Ends the round at the graph's end, which has no rows: the work is done.
-fn finish_end(e: &mut Engine, w: &Work, round: i64, output: Value) -> Result<Advance, String> {
+fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value) -> Result<Advance, String> {
     let ended = Ended {
         output: Some(output),
         ..Ended::default()
@@ -801,12 +861,14 @@ fn ask(
     if let Some(r) = open.filter(|r| r.cell.as_deref() == Some(cell.id.as_str())) {
         let asked: Option<(i64, Option<String>)> =
             e.db.conn()
-                .query_row("SELECT id, answer FROM owner_asks WHERE round = ?1", [r.id], |x| {
-                    Ok((x.get(0)?, x.get(1)?))
-                })
+                .query_row(
+                    "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    [r.id.work, r.id.n],
+                    |x| Ok((x.get(0)?, x.get(1)?)),
+                )
                 .ok();
         let Some((id, answer)) = asked else {
-            return Err(format!("round {} asks, but put no ask to the owner", r.id));
+            return Err(format!("{} asks, but put no ask to the owner", r.id));
         };
         let Some(answer) = answer else {
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
@@ -836,6 +898,7 @@ fn ask(
         .filter(|x| x.value.is_some() && x.input.from.iter().all(|s| matches!(s, Src::Place(..))))
         .map(|x| json!({ "what": x.input.what, "value": x.value }))
         .collect();
+    let about = what_is_asked(&asked);
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
     let input = json!({ "inputs": recorded_inputs(&gathered) });
     let commit = e.config.commit.clone();
@@ -844,24 +907,69 @@ fn ask(
     } else {
         "the architect, for whom you answer in this version".to_string()
     };
-    let text = format!("Work {} on item {} ({}) asks {whom}: ask", w.id, item.id, item.title);
+    let text = format!("Work {} on item {} ({}) asks {whom}", w.id, item.id, item.title);
     let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
             tx.execute(
-                "INSERT INTO owner_asks (round, body) VALUES (?1, ?2)",
-                params![round, body.to_string()],
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
+                params![round.work, round.n, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
-            let note = json!({ "text": format!("{text} {id}") });
-            tx.execute(
-                "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'notify', ?2, ?3)",
-                params![w.id, note.to_string(), db::now()],
-            )?;
+            actions::notify_ask(tx, w.id, id, &format!("{text}{about} (ask {id})")).map_err(db::Error::Abort)?;
             Ok(id)
         })
         .map_err(sql)?;
     Ok(Advance::Waits(format!("ask {id} waits for the owner")))
+}
+
+/// What an ask is about, for the notice that tells the owner of it: the kind of its first point, in words, and the
+/// first sentence of what that point says; nothing when the ask holds no point.
+fn what_is_asked(asked: &[Value]) -> String {
+    let point = asked
+        .iter()
+        .find_map(|a| a["value"]["points"].as_array().and_then(|ps| ps.first()).cloned());
+    let Some(point) = point else { return String::new() };
+    let kind = point["kind"].as_str().unwrap_or_default().replace('_', " ");
+    let what = point["what"].as_str().unwrap_or_default();
+    format!(" ({kind}): {}", first_sentence(what))
+}
+
+/// The directories outside the worktree an agent may read: where the engine saves a tool's output too long to give
+/// inline, and the logs of red checks it names; made when missing, by their real paths, so that the CLI's rules match.
+fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
+    ["tool-output", "logs"]
+        .iter()
+        .filter_map(|name| {
+            let dir = e.data.join(name);
+            std::fs::create_dir_all(&dir).ok()?;
+            std::fs::canonicalize(&dir).ok()
+        })
+        .collect()
+}
+
+/// The first sentence of a text, at most 200 characters: up to its first full stop, question or exclamation mark, or
+/// line break.
+pub fn first_sentence(text: &str) -> String {
+    let text = text.trim();
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\n' {
+            break;
+        }
+        out.push(c);
+        // The full stop, exclamation and question marks of Chinese and Japanese text end a sentence on their own.
+        let ends = matches!(c, '\u{3002}' | '\u{ff01}' | '\u{ff1f}')
+            || (matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|n| n.is_whitespace()));
+        if ends {
+            break;
+        }
+    }
+    if out.chars().count() > 200 {
+        out = out.chars().take(199).collect::<String>() + "…";
+    }
+    out
 }
 
 /// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since
@@ -886,8 +994,8 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
             .is_some_and(|r| r.input["engine"]["change"].as_str() != now.as_deref())
     };
     let answers_after = |rs: &[Round], kinds: &[&str]| -> bool {
-        let since = rs.first().map_or(0, |r| r.id);
-        fixes.iter().filter(|f| f.id > since).any(|f| {
+        let since = rs.first().map(|r| r.id);
+        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
             f.output
                 .as_ref()
                 .and_then(|o| o[&g.within]["rows"].as_array().cloned())
@@ -924,9 +1032,22 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
 mod tests {
     use super::*;
 
+    // The notice of a new ask says its kind and the first sentence of what it asks.
+    #[test]
+    fn an_ask_is_told_by_its_kind_and_first_sentence() {
+        let asked = vec![json!({ "what": "w", "value": { "to": "owner", "points": [
+            { "kind": "blocked_by_permission", "what": "Please run a probe. Why: the lock.\n\npython3 - <<'EOF'\nEOF" }
+        ] } })];
+        assert_eq!(what_is_asked(&asked), " (blocked by permission): Please run a probe.");
+        assert_eq!(first_sentence("a\u{3002}b"), "a\u{3002}");
+        assert_eq!(first_sentence("Run it. Then paste"), "Run it.");
+        assert_eq!(first_sentence("v1.2 is out\nmore"), "v1.2 is out");
+        assert_eq!(what_is_asked(&[]), "");
+    }
+
     fn round(usage: Value) -> Round {
         Round {
-            id: 1,
+            id: RoundId::new(1, 1),
             cell: None,
             session: Some(1),
             input: Value::Null,

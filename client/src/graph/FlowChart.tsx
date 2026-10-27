@@ -1,16 +1,17 @@
 // A flow's state machine, filling the space it is given: the chart is built from the compiled flow and what the
-// interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a legend in the bottom-left
-// corner. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
-// flows are compared, the cells added and changed are marked.
+// interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a "?" in the bottom-left
+// corner that opens what every mark means. On a work's page each cell carries what the work did there and the arrows
+// the work took stand out, and the rows' numbers, which serve the flow's author, are left out; when two flows are
+// compared, the cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import type { CompiledGraph, GraphView } from '../api';
 import { t } from '../text';
-import { FlowSvg, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import { FlowSvg, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { type Laid, layoutChart } from './flowLayout';
 import { chart as build, MAIN } from './flowModel';
-import { type Covered, type Rect, Viewer, type ViewerHandle } from './Viewer';
+import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
 /// What a click on the chart picked.
 export type Pick =
@@ -26,7 +27,7 @@ export type FlowChartHandle = {
   focus: (cell: string, keep?: boolean) => void;
 };
 
-/// The least zoom the chart opens at: a cell's text can be read at it.
+/// The least zoom the chart opens at when it opens on no cell.
 const READABLE = 0.62;
 const PAD = 24;
 
@@ -37,8 +38,6 @@ export type FlowChartProps = {
   /// The cell the chart opens on; with none, the top of the flow.
   start: string | null;
   onPick: (p: Pick) => void;
-  /// What floats over the chart: a drawer over its left side and the panel over its right side.
-  covered: () => Covered;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
   legend: 'flow' | 'work' | 'compare';
   ref?: Ref<FlowChartHandle>;
@@ -46,12 +45,28 @@ export type FlowChartProps = {
 
 function Swatch({ children }: { children: ReactNode }) {
   return (
-    <svg className="fc legend-swatch" width="30" height="18" viewBox="0 0 30 18">
+    <svg className="fc legend-swatch" width="34" height="18" viewBox="0 0 34 18">
       {children}
     </svg>
   );
 }
 
+/// A badge of the work's marks on a cell, as the legend shows it.
+function BadgeSwatch({ k, text }: { k: string; text: string }) {
+  return (
+    <Swatch>
+      <g className={`fc-badge ${k}`}>
+        <rect x="5" y="1" width="24" height="16" rx="8" />
+        <text x="17" y="13" textAnchor="middle">
+          {text}
+        </text>
+      </g>
+    </Swatch>
+  );
+}
+
+/// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the rules and the
+/// interjection, the circles, and the marks of a work or of a comparison; then how the chart moves.
 function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legend'] }) {
   const styles: string[] = [];
   for (const c of g.cells) {
@@ -68,15 +83,73 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
   };
   const rules = g.cells.some((c) => (c.rules ?? []).length > 0);
   const flags = g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject));
+  const shared = [...new Set(g.cells.flatMap((c) => (c.kind === 'agent' ? c.rows.filter((r) => r.common) : [])).map((r) => r.name))];
+  const work = legend === 'work';
   return (
     <details className="legend">
-      <summary>{t('legend')}</summary>
+      <summary aria-label={t('legend')} title={t('legend')}>
+        ?
+      </summary>
       <ul>
+        {work ? (
+          <>
+            <li>
+              <Swatch>
+                <rect className="fc-ring" x="4" y="3" width="26" height="12" rx="3" />
+              </Swatch>
+              {t('legend_current')}
+            </li>
+            <li>
+              <Swatch>
+                <rect className="fc-ring fc-ring-running" x="4" y="3" width="26" height="12" rx="3" />
+              </Swatch>
+              {t('legend_running')}
+            </li>
+            <li>
+              <Swatch>
+                <HeldMark x={8} y={0} why={t('legend_held')} />
+              </Swatch>
+              {t('legend_held')}
+            </li>
+            <li>
+              <BadgeSwatch k="fc-b-rounds" text="3" />
+              {t('legend_rounds')}
+            </li>
+            <li>
+              <BadgeSwatch k="fc-b-back" text="↩1" />
+              {t('legend_sent_back')}
+            </li>
+            <li>
+              <BadgeSwatch k="fc-b-failed" text="✕1" />
+              {t('legend_failed')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-edge fc-edge-taken" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-taken)" />
+              </Swatch>
+              {t('legend_taken')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-edge fc-edge-quiet" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-quiet)" />
+              </Swatch>
+              {t('legend_not_taken')}
+            </li>
+            <li>
+              <Swatch>
+                <g className="fc-cell kind-tool fc-unvisited">
+                  <rect x="4" y="2" width="26" height="14" rx="2" />
+                </g>
+              </Swatch>
+              {t('legend_unvisited')}
+            </li>
+          </>
+        ) : null}
         {styles.map((s) => (
           <li key={s}>
             <Swatch>
               <g className={`fc-cell ${s}`}>
-                <rect x="2" y="2" width="26" height="14" rx={s === 'kind-engine' || s === 'kind-owner' ? 7 : 2} />
+                <rect x="4" y="2" width="26" height="14" rx={s === 'kind-engine' || s === 'kind-owner' ? 7 : 2} />
               </g>
             </Swatch>
             {label(s)}
@@ -86,7 +159,7 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
           <li>
             <Swatch>
               <g className="fc-rule">
-                <polygon points="7,2 28,2 23,16 2,16" />
+                <polygon points="9,2 30,2 25,16 4,16" />
               </g>
             </Swatch>
             {t('legend_rule')}
@@ -96,24 +169,27 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
           <li>
             <Swatch>
               <g className="fc-flag">
-                <polygon points="2,2 28,2 28,16 2,16 8,9" />
+                <polygon points="4,2 30,2 30,16 4,16 10,9" />
               </g>
             </Swatch>
             {t('legend_interjection')}
           </li>
         ) : null}
-        <li>
-          <Swatch>
-            <g className="fc-circle fc-shared">
-              <ellipse cx="15" cy="9" rx="8" ry="7" />
-            </g>
-          </Swatch>
-          {t('legend_shared')}
-        </li>
+        {shared.length > 0 ? (
+          <li>
+            <Swatch>
+              <path className="fc-edge fc-edge-shared" d="M 1 9 L 14 9" />
+              <g className="fc-circle fc-shared">
+                <ellipse cx="24" cy="9" rx="8" ry="7" />
+              </g>
+            </Swatch>
+            {t('legend_shared', { rows: shared.join(', ') })}
+          </li>
+        ) : null}
         <li>
           <Swatch>
             <g className="fc-circle fc-out">
-              <ellipse cx="15" cy="9" rx="7" ry="7" />
+              <ellipse cx="17" cy="9" rx="7" ry="7" />
             </g>
           </Swatch>
           {t('legend_out')}
@@ -121,30 +197,29 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
         <li>
           <Swatch>
             <g className="fc-circle fc-in">
-              <ellipse cx="15" cy="9" rx="7" ry="7" />
+              <ellipse cx="17" cy="9" rx="7" ry="7" />
             </g>
           </Swatch>
           {t('legend_in')}
         </li>
-        <li>
-          <Swatch>
-            <path className="fc-edge fc-edge-main" d="M 2 9 L 28 9" />
-          </Swatch>
-          {t('legend_main')}
-        </li>
-        {legend === 'work' ? (
+        {!work ? (
           <>
             <li>
               <Swatch>
-                <rect className="fc-ring" x="3" y="3" width="24" height="12" rx="3" />
+                <path className="fc-edge fc-edge-main" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-main)" />
               </Swatch>
-              {t('legend_current')}
+              {t('legend_main')}
             </li>
             <li>
               <Swatch>
-                <path className="fc-edge fc-edge-taken" d="M 2 9 L 28 9" />
+                <g className="fc-no">
+                  <circle cx="17" cy="9" r="8" />
+                  <text x="17" y="12.5" textAnchor="middle">
+                    2
+                  </text>
+                </g>
               </Swatch>
-              {t('legend_taken')}
+              {t('legend_number')}
             </li>
           </>
         ) : null}
@@ -153,7 +228,7 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
             <li>
               <Swatch>
                 <g className="fc-cell kind-tool fc-added">
-                  <rect x="2" y="2" width="26" height="14" rx="2" />
+                  <rect x="4" y="2" width="26" height="14" rx="2" />
                 </g>
               </Swatch>
               {t('legend_added')}
@@ -161,7 +236,7 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
             <li>
               <Swatch>
                 <g className="fc-cell kind-tool fc-changed">
-                  <rect x="2" y="2" width="26" height="14" rx="2" />
+                  <rect x="4" y="2" width="26" height="14" rx="2" />
                 </g>
               </Swatch>
               {t('legend_changed')}
@@ -175,7 +250,8 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { g, view, marks, start, onPick, covered, legend, ref } = props;
+  const { g, view, marks, start, onPick, legend, ref } = props;
+  const numbered = legend !== 'work';
   const model = useMemo(() => build(g, view), [g, view]);
   const measured = useMemo(() => sizes(g, model), [g, model]);
   const [laid, setLaid] = useState<{ model: typeof model; laid: Laid } | null>(null);
@@ -188,7 +264,7 @@ export function FlowChart(props: FlowChartProps) {
       (id) => measured.size.get(id) ?? { width: 40, height: 40 },
       (id) => {
         const e = edges.get(id);
-        return e ? labelSize(e) : null;
+        return e ? labelSize(e, numbered) : null;
       },
     ).then(
       (l) => {
@@ -201,7 +277,7 @@ export function FlowChart(props: FlowChartProps) {
     return () => {
       live = false;
     };
-  }, [model, measured]);
+  }, [model, measured, numbered]);
   const current = laid !== null && laid.model === model ? laid.laid : null;
   const viewer = useRef<ViewerHandle>(null);
   // Chart pixels: the drawing starts PAD before the layout's bounds.
@@ -222,20 +298,22 @@ export function FlowChart(props: FlowChartProps) {
     }),
     [],
   );
-  // Once laid out, open on the cell asked for, or on the top of the main part at a zoom one can read.
+  // Once laid out, open at full size centred on the cell asked for, or on the top of the main part at a zoom one can
+  // read.
   const opened = useRef<Laid | null>(null);
   useEffect(() => {
     if (current === null || opened.current === current || !viewer.current) return;
     opened.current = current;
+    const at = start !== null ? rectRef.current(`c:${start}`) : null;
+    if (at) {
+      viewer.current.place(at, 1);
+      return;
+    }
     const main = current.parts.get(MAIN);
     const around = main
       ? { x: main.x - current.bounds.x + PAD, y: main.y - current.bounds.y + PAD, width: main.width, height: main.height }
       : null;
     viewer.current.start(READABLE, around);
-    if (start !== null) {
-      const r = rectRef.current(`c:${start}`);
-      if (r) viewer.current.focus(r, true);
-    }
   }, [current, start]);
   const nodes = useMemo(() => new Map(model.nodes.map((n) => [n.id, n])), [model]);
   const pick = (target: Element) => {
@@ -273,9 +351,8 @@ export function FlowChart(props: FlowChartProps) {
           width={current.bounds.width + 2 * PAD}
           height={current.bounds.height + 2 * PAD}
           onPick={pick}
-          covered={covered}
         >
-          <FlowSvg g={g} chart={model} laid={current} lines={measured.lines} marks={marks} />
+          <FlowSvg g={g} chart={model} laid={current} lines={measured.lines} marks={marks} numbered={numbered} />
         </Viewer>
       ) : null}
       <Legend g={g} legend={legend} />

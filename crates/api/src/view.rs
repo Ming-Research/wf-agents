@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use flow::format::{Atom, Do, Src};
+use flow::format::{Atom, Do, Named, Src};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
@@ -25,12 +25,21 @@ const STOPPED: &str = "@stopped";
 const FROM: &str = "@from";
 
 pub fn view(c: &Compiled) -> FlowView {
+    // How each line's session is kept is said only in the flow's source: the flow built into this program says it.
+    let source = serde_json::from_str::<flow::format::Source>(flow::FLOW).ok();
+    let lines = |name: &str| -> Vec<Named> {
+        source
+            .as_ref()
+            .and_then(|s| s.flows.iter().find(|f| f.name == name))
+            .map(|f| f.sessions.lines.clone())
+            .unwrap_or_default()
+    };
     FlowView {
-        graphs: c.graphs.iter().map(graph).collect(),
+        graphs: c.graphs.iter().map(|g| graph(g, lines(&g.name))).collect(),
     }
 }
 
-fn graph(g: &CompiledGraph) -> GraphView {
+fn graph(g: &CompiledGraph, lines: Vec<Named>) -> GraphView {
     let ways = Ways::new(g);
     let mut trees: BTreeMap<&str, Returns> = g.cells.iter().map(|c| (c.id.as_str(), returns(g, c))).collect();
     let mut uses: Vec<(String, String, Use)> = Vec::new();
@@ -72,7 +81,9 @@ fn graph(g: &CompiledGraph) -> GraphView {
         .collect();
     GraphView {
         name: g.name.clone(),
+        lines,
         cells,
+        common_format: flow::formats::common_format(g, &[]),
     }
 }
 
@@ -319,12 +330,19 @@ impl<'a> Ways<'a> {
             of,
             address: Some(address),
             cells: Vec::new(),
+            holds: None,
         };
         if agent {
             out.push(given(CellInputOf::CommonFormat, "format:common".into()));
-            out.push(given(CellInputOf::CellFormat, format!("format:{}", c.id)));
+            out.push(CellInput {
+                holds: Some(flow::formats::cell_format(self.g, c, &[])),
+                ..given(CellInputOf::CellFormat, format!("format:{}", c.id))
+            });
             if c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {
-                out.push(given(CellInputOf::CellInputs, format!("inputs:{}", c.id)));
+                out.push(CellInput {
+                    holds: Some(flow::formats::cell_inputs(c)),
+                    ..given(CellInputOf::CellInputs, format!("inputs:{}", c.id))
+                });
             }
             out.push(given(CellInputOf::ProjectRules, "rule:‹name›".into()));
             for r in &c.rules {
@@ -338,11 +356,17 @@ impl<'a> Ways<'a> {
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {
                 let (address, cells) = self.source(c, s, trees);
+                // A numbered table is one input the engine makes of all its sources.
+                let address = match &x.numbered {
+                    Some(_) => Some("R‹round›·engine·table".to_string()),
+                    None => address,
+                };
                 out.push(CellInput {
                     always: *s == Src::Itself,
                     of: CellInputOf::Input { input: i, source: j },
                     address,
                     cells,
+                    holds: None,
                 });
             }
         }
@@ -360,22 +384,22 @@ impl<'a> Ways<'a> {
         match s {
             Src::Itself => (None, Vec::new()),
             Src::Config(n) => at(format!("config:{n}")),
-            Src::Engine(n) | Src::Recorded(n) => at(format!("R‹round›·engine·{n}")),
+            Src::Engine(n) | Src::Recorded(n) => at(format!("R‹work›-‹n›·engine·{n}")),
             Src::Db { relation, .. } => match relation.as_str() {
                 "item_body" => at("item:‹id›".into()),
-                "item_design_cards" | "parent_design_cards" => at("design_card:‹id›".into()),
+                "item_design_cards" | "parent_design_cards" | "work_design_card" => at("design_card:‹id›".into()),
                 "item_asks" => at("ask:‹id›".into()),
                 "waiting_interjections" => at("ij:‹id›".into()),
-                "item_acceptance" => at("R‹round›·‹cell›·acceptance".into()),
-                "item_problem" => at("R‹round›·1·understanding.problem".into()),
-                other => at(format!("R‹round›·engine·{other}")),
+                "item_acceptance" => at("R‹work›-‹n›·‹cell›·acceptance".into()),
+                "item_problem" => at("R‹work›-‹n›·1·understanding.problem".into()),
+                other => at(format!("R‹work›-‹n›·engine·{other}")),
             },
             Src::Place(at, path) => {
                 let cells = self.place(c, at, path, trees);
                 let address = if at.starts_with('@') {
-                    format!("R‹round›·‹cell›·{path}")
+                    format!("R‹work›-‹n›·‹cell›·{path}")
                 } else {
-                    format!("R‹round›·{at}·{path}")
+                    format!("R‹work›-‹n›·{at}·{path}")
                 };
                 (Some(address), cells)
             }
@@ -861,7 +885,7 @@ mod tests {
 
     #[test]
     fn targets_the_engine_keeps_track_of_resolve_to_the_cells_they_can_be() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         // The tool cell goes back to the cell that called it.
         assert_eq!(cell(&v, "t").targets, vec![vec!["a".to_string()]]);
         // An answer to a cell on the receiving cell's line would go through it; `a` is not on its line.
@@ -883,7 +907,7 @@ mod tests {
 
     #[test]
     fn each_field_says_what_reads_it() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         let a = &cell(&v, "a").returns;
         let own = &a.forms[0];
         assert_eq!(
@@ -951,7 +975,7 @@ mod tests {
 
     #[test]
     fn an_input_has_its_address() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         let b = cell(&v, "b");
         let input = |i: usize, s: usize| {
             b.inputs
@@ -959,7 +983,7 @@ mod tests {
                 .find(|m| m.of == CellInputOf::Input { input: i, source: s })
                 .unwrap()
         };
-        assert_eq!(input(0, 0).address.as_deref(), Some("R‹round›·a·design"));
+        assert_eq!(input(0, 0).address.as_deref(), Some("R‹work›-‹n›·a·design"));
         assert!(!input(2, 0).always);
         assert_eq!(input(2, 0).address.as_deref(), Some("item:‹id›"));
         assert!(
@@ -974,7 +998,7 @@ mod tests {
             .find(|m| m.of == CellInputOf::Input { input: 0, source: 0 })
             .unwrap();
         assert_eq!(results.cells, vec!["t".to_string()]);
-        assert_eq!(results.address.as_deref(), Some("R‹round›·‹cell›·results"));
+        assert_eq!(results.address.as_deref(), Some("R‹work›-‹n›·‹cell›·results"));
     }
 
     /// Every use attached anywhere in a list of fields.

@@ -70,7 +70,11 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -
                 "unchanged"
             })
         }
-        "gates" => s(if gates_clear(e, w, item)? { "clear" } else { "waiting" }),
+        "gates" => s(if gates_waiting_for(e, w, item)?.is_none() {
+            "clear"
+        } else {
+            "waiting"
+        }),
         "interjection" => {
             let waiting: i64 = e
                 .db
@@ -179,23 +183,29 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 /// A design card of a work, with the head of the round that handed it in, when the design paths matched it.
 #[derive(Debug, Clone)]
 pub struct DesignCard {
+    pub id: i64,
     pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
+    /// How many decisions it holds; one for a card whose body holds none.
+    pub decisions: usize,
 }
 
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after')
-         FROM design_cards c JOIN rounds r ON r.id = c.round
-         WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
+                max(1, coalesce(json_array_length(c.body), 1))
+         FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
+         WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(DesignCard {
+                id: r.get(3)?,
                 status: r.get(0)?,
                 rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
                 head: r.get(2)?,
+                decisions: r.get::<_, i64>(4)? as usize,
             })
         },
     );
@@ -206,52 +216,65 @@ pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     }
 }
 
-/// Whether the work's design card has a ruling that disagrees.
+/// Whether the work's design card has a ruling that disagrees with any of its decisions.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(design_card(e, w)?.is_some_and(|c| {
         c.rulings
             .as_array()
-            .is_some_and(|rs| rs.iter().any(|r| r["verdict"] == "disagree"))
+            .is_some_and(|rs| rs.iter().any(db::ruling_disagrees))
     }))
 }
 
 /// Whether the work may enter the merge queue: every item it depends on is merged, and the design paths did not
 /// change on the branch, or the owner confirmed its design card and they have not changed since.
-fn gates_clear(e: &Engine, w: &Work, item: &Item) -> Result<bool, String> {
+/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the design tree
+/// unchanged on the branch, or changed only as the design card the owner confirmed says.
+pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
-            return Ok(false);
+            return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
         }
     }
     let project = e.project_of(w)?;
-    let Some(wt) = &w.worktree else { return Ok(true) };
+    let Some(wt) = &w.worktree else { return Ok(None) };
     let fork = git::fork_point(wt, &project.main)?;
     let changed = git::changed(wt, &fork, "HEAD")?;
-    let tree: Vec<String> = changed
-        .iter()
-        .filter(|f| git::under(f, &project.design_paths))
-        .cloned()
-        .collect();
-    if tree.is_empty() {
-        return Ok(true);
+    if !changed.iter().any(|f| git::under(f, &project.design_paths)) {
+        return Ok(None);
     }
     let Some(card) = design_card(e, w)? else {
-        return Ok(false);
+        return Ok(Some("a design card for the change to the design tree".to_string()));
     };
+    // The owner's last ruling confirms every decision of the card.
     let confirmed = card.status == "ruled"
         && card
             .rulings
             .as_array()
             .and_then(|rs| rs.last())
-            .is_some_and(|r| r["by"] == "owner" && r["verdict"] == "confirm");
-    let Some(head) = card.head else { return Ok(false) };
+            .is_some_and(|r| r["by"] == "owner" && db::ruling_confirms(r, card.decisions));
+    if !confirmed {
+        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
+    }
+    let Some(head) = card.head else {
+        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
+    };
     let since = git::changed(wt, &head, "HEAD")?;
-    Ok(confirmed && !since.iter().any(|f| git::under(f, &project.design_paths)))
+    Ok(since.iter().any(|f| git::under(f, &project.design_paths)).then(|| {
+        format!(
+            "a new design card: the design tree changed after the owner confirmed design card {}",
+            card.id
+        )
+    }))
 }
 
 /// The head the last review started from; none before the first review.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
-    Ok(answered(e, w, g, "5a")?
+    head_reviewed_by(e, w, g, "5a")
+}
+
+/// The head a review cell last looked at: that of its newest answered round, if any.
+pub fn head_reviewed_by(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Option<String>, String> {
+    Ok(answered(e, w, g, cell)?
         .first()
         .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
 }

@@ -1,13 +1,14 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 
 mod owner;
+mod tree;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
@@ -31,16 +32,23 @@ enum Command {
     /// Makes the database in the data directory, once. It is the only command that makes one: every other command
     /// opens the database that is there, and fails when there is none.
     Init,
+    /// Checks the design tree of the repository here: its nodes, depth and decisions at HEAD, and how many more than
+    /// at the fork point given. A project names it as its design_check.
+    TreeCheck {
+        /// The directory the design tree is in.
+        #[arg(long, default_value = "design")]
+        root: String,
+        /// The fork point from main.
+        fork: String,
+    },
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
-    /// appears in the data directory. The owner's page is served beside it, on the loopback address.
+    /// appears in the data directory. The owner's page is served beside it, on the loopback address. Every work starts
+    /// paused: nothing runs until the owner starts all works, or asks for a work's round, on the page.
     Run {
         /// Takes one pass only, without the page: carries out the outbox, starts what can start, and takes each work
         /// one step.
         #[arg(long)]
         once: bool,
-        /// How the engine starts dispatching; the owner can switch it on the page while it runs.
-        #[arg(long, value_enum, default_value_t = RunMode::Run)]
-        mode: RunMode,
         /// The port of the owner's page on the loopback address.
         #[arg(long, default_value_t = 7480)]
         port: u16,
@@ -80,18 +88,20 @@ enum Command {
     },
     /// One design card in full, with its rulings.
     DesignCard { id: i64 },
-    /// Rules on a design card.
+    /// Rules on a design card: a verdict on each of its decisions, by number, all at once. The card is confirmed when
+    /// every decision is.
     Rule {
         design_card: i64,
-        /// Confirm or disagree.
+        /// A decision confirmed, by its number; `all` for every decision but those disagreed with.
         #[arg(long)]
-        verdict: String,
-        /// What the ruling says.
+        confirm: Vec<String>,
+        /// A decision disagreed with, and why: `<number>=<why>`.
         #[arg(long)]
-        text: String,
-        /// The approach chosen instead of the one recommended.
+        disagree: Vec<String>,
+        /// Another of a decision's approaches, chosen instead of the one recommended: `<number>=<approach>`; with
+        /// --disagree for the same decision to say why.
         #[arg(long)]
-        option: Option<String>,
+        choose: Vec<String>,
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
@@ -100,7 +110,7 @@ enum Command {
         #[arg(long, default_value = "engineer")]
         line: String,
     },
-    /// Pauses a work.
+    /// Pauses a work: a round of it under way ends first. The page's Start all lets it go on, as `resume` does.
     Pause {
         work: i64,
         #[arg(long)]
@@ -131,25 +141,6 @@ enum Command {
     Anomalies,
     /// The time and cost of each work, or of one work's rounds by cell.
     Cost { work: Option<i64> },
-}
-
-/// How the engine dispatches.
-#[derive(Clone, Copy, ValueEnum)]
-enum RunMode {
-    /// Takes every work as far as it can, pass after pass.
-    Run,
-    /// Starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
-    /// asks for on the work's page; the page stays up.
-    Hold,
-}
-
-impl From<RunMode> for api::Mode {
-    fn from(m: RunMode) -> api::Mode {
-        match m {
-            RunMode::Run => api::Mode::Run,
-            RunMode::Hold => api::Mode::Hold,
-        }
-    }
 }
 
 /// What a new item is.
@@ -255,6 +246,7 @@ fn main() -> ExitCode {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
         Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
+        Some(Command::TreeCheck { root, fork }) => tree::report(Path::new("."), &fork, &root).map(|r| print!("{r}")),
         Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
     match result {
@@ -313,9 +305,9 @@ fn print(r: Result<String, String>) -> Result<(), String> {
 /// The commands that work on a data directory's database.
 fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
-        Command::Flow(_) | Command::Config(_) => Ok(()),
+        Command::Flow(_) | Command::Config(_) | Command::TreeCheck { .. } => Ok(()),
         Command::Init => init(d),
-        Command::Run { once, mode, port } => run(d, once, mode.into(), port),
+        Command::Run { once, port } => run(d, once, port),
         Command::Item(ItemCommand::Add(add)) => {
             let AddItem {
                 project,
@@ -395,20 +387,20 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
             design_card,
-            verdict,
-            text,
-            option,
+            confirm,
+            disagree,
+            choose,
         } => print(owner::rule(
             d,
             owner::Ruling {
                 design_card,
-                verdict,
-                text,
-                option,
+                confirm,
+                disagree,
+                choose,
             },
         )),
         Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),
-        Command::Pause { work, why } => owner::pause(d, work, Some(&why)),
+        Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
@@ -432,13 +424,9 @@ fn init(d: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// How the engine stands, for the page.
-fn status(
-    e: &mut engine::Engine,
-    asked: api::Asked,
-    last: Option<&api::StepTaken>,
-    started_at: i64,
-) -> Result<api::Status, String> {
+/// How the engine stands, for the page; what the owner asked and the work whose round runs are the control's, which
+/// fills them in as they are when the status is told.
+fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64) -> Result<api::Status, String> {
     let slots: i64 = e
         .config
         .config
@@ -449,13 +437,21 @@ fn status(
         .map(|h| i64::from(h.slots))
         .sum();
     Ok(api::Status {
-        mode: asked.mode,
-        stepping: asked.step,
+        paused: true,
+        running: None,
+        stepping: None,
         last_step: last.cloned(),
         slots_used: slots - e.free_slots()?,
         slots,
         flow_version: e.flow_now,
         config_commit: e.config.commit.clone(),
+        repos: e
+            .config
+            .config
+            .projects
+            .iter()
+            .map(|(name, p)| (name.clone(), p.repo.clone()))
+            .collect(),
         started_at,
         version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
         halt: e.halt.as_ref().map(|h| api::Halt {
@@ -467,10 +463,12 @@ fn status(
 }
 
 /// Prints the message the work's next agent round would be sent.
+/// Prints the message a work's next round would be sent, with nothing run or recorded: the engine is made only to
+/// read, so no flow version is recorded, no work stopped and none started, beside an engine that may be running.
 fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
-    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
+    let mut e = engine::Engine::reading(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
     let m = engine::next_message(&mut e, work)?;
     if json {
         let v = serde_json::json!({ "message": m.text, "conditional": m.record() });
@@ -481,8 +479,12 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it.
-fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
+/// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it. Every
+/// work starts paused, whatever the owner had asked before the engine stopped: the owner starts them on the page.
+/// Between two steps the loop answers what the page asked, tells how the engine stands, and takes the round of a
+/// work the owner asked for, or else, while works go on, the next step of the works that go on by themselves, so
+/// that a pause takes effect as soon as the round under way has ended.
+fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
     let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
@@ -500,7 +502,7 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
         }
     }))
     .map_err(|x| x.to_string())?;
-    let control = Arc::new(api::Control::new(mode));
+    let control = Arc::new(api::Control::default());
     // What a running agent is doing goes to the page as it happens.
     let told = Arc::clone(&bus);
     e.activity = Box::new(move |work, round, what| {
@@ -511,9 +513,19 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
             at: db::now(),
         });
     });
-    let first = status(&mut e, control.asked(), None, started_at)?;
+    // So does which work's round runs: the page shows it running, and what stops once it ends.
+    let (told, running) = (Arc::clone(&bus), Arc::clone(&control));
+    e.busy = Box::new(move |work| {
+        running.set_running(work);
+        if let Some(s) = told.status() {
+            told.publish(api::Event::Status {
+                status: Box::new(running.status(s)),
+            });
+        }
+    });
+    let first = status(&mut e, None, started_at)?;
     bus.publish(api::Event::Status {
-        status: Box::new(first),
+        status: Box::new(control.status(first)),
     });
     let port = web::start(web::Options {
         data: d.to_path_buf(),
@@ -522,15 +534,16 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
         bus: Arc::clone(&bus),
         control: Arc::clone(&control),
     })?;
-    let shown = format!("{mode:?}").to_lowercase();
     (e.say)(&format!(
-        "the page is at http://127.0.0.1:{port}/; the engine starts in {shown} mode"
+        "the page is at http://127.0.0.1:{port}/; every work is paused until the owner starts them there"
     ));
     // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
     let stop = d.join("stop");
     let _ = std::fs::remove_file(&stop);
     let idle = Duration::from_secs(10);
     let mut last: Option<api::StepTaken> = None;
+    // The work the last step took, from which the next step goes round the works.
+    let mut after: Option<i64> = None;
     while !stop.exists() {
         // What a work's next round would be, for the page that asked: built between steps, nothing run.
         for (work, answer) in control.take_previews() {
@@ -544,32 +557,42 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
                 step: n.step,
                 not_asked: n.not_asked,
                 tools: n.tools,
+                waits: n.waits,
+                design_card: n.design_card,
+                ask: n.ask,
             });
             let _ = answer.send(next);
         }
         let asked = control.asked();
         e.reload_config();
-        let now = status(&mut e, asked, last.as_ref(), started_at)?;
-        bus.publish(api::Event::Status { status: Box::new(now) });
+        let now = status(&mut e, last.as_ref(), started_at)?;
+        bus.publish(api::Event::Status {
+            status: Box::new(control.status(now)),
+        });
         match asked.next() {
-            api::Next::Pass => {
-                if !e.tick()? {
-                    control.wait(asked, idle);
-                }
-            }
             api::Next::Step(work) => {
                 let s = e.step_work(work)?;
+                let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
+                let stepped = s.work.unwrap_or(work);
                 (e.say)(&format!(
-                    "the next round of work {work}, as the owner asked: rounds {:?}",
-                    s.rounds
+                    "the round of work {work}, as the owner asked: work {stepped}, rounds {}",
+                    names.join(", ")
                 ));
                 last = Some(api::StepTaken {
                     at: db::now(),
-                    work,
-                    rounds: s.rounds,
+                    asked: work,
+                    work: stepped,
+                    rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
                     cell: s.cell,
                 });
                 control.stepped();
+            }
+            api::Next::Pass => {
+                let s = e.step(after)?;
+                if s.work.is_none() {
+                    control.wait(asked, idle);
+                }
+                after = s.work;
             }
             api::Next::Wait => control.wait(asked, idle),
         }

@@ -13,7 +13,7 @@ use flow::CompiledCell;
 use serde_json::{Value, json};
 
 use crate::inputs::at_path;
-use crate::work::{Item, Work, json_col, query_json};
+use crate::work::{Item, RoundId, Work, json_col, query_json};
 use crate::{Engine, git};
 
 /// What an action knows: the work as it was when the round started, the round and its return.
@@ -23,7 +23,7 @@ pub struct Ctx {
     pub project: Option<config::Project>,
     /// The CLI the item's level runs on.
     pub cli: Option<String>,
-    pub round: i64,
+    pub round: RoundId,
     pub cell: CompiledCell,
     pub output: Value,
     /// The return as rows read it: an agent's form taken out of the field it sits in.
@@ -50,9 +50,18 @@ fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> 
 /// Tells the owner something: kept for the owner's interface in the same transaction, and written to the
 /// notifications log through the outbox.
 pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
+    tell(tx, work, None, text)
+}
+
+/// Tells the owner of a new ask of the owner, the notice naming the ask for the owner's interface to link to.
+pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
+    tell(tx, Some(work), Some(ask), text)
+}
+
+fn tell(tx: &Transaction<'_>, work: Option<i64>, ask: Option<i64>, text: &str) -> Result<(), String> {
     tx.execute(
-        "INSERT INTO engine_notices (work, text, at) VALUES (?1, ?2, ?3)",
-        params![work, text, db::now()],
+        "INSERT INTO engine_notices (work, ask, text, at) VALUES (?1, ?2, ?3, ?4)",
+        params![work, ask, text, db::now()],
     )
     .map_err(sql)?;
     outbox(tx, work, "notify", &json!({ "text": text }))
@@ -80,18 +89,19 @@ impl Ctx {
     }
 
     /// The last accepted return of a cell of this work that has a value at a path, with its round.
-    fn last(&self, tx: &Transaction<'_>, cell: &str, path: &str) -> Result<Option<(i64, Value)>, String> {
+    fn last(&self, tx: &Transaction<'_>, cell: &str, path: &str) -> Result<Option<(RoundId, Value)>, String> {
         let p = format!("$.{path}");
+        let work = self.work.id;
         tx.query_row(
-            "SELECT id, json_extract(output, ?3) FROM rounds
+            "SELECT n, json_extract(output, ?3) FROM rounds
              WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL AND json_extract(output, ?3) IS NOT NULL
-             ORDER BY id DESC LIMIT 1",
-            params![self.work.id, cell, p],
+             ORDER BY n DESC LIMIT 1",
+            params![work, cell, p],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, db::rusqlite::types::Value>(1)?)),
         )
         .optional()
         .map_err(sql)
-        .map(|o| o.map(|(id, v)| (id, sql_value(v))))
+        .map(|o| o.map(|(n, v)| (RoundId::new(work, n), sql_value(v))))
     }
 }
 
@@ -119,10 +129,7 @@ fn tree_changed(w: &Work, project: &config::Project) -> Result<bool, String> {
 /// The work's design cards not yet replaced, newest first: their ids and statuses.
 fn current_design_cards(tx: &Transaction<'_>, work: i64) -> Result<Vec<(i64, String)>, String> {
     let mut st = tx
-        .prepare(
-            "SELECT c.id, c.status FROM design_cards c JOIN rounds r ON r.id = c.round
-             WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC",
-        )
+        .prepare("SELECT id, status FROM design_cards WHERE work = ?1 AND status <> 'replaced' ORDER BY id DESC")
         .map_err(sql)?;
     st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(sql)?
@@ -133,8 +140,7 @@ fn current_design_cards(tx: &Transaction<'_>, work: i64) -> Result<Vec<(i64, Str
 /// The work's design card not yet replaced: its id and status.
 fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
     tx.query_row(
-        "SELECT c.id, c.status FROM design_cards c JOIN rounds r ON r.id = c.round
-         WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+        "SELECT id, status FROM design_cards WHERE work = ?1 AND status <> 'replaced' ORDER BY id DESC LIMIT 1",
         [work],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
@@ -142,10 +148,12 @@ fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, S
     .map_err(sql)
 }
 
-fn new_design_card(tx: &Transaction<'_>, round: i64, body: &Value) -> Result<i64, String> {
+/// A new design card of a round, open, with what the round said changed from the cards it replaces.
+fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: Option<&Value>) -> Result<i64, String> {
+    let changed = changed.and_then(Value::as_str).filter(|s| !s.trim().is_empty());
     tx.execute(
-        "INSERT INTO design_cards (round, body, status) VALUES (?1, ?2, 'open')",
-        params![round, body.to_string()],
+        "INSERT INTO design_cards (work, round, body, status, changed) VALUES (?1, ?2, ?3, 'open', ?4)",
+        params![round.work, round.n, body.to_string(), changed],
     )
     .map_err(sql)?;
     Ok(tx.last_insert_rowid())
@@ -181,8 +189,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         "record_tool_runs" => {
             let runs = query_json(
                 tx,
-                "SELECT result FROM tool_runs WHERE round = ?1 AND tool = 'ci' ORDER BY id",
-                &[&ctx.round],
+                "SELECT result FROM tool_runs WHERE work = ?1 AND round = ?2 AND tool = 'ci' ORDER BY id",
+                &[&ctx.round.work, &ctx.round.n],
                 1000,
             )?;
             let mut head: Option<String> = None;
@@ -212,8 +220,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 .map_err(sql)?;
             if json_col(locked).as_ref() != Some(&acceptance) {
                 tx.execute(
-                    "UPDATE items SET acceptance = ?2, acceptance_round = ?3 WHERE id = ?1",
-                    params![item, acceptance.to_string(), round],
+                    "UPDATE items SET acceptance = ?2, acceptance_work = ?3, acceptance_round = ?4 WHERE id = ?1",
+                    params![item, acceptance.to_string(), round.work, round.n],
                 )
                 .map_err(sql)?;
             }
@@ -227,8 +235,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 return Ok(());
             };
             tx.execute(
-                "UPDATE items SET acceptance = ?2, acceptance_round = ?3 WHERE id = ?1",
-                params![ctx.item_id()?, acceptance.to_string(), ctx.round],
+                "UPDATE items SET acceptance = ?2, acceptance_work = ?3, acceptance_round = ?4 WHERE id = ?1",
+                params![ctx.item_id()?, acceptance.to_string(), ctx.round.work, ctx.round.n],
             )
             .map_err(sql)?;
         }
@@ -241,13 +249,39 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 return Ok(());
             };
             let posted: Option<i64> = tx
-                .query_row("SELECT id FROM design_cards WHERE round = ?1", [round], |r| r.get(0))
+                .query_row(
+                    "SELECT id FROM design_cards WHERE work = ?1 AND round = ?2",
+                    [round.work, round.n],
+                    |r| r.get(0),
+                )
                 .optional()
                 .map_err(sql)?;
             if posted.is_some() {
                 return Ok(());
             }
-            let card = new_design_card(tx, round, &body)?;
+            // What changed from the cards a redesign set aside is said beside the card, in the same return.
+            let changed: Option<Value> = tx
+                .query_row(
+                    "SELECT json_extract(output, ?3) FROM rounds WHERE work = ?1 AND n = ?2",
+                    params![
+                        round.work,
+                        round.n,
+                        format!("$.{}.design_tree.design_card_changed", ctx.within)
+                    ],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(sql)?
+                .flatten()
+                .map(Value::String);
+            let card = new_design_card(tx, round, &body, changed.as_ref())?;
+            // The cards of this work the redesign set aside are replaced by this one.
+            tx.execute(
+                "UPDATE design_cards SET replaced_by = ?2
+                 WHERE status = 'replaced' AND replaced_by IS NULL AND id <> ?2 AND work = ?1",
+                params![w, card],
+            )
+            .map_err(sql)?;
             notify(
                 tx,
                 Some(w),
@@ -261,7 +295,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let Some(body) = at_value else { return Ok(()) };
             // The cards it replaces are read before it is made: read after, the newest not replaced is itself.
             let before = current_design_cards(tx, w)?;
-            let card = new_design_card(tx, ctx.round, &body)?;
+            let changed = at_path(&ctx.unwrapped, "design_card_changed");
+            let card = new_design_card(tx, ctx.round, &body, changed.as_ref())?;
             if before.is_empty() {
                 notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
             } else {
@@ -294,8 +329,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "replace_design_card" => {
             tx.execute(
-                "UPDATE design_cards SET status = 'replaced'
-                 WHERE status IN ('open', 'ruled') AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                "UPDATE design_cards SET status = 'replaced' WHERE status IN ('open', 'ruled') AND work = ?1",
                 [w],
             )
             .map_err(sql)?;
@@ -455,8 +489,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 .collect();
             for text in said {
                 tx.execute(
-                    "INSERT INTO owner_messages (round, text) VALUES (?1, ?2)",
-                    params![ctx.round, text],
+                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
+                    params![ctx.round.work, ctx.round.n, text],
                 )
                 .map_err(sql)?;
                 notify(

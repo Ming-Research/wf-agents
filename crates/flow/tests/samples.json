@@ -425,19 +425,17 @@
    "row": "done",
    "json": {
     "outcome": {
-     "end": {
-      "head": "3f9c2e1",
-      "test_changes": [
-       {
-        "change": "added",
-        "test": "match_int_range",
-        "catches": "outcome.end.test_changes.catches",
-        "kind": "new_behaviour",
-        "time": "outcome.end.test_changes.time",
-        "worth": "outcome.end.test_changes.worth"
-       }
-      ]
-     },
+     "head": "3f9c2e1",
+     "test_changes": [
+      {
+       "change": "added",
+       "test": "match_int_range",
+       "catches": "outcome.test_changes.catches",
+       "kind": "new_behaviour",
+       "time": "outcome.test_changes.time",
+       "worth": "outcome.test_changes.worth"
+      }
+     ],
      "deviations": [
       {
        "kind": "surprise",
@@ -708,34 +706,32 @@
      "rows": [
       {
        "answer": "fixed",
-       "id": "R1",
+       "id": "F1",
        "commit": "9d2c7aa"
       },
       {
        "answer": "fixed",
-       "id": "T1",
+       "id": "F2",
        "commit": "9d2c7aa"
       },
       {
        "answer": "not_caused_by_change",
-       "id": "CI-lint",
+       "id": "F3",
        "reason": "outcome.rows.reason",
        "evidence": "outcome.rows.evidence"
       }
      ],
-     "end": {
-      "head": "9d2c7aa",
-      "test_changes": [
-       {
-        "change": "added",
-        "test": "match_int_overlap_fixed",
-        "catches": "outcome.end.test_changes.catches",
-        "kind": "new_behaviour",
-        "time": "outcome.end.test_changes.time",
-        "worth": "outcome.end.test_changes.worth"
-       }
-      ]
-     },
+     "head": "9d2c7aa",
+     "test_changes": [
+      {
+       "change": "added",
+       "test": "match_int_overlap_fixed",
+       "catches": "outcome.test_changes.catches",
+       "kind": "new_behaviour",
+       "time": "outcome.test_changes.time",
+       "worth": "outcome.test_changes.worth"
+      }
+     ],
      "deviations": []
     },
     "side_reports": [],
@@ -795,10 +791,7 @@
      "reply": {
       "decision": "outcome.reply.decision",
       "why": "outcome.reply.why"
-     },
-     "points": [
-      "outcome.points"
-     ]
+     }
     },
     "side_reports": [],
     "tell_owner": [],
@@ -894,6 +887,20 @@
          "time": "results.push.times.time"
         }
        ]
+      }
+     },
+     {
+      "tool": "query",
+      "ran": {
+       "verdict": "ran",
+       "rows": [
+        {
+         "id": 4,
+         "title": "Missing data directory",
+         "acceptance": null
+        }
+       ],
+       "cut": false
       }
      }
     ],

@@ -1,20 +1,84 @@
-// The panel that floats over the right side of a chart while something on it is open: its title and who does it,
-// a way back to what it showed before, a close button (Escape closes it too), and its left edge to drag to set its
-// width, which this browser keeps.
+// The panel of what is open on a chart, in the column docked at the chart's right: its title and who does it, a way
+// back to what it showed before, a close button (Escape closes it too). The edges that drag the column's width and
+// the share of it a work's panel takes are here too, kept in this browser.
 
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { t } from '../text';
 
-const WIDTH_KEY = 'wf-agents.panel-width';
-
-function savedWidth(): number | null {
+/// A floating window's width or height as the owner dragged it, kept in this browser where it lets the page keep it;
+/// none for the window's own.
+export function savedSize(key: string, min: number): number | null {
   try {
-    const n = Number.parseInt(localStorage.getItem(WIDTH_KEY) ?? '', 10);
-    return Number.isFinite(n) && n >= 320 ? n : null;
+    const n = Number.parseInt(localStorage.getItem(key) ?? '', 10);
+    return Number.isFinite(n) && n >= min ? n : null;
   } catch {
     return null;
   }
+}
+
+/// The edge of a part of the page that drags its size: a left edge its width, from its right, and a bottom edge its
+/// height, from its top. The size is kept in this browser when the drag ends; a double click gives the part its own
+/// size again.
+export function Grip({ edge, min, storage, label, onSize }: {
+  edge: 'left' | 'right' | 'bottom';
+  min: number;
+  /// The key the size is kept under.
+  storage: string;
+  label: string;
+  onSize: (size: number | null) => void;
+}) {
+  const grip = (e: Press<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const box = el.parentElement?.getBoundingClientRect();
+    const right = box?.right ?? window.innerWidth;
+    const left = box?.left ?? 0;
+    const top = box?.top ?? 0;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) =>
+      onSize(
+        Math.max(
+          min,
+          Math.round(edge === 'left' ? right - ev.clientX : edge === 'right' ? ev.clientX - left : ev.clientY - top),
+        ),
+      );
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      try {
+        const r = el.parentElement?.getBoundingClientRect();
+        const size = edge === 'bottom' ? r?.height : r?.width;
+        if (size) localStorage.setItem(storage, String(Math.round(size)));
+      } catch {
+        // The size is kept only where the browser lets it be.
+      }
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  const reset = () => {
+    onSize(null);
+    try {
+      localStorage.removeItem(storage);
+    } catch {
+      // Nothing was kept.
+    }
+  };
+  return (
+    <div
+      className={edge === 'bottom' ? 'height-grip' : `width-grip width-grip-${edge}`}
+      role="separator"
+      aria-orientation={edge === 'bottom' ? 'horizontal' : 'vertical'}
+      aria-label={label}
+      title={label}
+      onPointerDown={grip}
+      onDoubleClick={reset}
+    />
+  );
 }
 
 export function Panel(props: {
@@ -30,7 +94,6 @@ export function Panel(props: {
   ref?: Ref<HTMLElement>;
 }) {
   const { title, who, back, onBack, onClose, shown, children, ref } = props;
-  const [width, setWidth] = useState<number | null>(savedWidth);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -42,47 +105,8 @@ export function Panel(props: {
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [onClose]);
-  const grip = (e: Press<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const el = e.currentTarget;
-    const right = el.parentElement?.getBoundingClientRect().right ?? window.innerWidth;
-    el.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => setWidth(Math.max(320, Math.round(right - ev.clientX)));
-    const up = () => {
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', up);
-      el.removeEventListener('pointercancel', up);
-      try {
-        const w = el.parentElement?.getBoundingClientRect().width;
-        if (w) localStorage.setItem(WIDTH_KEY, String(Math.round(w)));
-      } catch {
-        // The width is kept only where the browser lets it be.
-      }
-    };
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
-  };
-  const reset = () => {
-    setWidth(null);
-    try {
-      localStorage.removeItem(WIDTH_KEY);
-    } catch {
-      // Nothing was kept.
-    }
-  };
   return (
-    <aside className="panel" ref={ref} style={width !== null ? { width: `min(${width}px, calc(100vw - 24px))` } : undefined}>
-      <div
-        className="panel-grip"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('panel_grip')}
-        title={t('panel_grip')}
-        onPointerDown={grip}
-        onDoubleClick={reset}
-      />
+    <section className="panel" ref={ref}>
       <div className="panel-head">
         {back !== null ? (
           <button type="button" className="panel-back" onClick={onBack}>
@@ -100,7 +124,7 @@ export function Panel(props: {
       <div className="panel-body" ref={body}>
         {children}
       </div>
-    </aside>
+    </section>
   );
 }
 

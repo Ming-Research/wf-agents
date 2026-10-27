@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
-use crate::work::{self, Item, Work};
+use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, git};
 
 /// How many times a tool is tried before it is given up.
@@ -30,7 +30,7 @@ fn sql(e: impl std::fmt::Display) -> String {
 /// failure with what each attempt gave.
 fn attempts(
     e: &Engine,
-    round: i64,
+    round: RoundId,
     tool: &str,
     args: &Value,
     mut f: impl FnMut() -> Result<Value, Failure>,
@@ -40,8 +40,9 @@ fn attempts(
         let now = db::now();
         e.db.conn()
             .execute(
-                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-                params![round, tool, args.to_string(), n, now],
+                "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![round.work, round.n, tool, args.to_string(), n, now],
             )
             .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
         let id = e.db.conn().last_insert_rowid();
@@ -74,12 +75,12 @@ fn attempts(
 }
 
 /// A text given inline when it is short, or saved under the data directory and given by its path.
-fn inline_or_saved(e: &Engine, round: i64, n: usize, text: String) -> String {
+fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String {
     if text.len() <= LONG {
         return text;
     }
     let dir = e.data.join("tool-output");
-    let path = dir.join(format!("round-{round}-{n}.txt"));
+    let path = dir.join(format!("{round}-{n}.txt"));
     match std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&path, &text)) {
         Ok(()) => format!(
             "Too long to give here ({} bytes); saved to {}",
@@ -96,10 +97,16 @@ fn inline_or_saved(e: &Engine, round: i64, n: usize, text: String) -> String {
     }
 }
 
-/// The rows a query found as the flow's query tool gives them: one text, one JSON object per line. The compiled flow's
-/// schema for the tool cell's return says a text, and the engine checks its own tool cell's return against it.
-fn rows_text(rows: &[Value]) -> String {
-    rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")
+/// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
+/// enough to give here; otherwise none, and what `save` gives for them written one JSON object per line, which says
+/// where they were saved.
+fn rows_given(rows: Vec<Value>, save: impl FnOnce(String) -> String) -> (Vec<Value>, Option<String>) {
+    let text = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+    if text.len() <= LONG {
+        (rows, None)
+    } else {
+        (Vec::new(), Some(save(text)))
+    }
 }
 
 /// Splits a command line into words as a shell would, without running anything: quotes group, a backslash escapes.
@@ -270,10 +277,11 @@ struct Binary {
     finished: Option<String>,
 }
 
-/// The test binaries a cargo test log shows, in the order they ran.
+/// The test binaries a cargo test log shows, in the order they ran. Each line is read as a reader sees it: without the
+/// job, the step and the time gh puts before it, and without colour escapes.
 fn binaries(log: &str) -> Vec<Binary> {
     let mut out: Vec<Binary> = Vec::new();
-    for line in log.lines() {
+    for line in hub::clean_log(log).lines() {
         let l = line.trim();
         if let Some(rest) = l.strip_prefix("Running ") {
             let (source, deps) = rest.split_once(" (").unwrap_or((rest, ""));
@@ -312,10 +320,28 @@ fn binaries(log: &str) -> Vec<Binary> {
     out
 }
 
-/// How long each named test took, as far as the logs of the fast CI tell: stable `cargo test` times no test on its
-/// own, so each named test is given the time of the whole test binary that holds it, said as that.
-fn test_times(tests: &[String], logs: &[String]) -> Vec<Value> {
-    let found: Vec<Binary> = logs.iter().flat_map(|l| binaries(l)).collect();
+/// How long each named test took, as far as the logs of the fast CI's jobs tell: stable `cargo test` times no test on
+/// its own, so each named test is given the time of the whole test binary that holds it, said as that. A test not
+/// found says how many tests the logs showed, and a log that could not be read says why.
+fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
+    let found: Vec<Binary> = logs
+        .iter()
+        .filter_map(|l| l.as_ref().ok())
+        .flat_map(|l| binaries(l))
+        .collect();
+    let unread: Vec<&str> = logs
+        .iter()
+        .filter_map(|l| l.as_ref().err().map(String::as_str))
+        .collect();
+    let ran: usize = found.iter().map(|b| b.tests.len()).sum();
+    let missing = if found.is_empty() && !unread.is_empty() {
+        format!("the logs of the fast CI could not be read: {}", unread.join("; "))
+    } else {
+        format!(
+            "not found among the {ran} tests in {} test binaries the logs of the fast CI show",
+            found.len()
+        )
+    };
     let holds = |full: &str, named: &str| {
         full == named || full.ends_with(&format!("::{named}")) || named.ends_with(&format!("::{full}"))
     };
@@ -333,7 +359,7 @@ fn test_times(tests: &[String], logs: &[String]) -> Vec<Value> {
                     ),
                     None => format!("the test binary {} that holds it reported no time", b.name),
                 })
-                .unwrap_or_else(|| "not found in the logs of the fast CI".to_string());
+                .unwrap_or_else(|| missing.clone());
             json!({ "test": named, "time": time })
         })
         .collect()
@@ -394,7 +420,13 @@ pub fn describe(req: &Value) -> String {
 
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
 /// and merges in what ran before.
-pub fn run_tools(e: &mut Engine, w: &Work, item: &Item, round: i64, gathered: &[Gathered]) -> Result<Value, String> {
+pub fn run_tools(
+    e: &mut Engine,
+    w: &Work,
+    item: &Item,
+    round: RoundId,
+    gathered: &[Gathered],
+) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
@@ -494,7 +526,7 @@ fn ci(
     w: &Work,
     project: &config::Project,
     item: &Item,
-    round: i64,
+    round: RoundId,
     req: &Value,
     pushed: &mut Option<String>,
     pr: &Cell<Option<i64>>,
@@ -534,10 +566,13 @@ fn ci(
         )?;
         pr.set(Some(n));
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
-        let logs: Vec<String> = checks
+        let logs: Vec<Result<String, String>> = checks
             .iter()
-            .filter_map(|c| e.github.job_log(&repo(project), c).ok())
-            .map(|l| hub::clean_log(&l))
+            .map(|c| {
+                e.github
+                    .job_log(&repo(project), c)
+                    .map_err(|f| format!("{}: {}", c.name, f.what))
+            })
             .collect();
         let times = test_times(&tests, &logs);
         Ok(
@@ -556,7 +591,7 @@ fn ci_before(
     e: &Engine,
     w: &Work,
     project: &config::Project,
-    round: i64,
+    round: RoundId,
     n: usize,
     req: &Value,
     pushed: Option<&str>,
@@ -591,7 +626,7 @@ fn ci_before(
     let base = git::git(&wt, &["merge-base", &sha, &format!("origin/{}", project.main)])
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
-    let refname = format!("refs/heads/wf-agents-before/{}-{round}-{n}", w.id);
+    let refname = format!("refs/heads/wf-agents-before/{}-{}-{n}", round.work, round.n);
     attempts(e, round, "ci_before", req, || {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
@@ -605,7 +640,7 @@ fn gh(
     e: &Engine,
     w: &Work,
     project: &config::Project,
-    round: i64,
+    round: RoundId,
     n: usize,
     req: &Value,
 ) -> Result<Value, (Failure, String)> {
@@ -638,7 +673,7 @@ fn gh(
     Ok(json!({ "ran": { "verdict": "ran", "exit": code, "output": inline_or_saved(e, round, n, out) } }))
 }
 
-fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
+fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
     let text = req["sql"].as_str().unwrap_or_default().to_string();
     let limits = e.config.config.install.query.clone();
     let path = config::database(&e.data);
@@ -653,8 +688,12 @@ fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failur
         };
         Ok(match run() {
             Ok((rows, cut)) => {
-                let rows = inline_or_saved(e, round, n, rows_text(&rows));
-                json!({ "ran": { "verdict": "ran", "rows": rows, "cut": cut } })
+                let (rows, saved) = rows_given(rows, |text| inline_or_saved(e, round, n, text));
+                let mut ran = json!({ "verdict": "ran", "rows": rows, "cut": cut });
+                if let Some(s) = saved {
+                    ran["saved"] = Value::String(s);
+                }
+                json!({ "ran": ran })
             }
             Err(why) => json!({ "ran": { "verdict": "error", "error": why } }),
         })
@@ -664,7 +703,7 @@ fn query(e: &Engine, round: i64, n: usize, req: &Value) -> Result<Value, (Failur
 // Cell 7.
 
 /// Catches the branch up with main, pushes it, and runs the full CI on it; a red check is run again once.
-pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value, String> {
+pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let wt = w.worktree.clone().ok_or("the work has no worktree")?;
     if !git::is_clean(&wt)? {
@@ -726,7 +765,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Valu
 // Cell 9.
 
 /// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it.
-pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value, String> {
+pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let wt = w.worktree.clone().ok_or("the work has no worktree")?;
     let Some(pr) = w.pr else {
@@ -777,7 +816,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: i64) -> Result<Value,
 
 /// Watches the full CI on the merge commit. On red it runs the red checks again, looks in the table of known red
 /// checks, and runs them on main's commit before the merge, in that order.
-pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, round: i64) -> Result<Value, String> {
+pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     if project.deploy.is_some() {
         return Ok(not_run(
@@ -879,7 +918,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
             "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
             "missing".to_string(),
         ];
-        let times = test_times(&named, &[log.to_string()]);
+        let times = test_times(&named, &[Ok(log.to_string())]);
         assert_eq!(
             times[0]["time"],
             "68.41s for the whole test binary e2e (tests/e2e.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
@@ -892,20 +931,54 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
         );
         assert_eq!(
             times[2],
-            json!({ "test": "missing", "time": "not found in the logs of the fast CI" })
+            json!({ "test": "missing", "time": "not found among the 3 tests in 2 test binaries the logs of the fast CI show" })
+        );
+        let unread = test_times(&named[..1], &[Err("check: HTTP 404".to_string())]);
+        assert_eq!(
+            unread[0]["time"],
+            "the logs of the fast CI could not be read: check: HTTP 404"
+        );
+    }
+
+    // Lines copied from a real job log, as gh gives it: the job, the step and the time before each line, and the
+    // colour escapes cargo writes, their escape character written "^[" by gh.
+    #[test]
+    fn a_named_test_is_found_in_a_real_job_log() {
+        let log = concat!(
+            "check\tSet up job\t\u{feff}2026-10-27T11:11:11.3443351Z Current runner version: '2.338.0'\n",
+            "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)\n",
+            "check\tTest\t2026-10-27T11:12:23.7464421Z \n",
+            "check\tTest\t2026-10-27T11:12:23.7464632Z running 21 tests\n",
+            "check\tTest\t2026-10-27T11:12:23.7470165Z test control::tests::a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time ... ok\n",
+            "check\tTest\t2026-10-27T11:12:53.2568286Z test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.51s\n",
+        );
+        let named = ["a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time".to_string()];
+        let times = test_times(&named, &[Ok(log.to_string())]);
+        assert_eq!(
+            times[0]["time"],
+            "29.51s for the whole test binary api (unittests src/lib.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
         );
     }
 
     #[test]
-    fn a_query_gives_its_rows_as_one_text_one_object_per_line() {
+    fn a_query_gives_its_rows_as_objects_and_saves_them_one_per_line_when_too_long() {
         let rows = vec![
-            json!({ "id": 206, "title": "Say" }),
+            json!({ "id": 206, "title": "Say \"done\"" }),
             json!({ "id": 207, "title": null }),
         ];
-        assert_eq!(
-            rows_text(&rows),
-            "{\"id\":206,\"title\":\"Say\"}\n{\"id\":207,\"title\":null}"
-        );
+        let given = rows_given(rows.clone(), |_| unreachable!("short rows are given here"));
+        assert_eq!(given, (rows, None));
+        let long: Vec<Value> = (0..2000).map(|i| json!({ "id": i, "text": "x".repeat(20) })).collect();
+        let kept = std::cell::RefCell::new(String::new());
+        let (given, saved) = rows_given(long, |text| {
+            *kept.borrow_mut() = text;
+            "saved to f".to_string()
+        });
+        assert!(given.is_empty());
+        assert_eq!(saved.as_deref(), Some("saved to f"));
+        let kept = kept.into_inner();
+        assert_eq!(kept.lines().count(), 2000);
+        assert_eq!(kept.lines().next(), Some(r#"{"id":0,"text":"xxxxxxxxxxxxxxxxxxxx"}"#));
     }
 
     #[test]

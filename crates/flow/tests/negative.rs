@@ -428,7 +428,23 @@ case!(
     }
 );
 case!(a_shown_place_the_return_does_not_have, "nope", |v| {
-    node(v, "4")["shown"] = json!(["deviations", "end.followup", "nope"]);
+    node(v, "4")["shown"] = json!(["deviations", "followup", "nope"]);
+});
+case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
+    obj(&mut graph(v)["agentCommon"]["inputs"][0]).remove("name");
+});
+case!(
+    a_cell_own_input_with_a_name,
+    "only an input every agent's cell has",
+    |v| {
+        node(v, "4")["inputs"][0]["name"] = json!("Design");
+    }
+);
+case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
+    node(v, "13")["inputs"][0]["numbered"] = json!("F");
+});
+case!(a_kind_that_needs_no_such_need, "no such need", |v| {
+    graph(v)["askKinds"][0]["needs"] = json!({ "gap_under_test": "nothing_known" });
 });
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
     drop_source(v, "8", json!(["5a", "columns[findings]"]));

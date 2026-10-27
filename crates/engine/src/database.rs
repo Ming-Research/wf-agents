@@ -11,13 +11,26 @@ use db::{Db, Error};
 /// where it looked and the command that makes one.
 pub fn open(data: &Path) -> Result<Db, String> {
     let path = config::database(data);
-    Db::open(&path).map_err(|e| match e {
+    Db::open(&path).map_err(|e| told(&path, e))
+}
+
+/// Opens the database in the data directory `data` only to read it, as it is. It makes nothing, and a missing
+/// database is told as [`open`] tells it.
+pub fn open_read_only(data: &Path) -> Result<Db, String> {
+    let path = config::database(data);
+    Db::open_read_only(&path).map_err(|e| told(&path, e))
+}
+
+/// What a failure to open the database at `path` is told as: a missing database says where it was looked for and
+/// which command makes one.
+fn told(path: &Path, e: Error) -> String {
+    match e {
         Error::Missing => format!(
             "{}: no database here; if this is the right data directory, `wf-agents init` makes one",
             path.display()
         ),
         e => format!("{}: {e}", path.display()),
-    })
+    }
 }
 
 /// Whether the place of the data directory `data`'s database is one [`create`] will refuse: a database is there, or

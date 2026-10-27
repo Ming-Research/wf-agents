@@ -1,6 +1,11 @@
-// How times, durations and costs are written on the page.
+// How times, durations, costs and rounds are written on the page.
 
 const two = (n: number) => String(n).padStart(2, '0');
+
+/// A round's name, as the page, the addresses and agents' messages write it: its work and its number in the work.
+export function roundName(work: number, n: number): string {
+  return `R${work}-${n}`;
+}
 
 /// A time as month-day hour:minute:second, in the browser's time zone.
 export function time(ms: number | null | undefined): string {

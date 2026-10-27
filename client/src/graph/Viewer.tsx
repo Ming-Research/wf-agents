@@ -10,6 +10,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type ViewerHandle = {
   /// Shows the whole drawing, or, when that is smaller than `least`, the top of it at that zoom, centred on `around`.
   start: (least: number, around: Rect | null) => void;
+  /// Shows a rectangle of the drawing in the middle of what can be seen, at zoom `s`, at once.
+  place: (r: Rect, s: number) => void;
   /// Brings a rectangle of the drawing to the middle of what can be seen. With `keep`, it keeps the zoom and moves
   /// only when the rectangle is not wholly in sight; without, it zooms in to a zoom one can read at.
   focus: (r: Rect, keep: boolean) => void;
@@ -18,8 +20,6 @@ export type ViewerHandle = {
 
 type View = { s: number; x: number; y: number };
 
-export type Covered = { left: number | null; right: number | null };
-
 export function Viewer(props: {
   /// The drawing's size, in its own pixels.
   width: number;
@@ -27,12 +27,9 @@ export function Viewer(props: {
   children: ReactNode;
   /// Called with the element under the pointer when a click does not drag.
   onPick: (target: Element) => void;
-  /// What floats over the drawing, in page pixels: where a drawer over its left side ends, and where a panel over
-  /// its right side begins; none for what is not open.
-  covered: () => Covered;
   ref?: Ref<ViewerHandle>;
 }) {
-  const { width, height, onPick, covered, ref } = props;
+  const { width, height, onPick, ref } = props;
   const box = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const view = useRef<View>({ s: 1, x: 0, y: 0 });
@@ -43,8 +40,6 @@ export function Viewer(props: {
   const mouse = useRef<[number, number] | null>(null);
   const pick = useRef(onPick);
   pick.current = onPick;
-  const cover = useRef(covered);
-  cover.current = covered;
 
   const api = useRef<ViewerHandle & { whole: () => View; apply: () => void } | null>(null);
   if (api.current === null) {
@@ -52,17 +47,10 @@ export function Viewer(props: {
       const v = view.current;
       if (stage.current) stage.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
     };
-    // The part of the viewer one can see, not under the drawer or the panel, in the viewer's own pixels.
+    // The part of the viewer one can see, in the viewer's own pixels: all of it, as nothing floats over the chart.
     const seen = () => {
       const r = box.current?.getBoundingClientRect() ?? new DOMRect(0, 0, 800, 600);
-      let x0 = 0;
-      let x1 = r.width;
-      const { left, right } = cover.current();
-      if (window.innerWidth > 600) {
-        if (right !== null && right - r.left > 160) x1 = Math.min(x1, right - r.left - 8);
-        if (left !== null && x1 - (left - r.left) > 240) x0 = Math.max(x0, left - r.left + 8);
-      }
-      return { x0, y0: 0, x1, y1: r.height };
+      return { x0: 0, y0: 0, x1: r.width, y1: r.height };
     };
     const centre = (): [number, number] => {
       const w = seen();
@@ -119,6 +107,11 @@ export function Viewer(props: {
           const top = around ? around.y : 0;
           view.current = { s, x: cx - focusX * s, y: 24 - top * s };
         }
+        apply();
+      },
+      place: (r, s) => {
+        const [cx, cy] = centre();
+        view.current = { s, x: cx - (r.x + r.width / 2) * s, y: cy - (r.y + r.height / 2) * s };
         apply();
       },
       focus: (r, keep) => {

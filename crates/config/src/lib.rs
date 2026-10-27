@@ -95,7 +95,8 @@ pub struct Host {
 pub struct Agents {
     /// The CLIs agents run in, by name.
     pub clis: BTreeMap<String, Cli>,
-    /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with.
+    /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with; its advisor
+    /// runs at the level one above.
     pub levels: BTreeMap<String, Level>,
     /// What the agents of each line may not do on this machine.
     #[serde(default)]
@@ -486,14 +487,22 @@ pub fn committed(dir: &Path) -> Result<Committed, Error> {
         .map_err(fail)?
         .trim()
         .to_string();
-    let files = git(dir, &["ls-tree", "-r", "--name-only", &commit]).map_err(fail)?;
-    let files = files.lines().map(str::to_string).collect();
-    let config = read(&Commit {
-        dir,
-        commit: commit.clone(),
-        files,
-    })?;
+    let config = at(dir, &commit)?;
     Ok(Committed { commit, config })
+}
+
+/// Reads the configuration as a commit of the data directory has it: what a round that names that commit ran with.
+pub fn at(dir: &Path, commit: &str) -> Result<Config, Error> {
+    if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(fail(format!("not a commit: {commit}")));
+    }
+    let files = git(dir, &["ls-tree", "-r", "--name-only", commit]).map_err(fail)?;
+    let files = files.lines().map(str::to_string).collect();
+    read(&Commit {
+        dir,
+        commit: commit.to_string(),
+        files,
+    })
 }
 
 /// Reads the configuration as the data directory's files are now, committed or not.
@@ -669,6 +678,27 @@ impl Config {
         Some((l, self.install.agents.clis.get(&l.cli)?))
     }
 
+    /// The level one above the one named, in the order of the levels' names (by number when they are numbers); the
+    /// top level is its own level above. A name that is no level is given back as it is.
+    pub fn level_above(&self, name: &str) -> String {
+        let mut names: Vec<&String> = self.install.agents.levels.keys().collect();
+        names.sort_by_key(|n| (n.parse::<i64>().ok(), (*n).clone()));
+        match names.iter().position(|n| *n == name) {
+            Some(i) => names.get(i + 1).unwrap_or(&names[i]).to_string(),
+            None => name.to_string(),
+        }
+    }
+
+    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, every
+    /// other line at the item's.
+    pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
+        if line == "advisor" {
+            self.level_above(item_level)
+        } else {
+            item_level.to_string()
+        }
+    }
+
     /// The settings a rule's text names, as `` `owner.language` `` or `` `project.under_test` ``, each with its value
     /// for the project, so the agent given the rule is given what it says.
     pub fn named_settings(&self, project: &str, text: &str) -> Vec<(String, String)> {
@@ -720,6 +750,48 @@ pub fn database(dir: &Path) -> PathBuf {
 /// leaves out.
 pub fn worktrees(dir: &Path) -> PathBuf {
     dir.join("worktrees")
+}
+
+/// What a project says of itself in a checkout or a worktree at `root`, which agents are given as the project guide:
+/// its AGENTS.md, the index of its design tree under the design paths (each node's path and first line), and the
+/// full text of the nodes `cites` names by their paths.
+pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json::Value {
+    use serde_json::{Map, Value, json};
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
+    let mut index = Map::new();
+    let mut cited = Map::new();
+    for d in design.iter().filter(|d| d.ends_with('/')) {
+        for f in files_under(&root.join(d)) {
+            let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy().into_owned();
+            let body = std::fs::read_to_string(&f).unwrap_or_default();
+            let first = body
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or_default()
+                .to_string();
+            if cites.contains(&rel) {
+                cited.insert(rel.clone(), Value::String(body));
+            }
+            index.insert(rel, Value::String(first));
+        }
+    }
+    json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
+}
+
+/// The Markdown files under a directory, in the order of their paths.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            out.extend(files_under(&p));
+        } else if p.extension().is_some_and(|x| x == "md") {
+            out.push(p);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -842,6 +914,25 @@ asks = 9
             ..cli.clone()
         };
         assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
+    }
+
+    // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level
+    // above. The advisor runs one level above the item's, every other line at the item's.
+    #[test]
+    fn the_advisor_runs_one_level_up() {
+        let mut c = read(&files(&[])).unwrap();
+        let senior = c.install.agents.levels["senior"].clone();
+        c.install.agents.levels = ["1", "2", "10"]
+            .iter()
+            .map(|n| (n.to_string(), senior.clone()))
+            .collect();
+        assert_eq!(c.level_above("1"), "2");
+        assert_eq!(c.level_above("2"), "10");
+        assert_eq!(c.level_above("10"), "10");
+        assert_eq!(c.level_above("nine"), "nine");
+        assert_eq!(c.level_of_line("1", "advisor"), "2");
+        assert_eq!(c.level_of_line("1", "engineer"), "1");
+        assert_eq!(c.level_of_line("10", "advisor"), "10");
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

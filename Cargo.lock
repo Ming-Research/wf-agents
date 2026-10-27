@@ -56,6 +56,7 @@ dependencies = [
 name = "api"
 version = "0.1.0"
 dependencies = [
+ "config",
  "db",
  "flow",
  "serde",
@@ -260,12 +261,12 @@ dependencies = [
 name = "engine"
 version = "0.1.0"
 dependencies = [
+ "api",
  "config",
  "db",
  "flow",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]

@@ -10,20 +10,22 @@
 //! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
 //! and that the return is to be rewritten.
 //!
-//! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
-//! content; a value the engine reads or computes for a round is `R<round>·engine·<name>`, by the earliest round it
-//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`, `ask:<id>` (an ask of
-//! the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`.
+//! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
+//! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
+//! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`. A
+//! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
+//! names no round, and the engine never gives it again.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use flow::{CompiledCell, CompiledGraph};
+pub use flow::formats::{cell_format, cell_inputs, common_format, hash};
+use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::Engine;
 use crate::inputs::{Gathered, Origin, Part};
-use crate::work::{Item, Round, Work};
+use crate::work::{Item, Round, RoundId, Work};
 
 /// One conditional input of a message.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +50,7 @@ pub struct Message {
     pub conditional: Vec<Conditional>,
     /// The round a short message goes on from, a return sent back or a round cut off midway: the session holds
     /// everything that round was given, and only the interjections it was given are this round's.
-    pub continues: Option<i64>,
+    pub continues: Option<RoundId>,
 }
 
 impl Message {
@@ -63,50 +65,9 @@ impl Message {
     }
 }
 
-/// The hash a content is known by: SHA-256 of its JSON with every object's keys in order, so that the same content is
-/// one conditional input however its keys were written.
-pub fn hash(v: &Value) -> String {
-    let mut s = String::new();
-    canonical(v, &mut s);
-    Sha256::digest(s.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-fn canonical(v: &Value, out: &mut String) {
-    match v {
-        Value::Object(o) => {
-            let mut keys: Vec<&String> = o.keys().collect();
-            keys.sort();
-            out.push('{');
-            for (i, k) in keys.into_iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&Value::String(k.clone()).to_string());
-                out.push(':');
-                canonical(&o[k], out);
-            }
-            out.push('}');
-        }
-        Value::Array(xs) => {
-            out.push('[');
-            for (i, x) in xs.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                canonical(x, out);
-            }
-            out.push(']');
-        }
-        other => out.push_str(&other.to_string()),
-    }
-}
-
 /// The round an address names, for an address of a round's value.
-pub fn round_of(address: &str) -> Option<i64> {
-    address.strip_prefix('R')?.split('·').next()?.parse().ok()
+pub fn round_of(address: &str) -> Option<RoundId> {
+    RoundId::parse(address.split('·').next()?)
 }
 
 /// The conditional inputs a round recorded, each as its address and hash; none for a round recorded before they
@@ -131,9 +92,9 @@ pub struct Held {
     /// The conditional inputs it was given or referred to, each as its address and the hash of its content.
     pub conditional: HashSet<(String, String)>,
     /// The rounds whose returns it holds: every value they produced is in the session under its address.
-    pub rounds: BTreeSet<i64>,
+    pub rounds: BTreeSet<RoundId>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
-    pub compacted: Option<i64>,
+    pub compacted: Option<RoundId>,
 }
 
 impl Held {
@@ -201,6 +162,12 @@ fn empty(v: &Value) -> bool {
     }
 }
 
+/// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
+/// AGENTS.md and design tree) and a setting of its configuration, such as its design goal.
+fn project_own(o: &Origin) -> bool {
+    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == "project_guide")
+}
+
 /// How a conditional input's content is written in a message: a text as it is, anything else as compact JSON.
 fn render(v: &Value) -> String {
     match v {
@@ -209,256 +176,12 @@ fn render(v: &Value) -> String {
     }
 }
 
-/// Merges one schema into another: the alternatives of a `oneOf` or `anyOf` are joined, each once, and the fields of
-/// an object merged by name.
-fn merge(a: &mut Value, b: &Value) {
-    if a == b {
-        return;
-    }
-    let (Value::Object(x), Value::Object(y)) = (a, b) else {
-        return;
-    };
-    for (k, vb) in y {
-        match x.get_mut(k) {
-            Some(Value::Array(xs)) if k == "oneOf" || k == "anyOf" => {
-                for v in vb.as_array().into_iter().flatten() {
-                    if !xs.contains(v) {
-                        xs.push(v.clone());
-                    }
-                }
-            }
-            Some(va) => merge(va, vb),
-            None => {
-                x.insert(k.clone(), vb.clone());
-            }
-        }
-    }
-}
-
-/// A schema as the formats write it: `additionalProperties: false` left out, since the formats say once that no object
-/// holds fields it does not list.
-fn lean(schema: &Value) -> Value {
-    match schema {
-        Value::Object(o) => Value::Object(
-            o.iter()
-                .filter(|(k, v)| !(*k == "additionalProperties" && **v == Value::Bool(false)))
-                .map(|(k, v)| (k.clone(), lean(v)))
-                .collect(),
-        ),
-        Value::Array(xs) => Value::Array(xs.iter().map(lean).collect()),
-        other => other.clone(),
-    }
-}
-
-/// How long, as compact JSON, a part of a schema must be for the formats to give it once when it repeats.
-const LARGE: usize = 300;
-
-/// A schema with each large part it repeats given once, under `$defs`, and referred to by `$ref` wherever it
-/// repeats, the longest first: a field several forms share, such as the kinds of ask under each role an agent may
-/// ask, is written once.
-fn once(schema: Value) -> Value {
-    let mut s = schema;
-    let mut defs = Map::new();
-    loop {
-        let mut seen: HashMap<String, (usize, String, Value)> = HashMap::new();
-        repeats(&s, "part", true, &mut seen);
-        let Some((key, (_, name, part))) = seen
-            .into_iter()
-            .filter(|(k, (n, _, _))| *n > 1 && k.len() >= LARGE)
-            .max_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| b.0.cmp(&a.0)))
-        else {
-            break;
-        };
-        let mut id = name.clone();
-        let mut i = 2;
-        while defs.contains_key(&id) {
-            id = format!("{name}_{i}");
-            i += 1;
-        }
-        refer(&mut s, &key, &json!({ "$ref": format!("#/$defs/{id}") }));
-        defs.insert(id, part);
-    }
-    if let (Value::Object(o), false) = (&mut s, defs.is_empty()) {
-        o.insert("$defs".into(), Value::Object(defs));
-    }
-    s
-}
-
-/// Counts every object in a schema by its canonical text, with the name of the field it describes; the root is not
-/// counted.
-fn repeats(v: &Value, name: &str, root: bool, seen: &mut HashMap<String, (usize, String, Value)>) {
-    match v {
-        Value::Object(o) => {
-            if !root {
-                let mut key = String::new();
-                canonical(v, &mut key);
-                seen.entry(key).or_insert_with(|| (0, name.to_string(), v.clone())).0 += 1;
-            }
-            for (k, x) in o {
-                // A part is named by the field it describes: what holds fields, items or alternatives keeps its name.
-                let structural = matches!(k.as_str(), "properties" | "items" | "oneOf" | "anyOf");
-                repeats(x, if structural { name } else { k }, false, seen);
-            }
-        }
-        Value::Array(xs) => {
-            for x in xs {
-                repeats(x, name, false, seen);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Puts `with` in place of every object whose canonical text is `key`.
-fn refer(v: &mut Value, key: &str, with: &Value) {
-    match v {
-        Value::Object(o) => {
-            let mut text = String::new();
-            canonical(&Value::Object(o.clone()), &mut text);
-            if text == key {
-                *v = with.clone();
-                return;
-            }
-            for x in o.values_mut() {
-                refer(x, key, with);
-            }
-        }
-        Value::Array(xs) => {
-            for x in xs {
-                refer(x, key, with);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn quoted(names: &[String]) -> String {
-    names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
-}
-
-/// The forms every agent's return in a graph shares, with each cell's own answer apart: what `format:common` gives.
-/// A form some cells have with fewer alternatives (fewer tools, fewer roles to ask) is given with all of them;
-/// `format:<cell>` says which a cell has.
-pub fn common_format(g: &CompiledGraph) -> String {
-    let mut forms: Vec<(String, Value)> = Vec::new();
-    let mut every: Map<String, Value> = Map::new();
-    let mut without: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut within = Value::Null;
-    for c in g.cells.iter().filter(|c| c.kind == "agent") {
-        let Some(props) = c.schema.as_ref().and_then(|s| s["properties"].as_object()) else {
-            continue;
-        };
-        let alts = props
-            .get(&g.within)
-            .and_then(|w| w["anyOf"].as_array())
-            .cloned()
-            .unwrap_or_default();
-        if within.is_null() {
-            within = props
-                .get(&g.within)
-                .and_then(|w| w.get("description"))
-                .cloned()
-                .unwrap_or(Value::Null);
-        }
-        for (f, a) in c.forms.iter().zip(&alts) {
-            let Some(name) = &f.field else { continue };
-            match forms.iter_mut().find(|(n, _)| n == name) {
-                Some((_, s)) => merge(s, a),
-                None => forms.push((name.clone(), a.clone())),
-            }
-            let left = without.entry(name.clone()).or_default();
-            for x in &f.without {
-                if !left.contains(x) {
-                    left.push(x.clone());
-                }
-            }
-        }
-        for (k, v) in props.iter().filter(|(k, _)| **k != g.within) {
-            match every.get_mut(k) {
-                Some(s) => merge(s, v),
-                None => {
-                    every.insert(k.clone(), v.clone());
-                }
-            }
-        }
-    }
-    let mut schema = Map::new();
-    schema.insert(
-        g.within.clone(),
-        json!({ "description": within, "anyOf": forms.iter().map(|x| x.1.clone()).collect::<Vec<_>>() }),
-    );
-    let every_names: Vec<String> = every.keys().cloned().collect();
-    schema.extend(every);
-    let names: Vec<String> = forms.iter().map(|x| x.0.clone()).collect();
-    let leaves: Vec<String> = without
+/// The kinds of question a project cannot meet, which its agents are not told of: those whose need it does not meet.
+pub fn kinds_left_out<'g>(g: &'g CompiledGraph, project: Option<&config::Project>) -> Vec<&'g AskNeed> {
+    g.ask_needs
         .iter()
-        .filter(|(_, xs)| !xs.is_empty())
-        .map(|(f, xs)| format!("a return of the form `{f}` leaves out {}", quoted(xs)))
-        .collect();
-    let leaves = if leaves.is_empty() {
-        String::new()
-    } else {
-        format!("; {}", leaves.join("; "))
-    };
-    let write: String = g.write.iter().map(|l| format!("- {l}\n")).collect();
-    let write = if write.is_empty() {
-        String::new()
-    } else {
-        format!("\n\nHow a return is written:\n{write}")
-    };
-    format!(
-        "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
-         the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
-         also holds {every}{leaves}.{write}\n\nEach field, as JSON Schema; no object holds fields it does not list, \
-         and a part used in more than one place is under `$defs`:\n\n{json}",
-        w = g.within,
-        forms = quoted(&names),
-        every = quoted(&every_names),
-        json = once(lean(&Value::Object(schema))),
-    )
-}
-
-/// A cell's own answer, and which of the forms every return shares the cell has: what `format:<cell>` gives.
-pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
-    let alts = cell
-        .schema
-        .as_ref()
-        .and_then(|s| s["properties"][&g.within]["anyOf"].as_array())
-        .cloned()
-        .unwrap_or_default();
-    let mut own = Value::Null;
-    let mut others = Vec::new();
-    for (f, a) in cell.forms.iter().zip(&alts) {
-        match &f.field {
-            None => own = a.clone(),
-            Some(name) if *name == "tools" || a["properties"][name]["items"]["oneOf"].is_array() => {
-                others.push(format!("`{name}` (of {})", cell.tools.join(", ")));
-            }
-            Some(name) => {
-                let roles: Vec<&str> = a["properties"][name]["oneOf"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|b| b["properties"].as_object())
-                    .flat_map(|p| p.values().filter_map(|v| v["const"].as_str()))
-                    .collect();
-                if roles.is_empty() {
-                    others.push(format!("`{name}`"));
-                } else {
-                    others.push(format!("`{name}` (to {})", roles.join(", ")));
-                }
-            }
-        }
-    }
-    format!(
-        "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema; instead of it, a return of this cell may \
-         hold these forms of `format:common`: {others}.\n\n{json}",
-        id = cell.id,
-        title = cell.title,
-        w = g.within,
-        others = others.join(", "),
-        json = once(lean(&own)),
-    )
+        .filter(|k| !project.is_some_and(|p| p.has(&k.need).unwrap_or(false)))
+        .collect()
 }
 
 /// A return format or a rule with the value of each setting it names written beside the setting's name, such as
@@ -487,14 +210,16 @@ pub struct Context<'a> {
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
     pub item: &'a Item,
-    /// This round's number.
-    pub round: i64,
+    /// This round.
+    pub round: RoundId,
     /// Every round of the work so far, oldest first.
     pub rounds: &'a [Round],
     pub gathered: &'a [Gathered],
     /// The values the engine knows and rows recorded, which pick the lines the prompt adds.
     pub given: &'a Map<String, Value>,
     pub columns: &'a [(String, String)],
+    /// The rows of the cell's numbered table, each with its number, as [`crate::inputs::table`] makes them.
+    pub table: &'a [Value],
     pub held: &'a Held,
     pub registry: &'a HashMap<String, Vec<String>>,
 }
@@ -550,12 +275,12 @@ impl Context<'_> {
         let suffix = format!("·engine·{name}");
         m.registry
             .get(&hash(content))
-            .and_then(|known| known.iter().find(|a| a.ends_with(&suffix)))
+            .and_then(|known| known.iter().find(|a| a.ends_with(&suffix) && round_of(a).is_some()))
             .cloned()
-            .unwrap_or_else(|| format!("R{}{suffix}", self.round))
+            .unwrap_or_else(|| format!("{}{suffix}", self.round))
     }
 
-    fn cell_of_round(&self, id: i64) -> Option<String> {
+    fn cell_of_round(&self, id: RoundId) -> Option<String> {
         self.rounds
             .iter()
             .find(|r| r.id == id)
@@ -564,7 +289,11 @@ impl Context<'_> {
                 self.e
                     .db
                     .conn()
-                    .query_row("SELECT cell FROM rounds WHERE id = ?1", [id], |r| r.get(0))
+                    .query_row(
+                        "SELECT cell FROM rounds WHERE work = ?1 AND n = ?2",
+                        [id.work, id.n],
+                        |r| r.get(0),
+                    )
                     .ok()
             })
     }
@@ -573,7 +302,7 @@ impl Context<'_> {
     fn conditional_of(&self, m: &Conditionals<'_>, p: &Part) -> Vec<(String, Value)> {
         match &p.origin {
             Origin::Place { first, cell, path, .. } => {
-                vec![(m.earliest(format!("R{first}·{cell}·{path}"), &p.value), p.value.clone())]
+                vec![(m.earliest(format!("{first}·{cell}·{path}"), &p.value), p.value.clone())]
             }
             Origin::Config(n) => vec![(format!("config:{n}"), p.value.clone())],
             Origin::Recorded(n) | Origin::Engine(n) => vec![(self.computed(m, n, &p.value), p.value.clone())],
@@ -581,7 +310,7 @@ impl Context<'_> {
                 let rows = p.value.as_array().cloned().unwrap_or_default();
                 match rel.as_str() {
                     "item_body" => rows.into_iter().map(|r| (format!("item:{}", r["item"]), r)).collect(),
-                    "item_design_cards" | "parent_design_cards" => rows
+                    "item_design_cards" | "parent_design_cards" | "work_design_card" => rows
                         .into_iter()
                         .map(|r| (format!("design_card:{}", r["design_card"]), r))
                         .collect(),
@@ -602,34 +331,34 @@ impl Context<'_> {
                         .into_iter()
                         .filter_map(|r| {
                             let a = r.get("acceptance").filter(|a| !empty(a))?.clone();
-                            let round = r["acceptance_round"].as_i64()?;
+                            let round = RoundId::new(r["acceptance_work"].as_i64()?, r["acceptance_round"].as_i64()?);
                             let path = match self.cell_of_round(round).as_deref() {
                                 Some("12") => "12·reply.new_acceptance".to_string(),
                                 Some(c) => format!("{c}·acceptance"),
                                 None => "acceptance".to_string(),
                             };
-                            Some((m.earliest(format!("R{round}·{path}"), &a), a))
+                            Some((m.earliest(format!("{round}·{path}"), &a), a))
                         })
                         .collect(),
                     // The problem as the engineer understood it, once research handed it in.
                     "item_problem" => rows
                         .into_iter()
                         .map(|r| {
-                            let researched: Option<i64> = self
+                            let researched: Option<RoundId> = self
                                 .e
                                 .db
                                 .conn()
                                 .query_row(
-                                    "SELECT r.id FROM rounds r JOIN works w ON w.id = r.work
+                                    "SELECT r.work, r.n FROM rounds r JOIN works w ON w.id = r.work
                                      WHERE w.item = ?1 AND r.cell = '1' AND r.transition IS NOT NULL
                                        AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
-                                     ORDER BY r.id DESC LIMIT 1",
+                                     ORDER BY r.work DESC, r.n DESC LIMIT 1",
                                     [self.item.id],
-                                    |x| x.get(0),
+                                    |x| Ok(RoundId::new(x.get(0)?, x.get(1)?)),
                                 )
                                 .ok();
                             let address = match researched {
-                                Some(k) => format!("R{k}·1·understanding.problem"),
+                                Some(k) => format!("{k}·1·understanding.problem"),
                                 None => format!("item:{}·problem", self.item.id),
                             };
                             (address, r["problem"].clone())
@@ -642,7 +371,7 @@ impl Context<'_> {
     }
 
     /// Why the cell's last return was sent back, when this round only rewrites it: the session holds everything else.
-    fn sent_back(&self) -> Option<(i64, String)> {
+    fn sent_back(&self) -> Option<(RoundId, String)> {
         let r = self.rounds.last()?;
         if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() {
             return None;
@@ -661,7 +390,7 @@ impl Context<'_> {
 
     /// The cell's last round, when the engine stopped in the middle of it and the session it ran in goes on: a
     /// session that handed in a return before is resumed, and holds what that round was given.
-    fn cut_off(&self) -> Option<i64> {
+    fn cut_off(&self) -> Option<RoundId> {
         let r = self.rounds.last()?;
         let here = r.cell.as_deref() == Some(self.cell.id.as_str()) && r.transition.is_none();
         let cut = r.rejected.as_ref().is_some_and(|x| x.get("interrupted").is_some());
@@ -679,12 +408,12 @@ impl Context<'_> {
                 let rej = r.rejected.clone().unwrap_or(Value::Null);
                 if rej.get("interrupted").is_some() {
                     out.push(format!(
-                        "R{} was cut off when the engine stopped: do its work again.",
+                        "{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
                 } else if let Some(f) = rej.get("failed").or(rej.get("error")) {
                     let what = f.get("what").and_then(Value::as_str).or(f.as_str()).unwrap_or_default();
-                    out.push(format!("R{} ended without a return ({what}): do its work again.", r.id));
+                    out.push(format!("{} ended without a return ({what}): do its work again.", r.id));
                 }
             }
             Some(r) => {
@@ -692,17 +421,15 @@ impl Context<'_> {
                 let from = r.cell.as_deref().unwrap_or_default();
                 let paused = here(&r) && c.rows.iter().any(|x| x.name == row && x.to == "@self");
                 if paused {
-                    out.push(format!("You paused in R{}: carry on.", r.id));
+                    out.push(format!("You paused in {}: carry on.", r.id));
                 } else {
                     let title = self.g.cell(from).map(|x| x.title.as_str()).unwrap_or_default();
-                    out.push(format!(
-                        "Came from cell {from} ({title}) by its row `{row}`, R{}.",
-                        r.id
-                    ));
+                    out.push(format!("Came from cell {from} ({title}) by its row `{row}`, {}.", r.id));
                     // Back from asking: the answer it brought.
                     if self.g.asking.iter().any(|a| a == from) {
-                        let since = earlier.map_or(0, |e| e.id);
-                        let answer = self.rounds.iter().rev().take_while(|x| x.id > since).find_map(|x| {
+                        let since = earlier.map(|e| e.id);
+                        let after = |x: &&Round| since.is_none_or(|s| x.id > s);
+                        let answer = self.rounds.iter().rev().take_while(after).find_map(|x| {
                             let cell = x.cell.as_deref()?;
                             let kind = self.g.cell(cell)?.kind.as_str();
                             let out = x.output.as_ref().filter(|_| x.transition.is_some())?;
@@ -715,7 +442,7 @@ impl Context<'_> {
                             Some((x.id, cell.to_string(), reply))
                         });
                         if let Some((id, cell, reply)) = answer {
-                            let a = m.add(m.earliest(format!("R{id}·{cell}·reply"), &reply), reply);
+                            let a = m.add(m.earliest(format!("{id}·{cell}·reply"), &reply), reply);
                             out.push(format!("The answer to what you asked: {a}."));
                         }
                     }
@@ -727,7 +454,7 @@ impl Context<'_> {
             && self.held.rounds.is_empty()
         {
             out.push(format!(
-                "Your session was compacted in R{k}: what this round needs is given again."
+                "Your session was compacted in {k}: what this round needs is given again."
             ));
         }
         if !interjections.is_empty() {
@@ -742,7 +469,7 @@ impl Context<'_> {
     /// The message. After a return sent back it only says why, and that the return is to be rewritten.
     pub fn build(&self) -> Message {
         let (e, w, g, c, item) = (self.e, self.w, self.g, self.cell, self.item);
-        let short = |text: String, prev: i64| Message {
+        let short = |text: String, prev: RoundId| Message {
             stored: Value::String(text.clone()),
             text,
             kept: Vec::new(),
@@ -751,14 +478,14 @@ impl Context<'_> {
         };
         if let Some((prev, reason)) = self.sent_back() {
             let text = format!(
-                "# R{} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
+                "# {} · cell {}\n\nYour return was sent back: {reason}\nRewrite it (format:{}).\n",
                 self.round, c.id, c.id
             );
             return short(text, prev);
         }
         if let Some(prev) = self.cut_off() {
             let text = format!(
-                "# R{} · cell {}\n\nR{prev} was cut off midway. First look at the worktree as it is now (files \
+                "# {} · cell {}\n\n{prev} was cut off midway. First look at the worktree as it is now (files \
                  changed, commits made), then go on with its work, and hand it in as format:{} says.\n",
                 self.round, c.id, c.id
             );
@@ -771,21 +498,23 @@ impl Context<'_> {
         };
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
-        // of each setting the formats and the rules name is written beside its name.
+        // of each setting the formats and the rules name is written beside its name, and the kinds of question the
+        // project cannot meet are left out of the formats.
+        let project = e.config.config.projects.get(&item.project);
+        let gone = kinds_left_out(g, project);
         m.add(
             "format:common".into(),
-            Value::String(with_settings(e, &item.project, common_format(g), true)),
+            Value::String(with_settings(e, &item.project, common_format(g, &gone), true)),
         );
         m.add(
             format!("format:{}", c.id),
-            Value::String(with_settings(e, &item.project, cell_format(g, c), true)),
+            Value::String(with_settings(e, &item.project, cell_format(g, c, &gone), true)),
         );
         let numbered = cell_inputs(c);
         if !numbered.is_empty() {
             m.add(format!("inputs:{}", c.id), Value::String(numbered));
         }
         let mut rules = Vec::new();
-        let project = e.config.config.projects.get(&item.project);
         for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
             let Some(text) = e.config.config.rules.get(&name) else {
                 continue;
@@ -805,11 +534,16 @@ impl Context<'_> {
                 rules.push(m.add(format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        let workspace = workspace(w, project).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
+        // A line the configuration keeps from changing anything only reads the worktree.
+        let line = c.line.clone().unwrap_or_else(|| "engineer".to_string());
+        let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
+        let workspace =
+            workspace(w, project, read_only).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full.
         let mut work_from = Vec::new();
         let mut interjections = Vec::new();
+        let mut first: Vec<String> = Vec::new();
         let mut number = 0;
         for x in self.gathered {
             if x.itself() {
@@ -817,6 +551,15 @@ impl Context<'_> {
                 continue;
             }
             number += 1;
+            // A numbered table is one input the engine computes from its sources, each row with its number.
+            if x.input.numbered.is_some() {
+                if !self.table.is_empty() {
+                    let content = Value::Array(self.table.to_vec());
+                    let address = self.computed(&m, "table", &content);
+                    work_from.push(format!("{number}. {}", m.add(address, content)));
+                }
+                continue;
+            }
             let mut addrs: Vec<String> = Vec::new();
             for p in &x.parts {
                 for (address, content) in self.conditional_of(&m, p) {
@@ -826,6 +569,9 @@ impl Context<'_> {
                     let a = m.add(address, content);
                     if a.starts_with("ij:") && !interjections.contains(&a) {
                         interjections.push(a.clone());
+                    }
+                    if project_own(&p.origin) && !first.contains(&a) {
+                        first.push(a.clone());
                     }
                     if !addrs.contains(&a) {
                         addrs.push(a);
@@ -845,12 +591,14 @@ impl Context<'_> {
         let why = self.why(&mut m, &interjections);
 
         let mut out = Writer::default();
-        out.line(&format!("# R{} · cell {} · {}\n", self.round, c.id, c.title));
+        out.line(&format!("# {} · cell {} · {}\n", self.round, c.id, c.title));
         if !why.is_empty() {
             out.line(&why.join("\n"));
             out.line("");
         }
-        let given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
+        // The project's own context comes first: its guide and its settings, then the rest in the order added.
+        let mut given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
+        given.sort_by_key(|x| first.iter().position(|a| *a == x.address).unwrap_or(first.len()));
         if !given.is_empty() {
             out.line("## Given\n");
             for x in given {
@@ -859,7 +607,6 @@ impl Context<'_> {
                 out.line("");
             }
         }
-        out.line("## Task\n");
         let mut task: Vec<&str> = c.prompt.iter().map(String::as_str).collect();
         if let Some(pb) = &c.prompt_by
             && let Some(v) = self.given.get(&pb.by).and_then(Value::as_str)
@@ -867,8 +614,12 @@ impl Context<'_> {
         {
             task.extend(lines.iter().map(String::as_str));
         }
-        out.keep(&task.join("\n"));
-        out.line("");
+        // A cell with no task of its own has no heading for one.
+        if !task.is_empty() {
+            out.line("## Task\n");
+            out.keep(&task.join("\n"));
+            out.line("");
+        }
         if !work_from.is_empty() {
             out.line("## Work from\n");
             for l in &work_from {
@@ -944,30 +695,10 @@ impl Writer {
     }
 }
 
-/// What each numbered input of a cell is, the inputs the agent reads itself left out: what `inputs:<cell>` gives, and
-/// what the numbers in a message's list of inputs to work from stand for.
-pub fn cell_inputs(cell: &CompiledCell) -> String {
-    let lines: Vec<String> = cell
-        .inputs
-        .iter()
-        .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
-        .enumerate()
-        .map(|(i, x)| format!("{}. {}", i + 1, x.what))
-        .collect();
-    if lines.is_empty() {
-        return String::new();
-    }
-    format!(
-        "What each input of cell {} ({}) is, by the number a round's list of inputs gives it:\n{}",
-        cell.id,
-        cell.title,
-        lines.join("\n")
-    )
-}
-
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
-/// `work:<id>` gives. None for a work of no project the configuration knows.
-fn workspace(w: &Work, project: Option<&config::Project>) -> Option<String> {
+/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree. None for a work of no
+/// project the configuration knows.
+fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Option<String> {
     let p = project?;
     let main = format!(
         "Main, wherever the flow says it, is the branch {}: the work branches from it, its PR merges into it, and a \
@@ -975,6 +706,11 @@ fn workspace(w: &Work, project: Option<&config::Project>) -> Option<String> {
         p.main
     );
     Some(match (&w.worktree, &w.branch) {
+        (Some(wt), Some(branch)) if read_only => format!(
+            "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
+             commit nothing there. {main}",
+            wt.display()
+        ),
         (Some(wt), Some(branch)) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
              when you ask it to with a tool. {main}",
@@ -1033,7 +769,12 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
                     ("3d", "cross-project dependency"),
                     ("3e", "splitting"),
                 ] {
-                    if g.cell(c).is_some() {
+                    // A check the project lacks what it needs for was answered by the engine, not judged: no column.
+                    let not_asked = g
+                        .cell(c)
+                        .and_then(|x| x.needs.as_deref())
+                        .is_some_and(|need| project.is_some_and(|p| !p.has(need).unwrap_or(false)));
+                    if g.cell(c).is_some() && !not_asked {
                         cols.push(format!(
                             "The check of {what} answered \"no\" or not applicable: does its reason hold?"
                         ));
@@ -1052,9 +793,15 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
                         ));
                     }
                 }
-                let ends = crate::inputs::last_return(e, w, g, "4", "end").ok().flatten();
-                for t in ends
-                    .and_then(|r| r["end"]["test_changes"].as_array().cloned())
+                // A return of a flow version before the answer was flat holds the test changes under end.
+                let done = crate::inputs::last_return(e, w, g, "4", "test_changes").ok().flatten();
+                for t in done
+                    .and_then(|r| {
+                        r.get("test_changes")
+                            .or_else(|| r["end"].get("test_changes"))
+                            .and_then(Value::as_array)
+                            .cloned()
+                    })
                     .unwrap_or_default()
                 {
                     let name = t["test"].as_str().unwrap_or_default();
@@ -1088,9 +835,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
 mod tests {
     use super::*;
 
-    fn round(id: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
+    fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
-            id,
+            id: RoundId::new(1, n),
             cell: Some("1".into()),
             session: Some(1),
             input,
@@ -1121,8 +868,11 @@ mod tests {
     fn the_same_content_is_one_hash_however_its_keys_were_written() {
         assert_eq!(hash(&json!({ "a": 1, "b": [2] })), hash(&json!({ "b": [2], "a": 1 })));
         assert_ne!(hash(&json!({ "a": 1 })), hash(&json!({ "a": 2 })));
-        assert_eq!(round_of("R28·4·end.test_changes[added]"), Some(28));
+        assert_eq!(round_of("R5-28·4·end.test_changes[added]"), Some(RoundId::new(5, 28)));
+        assert_eq!(RoundId::new(5, 28).to_string(), "R5-28");
         assert_eq!(round_of("rule:ground"), None);
+        // An address written before rounds were named by their work names no round.
+        assert_eq!(round_of("R28·4·end.test_changes[added]"), None);
     }
 
     // A session holds what it was given, referred to and handed back since its last compaction, and nothing from a
@@ -1144,15 +894,16 @@ mod tests {
         let h = Held::of(&rounds);
         assert!(h.holds("rule:ground", &hash(&rule)));
         assert!(!h.holds("rule:ground", &hash(&json!("Facts first, then the rest."))));
-        assert!(h.holds("R3·2a·design", "any"));
-        assert!(!h.holds("R3·engine·project_guide", "any"));
+        assert!(h.holds("R1-3·2a·design", "any"));
+        assert!(!h.holds("R2-3·2a·design", "any"));
+        assert!(!h.holds("R1-3·engine·project_guide", "any"));
         assert!(!h.holds("ij:1", &hash(&json!("From the owner: x"))));
         let mut later = rounds.to_vec();
         later.push(round(5, json!({}), Some(json!({ "outcome": {} })), 1));
         let h = Held::of(&later);
         assert!(!h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R3·2a·design", "any"));
-        assert_eq!(h.compacted, Some(5));
+        assert!(!h.holds("R1-3·2a·design", "any"));
+        assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
     }
 
     // The same content copied from one place to another is one conditional input under the earliest round's address; a word
@@ -1162,34 +913,44 @@ mod tests {
         let held = Held::default();
         let acceptance = json!([{ "id": "A1", "condition": "It works." }]);
         let registry = HashMap::from([
-            (hash(&acceptance), vec!["R25·12·reply.new_acceptance".to_string()]),
-            (hash(&json!("no")), vec!["R7·engine·adversarial".to_string()]),
+            (
+                hash(&acceptance),
+                vec![
+                    "R290·12·reply.new_acceptance".to_string(),
+                    "R4-25·12·reply.new_acceptance".to_string(),
+                ],
+            ),
+            (hash(&json!("no")), vec!["R4-7·engine·adversarial".to_string()]),
         ]);
         let mut m = Conditionals {
             held: &held,
             registry: &registry,
             list: Vec::new(),
         };
+        // An address written before rounds were named by their work is never given again.
         assert_eq!(
-            m.earliest("R30·2a·acceptance".into(), &acceptance),
-            "R25·12·reply.new_acceptance"
+            m.earliest("R4-30·2a·acceptance".into(), &acceptance),
+            "R4-25·12·reply.new_acceptance"
         );
         assert_eq!(
-            m.earliest("R9·3b·answer.verdict".into(), &json!("no")),
-            "R9·3b·answer.verdict"
-        );
-        assert_eq!(m.add("R9·engine·rethought".into(), json!("no")), "R9·engine·rethought");
-        assert_eq!(
-            m.add("R9·3b·answer.verdict".into(), json!("no")),
-            "R9·3b·answer.verdict"
+            m.earliest("R4-9·3b·answer.verdict".into(), &json!("no")),
+            "R4-9·3b·answer.verdict"
         );
         assert_eq!(
-            m.add("R30·2a·acceptance".into(), acceptance.clone()),
-            "R30·2a·acceptance"
+            m.add("R4-9·engine·rethought".into(), json!("no")),
+            "R4-9·engine·rethought"
         );
         assert_eq!(
-            m.add("R31·12·reply.new_acceptance".into(), acceptance),
-            "R30·2a·acceptance"
+            m.add("R4-9·3b·answer.verdict".into(), json!("no")),
+            "R4-9·3b·answer.verdict"
+        );
+        assert_eq!(
+            m.add("R4-30·2a·acceptance".into(), acceptance.clone()),
+            "R4-30·2a·acceptance"
+        );
+        assert_eq!(
+            m.add("R4-31·12·reply.new_acceptance".into(), acceptance),
+            "R4-30·2a·acceptance"
         );
         assert_eq!(m.list.len(), 3);
     }
@@ -1199,7 +960,7 @@ mod tests {
     #[test]
     fn the_common_format_holds_every_alternative_and_a_cell_says_which_it_has() {
         let g = graph();
-        let common = common_format(&g);
+        let common = common_format(&g, &[]);
         for t in [
             "\"ci\"",
             "\"ci_before\"",
@@ -1219,14 +980,50 @@ mod tests {
             "{common}"
         );
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
-        let four = cell_format(&g, g.cell("4").unwrap());
+        let four = cell_format(&g, g.cell("4").unwrap(), &[]);
         assert!(
             four.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{four}"
         );
         assert!(four.contains("`ask` (to advisor, architect, owner)"), "{four}");
-        let twelve = cell_format(&g, g.cell("12").unwrap());
+        let twelve = cell_format(&g, g.cell("12").unwrap(), &[]);
         assert!(twelve.contains("`ask` (to architect, owner)"), "{twelve}");
         assert!(!twelve.contains("`redirect`"), "{twelve}");
+    }
+
+    // What the inputs every agent's cell has are is said once, in the common format; each cell's list of its inputs
+    // names them only, and says in full what its own are.
+    #[test]
+    fn the_inputs_every_cell_has_are_described_once() {
+        let g = graph();
+        let common = common_format(&g, &[]);
+        let four = g.cell("4").unwrap();
+        let goal = four
+            .inputs
+            .iter()
+            .find(|x| x.name.as_deref() == Some("Design goal"))
+            .unwrap();
+        assert_eq!(common.matches(goal.what.as_str()).count(), 1, "{common}");
+        let listed = cell_inputs(four);
+        assert!(!listed.contains(goal.what.as_str()), "{listed}");
+        assert!(
+            listed.contains("Design goal, which format:common describes"),
+            "{listed}"
+        );
+        assert!(listed.contains(four.inputs[0].what.as_str()), "{listed}");
+    }
+
+    // A kind of question whose need the project does not meet is left out of the formats, value and meaning, and the
+    // other kinds stay.
+    #[test]
+    fn a_kind_the_project_cannot_meet_is_left_out_of_the_formats() {
+        let g = graph();
+        let gone = kinds_left_out(&g, None);
+        assert!(gone.iter().any(|k| k.kind == "gap_under_test"), "{gone:?}");
+        let common = common_format(&g, &gone);
+        assert!(!common.contains("gap_under_test"), "{common}");
+        assert!(!common.contains("rejects a natural way of writing"), "{common}");
+        assert!(common.contains("\"unsure\""), "{common}");
+        assert!(common_format(&g, &[]).contains("gap_under_test"));
     }
 }

@@ -13,7 +13,10 @@ flow = { path = "../flow" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The hash each conditional input of an agent's message is known by.
-sha2 = "0.11.1"
+
+[dev-dependencies]
+# What the owner decides, as the page writes it: the tests pause works and let them go on as the owner does.
+api = { path = "../api" }
 
 [lints]
 workspace = true

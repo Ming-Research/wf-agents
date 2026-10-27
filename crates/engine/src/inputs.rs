@@ -9,7 +9,7 @@ use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledInput};
 use serde_json::{Map, Value, json};
 
-use crate::work::{self, Item, Work};
+use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, form_of, git};
 
 /// The most rows an input read from the database gives.
@@ -25,8 +25,8 @@ pub enum Origin {
     /// A place of a round's return: the round, its cell and the path, with the earliest round of the cell whose return
     /// gave the same value there.
     Place {
-        round: i64,
-        first: i64,
+        round: RoundId,
+        first: RoundId,
         cell: String,
         path: String,
     },
@@ -126,7 +126,7 @@ pub fn returns_holding(
     g: &CompiledGraph,
     cell: &str,
     path: &str,
-) -> Result<Vec<(i64, Value)>, String> {
+) -> Result<Vec<(RoundId, Value)>, String> {
     let Some(c) = g.cell(cell) else {
         return Ok(Vec::new());
     };
@@ -238,6 +238,11 @@ fn source(
             let Some((round, value)) = values.next() else {
                 return Ok(None);
             };
+            // A value of one branch, such as `result[conflict]` or `columns[findings]`, is the cell as its newest
+            // return left it: when a newer return took another branch, the older value no longer holds.
+            if p.contains('[') && held.first().map(|(r, _)| *r) != Some(round) {
+                return Ok(None);
+            }
             // The same value an earlier return gave is the one thing it was then.
             let first = values
                 .filter(|(_, v)| *v == value)
@@ -293,6 +298,100 @@ fn source(
             value: v,
         }),
     })
+}
+
+/// The rows of a cell's numbered table: each finding, column, test, conflict, check and entry its sources hold now,
+/// numbered with the table's prefix in the order of its sources, each saying where it came from (the cell and the
+/// path) besides what it holds; none when the cell has no numbered table or nothing to put in it.
+pub fn table(gathered: &[Gathered]) -> Vec<Value> {
+    let Some(x) = gathered.iter().find(|x| x.input.numbered.is_some()) else {
+        return Vec::new();
+    };
+    let prefix = x.input.numbered.clone().unwrap_or_default();
+    let mut rows = Vec::new();
+    for p in &x.parts {
+        let Origin::Place { cell, path, .. } = &p.origin else {
+            continue;
+        };
+        for entry in entries(path, &p.value) {
+            let mut row = Map::new();
+            row.insert("row".into(), Value::String(format!("{prefix}{}", rows.len() + 1)));
+            row.insert("from".into(), Value::String(format!("{cell}·{path}")));
+            row.extend(entry);
+            rows.push(Value::Object(row));
+        }
+    }
+    rows
+}
+
+/// What a row of a numbered table is known by outside it: a finding's number, or a test's name.
+pub fn row_key(row: &Value) -> Option<&str> {
+    ["fid", "test", "name"]
+        .iter()
+        .find_map(|k| row.get(*k).and_then(Value::as_str))
+}
+
+/// What one source of a table holds, one entry for each row: for a review's column with findings, each finding with
+/// the column's number; for a column it could not verify, the column; for a test, the test only when it went wrong
+/// (red after the change, or a result before it that does not fit its kind); for a result with checks, each check that
+/// is not green with the rest of the result, or the whole result when every check is green, as a flaky one is once
+/// run again; for what goes over the plan, each touch rule or budget; anything else as it is.
+fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
+    let items = match v {
+        Value::Array(xs) => xs.clone(),
+        other => vec![other.clone()],
+    };
+    let guards = path.ends_with("guard_tests");
+    let tests = guards || path.ends_with("new_tests");
+    let object = |v: Value| match v {
+        Value::Object(o) => o,
+        other => Map::from_iter([("value".to_string(), other)]),
+    };
+    let mut out = Vec::new();
+    for it in items {
+        let mut o = object(it);
+        if let Some(Value::Array(findings)) = o.get("findings").cloned() {
+            let column = o.get("id").cloned().unwrap_or(Value::Null);
+            for f in findings {
+                let mut m = Map::from_iter([("column".to_string(), column.clone())]);
+                m.extend(object(f));
+                out.push(m);
+            }
+        } else if o.contains_key("verdict") && o.contains_key("id") {
+            let column = o.remove("id").unwrap_or(Value::Null);
+            let mut m = Map::from_iter([("column".to_string(), column)]);
+            m.extend(o);
+            out.push(m);
+        } else if tests {
+            let at = |k: &str| o.get(k).and_then(Value::as_str);
+            let (head, base) = (at("on_head"), at("on_base"));
+            let unfit = if guards {
+                base != Some("green")
+            } else {
+                base == Some("green")
+            };
+            if head == Some("red") || unfit {
+                out.push(o);
+            }
+        } else if let Some(Value::Array(checks)) = o.get("checks").cloned() {
+            let not_green: Vec<Value> = checks.into_iter().filter(|c| c["result"] != "green").collect();
+            if not_green.is_empty() {
+                out.push(o);
+                continue;
+            }
+            o.remove("checks");
+            for c in not_green {
+                let mut m = o.clone();
+                m.extend(object(c));
+                out.push(m);
+            }
+        } else if let Some(Value::Array(over)) = o.get("over").cloned() {
+            out.extend(over.into_iter().map(object));
+        } else {
+            out.push(o);
+        }
+    }
+    out
 }
 
 /// The rows of a table or view for the item, work or project at hand.
@@ -355,8 +454,10 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
         "existing_work" => existing_work(e, w, item, &main)?.map(Value::String),
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
+                // At a re-review of the design tree, the change since the last design tree review; the table review
+                // runs just before it on the same head, so its head would leave nothing to review.
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::reviewed_head(e, w, g)?
+                    crate::values::head_reviewed_by(e, w, g, "5b")?
                 } else {
                     None
                 };
@@ -385,7 +486,8 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
                         .current_dir(wt)
                         .output()
                         .map_err(|e| format!("{cmd}: {e}"))?;
-                    Some(Value::String(String::from_utf8_lossy(&out.stdout).into_owned()))
+                    let printed = String::from_utf8_lossy(&out.stdout).into_owned();
+                    (!printed.trim().is_empty()).then_some(Value::String(printed))
                 }
                 _ => None,
             }
@@ -414,11 +516,11 @@ fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option
         let id = x["id"].as_i64().unwrap_or_default();
         let ended = x["ended"].as_str().unwrap_or("it reached the end of its graph");
         out.push(format!(
-            "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, with the cell, \
-             the row taken and what each said it did: query `SELECT id, cell, transition, json_extract(output, \
-             '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY id`; a round's whole return: `SELECT \
-             output FROM rounds WHERE id = <round>`; its design cards and asks of the owner: the views \
-             `item_design_cards` and `item_asks` with `work = {id}`.",
+            "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, R{id}-1 on, \
+             with the cell, the row taken and what each said it did: query `SELECT n, cell, transition, \
+             json_extract(output, '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY n`; the whole \
+             return of its round R{id}-<n>: `SELECT output FROM rounds WHERE work = {id} AND n = <n>`; its design \
+             cards and asks of the owner: the views `item_design_cards` and `item_asks` with `work = {id}`.",
             x["flow_version"],
             x["rounds"],
             x["at"].as_str().unwrap_or("?"),
@@ -442,49 +544,16 @@ fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option
     Ok(Some(out.join("\n")))
 }
 
-/// The project's AGENTS.md, the index of its design tree (each node's path and first line), and the full text of the
-/// nodes the item names.
+/// The project guide for the item: what the project's worktree says of itself, with the full text of the nodes the
+/// item names.
 fn project_guide(wt: &Path, item: &Item, design: &[String]) -> Value {
-    let agents = std::fs::read_to_string(wt.join("AGENTS.md")).unwrap_or_default();
-    let mut index = Map::new();
-    let mut cited = Map::new();
     let text = format!(
         "{} {} {}",
         item.title,
         item.problem,
         item.approach.clone().unwrap_or_default()
     );
-    for d in design.iter().filter(|d| d.ends_with('/')) {
-        for f in files_under(&wt.join(d)) {
-            let rel = f.strip_prefix(wt).unwrap_or(&f).to_string_lossy().into_owned();
-            let body = std::fs::read_to_string(&f).unwrap_or_default();
-            let first = body
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or_default()
-                .to_string();
-            if text.contains(&rel) {
-                cited.insert(rel.clone(), Value::String(body));
-            }
-            index.insert(rel, Value::String(first));
-        }
-    }
-    json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
-}
-
-fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(dir) else { return out };
-    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.is_dir() {
-            out.extend(files_under(&p));
-        } else if p.extension().is_some_and(|x| x == "md") {
-            out.push(p);
-        }
-    }
-    out
+    config::project_guide(wt, design, &text)
 }
 
 #[cfg(test)]
@@ -513,5 +582,89 @@ mod tests {
             Some(json!([{ "change": "added", "test": "t" }]))
         );
         assert_eq!(at_path(&x, "nothing"), None);
+    }
+
+    // A numbered table holds a row for each finding, column not verified, test that went wrong, conflict and check not
+    // green, numbered across its sources in their order, each saying where it came from.
+    #[test]
+    fn a_numbered_table_numbers_every_row_across_its_sources() {
+        let place = |cell: &str, path: &str, value: Value| Part {
+            origin: Origin::Place {
+                round: RoundId::new(1, 9),
+                first: RoundId::new(1, 9),
+                cell: cell.into(),
+                path: path.into(),
+            },
+            value,
+        };
+        let finding = |fid: &str| json!({ "fid": fid, "where": "w", "what": "x", "fix": "y" });
+        let g = Gathered {
+            input: CompiledInput {
+                id: None,
+                name: None,
+                numbered: Some("F".into()),
+                what: "The table to answer".into(),
+                from: Vec::new(),
+                maybe: true,
+            },
+            parts: vec![
+                place(
+                    "5a",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] }]),
+                ),
+                place(
+                    "5b",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }]),
+                ),
+                place(
+                    "5a",
+                    "columns[cannot_verify]",
+                    json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
+                ),
+                place(
+                    "6",
+                    "new_tests",
+                    json!([
+                        { "name": "fails_before", "on_head": "green", "on_base": "red" },
+                        { "name": "passes_before", "on_head": "green", "on_base": "green" }
+                    ]),
+                ),
+                place(
+                    "6",
+                    "guard_tests",
+                    json!([{ "name": "guard", "on_head": "green", "on_base": "green" }]),
+                ),
+                place(
+                    "7",
+                    "result[conflict]",
+                    json!({ "kind": "conflict", "files": ["a.rs"] }),
+                ),
+                place(
+                    "7",
+                    "result[red]",
+                    json!({ "kind": "red", "checks": [
+                        { "name": "check", "result": "red", "run": "u" },
+                        { "name": "other", "result": "green", "run": "v" }
+                    ] }),
+                ),
+            ],
+            value: None,
+        };
+        let rows = table(std::slice::from_ref(&g));
+        let ids: Vec<&str> = rows.iter().filter_map(|r| r["row"].as_str()).collect();
+        assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]);
+        assert_eq!(
+            (&rows[0]["from"], &rows[0]["column"], &rows[0]["fid"]),
+            (&json!("5a·columns[findings]"), &json!("2"), &json!("R1"))
+        );
+        assert_eq!(rows[2]["from"], "5b·columns[findings]");
+        assert_eq!((&rows[3]["column"], rows[3].get("id")), (&json!("3"), None));
+        assert_eq!(rows[4]["name"], "passes_before");
+        assert_eq!(rows[5]["files"], json!(["a.rs"]));
+        assert_eq!((&rows[6]["kind"], &rows[6]["name"]), (&json!("red"), &json!("check")));
+        assert_eq!(row_key(&rows[0]), Some("R1"));
+        assert_eq!(row_key(&rows[4]), Some("passes_before"));
     }
 }

@@ -1,8 +1,9 @@
 // A flow's state machine as the chart draws it, before it is laid out: the cells, each in the part of the chart it is
-// drawn in and the stage box around it; an arrow for the rows from one cell to another in the same part, numbered and
-// named; a small circle beside a cell for a row to another part, and a shaded one beside the cell it enters; one
-// circle beside each agent's cell for the rows every agent's cell shares; the rules beside the cells that are given
-// them; the interjection beside the engine's steps that take one. Pure, so that it is tested on its own.
+// drawn in and the stage box around it; an arrow for the rows from one cell to another in the same part, named, with
+// their numbers for the chart to draw or leave out; a small circle beside a cell for a row to another part, and a
+// shaded one beside the cell it enters; one circle beside each agent's cell for the rows every agent's cell shares;
+// the rules beside the cells that are given them; the interjection beside the engine's steps that take one. Pure, so
+// that it is tested on its own.
 
 import type { CompiledCell, CompiledGraph, GraphView, RoundSummary } from '../api';
 
@@ -31,7 +32,10 @@ export type ChartEdge = {
   /// of a rule or the interjection into its cell.
   cell: string | null;
   rows: number[];
+  /// The rows' names; none for the arrow to the shared circle, which says what it carries.
   label: string;
+  /// The rows' numbers as `runs` writes them, for the chart to draw beside the names; none when the cell has one row.
+  numbers: Array<[number, number]>;
   /// Some row of it is on the main path.
   main: boolean;
   kind: 'row' | 'shared' | 'rule' | 'interjection';
@@ -43,13 +47,6 @@ export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; groups: ChartGroup
 
 export const MAIN = 'main';
 export const ASKING = 'asking';
-
-const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
-
-/// A row's number as the chart and the transition table write it: circled, from ①.
-export function circled(i: number): string {
-  return i < CIRCLED.length ? CIRCLED[i] : `(${i + 1})`;
-}
 
 const SELF = '@self';
 const CALLER = '@caller';
@@ -64,17 +61,20 @@ export function sharedRows(c: CompiledCell): number[] {
   return c.rows.flatMap((r, i) => (r.common ? [i] : []));
 }
 
-/// Rows' numbers, circled, three or more in a row written as the first and the last.
-export function numbers(rows: number[]): string {
-  const out: string[] = [];
+/// Rows, by their places in a transition table, as the page numbers them: each as a run of its first and last place,
+/// three or more in a row as one run and every other row as a run of its own, so that rows 1, 4, 5, 6, 7 and 9 read
+/// 1, 4-7, 9.
+export function runs(rows: number[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
   let i = 0;
   while (i < rows.length) {
     let j = i;
     while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1) j += 1;
-    out.push(j - i >= 2 ? `${circled(rows[i])}–${circled(rows[j])}` : rows.slice(i, j + 1).map(circled).join(''));
+    if (j - i >= 2) out.push([rows[i], rows[j]]);
+    else for (const r of rows.slice(i, j + 1)) out.push([r, r]);
     i = j + 1;
   }
-  return out.join('');
+  return out;
 }
 
 /// The part each cell is drawn in. The asking part is a part of its own; a cell outside it that no row leads to but
@@ -98,12 +98,6 @@ export function partsOf(g: CompiledGraph, v: GraphView): Map<string, string> {
   return out;
 }
 
-/// The label of an arrow: the rows' numbers and names, or only the names when the cell has one row.
-function label(c: CompiledCell, rows: number[], names = true): string {
-  const nos = c.rows.length > 1 ? numbers(rows) : '';
-  const said = names ? [...new Set(rows.map((i) => c.rows[i].name))].join(', ') : '';
-  return [nos, said].filter((s) => s !== '').join(' ');
-}
 
 export function chart(g: CompiledGraph, v: GraphView): Chart {
   const parts = partsOf(g, v);
@@ -139,7 +133,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
       if (!e.rows.includes(row)) e.rows.push(row);
       e.main = e.main || c.rows[row].main;
     } else {
-      edges.set(id, { id, source, target, cell: c.id, rows: [row], label: '', main: c.rows[row].main, kind });
+      edges.set(id, { id, source, target, cell: c.id, rows: [row], label: '', numbers: [], main: c.rows[row].main, kind });
     }
   };
   const cellNode = (id: string) => `c:${id}`;
@@ -206,6 +200,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
         cell: null,
         rows: [],
         label: '',
+        numbers: [],
         main: false,
         kind: 'rule',
       });
@@ -220,6 +215,7 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
         cell: null,
         rows: [],
         label: '',
+        numbers: [],
         main: false,
         kind: 'interjection',
       });
@@ -229,7 +225,10 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
     const c = e.cell !== null ? cells.get(e.cell) : undefined;
     if (!c) continue;
     e.rows.sort((a, b) => a - b);
-    e.label = label(c, e.rows, e.kind !== 'shared');
+    e.label = e.kind === 'shared' ? '' : [...new Set(e.rows.map((i) => c.rows[i].name))].join(', ');
+    // The arrow to the shared circle carries no numbers either: the circle says on hovering which rows it carries,
+    // and the cell's panel numbers them.
+    e.numbers = e.kind !== 'shared' && c.rows.length > 1 ? runs(e.rows) : [];
   }
   const groups: ChartGroup[] = [];
   const seen = new Set<string>();
@@ -243,22 +242,50 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
   return { nodes: [...nodes.values()], edges: [...edges.values()], groups, parts: partList };
 }
 
-/// What a work did at a cell.
+/// The arrows that light up with the arrow under the pointer: itself and, when it is one half of a row drawn through a
+/// circle beside the cell it leaves and one beside the cell it enters, the other half, into the same cell; nothing
+/// else, so that a row drawn into several cells, such as one going back to whichever cell asked, lights only where it
+/// is pointed at. None for none.
+export function related(edges: ChartEdge[], id: string | null): Set<string> {
+  const e = id === null ? undefined : edges.find((x) => x.id === id);
+  if (e === undefined) return new Set();
+  const lit = new Set([e.id]);
+  if (e.cell === null) return lit;
+  let other: string | null = null;
+  if (e.target.startsWith('o:') && e.target.endsWith(`:${e.cell}`)) {
+    const t = e.target.slice(2, -(e.cell.length + 1));
+    other = `i:${e.cell}:${t}->c:${t}`;
+  } else if (e.source === `i:${e.cell}:${e.target.slice(2)}`) {
+    const t = e.target.slice(2);
+    other = `c:${e.cell}->o:${t}:${e.cell}`;
+  }
+  if (other !== null && edges.some((x) => x.id === other)) lit.add(other);
+  return lit;
+}
+
+/// What a work did at a cell, and at the cell it is at, whether a round runs there now and why the work is held back
+/// there.
 export type Overlay = {
   rounds: number;
   sentBack: number;
   failed: number;
   running: boolean;
   current: boolean;
+  held: string | null;
 };
 
-/// What the work's rounds did at each cell; `at` is the cell the work is at.
-export function overlays(rounds: RoundSummary[], at: string | null): Map<string, Overlay> {
+/// How the work goes on now at the cell it is at: whether the engine runs a round of it, and why it is held back, if
+/// it is.
+export type Now = { running: boolean; held: string | null };
+
+/// What the work's rounds did at each cell; `at` is the cell the work is at, where it goes on as `now` says. A round
+/// still open is running only while the engine runs it.
+export function overlays(rounds: RoundSummary[], at: string | null, now: Now): Map<string, Overlay> {
   const out = new Map<string, Overlay>();
   const get = (cell: string) => {
     let o = out.get(cell);
     if (!o) {
-      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false };
+      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false, held: null };
       out.set(cell, o);
     }
     return o;
@@ -269,9 +296,13 @@ export function overlays(rounds: RoundSummary[], at: string | null): Map<string,
     o.rounds += 1;
     if (r.outcome === 'sent_back') o.sentBack += 1;
     if (r.outcome === 'failed' || r.outcome === 'interrupted') o.failed += 1;
-    if (r.outcome === 'running') o.running = true;
   }
-  if (at !== null) get(at).current = true;
+  if (at !== null) {
+    const o = get(at);
+    o.current = true;
+    o.running = now.running;
+    o.held = now.held;
+  }
   return out;
 }
 

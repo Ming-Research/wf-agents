@@ -60,6 +60,10 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
+    /// The kinds of question that only a project meeting a need can meet: an agent working on a project that does
+    /// not meet it is not told of the kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ask_needs: Vec<AskNeed>,
     /// How every agent's return is written, which the forms every return shares say once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub write: Vec<String>,
@@ -83,9 +87,27 @@ pub struct CompiledInterject {
 pub struct CompiledInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
+    /// the forms every return shares say what it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numbered: Option<String>,
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
+}
+
+/// A kind of question only a project meeting a need can meet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AskNeed {
+    pub kind: String,
+    /// One of `engine.needs`.
+    pub need: String,
+    /// The kind with what it means, as a return format's description of the field that names a kind says it: what
+    /// is taken out of that description when the kind is left out.
+    pub text: String,
 }
 
 /// A rule of the flow an agent's cell is given, by its name.
@@ -522,6 +544,7 @@ impl Schemas<'_> {
             Kind::Int => json!({ "type": "integer" }),
             Kind::Bool => json!({ "type": "boolean" }),
             Kind::Enum => json!({ "enum": f.values.iter().map(|x| x.0.clone()).collect::<Vec<_>>() }),
+            Kind::Obj if f.open => json!({ "type": "object" }),
             Kind::Obj => self.object(Vec::new(), &f.fields),
             Kind::List => {
                 let item = f.item.as_deref().map(|i| self.field(i)).unwrap_or_default();
@@ -697,6 +720,8 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .iter()
                 .map(|x| CompiledInput {
                     id: x.id.clone(),
+                    name: x.name.clone(),
+                    numbered: x.numbered.clone(),
                     what: x.what.clone(),
                     from: x.from.clone(),
                     maybe: x.maybe,
@@ -771,6 +796,27 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
+        ask_needs: f
+            .ask_kinds
+            .iter()
+            .flat_map(|grp| {
+                grp.kinds.iter().filter_map(|(kind, means)| {
+                    grp.needs.get(kind).map(|need| AskNeed {
+                        kind: kind.clone(),
+                        need: need.clone(),
+                        text: if means.is_empty() {
+                            kind.clone()
+                        } else {
+                            g.source
+                                .enum_text
+                                .value
+                                .replace("{value}", kind)
+                                .replace("{means}", means)
+                        },
+                    })
+                })
+            })
+            .collect(),
         write: f.agent_common.returns.write.clone(),
         rounds: match &f.rounds {
             Some(r) => Some(rounds(r, &cells)?),

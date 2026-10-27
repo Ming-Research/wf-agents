@@ -1,16 +1,20 @@
-// A flow's chart filling the window under the bar, and the panel that floats over its right side while a cell, a
-// rule, the interjection, a comparison or a round is open. The flow page and a work's page both show a flow this way.
+// A flow's chart filling the window under the bar, and a column docked at its right, whose width drags at its left
+// edge: on a work's page the work's panel on top, at the column's full height, and while a cell, a rule, the
+// interjection, a comparison or a round is open, its panel in the lower part, split from the top by a divider that
+// drags; on the flow page that panel alone, while something is open. The flow page and a work's page both show a flow
+// this way.
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Compiled, CompiledGraph, FlowDiff, GraphView, RoundSummary } from '../api';
 import { FlowChart, type FlowChartHandle, type Pick } from '../graph/FlowChart';
+import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { t } from '../text';
-import { CellPanel, cellWho } from './CellPanel';
+import { CellPanel, type CellTab, cellWho } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { flowOf, FlowContext, type Subject } from './context';
-import { Panel, useTrail } from './Panel';
+import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { CellLinks, inline } from './words';
 
 const same = (a: Subject, b: Subject) => JSON.stringify(a) === JSON.stringify(b);
@@ -29,12 +33,21 @@ export type FlowScreenProps = {
   start: string | null;
   /// When two flows are compared: what changed, which the panel opens on.
   diff?: FlowDiff | null;
-  /// On a work's page: its rounds, a round's panel, and the round the address names.
+  /// On a work's page: the work, its rounds, a round's panel, and the round the address names, each round by its
+  /// number in the work.
+  work?: number;
   rounds?: RoundSummary[];
   round?: number | null;
   onRound?: (round: number | null) => void;
   renderRound?: (round: number) => ReactNode;
+  /// On a work's page: the work's panel, on top of the column.
+  side?: ReactNode;
 };
+
+const DOCK_KEY = 'wf-agents.dock-width';
+const DOCK_MIN = 320;
+const SPLIT_KEY = 'wf-agents.dock-split';
+const SPLIT_MIN = 120;
 
 function RulePanel({ name }: { name: string }) {
   return (
@@ -104,11 +117,17 @@ function InterjectionPanel() {
 }
 
 export function FlowScreen(props: FlowScreenProps) {
-  const { compiled, g, view, legend, marks, cell, onCell, start, diff, rounds, round, onRound, renderRound } = props;
+  const { compiled, g, view, legend, marks, cell, onCell, start, diff, work, rounds, round, onRound, renderRound, side } =
+    props;
+  const [width, setWidth] = useState<number | null>(() => savedSize(DOCK_KEY, DOCK_MIN));
+  const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
+  const nameOf = (n: number) => roundName(work ?? 0, n);
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
   const trail = useTrail<Subject>(same);
   const [picked, setPicked] = useState<string | null>(null);
+  // The tab of a cell's panel the owner chose last: going to another cell keeps it.
+  const [cellTab, setCellTab] = useState<CellTab | null>(null);
   const flow = useMemo(
     () =>
       flowOf(compiled, g, view, (s) => {
@@ -155,7 +174,7 @@ export function FlowScreen(props: FlowScreenProps) {
     // Only when the comparison changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diff]);
-  // Brings a cell into view once the panel that opens with it is drawn, so that the panel does not cover it.
+  // Brings a cell into view once the panel that opens with it is drawn, as the chart narrows to make room for it.
   const into = (cell: string, keep: boolean) => window.setTimeout(() => chartRef.current?.focus(cell, keep), 0);
   const onPick = (p: Pick) => {
     switch (p.kind) {
@@ -174,6 +193,7 @@ export function FlowScreen(props: FlowScreenProps) {
         break;
       case 'shared':
         setPicked(`c:${p.cell}`);
+        setCellTab('route');
         trail.open({ kind: 'cell', cell: p.cell, rows: g.cells.find((c) => c.id === p.cell)?.rows.flatMap((r, i) => (r.common ? [i] : [])) });
         break;
       case 'out':
@@ -201,7 +221,7 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'changes':
         return t('panel_changes');
       case 'round':
-        return t('round_title', { id: s.round });
+        return nameOf(s.round);
     }
   };
   const panel = (() => {
@@ -216,14 +236,17 @@ export function FlowScreen(props: FlowScreenProps) {
               <strong>{c.id}</strong> {c.title}
             </>
           ),
-          who: cellWho(g.cells, c),
+          who: cellWho(view, c),
           body: (
             <CellPanel
               c={c}
               rows={now.rows}
+              work={work}
               rounds={rounds?.filter((r) => r.cell === c.id)}
-              onRound={onRound ? (r) => trail.open({ kind: 'round', round: r.id }) : undefined}
+              onRound={onRound ? (r) => trail.open({ kind: 'round', round: r.n }) : undefined}
               diff={diff?.graphs.find((x) => x.name === g.name)?.cells.find((x) => x.id === c.id) ?? null}
+              tab={cellTab}
+              onTab={setCellTab}
             />
           ),
         };
@@ -239,53 +262,68 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'changes':
         return { title: t('panel_changes'), who: null, body: diff ? <DiffPanel diff={diff} graph={g.name} /> : null };
       case 'round':
-        return { title: t('round_title', { id: now.round }), who: null, body: renderRound?.(now.round) ?? null };
+        return { title: nameOf(now.round), who: null, body: renderRound?.(now.round) ?? null };
     }
   })();
   // A round's panel brings its cell into view.
   useEffect(() => {
     if (now?.kind !== 'round') return;
-    const at = rounds?.find((r) => r.id === now.round)?.cell;
+    const at = rounds?.find((r) => r.n === now.round)?.cell;
     if (at) {
       setPicked(`c:${at}`);
       chartRef.current?.focus(at);
     }
   }, [now, rounds]);
+  const open = panel !== null && now !== null;
   return (
     <FlowContext.Provider value={flow}>
       <div className="flow-screen">
-        <FlowChart
-          ref={chartRef}
-          g={g}
-          view={view}
-          marks={{ ...marks, selected: now === null ? null : picked }}
-          start={start}
-          onPick={onPick}
-          covered={() => ({
-            left: document.querySelector('.drawer')?.getBoundingClientRect().right ?? null,
-            right: panelRef.current?.getBoundingClientRect().left ?? null,
-          })}
-          legend={legend}
-        />
-        {panel !== null && now !== null ? (
-          <Panel
-            ref={panelRef}
-            title={panel.title}
-            who={panel.who}
-            back={trail.last !== null ? titleOf(trail.last) : null}
-            onBack={() => {
-              const prev = trail.last;
-              trail.back();
-              if (prev?.kind === 'cell') {
-                setPicked(`c:${prev.cell}`);
-                chartRef.current?.focus(prev.cell, true);
-              }
-            }}
-            onClose={trail.close}
-            shown={JSON.stringify(now)}
-          >
-            {panel.body}
-          </Panel>
+        <div className="flow-chart-area">
+          <FlowChart
+            ref={chartRef}
+            g={g}
+            view={view}
+            marks={{ ...marks, selected: now === null ? null : picked }}
+            start={start}
+            onPick={onPick}
+            legend={legend}
+          />
+        </div>
+        {side !== undefined || open ? (
+          <aside className="dock" style={width !== null ? { width } : undefined}>
+            <Grip edge="left" min={DOCK_MIN} storage={DOCK_KEY} label={t('dock_grip')} onSize={setWidth} />
+            {side !== undefined ? (
+              <div
+                className={open ? 'dock-top dock-top-split' : 'dock-top'}
+                style={open ? { height: split !== null ? split : '50%' } : undefined}
+              >
+                {side}
+                {open ? (
+                  <Grip edge="bottom" min={SPLIT_MIN} storage={SPLIT_KEY} label={t('dock_split')} onSize={setSplit} />
+                ) : null}
+              </div>
+            ) : null}
+            {panel !== null && now !== null ? (
+              <Panel
+                ref={panelRef}
+                title={panel.title}
+                who={panel.who}
+                back={trail.last !== null ? titleOf(trail.last) : null}
+                onBack={() => {
+                  const prev = trail.last;
+                  trail.back();
+                  if (prev?.kind === 'cell') {
+                    setPicked(`c:${prev.cell}`);
+                    chartRef.current?.focus(prev.cell, true);
+                  }
+                }}
+                onClose={trail.close}
+                shown={JSON.stringify(now)}
+              >
+                {panel.body}
+              </Panel>
+            ) : null}
+          </aside>
         ) : null}
       </div>
     </FlowContext.Provider>

@@ -1,74 +1,83 @@
 // The bar on every view: the views (the messages to the owner with how many are unread), and how the engine stands:
-// running, holding, or waiting for what stops every work, with the slots in use. The bar holds no control: the
-// engine's state opens a panel where the owner switches between running and holding.
+// running, paused, pausing while the last round finishes, or waiting for what stops every work, with the switch that
+// pauses every work or starts them all, and the slots in use. The engine starts with every work paused.
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
-import type { Mode, OwnerMessage, Status } from './api';
+import type { OwnerMessage, Status, WorkSummary } from './api';
+import { course } from './components';
 import { time } from './format';
 import { postJson } from './http';
-import { useOnline, useResource, useStatus } from './live';
+import { reread, useOnline, useResource, useStatus } from './live';
 import { Link, type Route } from './route';
 import { t } from './text';
 
-const MODES: Mode[] = ['run', 'hold'];
+/// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
+/// asked for.
+function finishing(s: Status): number {
+  return s.paused && s.running !== null && s.running !== s.stepping ? 1 : 0;
+}
 
 /// What the engine is doing, in a few words.
 function stateWords(s: Status): string {
   if (s.halt !== null) return t('engine_halt', { kind: s.halt.kind, until: time(s.halt.until) });
-  return t(s.mode === 'run' ? 'engine_running' : 'engine_holding');
+  if (!s.paused) return t('engine_running');
+  const n = finishing(s);
+  if (n === 1) return t('engine_pausing_one');
+  return n > 0 ? t('engine_pausing', { n }) : t('engine_paused');
 }
 
-/// The panel the engine's state opens: running or holding, and what each means.
-function EnginePanel({ status, onClose }: { status: Status; onClose: () => void }) {
+/// The switch of every work: Pause all while works go on, Start all while they are paused. Starting asks first, saying
+/// what goes on and which works on an older flow version are taken over.
+function Switch({ status }: { status: Status }) {
+  const works = useResource<WorkSummary[]>('works', '/api/v1/works');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const switchTo = (mode: Mode) => {
-    if (mode === status.mode) return;
-    if (mode === 'run' && !window.confirm(t('confirm_run'))) return;
+  const post = (path: string) => {
+    setBusy(true);
     setError(null);
-    postJson('/api/v1/engine/mode', { mode }).then(onClose, (e: unknown) =>
-      setError(e instanceof Error ? e.message : String(e)),
+    postJson(path, {}).then(
+      () => {
+        setBusy(false);
+        reread('works');
+      },
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
     );
   };
+  const press = () => {
+    if (!status.paused) {
+      post('/api/v1/engine/pause');
+      return;
+    }
+    // The works that go on once all start: those the engine stopped stay stopped.
+    const taken = (works.data ?? []).filter((w) => course(w, status).outdated && w.paused_by !== 'engine').length;
+    const ask =
+      taken > 0 ? t('confirm_start_all_takeover', { n: taken, version: status.flow_version }) : t('confirm_start_all');
+    if (!window.confirm(ask)) return;
+    post('/api/v1/engine/start');
+  };
   return (
-    <div className="engine-panel" role="dialog">
-      {MODES.map((m) => (
-        <button
-          key={m}
-          type="button"
-          className={m === status.mode ? 'engine-mode engine-mode-on' : 'engine-mode'}
-          onClick={() => switchTo(m)}
-        >
-          <strong>{t(`mode_${m}`)}</strong>
-          <span className="muted">{t(`mode_${m}_hint`)}</span>
-        </button>
-      ))}
-      {status.halt !== null ? <p className="bad">{status.halt.why}</p> : null}
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
+    <>
+      <button
+        type="button"
+        className="engine-switch"
+        onClick={press}
+        disabled={busy}
+        title={status.paused ? t('start_all_hint') : t('pause_all_hint')}
+      >
+        {status.paused ? t('start_all') : t('pause_all')}
+      </button>
+      {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+    </>
   );
 }
 
 function Engine() {
   const online = useOnline();
   const status = useStatus();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('pointerdown', away);
-      document.removeEventListener('keydown', key);
-    };
-  }, [open]);
   if (!online || !status) {
     return (
       <div className="engine">
@@ -77,17 +86,18 @@ function Engine() {
       </div>
     );
   }
-  const dot = status.halt !== null ? 'dot-halt' : `dot-${status.mode}`;
+  const dot =
+    status.halt !== null ? 'dot-halt' : !status.paused ? 'dot-run' : finishing(status) > 0 ? 'dot-pausing' : 'dot-paused';
   return (
-    <div className="engine" ref={ref}>
-      <button type="button" className="engine-state" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+    <div className="engine">
+      <span className="engine-state" title={status.halt?.why ?? (status.paused ? t('engine_paused_hint') : undefined)}>
         <span className={`dot ${dot}`} />
         <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
-      </button>
+      </span>
+      <Switch status={status} />
       <span className="muted" title={t('slots_hint')}>
         {t('slots', { used: status.slots_used, total: status.slots })}
       </span>
-      {open ? <EnginePanel status={status} onClose={() => setOpen(false)} /> : null}
     </div>
   );
 }
@@ -104,7 +114,8 @@ function Unread({ className }: { className: string }) {
   );
 }
 
-/// The bar: the views, and how the engine stands. A view's own controls stay in the view.
+/// The bar: the views, and how the engine stands with the switch of every work. A view's own controls stay in the
+/// view.
 export function TopBar({ route }: { route: Route }) {
   const on = (pages: Route['page'][]) => (pages.includes(route.page) ? 'nav nav-on' : 'nav');
   return (

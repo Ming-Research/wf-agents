@@ -21,6 +21,7 @@ mod check;
 mod compiled;
 mod field;
 pub mod format;
+pub mod formats;
 mod graph;
 mod reads;
 mod returns;
@@ -31,8 +32,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use compiled::{
-    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
-    ToolUse, found_at, valid,
+    AskNeed, COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse,
+    Stats, ToolUse, found_at, valid,
 };
 pub use run::Position;
 
@@ -164,6 +165,9 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
             .collect();
         for r in &g.flow.asking.roles {
             actions.extend(r.actions.iter().flatten().map(|d| d.name().to_string()));
+        }
+        for grp in &g.flow.ask_kinds {
+            needs.extend(grp.needs.values().cloned());
         }
         for c in &g.cells {
             steps.extend(c.step.clone());

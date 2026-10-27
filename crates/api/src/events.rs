@@ -9,55 +9,42 @@ fn one(conn: &Connection, sql: &str, rowid: i64) -> Option<i64> {
     conn.query_row(sql, [rowid], |r| r.get(0)).ok()
 }
 
+/// The round a row names by its work and number, as an event.
+fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
+    conn.query_row(sql, [rowid], |r| {
+        Ok(Event::Round {
+            work: r.get(0)?,
+            round: r.get(1)?,
+        })
+    })
+    .ok()
+}
+
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
-/// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none.
+/// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
+/// and number; the row SQLite tells of is found by its rowid, which nothing else reads.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
         let id = c.rowid;
         let event = match c.table.as_str() {
-            "rounds" => {
-                one(conn, "SELECT work FROM rounds WHERE id = ?1", id).map(|work| Event::Round { work, round: id })
-            }
-            "tool_runs" => conn
-                .query_row(
-                    "SELECT r.work, r.id FROM tool_runs t JOIN rounds r ON r.id = t.round WHERE t.id = ?1",
-                    [id],
-                    |r| {
-                        Ok(Event::Round {
-                            work: r.get(0)?,
-                            round: r.get(1)?,
-                        })
-                    },
-                )
-                .ok(),
+            "rounds" => round(conn, "SELECT work, n FROM rounds WHERE rowid = ?1", id),
+            "tool_runs" => round(conn, "SELECT work, round FROM tool_runs WHERE id = ?1", id),
             "works" => Some(Event::Work { work: id }),
             "interjections" => {
                 one(conn, "SELECT work FROM interjections WHERE id = ?1", id).map(|work| Event::Work { work })
             }
             "design_cards" => Some(Event::DesignCard {
                 design_card: id,
-                work: one(
-                    conn,
-                    "SELECT r.work FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
-                    id,
-                ),
+                work: one(conn, "SELECT work FROM design_cards WHERE id = ?1", id),
             }),
             "owner_asks" => Some(Event::Ask {
                 ask: id,
-                work: one(
-                    conn,
-                    "SELECT r.work FROM owner_asks a JOIN rounds r ON r.id = a.round WHERE a.id = ?1",
-                    id,
-                ),
+                work: one(conn, "SELECT work FROM owner_asks WHERE id = ?1", id),
             }),
             "owner_messages" => Some(Event::OwnerMessage {
                 message: id,
-                work: one(
-                    conn,
-                    "SELECT r.work FROM owner_messages m JOIN rounds r ON r.id = m.round WHERE m.id = ?1",
-                    id,
-                ),
+                work: one(conn, "SELECT work FROM owner_messages WHERE id = ?1", id),
             }),
             "engine_notices" => Some(Event::OwnerMessage {
                 message: id,
@@ -97,14 +84,14 @@ mod tests {
                 )?;
                 tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '0')", [])?;
                 tx.execute(
-                    "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '0', '{}', 'c', 1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 3, '0', '{}', 'c', 1)",
                     [],
                 )?;
                 tx.execute(
-                    "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
+                    "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at) VALUES (1, 3, 'gh', '{}', 1, 1)",
                     [],
                 )?;
-                tx.execute("INSERT INTO owner_asks (round, body) VALUES (1, '{}')", [])?;
+                tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (1, 3, '{}')", [])?;
                 Ok(())
             })
             .unwrap();
@@ -126,7 +113,7 @@ mod tests {
         assert_eq!(
             events(db.conn(), &rows),
             [
-                Event::Round { work: 1, round: 1 },
+                Event::Round { work: 1, round: 3 },
                 Event::Work { work: 1 },
                 Event::Ask { ask: 1, work: Some(1) },
                 Event::Item { item: Some(1) },

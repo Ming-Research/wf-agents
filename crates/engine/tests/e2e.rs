@@ -399,8 +399,8 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             (
                 Vec::new(),
                 vec![
-                    ("outcome.end.head", json!(head)),
-                    ("outcome.end.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
+                    ("outcome.head", json!(head)),
+                    ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
                 ],
             )
         }),
@@ -503,7 +503,7 @@ fn an_item_goes_from_the_queue_to_main() {
     assert_eq!(main, "old\nfeature");
     let cells: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT cell, transition FROM rounds WHERE work = (SELECT id FROM works WHERE item = ?1) ORDER BY id",
+        "SELECT cell, transition FROM rounds WHERE work = (SELECT id FROM works WHERE item = ?1) ORDER BY n",
         &[&item],
         1000,
     )
@@ -536,6 +536,320 @@ fn an_item_goes_from_the_queue_to_main() {
             })
             .unwrap();
     assert_eq!(rejected, 0, "{log}");
+    // The table review reads the worktree only, and has no column for a check the engine answered itself because
+    // the project lacks what it needs (here a gap in what is under test, and a dependency on another project).
+    let input_of = |cell: &str| -> Value {
+        let input: String =
+            e.db.conn()
+                .query_row(
+                    "SELECT input FROM rounds WHERE cell = ?1 ORDER BY work, n LIMIT 1",
+                    [cell],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
+    };
+    let columns = input_of("5a")["engine"]["columns"].to_string();
+    assert!(!columns.contains("a gap in what is under test"), "{columns}");
+    assert!(!columns.contains("cross-project dependency"), "{columns}");
+    assert!(columns.contains("unsure facts"), "{columns}");
+    // The review line's session is given the worktree once, at its first round, the blind review.
+    let blind = input_of("5");
+    let message = blind["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("you only read it, and change and commit nothing there"),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Building a work's next message is a dry run beside an engine that may be running: with the built-in flow newer than
+// the work's, it records no flow version, stops no work, starts none, and writes nothing at all.
+#[test]
+fn building_a_message_writes_nothing() {
+    let s = setup("dry");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    // The work runs on a flow version the engine no longer has built in.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+            [],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(e);
+    let path = config::database(&s.data);
+    let state_of = || -> Vec<i64> {
+        let c = db::open_read(&path).unwrap();
+        let n = |q: &str| -> i64 { c.query_row(q, [], |r| r.get(0)).unwrap() };
+        vec![
+            n("SELECT count(*) FROM flow_versions"),
+            n("SELECT count(*) FROM works"),
+            n("SELECT count(*) FROM works WHERE ended IS NOT NULL"),
+            n("SELECT count(*) FROM rounds"),
+            n("SELECT count(*) FROM changes"),
+            n("SELECT count(*) FROM engine_notices"),
+            n("SELECT count(*) FROM outbox"),
+        ]
+    };
+    let before = state_of();
+    let agents = Scripted {
+        scripts: scripts(),
+        rounds: RefCell::new(BTreeMap::new()),
+    };
+    let hub = FakeHub {
+        origin: s.origin.clone(),
+        scratch: s.root.clone(),
+        prs: RefCell::new(BTreeMap::new()),
+    };
+    let committed = config::committed(&s.data).unwrap();
+    let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
+    let m = engine::next_message(&mut r, work).unwrap();
+    assert!(m.text.contains("cell 1a"), "{}", m.text);
+    drop(r);
+    assert_eq!(state_of(), before);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While the merge gate waits for the owner's ruling on the design card, the next round offers no round: it says what
+// the work waits for, and which design card.
+#[test]
+fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
+    let s = setup("gate-wait");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt: String =
+        e.db.conn()
+            .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    let wt = PathBuf::from(wt);
+    write(&wt, "design/engine.md", "Decision: a new one.\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "A decision"]);
+    let card =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
+                [work, round],
+            )?;
+            let card = tx.last_insert_rowid();
+            tx.execute("UPDATE works SET at = '19' WHERE id = ?1", [work])?;
+            Ok(card)
+        })
+        .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!(next.cell, "19", "{log}");
+    assert_eq!(
+        next.waits.as_deref(),
+        Some(format!("the owner's ruling on design card {card}").as_str()),
+        "{log}"
+    );
+    assert_eq!(next.design_card, Some(card));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A cell that may not change the design paths is sent back for a change an earlier attempt of it made and left on the
+// branch, with a reason that names that commit and says to revert it; once reverted, the cell's return is taken.
+#[test]
+fn an_earlier_attempts_design_change_is_named_and_reverted() {
+    let s = setup("earlier-attempt");
+    let mut agents = scripts();
+    agents.insert(
+        "2b",
+        Box::new(|r: &Request, n: usize| {
+            let wt = &r.worktree;
+            if n == 1 {
+                write(wt, "design/sneaked.md", "Decision: not here.\n");
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Sneak a decision in"]);
+            }
+            if n == 3 {
+                let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
+                git(wt, &["revert", "--no-edit", sha.trim()]);
+            }
+            (vec![("outcome.better", "no")], Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at_2b = |e: &Engine| -> Vec<(Option<String>, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
+                     WHERE w.item = ?1 AND r.cell = '2b' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
+                )
+                .unwrap();
+        st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    for _ in 0..40 {
+        if at_2b(&e).iter().any(|(t, _)| t.is_some()) {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let rounds = at_2b(&e);
+    assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
+    let first = rounds[0].1.clone().unwrap_or_default();
+    assert!(
+        first.contains("this round changed the design paths: design/sneaked.md"),
+        "{first}"
+    );
+    let second = rounds[1].1.clone().unwrap_or_default();
+    assert!(
+        second.contains("an earlier attempt of this cell") && second.contains("Sneak a decision in"),
+        "{second}"
+    );
+    assert!(second.contains("revert them"), "{second}");
+    assert!(!second.contains("this round changed"), "{second}");
+    assert!(rounds[2].0.is_some(), "{rounds:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The advisor is the engineer with a higher model: an item's advisor round runs on the level one above the item's,
+// with that level's command line and model.
+#[test]
+fn the_advisor_runs_one_level_above_the_item() {
+    let s = setup("advisor-level");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents.levels.m]\ndesc = \"one level up\"\ncli = \"claude\"\nmodel = \"m-up\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a level above"]);
+    let mut agents = scripts();
+    let implement = agents.remove("4").unwrap();
+    agents.insert(
+        "4",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 1 {
+                return (vec![("outcome", "ask"), ("outcome.ask", "advisor")], Vec::new());
+            }
+            implement(r, n - 1)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let advised = |e: &Engine| -> Option<(String, String)> {
+        e.db.conn()
+            .query_row(
+                "SELECT r.model, s.line FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
+                 WHERE w.item = ?1 AND s.line = 'advisor' ORDER BY r.work, r.n LIMIT 1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+    };
+    for _ in 0..60 {
+        if advised(&e).is_some() {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(advised(&e), Some(("m-up".to_string(), "advisor".to_string())), "{log}");
+    let engineer: String =
+        e.db.conn()
+            .query_row(
+                "SELECT r.model FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
+                 WHERE w.item = ?1 AND s.line = 'engineer' ORDER BY r.work, r.n LIMIT 1",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(engineer, "m", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While a work waits for the owner's answer to an ask, its next round offers no round: it says which ask; once the
+// ask is answered, the round that takes the answer is offered.
+#[test]
+fn an_ask_waiting_for_its_answer_offers_no_round() {
+    let s = setup("ask-wait");
+    let (mut e, _, item) = start(&s, scripts());
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let ask =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET at = '16' WHERE id = ?1", [work])?;
+            let round = next_round(tx, work)?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, '16', '{}', 'c', 1)",
+                [work, round],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                [work, round],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!(
+        next.waits.as_deref(),
+        Some(format!("your answer to ask {ask}").as_str())
+    );
+    assert_eq!(next.ask, Some(ask));
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE owner_asks SET answer = '{\"by\":\"owner\",\"text\":\"done\"}' WHERE id = ?1",
+            [ask],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!((next.waits, next.ask), (None, None));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A value of one branch is the cell as its newest return left it: a conflict the full CI reported is in the fix
+// table only while the newest run of that cell still reports it.
+#[test]
+fn a_settled_row_leaves_the_fix_table() {
+    let s = setup("settled");
+    let (mut e, _, item) = start(&s, scripts());
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
+    let (work, _, _) = state(&e, item).unwrap();
+    let conflict = json!({ "result": { "kind": "conflict", "files": ["src/conflicted_here.rs"] } });
+    let green = json!({ "result": { "kind": "green", "head": "abc" } });
+    let add = |e: &mut Engine, output: &Value| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, '7', '{}', ?3, 'next', 'c', 1, 2)",
+                params![work, next_round(tx, work)?, output.to_string()],
+            )?;
+            tx.execute("UPDATE works SET at = '8' WHERE id = ?1", [work])?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    add(&mut e, &conflict);
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert!(m.contains("src/conflicted_here.rs"), "{m}");
+    add(&mut e, &green);
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert!(!m.contains("src/conflicted_here.rs"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -593,14 +907,15 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert!(at != "0" && at != "1", "{log}");
-    let (cell, text, read): (String, String, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.id = m.round",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .unwrap();
+    let (cell, text, read): (String, String, Option<i64>) = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
     assert_eq!(
         (cell.as_str(), text.as_str(), read),
         ("1", "The item's example does not run as written.", None)
@@ -649,11 +964,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let cut = e
         .db
         .write(Actor::Engine, |tx| {
+            let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, session, input, config_commit, started_at) VALUES (?1, '1a', ?2, '{}', 'c', 1)",
-                params![work, session],
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, '1a', ?3, '{}', 'c', 1)",
+                params![work, n, session],
             )?;
-            Ok(tx.last_insert_rowid())
+            Ok(n)
         })
         .unwrap();
     e.step(None).unwrap();
@@ -663,7 +979,7 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let m = input["message"].as_str().unwrap();
     assert!(
         m.starts_with(&format!(
-            "# R{id} · cell 1a\n\nR{cut} was cut off midway. First look at the worktree"
+            "# {id} · cell 1a\n\nR{work}-{cut} was cut off midway. First look at the worktree"
         )),
         "{m}"
     );
@@ -672,11 +988,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the flow moves to a new version, a work running on the old one stops, saying why, and its item gets a new
-// work at once: it takes over the branch, the worktree and the pull request, and its cell 1 is told what exists. An
-// item whose works ended can be queued again.
+// When the flow moves to a new version, a work on the old one is not taken over when the engine starts: the owner
+// still answers its asks. Once it goes on, it stops, saying why, and its item gets a new work at once: it takes over
+// the branch, the worktree and the pull request, its cell 1 is told what exists, and what the owner answered stays
+// the owner's answer. An item whose works ended can be queued again.
 #[test]
-fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() {
+fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     let s = setup("version");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..80 {
@@ -699,10 +1016,36 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
         Ok(())
     })
     .unwrap();
+    // It put two asks to the owner.
+    let asks: Vec<i64> =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [old], |r| r.get(0))?;
+            let mut asks = Vec::new();
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\": \"owner\"}')",
+                    [old, round],
+                )?;
+                asks.push(tx.last_insert_rowid());
+            }
+            Ok(asks)
+        })
+        .unwrap();
     drop(e);
     let (mut e, said) = engine(&s, scripts());
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}");
+    assert_eq!(works.len(), 1, "{works:?}");
+    assert_eq!(works[0].5, None);
+    let answer = api::Answer {
+        text: "Keep the old name.".into(),
+        why: None,
+        reply: None,
+    };
+    api::answer(&mut e.db, asks[0], &answer).unwrap();
+    let first = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(
         works[0]
             .5
@@ -711,8 +1054,17 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
         "{works:?}"
     );
     let new = works[1].0;
-    assert_eq!(works[1].1, "0");
-    e.step(None).unwrap();
+    assert_eq!((first.work, first.started_item), (Some(new), Some(item)), "{log}");
+    let by = |e: &Engine, ask: i64| -> String {
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let works = works_of(&e, item);
@@ -732,7 +1084,7 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
     for want in [
         "This item was worked on before.".to_string(),
         format!("- Work {old} "),
-        format!("WHERE work = {old} ORDER BY id"),
+        format!("WHERE work = {old} ORDER BY n"),
         "git log --oneline origin/main..HEAD".to_string(),
         format!("pr view {} --comments", pr.unwrap()),
         "it was half done before".to_string(),
@@ -767,20 +1119,23 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     let (work, at, _) = state(&e, item).unwrap();
     let open_round = |e: &mut Engine| -> i64 {
         e.db.write(Actor::Engine, |tx| {
+            let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, ?2, '{}', 'c', 1)",
-                params![work, at],
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, ?3, '{}', 'c', 1)",
+                params![work, n, at],
             )?;
-            Ok(tx.last_insert_rowid())
+            Ok(n)
         })
         .unwrap()
     };
     let rejected = |e: &Engine, round: i64| -> (Option<i64>, Value) {
         let (ended, rejected): (Option<i64>, Option<String>) =
             e.db.conn()
-                .query_row("SELECT ended_at, rejected FROM rounds WHERE id = ?1", [round], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
+                .query_row(
+                    "SELECT ended_at, rejected FROM rounds WHERE work = ?1 AND n = ?2",
+                    [work, round],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
                 .unwrap();
         (
             ended,
@@ -801,11 +1156,7 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     assert!(told.ends_with("is paused: cell 1: the return does not fit"), "{told}");
     // An earlier engine paused without closing the round; the owner lets the work go on.
     let earlier = open_round(&mut e);
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let (ended, why) = rejected(&e, earlier);
@@ -841,7 +1192,7 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
         e.db.conn()
             .query_row(
                 "SELECT r.output FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = '13' AND r.transition IS NOT NULL ORDER BY r.id LIMIT 1",
+                 WHERE w.item = ?1 AND r.cell = '13' AND r.transition IS NOT NULL ORDER BY r.work, r.n LIMIT 1",
                 [item],
                 |r| r.get(0),
             )
@@ -859,8 +1210,8 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let output: Value = serde_json::from_str(&ran(&e).expect(&log)).unwrap();
     let result = &output["results"][0];
     assert_eq!(result["tool"], "query", "{output}");
-    let rows = result["ran"]["rows"].as_str().unwrap_or_default();
-    assert!(rows.lines().any(|l| l.contains("Add the feature")), "{output}");
+    let rows = result["ran"]["rows"].as_array().cloned().unwrap_or_default();
+    assert!(rows.iter().any(|r| r["title"] == "Add the feature"), "{output}");
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("13").and_then(|c| c.schema.clone()).unwrap();
@@ -939,11 +1290,15 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
         .unwrap();
     drop(e);
     let (mut e, said) = engine(&s, scripts());
-    let log = said.borrow().join("\n");
     let ready = |e: &Engine| -> Vec<i64> {
         let mut st = e.db.conn().prepare("SELECT item FROM ready_items").unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
+    // Nothing is taken over as the engine starts; both are as soon as works go on, before the item queued before.
+    assert_eq!(works_of(&e, items[0]).len(), 1);
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
     // The first takes the slot; the second waits ahead of the item queued before.
     assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
     assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
@@ -1033,11 +1388,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(why.starts_with("3 returns of cell 1 in a row were sent back"), "{why}");
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [id])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
         e.tick().unwrap();
     }
@@ -1048,12 +1399,12 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Each agent round of the item's work, oldest first: its number, its cell, and what the engine recorded it gave.
-fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
+/// Each agent round of the item's works, oldest first: its name, its cell, and what the engine recorded it gave.
+fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
-        "SELECT r.id, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.id",
+        "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -1061,12 +1412,21 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(i64, String, Value)> {
     .into_iter()
     .map(|r| {
         (
-            r["id"].as_i64().unwrap(),
+            r["name"].as_str().unwrap().to_string(),
             r["cell"].as_str().unwrap().to_string(),
             db::put_back(e.db.conn(), &r["input"]),
         )
     })
     .collect()
+}
+
+/// The number the work's next round gets.
+fn next_round(tx: &db::rusqlite::Transaction<'_>, work: i64) -> Result<i64, db::Error> {
+    Ok(tx.query_row(
+        "SELECT coalesce(max(n), 0) + 1 FROM rounds WHERE work = ?1",
+        [work],
+        |r| r.get(0),
+    )?)
 }
 
 /// Whether a round's message gave the conditional input at an address, or only referred to it; none when it has none there.
@@ -1112,7 +1472,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     };
     for (id, cell, input) in &rounds {
         let m = input["message"].as_str().unwrap();
-        assert!(m.starts_with(&format!("# R{id} · cell {cell} · ")), "{m}");
+        assert!(m.starts_with(&format!("# {id} · cell {cell} · ")), "{m}");
     }
     let (first, second) = (&at("1"), &at("1a"));
     let (work, _, _) = state(&e, item).unwrap();
@@ -1136,6 +1496,22 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(m.contains("\n1. item:"), "{m}");
     assert!(m.contains(&format!("Worktree: {workspace}")), "{m}");
     assert_eq!(given(second, "format:1a"), Some(true));
+    // The project guide is an input every agent's cell has: given in a session's first round, before anything else,
+    // referred to after, and given again to the review's session.
+    let guide = |input: &Value| -> Option<(String, bool)> {
+        input["conditional"].as_array()?.iter().find_map(|m| {
+            let a = m["address"].as_str()?;
+            a.ends_with("·engine·project_guide")
+                .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
+        })
+    };
+    let (address, sent) = guide(first).expect("the project guide in cell 1's round");
+    assert!(sent, "{address}");
+    let m = first["message"].as_str().unwrap();
+    let at_guide = m.find(&format!("### {address}")).unwrap();
+    assert!(at_guide < m.find("### format:common").unwrap(), "{m}");
+    assert_eq!(guide(second).map(|g| g.1), Some(false));
+    assert_eq!(guide(&at("5")).map(|g| g.1), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
     let m = first["message"].as_str().unwrap();
@@ -1147,8 +1523,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
     assert!(m.contains("- items: A piece of work to do"), "{m}");
     assert!(!m.contains("CREATE TABLE"), "{m}");
-    let design = rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
-    let acceptance = format!("R{design}·2a·acceptance");
+    let design = &rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
+    let acceptance = format!("{design}·2a·acceptance");
     assert_eq!(given(&at("3f"), &acceptance), Some(false), "{}", at("3f"));
     assert_eq!(given(&at("4"), &acceptance), Some(false), "{}", at("4"));
     assert_eq!(given(&at("5"), &acceptance), Some(true), "{}", at("5"));
@@ -1159,6 +1535,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     );
     let call = &second["call"];
     assert_eq!(call["cli"], "scripted");
+    assert!(call["level"].is_string(), "{call}");
     assert_eq!(call["engine"], engine::VERSION);
     assert!(call["session"]["resumed"].is_string(), "{call}");
     assert!(first["call"]["session"]["started"].is_string());
@@ -1189,7 +1566,11 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert_eq!(kept("{\"type\":\"object\"%"), 1);
     let raw: String =
         e.db.conn()
-            .query_row("SELECT input FROM rounds WHERE id = ?1", [rounds[0].0], |r| r.get(0))
+            .query_row(
+                "SELECT input FROM rounds WHERE 'R' || work || '-' || n = ?1",
+                [&rounds[0].0],
+                |r| r.get(0),
+            )
             .unwrap();
     assert!(
         !raw.contains("The forms every agent's return shares.") && raw.contains("{\"content\":"),
@@ -1230,10 +1611,10 @@ fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compa
     assert_eq!(given(c, "format:common"), Some(true));
     assert_eq!(given(c, "rule:ground"), Some(true));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
-    let understanding = format!("R{}·1·understanding", rounds[0].0);
+    let understanding = format!("{}·1·understanding", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
-    assert!(m.contains(&format!("compacted in R{}", rounds[1].0)), "{m}");
+    assert!(m.contains(&format!("compacted in {}", rounds[1].0)), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1260,16 +1641,18 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     .unwrap();
     f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
     let (digest, text) = (f.digest(), f.json());
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
-            params![digest, text],
-        )?;
-        let v = tx.last_insert_rowid();
-        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
-        Ok(())
-    })
-    .unwrap();
+    // The engine runs that flow, so that the work on it is not taken over.
+    e.flow_now =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
+                params![digest, text],
+            )?;
+            let v = tx.last_insert_rowid();
+            tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+            Ok(v)
+        })
+        .unwrap();
     for _ in 0..6 {
         e.tick().unwrap();
         if state(&e, item).unwrap().2.is_some() {
@@ -1290,7 +1673,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (id, _, again) = &rounds[1];
     let m = again["message"].as_str().unwrap();
     assert!(
-        m.starts_with(&format!("# R{id} · cell 1\n\nYour return was sent back: "))
+        m.starts_with(&format!("# {id} · cell 1\n\nYour return was sent back: "))
             && m.ends_with("\nRewrite it (format:1).\n"),
         "{m}"
     );
@@ -1318,7 +1701,7 @@ fn failed_kinds(e: &Engine) -> Vec<String> {
     engine::query_json(
         e.db.conn(),
         "SELECT json_extract(rejected, '$.failed.kind') AS kind FROM rounds
-         WHERE json_extract(rejected, '$.failed') IS NOT NULL ORDER BY id",
+         WHERE json_extract(rejected, '$.failed') IS NOT NULL ORDER BY work, n",
         &[],
         100,
     )
@@ -1477,11 +1860,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     assert_eq!(told(&s, "is paused"), 1);
     assert_eq!(failed_kinds(&e), ["prompt_too_long"]);
     assert_eq!(sent_back(&e), 0);
-    e.db.write(db::Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
-        Ok(())
-    })
-    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
     for _ in 0..5 {
         e.tick().unwrap();
         if state(&e, item).unwrap().1 != "1" {
@@ -1492,5 +1871,204 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Who paused a work, while it is paused.
+fn paused_by(e: &Engine, work: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT paused_by FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+// A work the owner pauses while its round runs stops at the end of that round: the round ends as usual and the work
+// moves on, then takes no step by itself until the owner lets it go on. While the round runs, the engine says whose
+// round it is.
+#[test]
+fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
+    let s = setup("pause_round");
+    let mut scripts = scripts();
+    let path = config::database(&s.data);
+    // The owner pauses the work on the page while the round of cell 1 runs.
+    scripts.insert(
+        "1",
+        Box::new(move |_: &Request, _: usize| {
+            let mut db = db::Db::open(&path).unwrap();
+            let work: i64 = db
+                .conn()
+                .query_row("SELECT id FROM works WHERE ended IS NULL", [], |r| r.get(0))
+                .unwrap();
+            api::pause(&mut db, work, None).unwrap();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let busy = Rc::new(RefCell::new(Vec::new()));
+    let seen = busy.clone();
+    e.busy = Box::new(move |w| seen.borrow_mut().push(w));
+    let first = e.step(None).unwrap();
+    e.step(first.work).unwrap();
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER), "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = '1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(took.is_some(), "{log}");
+    assert_eq!(*busy.borrow(), [Some(work), None, Some(work), None]);
+    // Paused, it takes no step by itself.
+    let n = rounds_count(&e);
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    assert_eq!(rounds_count(&e), n);
+    // Once the owner lets it go on, it does.
+    api::resume(&mut e.db, work).unwrap();
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    assert_eq!(rounds_count(&e), n + 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start all lets go on the works the owner paused, and leaves paused a work the engine paused for a
+// problem, until the owner lets that one go on by itself.
+#[test]
+fn start_all_leaves_a_work_the_engine_paused() {
+    let s = setup("start_all");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let n = rounds_count(&e);
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    assert_eq!(api::start_all(&mut e.db).unwrap(), "1 works paused by the owner go on");
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    assert_eq!(rounds_count(&e), n + 1);
+    e.pause(work, "cell 1a: the return does not fit").unwrap();
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert_eq!(api::start_all(&mut e.db).unwrap(), "0 works paused by the owner go on");
+    let log = said.borrow().join("\n");
+    assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
+    assert_eq!(
+        state(&e, item).unwrap().2.as_deref(),
+        Some("cell 1a: the return does not fit")
+    );
+    api::resume(&mut e.db, work).unwrap();
+    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's step runs exactly one round of a paused work, which stays paused in the owner's hands. A work the
+// engine paused is taken into them: its cell runs again, counting afresh as once the owner lets a work go on, and it
+// stays paused by the owner.
+#[test]
+fn a_step_runs_one_round_of_a_paused_work_which_stays_paused() {
+    let s = setup("step_paused");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let (_, before, _) = state(&e, item).unwrap();
+    let stepped = e.step_work(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        (stepped.work, stepped.rounds.len()),
+        (Some(work), 1),
+        "{stepped:?}\n{log}"
+    );
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_ne!(at, before, "{log}");
+    assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER));
+    assert_eq!(e.step(Some(work)).unwrap().work, None);
+    e.pause(work, "cell 1a: the return does not fit").unwrap();
+    let stepped = e.step_work(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.rounds.len(), 1, "{stepped:?}\n{log}");
+    assert_eq!(state(&e, item).unwrap().2.as_deref(), Some(db::PAUSED_BY_OWNER));
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    let lifted: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE table_name = 'works' AND actor = 'owner'
+             AND json_extract(old_row, '$.paused_by') = 'engine' AND json_extract(new_row, '$.paused') IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(lifted, 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work's pause, and who paused it, are kept when the engine stops and starts again: a paused work takes no step by
+// itself after the restart.
+#[test]
+fn a_work_s_pause_is_kept_across_a_restart() {
+    let s = setup("pause_restart");
+    let (mut e, _, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, Some("Wait for the release.")).unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(state(&e, item).unwrap().2.as_deref(), Some("Wait for the release."));
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    assert_eq!(e.step(None).unwrap().work, None);
+    api::resume(&mut e.db, work).unwrap();
+    e.pause(work, "cell 1: the return does not fit").unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert_eq!(e.step(None).unwrap().work, None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A paused work on an older flow version is not taken over while nothing makes it go on; the owner's step takes it
+// over, runs the first round of the new work, and leaves the new work paused in the owner's hands.
+#[test]
+fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
+    let s = setup("step_takeover");
+    let (mut e, said, item) = start(&s, scripts());
+    let first = e.step(None).unwrap();
+    let old = first.work.unwrap();
+    e.step(first.work).unwrap();
+    api::pause(&mut e.db, old, None).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+            [],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![old, v])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(e);
+    let (mut e, _) = engine(&s, scripts());
+    assert_eq!(e.step(None).unwrap().work, None);
+    assert_eq!(works_of(&e, item).len(), 1);
+    let stepped = e.step_work(old).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert!(
+        works[0]
+            .5
+            .as_deref()
+            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
+        "{works:?}"
+    );
+    let new = works[1].0;
+    assert_eq!((stepped.work, stepped.started_item), (Some(new), Some(item)));
+    let cells: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT cell FROM rounds WHERE work = ?1 ORDER BY n")
+                .unwrap();
+        st.query_map([new], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(cells, ["0"]);
+    assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
+    assert_eq!(e.step(Some(new)).unwrap().work, None);
     let _ = std::fs::remove_dir_all(&s.root);
 }

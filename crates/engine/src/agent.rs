@@ -28,6 +28,9 @@ pub struct Request {
     pub schema: Value,
     /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
     pub refused: Vec<String>,
+    /// Directories outside the worktree the agent may read but not change, such as where the engine saves a tool's
+    /// output too long to give inline; absolute paths.
+    pub readable: Vec<PathBuf>,
 }
 
 /// What a round came to.
@@ -88,10 +91,18 @@ pub fn command_line(r: &Request) -> Vec<String> {
     if let Some(e) = &r.effort {
         out.extend(["--effort".to_string(), e.clone()]);
     }
+    // A directory outside the worktree the agent is to read is added to the CLI's working directories, which lets
+    // its tools read and edit there, and edits there are refused: an Edit rule covers every tool that edits a file,
+    // and a path that starts with two slashes is absolute.
+    for d in &r.readable {
+        out.extend(["--add-dir".to_string(), d.display().to_string()]);
+    }
+    let mut refused = r.refused.clone();
+    refused.extend(r.readable.iter().map(|d| format!("Edit(/{}/**)", d.display())));
     // The line's permissions, after the CLI's own arguments: the CLI refuses what any rule of either refuses.
-    if !r.refused.is_empty() {
+    if !refused.is_empty() {
         out.push("--disallowedTools".into());
-        out.extend(r.refused.iter().cloned());
+        out.extend(refused);
     }
     match &r.resume {
         Some(s) => out.extend(["--resume".to_string(), s.clone()]),
@@ -676,8 +687,15 @@ mod tests {
             prompt: "p".into(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             refused: config::Permissions::default().refused("engineer"),
+            readable: vec![PathBuf::from("/data/tool-output")],
         };
         let line = command_line(&r);
+        // The engine's saved tool output is readable and not editable.
+        assert!(
+            line.windows(2).any(|w| w == ["--add-dir", "/data/tool-output"]),
+            "{line:?}"
+        );
+        assert!(line.iter().any(|a| a == "Edit(//data/tool-output/**)"), "{line:?}");
         assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
         // Heavy work is refused on every line; an engineer may still edit and commit.
         assert!(line.iter().any(|a| a == "Bash(cargo *)") && line.iter().any(|a| a == "Bash(npm run *)"));

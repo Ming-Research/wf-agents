@@ -31,6 +31,10 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0007.sql"),
     include_str!("../../../db/migrations/0008.sql"),
     include_str!("../../../db/migrations/0009.sql"),
+    include_str!("../../../db/migrations/0010.sql"),
+    include_str!("../../../db/migrations/0011.sql"),
+    include_str!("../../../db/migrations/0012.sql"),
+    include_str!("../../../db/migrations/0013.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -46,11 +50,51 @@ const HIDDEN: &str = "Hidden from agents.";
 /// it and the engine's checks read it.
 pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
 
+/// The verdicts of a ruling on a design card as `design_cards.rulings` holds it, one for each decision in the order
+/// given, each with its verdict and any approach chosen instead; a ruling made before rulings were per decision is one
+/// verdict on the card as a whole, with decision 0.
+pub fn ruling_verdicts(ruling: &serde_json::Value) -> Vec<(i64, String, Option<String>)> {
+    let text = |v: &serde_json::Value, k: &str| v.get(k).and_then(serde_json::Value::as_str).map(str::to_string);
+    match ruling.get("decisions").and_then(serde_json::Value::as_array) {
+        Some(ds) => ds
+            .iter()
+            .map(|d| {
+                let n = d
+                    .get("decision")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or_default();
+                (n, text(d, "verdict").unwrap_or_default(), text(d, "option"))
+            })
+            .collect(),
+        None => vec![(0, text(ruling, "verdict").unwrap_or_default(), text(ruling, "option"))],
+    }
+}
+
+/// Whether a ruling confirms a design card of so many decisions: every decision confirmed, or, for a ruling made
+/// before rulings were per decision, the card.
+pub fn ruling_confirms(ruling: &serde_json::Value, decisions: usize) -> bool {
+    let verdicts = ruling_verdicts(ruling);
+    let whole = verdicts.len() == 1 && verdicts[0].0 == 0;
+    let all = whole || (1..=decisions as i64).all(|n| verdicts.iter().any(|(d, _, _)| *d == n));
+    all && verdicts.iter().all(|(_, v, _)| v == "confirm")
+}
+
+/// Whether a ruling disagrees with any decision of its design card, or with the card.
+pub fn ruling_disagrees(ruling: &serde_json::Value) -> bool {
+    ruling_verdicts(ruling).iter().any(|(_, v, _)| v == "disagree")
+}
+
+/// Why a work is paused when the owner paused it without saying why: its Pause on the page, and the round it asked
+/// for of a work the engine had paused, which takes the work into the owner's hands.
+pub const PAUSED_BY_OWNER: &str = "the owner paused it";
+
 #[derive(Debug)]
 pub enum Error {
     Sql(rusqlite::Error),
     /// The database was made by a newer wf-agents: its version.
     Newer(i64),
+    /// The database is older than this wf-agents and was opened only to read, so it was not migrated: its version.
+    Older(i64),
     /// The file holds tables but is not a wf-agents database.
     Foreign,
     /// There is no database: the file does not exist, or is empty.
@@ -79,6 +123,10 @@ impl fmt::Display for Error {
             Error::Newer(v) => write!(
                 f,
                 "the database is at version {v}, newer than this wf-agents ({VERSION})"
+            ),
+            Error::Older(v) => write!(
+                f,
+                "the database is at version {v}, older than this wf-agents ({VERSION}): run the engine once to migrate it"
             ),
             Error::Foreign => write!(f, "the file holds tables but is not a wf-agents database"),
             Error::Missing => write!(f, "there is no database"),
@@ -165,12 +213,7 @@ impl Db {
     /// Opens the database at `path`, and migrates it when it is older than this wf-agents. It makes nothing: when the
     /// file does not exist or is empty, there is no database, and the error says so.
     pub fn open(path: &Path) -> Result<Db> {
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let conn = match Connection::open_with_flags(path, flags) {
-            Ok(conn) => conn,
-            Err(_) if matches!(path.try_exists(), Ok(false)) => return Err(Error::Missing),
-            Err(e) => return Err(e.into()),
-        };
+        let conn = connect(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         let mut db = Db::set_up(conn)?;
         db.migrate(MIGRATIONS)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -184,6 +227,32 @@ impl Db {
         db.create_schema(SCHEMA, MIGRATIONS)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(db)
+    }
+
+    /// Opens the database at `path` only to read it, as it is: nothing is created or migrated, and a write on it
+    /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one not at this wf-agents'
+    /// version is refused, since its shape is not the one read.
+    pub fn open_read_only(path: &Path) -> Result<Db> {
+        let conn = connect(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.busy_timeout(Duration::from_secs(10))?;
+        conn.pragma_update(None, "query_only", true)?;
+        let at = version_of(&conn)?;
+        if at == 0 {
+            return Err(refusal(&conn)?);
+        }
+        if !up_to_date(at, VERSION)? {
+            return Err(Error::Older(at));
+        }
+        let writer: Current = Arc::new(Mutex::new(None));
+        register(&conn, "wf_tx", &writer, |w| w.tx)?;
+        register(&conn, "wf_at", &writer, |w| w.at)?;
+        register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
+        Ok(Db {
+            conn,
+            writer,
+            watch: Arc::default(),
+            listener: None,
+        })
     }
 
     /// A new database in memory.
@@ -288,7 +357,9 @@ impl Db {
     }
 
     /// Brings an existing database to the version `migrations` lead to: runs the migrations from its version on, then
-    /// makes the triggers that track changes afresh. A file with nothing in it holds no database.
+    /// makes the triggers that track changes afresh. A file with nothing in it holds no database. A migration may make
+    /// a table afresh, which SQLite does with the foreign keys off: they are off while the migrations run, and every
+    /// row that points to another is checked before they commit.
     fn migrate(&mut self, migrations: &[&str]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
         // Settled on reads that take no lock, so that a database which needs nothing, or is refused, does not wait
@@ -300,6 +371,15 @@ impl Db {
         if at == 0 {
             return Err(refusal(&self.conn)?);
         }
+        // The setting cannot change within a transaction, so it is set around it, and put back whatever comes.
+        let keys: bool = self.conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+        self.conn.pragma_update(None, "foreign_keys", false)?;
+        let done = self.run_migrations(migrations, version);
+        self.conn.pragma_update(None, "foreign_keys", keys)?;
+        done
+    }
+
+    fn run_migrations(&mut self, migrations: &[&str], version: i64) -> Result<()> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         // Judged again under the lock: another process may have migrated it while this one waited.
         let at = version_of(&tx)?;
@@ -308,6 +388,12 @@ impl Db {
         }
         for m in &migrations[at as usize - 1..] {
             tx.execute_batch(m)?;
+        }
+        let broken: i64 = tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))?;
+        if broken > 0 {
+            return Err(Error::Abort(format!(
+                "the migration to version {version} leaves {broken} rows pointing to rows that do not exist"
+            )));
         }
         track(&tx)?;
         tx.pragma_update(None, "user_version", version)?;
@@ -353,6 +439,17 @@ fn refusal(conn: &Connection) -> Result<Error> {
         return Ok(Error::Missing);
     }
     Ok(Error::Foreign)
+}
+
+/// Opens the file at `path` with `flags`, which must leave out the one that makes a file. A file that is not there is
+/// no database, whichever way it is opened; any other failure to open is told as SQLite tells it.
+fn connect(path: &Path, flags: OpenFlags) -> Result<Connection> {
+    match Connection::open_with_flags(path, flags) {
+        Ok(conn) => Ok(conn),
+        // Only the file system tells a file that is not there from one that cannot be opened.
+        Err(_) if matches!(path.try_exists(), Ok(false)) => Err(Error::Missing),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// The version a database is at, which is 0 for a file with nothing made in it.
@@ -526,10 +623,20 @@ pub fn open_read(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// What agents are told about the database: each table and view they can read, by its name, with the first line of
-/// the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
+/// What agents are told about the database: each table and view they can read, by its name, with the first sentence
+/// of the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
 /// its comments included, with [`DEFINITION`] through the query tool.
 pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    described(conn, first_sentence)
+}
+
+/// Each table and view agents can read, by its name, with the whole first comment of its definition: what it holds,
+/// why it exists and who reads it, in the order the schema defines them.
+pub fn descriptions(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    described(conn, description)
+}
+
+fn described(conn: &Connection, say: fn(&str) -> String) -> rusqlite::Result<Vec<(String, String)>> {
     let mut st = conn.prepare(
         "SELECT name, sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
          AND instr(sql, ?1) = 0 ORDER BY rowid",
@@ -538,16 +645,31 @@ pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for row in rows {
         let (name, sql) = row?;
-        let first = sql
-            .lines()
-            .map(str::trim)
-            .find_map(|l| l.strip_prefix("--"))
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        out.push((name, first));
+        out.push((name, say(&sql)));
     }
     Ok(out)
+}
+
+/// The first comment of a definition, its lines joined.
+fn description(sql: &str) -> String {
+    let comment: Vec<&str> = sql
+        .lines()
+        .map(str::trim)
+        .skip_while(|l| !l.starts_with("--"))
+        .map_while(|l| l.strip_prefix("--"))
+        .map(str::trim)
+        .collect();
+    comment.join(" ")
+}
+
+/// The first sentence of the first comment of a definition: its lines joined, up to the first full stop that ends a
+/// sentence, so that a sentence that goes on to the next line is not cut short.
+fn first_sentence(sql: &str) -> String {
+    let text = description(sql);
+    match text.find(". ") {
+        Some(i) => text[..=i].to_string(),
+        None => text,
+    }
 }
 
 /// What [`index`] gives for a schema, from the schema loaded into a database in memory.
@@ -905,16 +1027,22 @@ mod tests {
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
         assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
-        // The index names each table and view with the first line of its description; the query it points to gives
-        // the whole definition with its comments.
+        // The index names each table and view with the first sentence of its description, whole however many lines
+        // it takes; the query it points to gives the whole definition with its comments.
         let index = index(db.conn()).unwrap();
         let names: Vec<&str> = index.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"items") && names.contains(&"ready_items"));
         assert!(!names.contains(&"sessions"));
         let (_, first) = index.iter().find(|(n, _)| n == "items").unwrap();
-        assert!(
-            first.starts_with("A piece of work to do, as its creator wrote it."),
-            "{first}"
+        assert_eq!(first, "A piece of work to do, as its creator wrote it.");
+        for (n, first) in &index {
+            assert!(first.ends_with('.') && !first.contains(". "), "{n}: {first}");
+        }
+        assert_eq!(
+            first_sentence(
+                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell 8.\n  SELECT 1"
+            ),
+            "Rows the work holds: its findings, as the review wrote them."
         );
         let full: String = agent
             .query_row(&DEFINITION.replace("<name>", "items"), [], |r| r.get(0))
@@ -925,10 +1053,8 @@ mod tests {
         );
     }
 
-    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
-    // and every row that points to them.
-    #[test]
-    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+    /// A database as it was at an earlier version: made at version 1 and migrated up to `version`.
+    fn at_version(version: i64) -> Db {
         let v1 = include_str!("../../../db/migrations/0001.sql");
         let mut old = Db {
             conn: Connection::open_in_memory().unwrap(),
@@ -941,14 +1067,31 @@ mod tests {
         register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
         register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
         old.create_schema(v1, &[]).unwrap();
+        old.migrate(&MIGRATIONS[..version as usize - 1]).unwrap();
+        old
+    }
+
+    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
+    // and every row that points to them; each work's rounds are numbered from 1 in the order they were made.
+    #[test]
+    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+        let mut old = at_version(1);
         old.write(Actor::Engine, |tx| {
             let id = item(tx, "kept")?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')", [id])?;
-            tx.execute(
-                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', '{\"prompt\":\"p\"}', 'c', 1)",
-                [],
-            )?;
+            for _ in [1, 2] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')",
+                    [id],
+                )?;
+            }
+            // Rounds 1 and 3 are work 1's, round 2 is work 2's.
+            for (work, input) in [(1, "{\"prompt\":\"p\"}"), (2, "{}"), (1, "{\"prompt\":\"q\"}")] {
+                tx.execute(
+                    "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '1', ?2, 'c', 1)",
+                    params![work, input],
+                )?;
+            }
             tx.execute(
                 "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')",
                 [],
@@ -964,11 +1107,15 @@ mod tests {
             )?;
             tx.execute("UPDATE works SET paused = 'asked the owner in card 3' WHERE id = 1", [])?;
             tx.execute(
-                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
+                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (3, 'gh', '{}', 1, 1)",
                 [],
             )?;
             tx.execute(
-                "UPDATE items SET acceptance = '[]', acceptance_round = 1 WHERE id = ?1",
+                "INSERT INTO interjections (work, speaker, text, delivered_round) VALUES (2, 'owner', 'x', 2)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE items SET acceptance = '[]', acceptance_round = 3 WHERE id = ?1",
                 [id],
             )?;
             Ok(())
@@ -977,11 +1124,21 @@ mod tests {
         old.migrate(MIGRATIONS).unwrap();
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
-        let input: String = old
-            .conn()
-            .query_row("SELECT input FROM rounds WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(input, "{\"prompt\":\"p\"}");
+        let input = |work: i64, n: i64| -> String {
+            old.conn()
+                .query_row("SELECT input FROM rounds WHERE work = ?1 AND n = ?2", [work, n], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(input(1, 1), "{\"prompt\":\"p\"}");
+        assert_eq!(input(1, 2), "{\"prompt\":\"q\"}");
+        assert_eq!(input(2, 1), "{}");
+        let pair = |q: &str| -> (i64, i64) { old.conn().query_row(q, [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap() };
+        assert_eq!(pair("SELECT work, round FROM tool_runs"), (1, 2));
+        assert_eq!(pair("SELECT acceptance_work, acceptance_round FROM items"), (1, 2));
+        assert_eq!(pair("SELECT work, delivered_round FROM interjections"), (2, 1));
+        assert_eq!(pair("SELECT work, round FROM design_cards"), (1, 1));
         // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
         // its work goes on.
         let ids = |q: &str| -> Vec<i64> {
@@ -1041,7 +1198,11 @@ mod tests {
         assert_eq!(n, 1);
     }
 
-    // A database from a newer wf-agents, or a file that is not one, is not touched.
+    /// The ways a database is opened to be used, each with a name for the failure message.
+    const OPENS: [(&str, fn(&Path) -> Result<Db>); 2] = [("open", Db::open), ("open_read_only", Db::open_read_only)];
+
+    // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened; one older
+    // than this wf-agents is not migrated by an open that only reads.
     #[test]
     fn a_newer_or_foreign_database_is_refused() {
         let path = temp("newer");
@@ -1050,26 +1211,37 @@ mod tests {
             .unwrap()
             .pragma_update(None, "user_version", VERSION + 1)
             .unwrap();
-        assert!(matches!(Db::open(&path), Err(Error::Newer(v)) if v == VERSION + 1));
-        let path = temp("foreign");
-        Connection::open(&path)
+        let foreign = temp("foreign");
+        Connection::open(&foreign)
             .unwrap()
             .execute_batch("CREATE TABLE t (x)")
             .unwrap();
-        assert!(matches!(Db::open(&path), Err(Error::Foreign)));
+        for (how, open) in OPENS {
+            assert!(matches!(open(&path), Err(Error::Newer(v)) if v == VERSION + 1), "{how}");
+            assert!(matches!(open(&foreign), Err(Error::Foreign)), "{how}");
+        }
+        let older = temp("older");
+        Db::create(&older).unwrap();
+        Connection::open(&older)
+            .unwrap()
+            .pragma_update(None, "user_version", VERSION - 1)
+            .unwrap();
+        assert!(matches!(Db::open_read_only(&older), Err(Error::Older(v)) if v == VERSION - 1));
     }
 
-    // Opening makes nothing: a path with no file gets none, and a file with nothing in it is no database and stays as
-    // it was.
+    // Opening makes nothing, however it is done: a path with no file gets none, and a file with nothing in it is no
+    // database and stays as it was.
     #[test]
     fn opening_a_missing_or_empty_file_is_refused_and_makes_nothing() {
-        let path = temp("missing");
-        assert!(matches!(Db::open(&path), Err(Error::Missing)));
-        assert!(!path.exists());
-        std::fs::write(&path, b"").unwrap();
-        assert!(matches!(Db::open(&path), Err(Error::Missing)));
-        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
-        assert!(!Path::new(&format!("{}-wal", path.display())).exists());
+        for (how, open) in OPENS {
+            let path = temp(&format!("missing-{how}"));
+            assert!(matches!(open(&path), Err(Error::Missing)), "{how}");
+            assert!(!path.exists(), "{how}");
+            std::fs::write(&path, b"").unwrap();
+            assert!(matches!(open(&path), Err(Error::Missing)), "{how}");
+            assert_eq!(std::fs::metadata(&path).unwrap().len(), 0, "{how}");
+            assert!(!Path::new(&format!("{}-wal", path.display())).exists(), "{how}");
+        }
     }
 
     /// The database has the shape of a new one in memory, triggers and version included.
@@ -1188,7 +1360,8 @@ mod tests {
     // newest stays, and so does a card of another work.
     #[test]
     fn a_design_card_left_open_beside_a_newer_one_is_replaced() {
-        let mut db = Db::in_memory().unwrap();
+        // The database as it was at version 8, before the repair, and the repair alone run on it.
+        let mut db = at_version(8);
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
@@ -1215,9 +1388,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        // The database as it was at version 8, before the repair; the schema adds nothing since.
-        db.conn.pragma_update(None, "user_version", 8).unwrap();
-        db.migrate(MIGRATIONS).unwrap();
+        db.migrate(&MIGRATIONS[..8]).unwrap();
         let mut st = db
             .conn()
             .prepare("SELECT status, replaced_by FROM design_cards ORDER BY id")
@@ -1235,5 +1406,85 @@ mod tests {
         ];
         let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
         assert_eq!(cards, want);
+    }
+
+    // A ruling with a verdict on each decision confirms its design card only when every decision is confirmed; one
+    // made before rulings were per decision confirms or disagrees with the card as a whole.
+    #[test]
+    fn a_design_card_is_confirmed_only_when_every_decision_is() {
+        let ruling = |ds: serde_json::Value| serde_json::json!({ "by": "owner", "at": 1, "decisions": ds });
+        let all = ruling(serde_json::json!([
+            { "decision": 1, "verdict": "confirm" },
+            { "decision": 2, "verdict": "confirm" }
+        ]));
+        assert!(ruling_confirms(&all, 2) && !ruling_disagrees(&all));
+        assert!(!ruling_confirms(&all, 3));
+        let one_not = ruling(serde_json::json!([
+            { "decision": 1, "verdict": "confirm" },
+            { "decision": 2, "verdict": "disagree", "option": "B", "text": "Keep it." },
+            { "decision": 3, "verdict": "confirm" }
+        ]));
+        assert!(!ruling_confirms(&one_not, 3) && ruling_disagrees(&one_not));
+        assert_eq!(
+            ruling_verdicts(&one_not)[1],
+            (2, "disagree".to_string(), Some("B".to_string()))
+        );
+        let whole = serde_json::json!({ "by": "owner", "verdict": "confirm", "text": "" });
+        assert!(ruling_confirms(&whole, 3) && !ruling_disagrees(&whole));
+        assert!(ruling_disagrees(
+            &serde_json::json!({ "verdict": "disagree", "text": "no" })
+        ));
+    }
+
+    // A work paused before its pause said who paused it is the owner's when the owner's change paused it, and the
+    // engine's otherwise; a work that goes on says no one.
+    #[test]
+    fn a_work_paused_before_says_who_paused_it() {
+        let mut old = Db {
+            conn: Connection::open_in_memory().unwrap(),
+            writer: Arc::new(Mutex::new(None)),
+            watch: Arc::default(),
+            listener: None,
+        };
+        old.conn.pragma_update(None, "foreign_keys", true).unwrap();
+        register(&old.conn, "wf_tx", &old.writer, |w| w.tx).unwrap();
+        register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
+        register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
+        old.create_schema(include_str!("../../../db/migrations/0001.sql"), &[])
+            .unwrap();
+        // The database as it was at version 12, the version before works said who paused them.
+        old.migrate(&MIGRATIONS[..11]).unwrap();
+        old.write(Actor::Engine, |tx| {
+            let id = item(tx, "paused")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for _ in 0..3 {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')",
+                    [id],
+                )?;
+            }
+            tx.execute("UPDATE works SET paused = 'cell 1: no' WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE works SET paused = 'later' WHERE id = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old.conn().prepare("SELECT paused_by FROM works ORDER BY id").unwrap();
+        let by: Vec<Option<String>> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(by, [Some("engine".to_string()), Some("owner".to_string()), None]);
+        // The migration's own change is not recorded as a writer's.
+        let n: i64 = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE json_extract(new_row, '$.paused_by') IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
     }
 }

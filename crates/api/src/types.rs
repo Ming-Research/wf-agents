@@ -1,29 +1,24 @@
 //! What the interface hands out. Times are UTC milliseconds since the Unix epoch, as in the database; JSON the
-//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept.
+//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept. A round is
+//! given by its work and its number in the work, as the database keeps it, and named `R<work>-<n>`.
+
+use std::collections::BTreeMap;
 
 use flow::format::Src;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-/// How the engine dispatches: what it starts, and when.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    /// It takes every work as far as it can, pass after pass.
-    Run,
-    /// It starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
-    /// asks for on the work's page.
-    Hold,
-}
-
-/// The next round of a work the owner asked for while the engine held, and what it came to.
+/// The round of a work the owner asked for, and what it came to.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StepTaken {
     /// When the round ended.
     pub at: i64,
+    /// The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
+    /// item over, when the asked work was on an older flow version.
+    pub asked: i64,
     pub work: i64,
-    /// The rounds it started or ended, and the cell of the last of them.
+    /// The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
     pub rounds: Vec<i64>,
     pub cell: Option<String>,
 }
@@ -47,13 +42,24 @@ pub struct NextRound {
     pub not_asked: Option<String>,
     /// For a tool cell: what each tool the last round asked for will do, one line each.
     pub tools: Vec<String>,
+    /// For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
+    pub waits: Option<String>,
+    /// The design card it waits for the owner's ruling on, when it does.
+    pub design_card: Option<i64>,
+    /// The ask of the owner it waits for an answer to, when it does.
+    pub ask: Option<i64>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Status {
-    pub mode: Mode,
-    /// While the engine holds: the work whose next round the owner asked for, while it is under way.
+    /// Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
+    /// though a work's round the owner asks for runs.
+    pub paused: bool,
+    /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
+    /// before the pause, unless the owner asked for it.
+    pub running: Option<i64>,
+    /// The work whose round the owner asked for, until that round has ended.
     pub stepping: Option<i64>,
     /// The last round the owner asked for since the engine started.
     pub last_step: Option<StepTaken>,
@@ -64,6 +70,8 @@ pub struct Status {
     pub flow_version: i64,
     /// The configuration commit the engine runs with.
     pub config_commit: String,
+    /// Each project's GitHub repository, as owner/name, by the project's name: the page links a work's pull request.
+    pub repos: BTreeMap<String, String>,
     /// When the engine started.
     pub started_at: i64,
     /// The version of wf-agents that runs.
@@ -100,7 +108,7 @@ pub enum Event {
     Status { status: Box<Status> },
     /// A work started, moved, was paused, resumed or ended, or was said something to.
     Work { work: i64 },
-    /// A round started or ended, or ran a tool.
+    /// A round started or ended, or ran a tool: its work, and its number in the work.
     Round { work: i64, round: i64 },
     /// A design card was handed in, ruled or replaced.
     DesignCard { design_card: i64, work: Option<i64> },
@@ -112,8 +120,8 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
-    /// What the agent of a running round is doing now, as its command line reports it: a tool it uses, or what it
-    /// says.
+    /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
+    /// reports it: a tool it uses, or what it says.
     Activity {
         work: i64,
         round: i64,
@@ -145,9 +153,35 @@ pub enum WorkState {
 /// The round of a work that is running.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RunningRound {
-    pub id: i64,
+    /// Its number in the work.
+    pub n: i64,
     pub cell: Option<String>,
     pub started_at: i64,
+}
+
+/// Who paused a work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PausedBy {
+    /// The owner, on the page or the command line: Start all lets it go on.
+    Owner,
+    /// The engine, for a problem the owner looks at before letting it go on: a step that could not be taken, or
+    /// returns sent back too often.
+    Engine,
+}
+
+/// What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Waits {
+    /// The owner's answer to an ask, which the owner also gives for the architect.
+    Answer { ask: i64 },
+    /// The owner's ruling on a design card.
+    Ruling { design_card: i64 },
+    /// The items its item depends on, until each is merged.
+    Items { items: Vec<i64> },
+    /// What the row it took waits for, when it is none of these: the cell and the row, which its next round explains.
+    Row { cell: String, row: String },
 }
 
 /// A work as a list shows it: what it works on, where it stands and what it has cost.
@@ -166,9 +200,14 @@ pub struct WorkSummary {
     pub at_title: Option<String>,
     pub stage: Option<String>,
     pub state: WorkState,
-    /// Why it was paused, or ended before its end.
+    /// Why it was paused, and who paused it; why it ended before its end.
     pub paused: Option<String>,
+    pub paused_by: Option<PausedBy>,
     pub ended: Option<String>,
+    /// What it waits for before it goes on by itself.
+    pub waits: Option<Waits>,
+    /// The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
+    pub answered: Option<i64>,
     pub branch: Option<String>,
     pub pr: Option<i64>,
     /// When its first round started, and when its last round started or ended.
@@ -208,7 +247,8 @@ pub enum RoundOutcome {
 /// A round as a work's timeline shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundSummary {
-    pub id: i64,
+    /// Its number in its work.
+    pub n: i64,
     /// Its cell; none for a round that only answered an interjection.
     pub cell: Option<String>,
     /// The line whose session it ran in; none for the engine's own steps, tool cells and the owner.
@@ -234,6 +274,7 @@ pub struct RoundSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DesignCard {
     pub id: i64,
+    /// The round that handed it in: its number in the work.
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
@@ -242,19 +283,50 @@ pub struct DesignCard {
     pub body: Value,
     pub rulings: Value,
     pub replaced_by: Option<i64>,
+    /// For a design card a newer one replaced: that one, as the engine knows it.
+    pub replaced: Option<Replacement>,
+}
+
+/// The design card that replaced another: the round that handed it in, at which cell and when.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Replacement {
+    pub design_card: i64,
+    /// The round that handed it in: its number in the work.
+    pub round: i64,
+    pub work: i64,
+    /// The cell of that round, and the cell's title in the work's flow version.
+    pub cell: Option<String>,
+    pub title: Option<String>,
+    /// When that round ended.
+    pub at: Option<i64>,
+    /// What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+    /// the flow asked for it.
+    pub changed: Option<String>,
 }
 
 /// An ask of the owner: what is asked, and the owner's answer.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct OwnerAsk {
     pub id: i64,
-    /// The round that put it to the owner.
+    /// The round that put it to the owner: its number in the work.
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
     pub body: Value,
+    /// The kind of each point it asks about, in order, with the kind's group.
+    pub kinds: Vec<AskKind>,
     /// None while it waits.
     pub answer: Option<Value>,
+}
+
+/// The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
+/// sort of question it is.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AskKind {
+    pub kind: String,
+    /// The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
+    /// an earlier flow version had.
+    pub group: Option<String>,
 }
 
 /// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -263,8 +335,8 @@ pub struct OwnerMessage {
     pub id: i64,
     /// Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
     pub engine: bool,
-    /// The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
-    /// written.
+    /// The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
+    /// engine's notice, when it was written.
     pub round: Option<i64>,
     pub cell: Option<String>,
     pub line: Option<String>,
@@ -275,6 +347,9 @@ pub struct OwnerMessage {
     pub text: String,
     /// When the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
+    /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
+    pub ask: Option<i64>,
+    pub ask_kinds: Vec<AskKind>,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -303,14 +378,26 @@ pub struct Answer {
     pub reply: Option<Value>,
 }
 
-/// The owner's ruling on a design card, as the page and the command line hand it in.
+/// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
+/// decisions, all sent at once.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Ruling {
+    /// One for each decision of the design card.
+    pub decisions: Vec<DecisionRuling>,
+}
+
+/// The ruling on one decision of a design card.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct DecisionRuling {
+    /// The decision's number on the design card, from 1.
+    pub decision: i64,
     /// confirm or disagree.
     pub verdict: String,
-    /// What the ruling says.
-    pub text: String,
-    /// The approach chosen instead of the one recommended: its name.
+    /// Why, for a disagreement; it may be left out when another approach is chosen.
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<String>,
+    /// For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
     #[serde(default)]
     #[ts(optional)]
     pub option: Option<String>,
@@ -336,7 +423,7 @@ pub struct Interjection {
     pub line: String,
     pub speaker: String,
     pub text: String,
-    /// The round it was handed in; none while it waits.
+    /// The round of the work it was handed in, by its number in the work; none while it waits.
     pub delivered_round: Option<i64>,
 }
 
@@ -355,7 +442,7 @@ pub struct WorkDetail {
     pub rounds: Vec<RoundSummary>,
     pub design_cards: Vec<DesignCard>,
     pub asks: Vec<OwnerAsk>,
-    /// What its agents told the owner, oldest first.
+    /// What its agents told the owner, and what the engine told the owner of it, oldest first.
     pub messages: Vec<OwnerMessage>,
     pub interjections: Vec<Interjection>,
 }
@@ -382,7 +469,7 @@ pub struct RoundInput {
 /// One conditional input of an agent round's message.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundConditional {
-    /// Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+    /// Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
     pub address: String,
     /// The hash of its content, which tells two versions under one address apart.
     pub hash: String,
@@ -433,6 +520,17 @@ pub struct RoundDetail {
     /// How the command line was called: the whole command line, the session started or resumed, the engine's and
     /// the command line's versions; none for a round no agent ran, or one recorded before.
     pub call: Option<Value>,
+    /// The level an agent's round ran at: as its call record says, or for a round recorded before it said, the one
+    /// level the configuration at the round's commit maps its model and effort to; none when no one level does.
+    pub level: Option<String>,
+    /// The effort an agent's round ran with, as its command line gave it.
+    pub effort: Option<String>,
+    /// For a round that locked a new acceptance: the acceptance locked before, which it replaced; none for one that
+    /// locked the first.
+    pub acceptance_before: Option<Value>,
+    /// The limits of the flow's counters for the work's project, as the configuration the round ran with sets them,
+    /// by counter.
+    pub limits: BTreeMap<String, u64>,
     /// The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
     /// inputs were.
     pub inputs: Vec<RoundInput>,
@@ -493,6 +591,14 @@ pub struct ItemSummary {
     /// Its latest work and the cell that work is at.
     pub work: Option<i64>,
     pub at: Option<String>,
+    /// The stage its latest work is at, and the stages of that work's graph in their order, among which it stands;
+    /// none and empty before a work starts.
+    pub stage: Option<String>,
+    pub stages: Vec<String>,
+    /// Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+    /// ruling.
+    pub open_asks: i64,
+    pub open_design_cards: i64,
     /// Its pull request: that of its latest work that has one, or the one it was imported with.
     pub pr: Option<i64>,
 }
@@ -528,8 +634,10 @@ pub struct ItemDetail {
     pub problem: String,
     pub why: String,
     pub approach: Option<String>,
-    /// The locked acceptance, and the round that locked it; none until a first design passes its checks.
+    /// The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
+    /// design passes its checks.
     pub acceptance: Option<Value>,
+    pub acceptance_work: Option<i64>,
     pub acceptance_round: Option<i64>,
     /// The items it depends on, and the items that depend on it.
     pub depends_on: Vec<LinkedItem>,
@@ -552,17 +660,12 @@ pub struct ItemDetail {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Shown {
     pub work: i64,
+    /// The round that handed it back: its number in the work.
     pub round: i64,
     pub cell: String,
     /// The path of the return it is at, as the flow writes it.
     pub path: String,
     pub value: Value,
-}
-
-/// The owner's ask to switch the engine's mode.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
-pub struct SetMode {
-    pub mode: Mode,
 }
 
 /// Why a request failed.
@@ -580,8 +683,14 @@ pub struct FlowView {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct GraphView {
     pub name: String,
+    /// How each line's session is kept (when it starts and which cells continue it), as the flow built into this
+    /// program says: a compiled flow version keeps the lines, not what they are.
+    pub lines: Vec<flow::format::Named>,
     /// Each cell, in the order the graph has them.
     pub cells: Vec<CellView>,
+    /// The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
+    /// their names and no kind of question left out.
+    pub common_format: String,
 }
 
 /// One cell, as the flow page explains it.
@@ -614,12 +723,47 @@ pub struct CellInput {
     /// when the session does not hold it, and referred to by its address when it does.
     pub always: bool,
     pub of: CellInputOf,
-    /// The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+    /// The address it is given under, as the engine addresses it, with `‹work›`, `‹n›`, `‹id›`, `‹cell›` or `‹name›`
     /// standing for what is known only when the round runs; none for what the agent reads itself.
     pub address: Option<String>,
     /// For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
     /// it can be.
     pub cells: Vec<String>,
+    /// What it holds, for a text the flow itself writes: the cell's own return format and what each of its inputs
+    /// is, as the engine gives them, with no project's settings beside their names.
+    pub holds: Option<String>,
+}
+
+/// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+/// project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
+/// of the database holds.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct InputsNow {
+    pub projects: Vec<ProjectNow>,
+    /// Each table and view agents can read, with what its definition says it holds.
+    pub tables: Vec<NamedText>,
+}
+
+/// One project's part of what the inputs from outside the flow hold now.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ProjectNow {
+    pub project: String,
+    /// Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
+    pub settings: Vec<NamedText>,
+    /// The project's AGENTS.md as its checkout has it now.
+    pub agents_md: String,
+    /// The index of its design tree as its checkout has it now: each node's path with its first line. The full text
+    /// of the nodes an item cites is added for each item.
+    pub design_tree: Vec<NamedText>,
+    /// The project's own rules, each by its name with its text.
+    pub rules: Vec<NamedText>,
+}
+
+/// A name with a text.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NamedText {
+    pub name: String,
+    pub text: String,
 }
 
 /// What an input is.

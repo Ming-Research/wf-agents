@@ -101,7 +101,8 @@ pub struct RawField {
     pub optional: Option<bool>,
     /// An enum's values.
     pub values: Option<Values>,
-    /// An object's fields.
+    /// An object's fields. An object with none listed, not even an empty list, holds whatever fields its value has,
+    /// such as a row a query found.
     pub fields: Option<Vec<RawField>>,
     /// A list's item.
     pub item: Option<Box<RawField>>,
@@ -256,7 +257,7 @@ pub struct Block {
     pub asking: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Named {
     pub name: String,
@@ -354,6 +355,10 @@ pub struct AskGroup {
     pub kinds: Vec<(String, String)>,
     /// The one role these kinds may be asked of.
     pub only: Option<String>,
+    /// Kinds of the group that only a project meeting a need can meet, each with the need, one of `engine.needs`: an
+    /// agent working on a project that does not meet it is not told of the kind.
+    #[serde(default)]
+    pub needs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -630,6 +635,13 @@ pub struct Check {
 pub struct Input {
     /// The name the cell's rows, actions and checks read the input by, as `@<id>`.
     pub id: Option<String>,
+    /// For an input every agent's cell has: what it is called. Each cell's list of what its inputs are names it only,
+    /// and the forms every return shares say once what it is.
+    pub name: Option<String>,
+    /// For an input that is a table the cell answers row by row: the prefix its rows are numbered with. The engine
+    /// gives the input as one table, each finding, column, test, conflict, check and entry its sources hold a row,
+    /// numbered across all of them (F1, F2, ...), and the cell answers each row by its number.
+    pub numbered: Option<String>,
     /// What the input is, as the agent is told.
     pub what: String,
     pub from: Vec<Src>,

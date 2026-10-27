@@ -2,9 +2,28 @@
 
 import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 
+import { roundName } from './format';
+
+/// What the work's panel beside its chart shows: its rounds, its design cards, or its messages and asks.
+export type WorkTab = 'rounds' | 'cards' | 'messages';
+
+/// Which of a work's rounds its list shows besides all of them: those whose return was sent back, or those whose run
+/// failed or was cut off.
+export type RoundsOnly = 'sent_back' | 'failed';
+
+export type WorkRoute = {
+  page: 'work';
+  id: number;
+  /// The round open, by its number in the work; the address names it as `?round=R<work>-<n>`.
+  round: number | null;
+  cell: string | null;
+  tab: WorkTab;
+  only: RoundsOnly | null;
+};
+
 export type Route =
   | { page: 'works' }
-  | { page: 'work'; id: number; round: number | null; cell: string | null }
+  | WorkRoute
   | { page: 'items' }
   | { page: 'item'; id: number }
   | { page: 'messages' }
@@ -26,6 +45,12 @@ const num = (s: string | null | undefined): number | null => {
   return Number(s);
 };
 
+/// The number in the work of the round a name such as `R5-9` names, when it is a round of that work.
+const roundOf = (work: number, s: string | null): number | null => {
+  const m = s === null ? null : /^R(\d+)-(\d+)$/.exec(s);
+  return m !== null && Number(m[1]) === work ? Number(m[2]) : null;
+};
+
 export function parse(pathname: string, search: string): Route {
   const q = new URLSearchParams(search);
   const parts = pathname.split('/').filter((p) => p !== '');
@@ -33,7 +58,18 @@ export function parse(pathname: string, search: string): Route {
   if (parts.length === 0 || (first === 'works' && parts.length === 1)) return { page: 'works' };
   if (first === 'works' && parts.length === 2) {
     const id = num(second);
-    if (id !== null) return { page: 'work', id, round: num(q.get('round')), cell: q.get('cell') };
+    if (id !== null) {
+      const tab = q.get('tab');
+      const only = q.get('only');
+      return {
+        page: 'work',
+        id,
+        round: roundOf(id, q.get('round')),
+        cell: q.get('cell'),
+        tab: tab === 'cards' || tab === 'messages' ? tab : 'rounds',
+        only: only === 'sent_back' || only === 'failed' ? only : null,
+      };
+    }
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'messages' && parts.length === 1) return { page: 'messages' };
@@ -68,7 +104,12 @@ export function href(r: Route): string {
     case 'works':
       return '/works';
     case 'work':
-      return `/works/${r.id}${query([['round', r.round], ['cell', r.cell]])}`;
+      return `/works/${r.id}${query([
+        ['tab', r.tab === 'rounds' ? null : r.tab],
+        ['only', r.only],
+        ['round', r.round === null ? null : roundName(r.id, r.round)],
+        ['cell', r.cell],
+      ])}`;
     case 'items':
       return '/items';
     case 'item':
@@ -85,6 +126,11 @@ export function href(r: Route): string {
     case 'missing':
       return '/';
   }
+}
+
+/// The address of a work's page: its rounds with nothing open, or what `more` names.
+export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'>> = {}): string {
+  return href({ page: 'work', id, round: null, cell: null, tab: 'rounds', only: null, ...more });
 }
 
 const NAVIGATED = 'wf-navigate';

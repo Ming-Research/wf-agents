@@ -4,20 +4,20 @@
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
 /**
- * How the engine dispatches: what it starts, and when.
- */
-export type Mode = "run" | "hold";
-
-/**
- * The next round of a work the owner asked for while the engine held, and what it came to.
+ * The round of a work the owner asked for, and what it came to.
  */
 export type StepTaken = { 
 /**
  * When the round ended.
  */
-at: number, work: number, 
+at: number, 
 /**
- * The rounds it started or ended, and the cell of the last of them.
+ * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
+ * item over, when the asked work was on an older flow version.
+ */
+asked: number, work: number, 
+/**
+ * The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
  */
 rounds: Array<number>, cell: string | null, };
 
@@ -46,14 +46,36 @@ not_asked: string | null,
 /**
  * For a tool cell: what each tool the last round asked for will do, one line each.
  */
-tools: Array<string>, };
+tools: Array<string>, 
+/**
+ * For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
+ */
+waits: string | null, 
+/**
+ * The design card it waits for the owner's ruling on, when it does.
+ */
+design_card: number | null, 
+/**
+ * The ask of the owner it waits for an answer to, when it does.
+ */
+ask: number | null, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.
  */
-export type Status = { mode: Mode, 
+export type Status = { 
 /**
- * While the engine holds: the work whose next round the owner asked for, while it is under way.
+ * Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
+ * though a work's round the owner asks for runs.
+ */
+paused: boolean, 
+/**
+ * The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
+ * before the pause, unless the owner asked for it.
+ */
+running: number | null, 
+/**
+ * The work whose round the owner asked for, until that round has ended.
  */
 stepping: number | null, 
 /**
@@ -72,6 +94,10 @@ flow_version: number,
  * The configuration commit the engine runs with.
  */
 config_commit: string, 
+/**
+ * Each project's GitHub repository, as owner/name, by the project's name: the page links a work's pull request.
+ */
+repos: { [key in string]: string }, 
 /**
  * When the engine started.
  */
@@ -119,7 +145,21 @@ export type WorkState = "running" | "ready" | "asking" | "waiting" | "paused" | 
 /**
  * The round of a work that is running.
  */
-export type RunningRound = { id: number, cell: string | null, started_at: number, };
+export type RunningRound = { 
+/**
+ * Its number in the work.
+ */
+n: number, cell: string | null, started_at: number, };
+
+/**
+ * Who paused a work.
+ */
+export type PausedBy = "owner" | "engine";
+
+/**
+ * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+ */
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
 
 /**
  * A work as a list shows it: what it works on, where it stands and what it has cost.
@@ -138,9 +178,17 @@ graph: string, flow_version: number,
  */
 at: string, at_title: string | null, stage: string | null, state: WorkState, 
 /**
- * Why it was paused, or ended before its end.
+ * Why it was paused, and who paused it; why it ended before its end.
  */
-paused: string | null, ended: string | null, branch: string | null, pr: number | null, 
+paused: string | null, paused_by: PausedBy | null, ended: string | null, 
+/**
+ * What it waits for before it goes on by itself.
+ */
+waits: Waits | null, 
+/**
+ * The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
+ */
+answered: number | null, branch: string | null, pr: number | null, 
 /**
  * When its first round started, and when its last round started or ended.
  */
@@ -170,7 +218,11 @@ export type RoundOutcome = "running" | "took" | "sent_back" | "failed" | "interr
 /**
  * A round as a work's timeline shows it.
  */
-export type RoundSummary = { id: number, 
+export type RoundSummary = { 
+/**
+ * Its number in its work.
+ */
+n: number, 
 /**
  * Its cell; none for a round that only answered an interjection.
  */
@@ -199,24 +251,69 @@ not_asked: string | null, };
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.
  */
-export type DesignCard = { id: number, round: number, work: number, item: number | null, 
+export type DesignCard = { id: number, 
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number, item: number | null, 
 /**
  * open, ruled or replaced.
  */
-status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, };
+status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, 
+/**
+ * For a design card a newer one replaced: that one, as the engine knows it.
+ */
+replaced: Replacement | null, };
+
+/**
+ * The design card that replaced another: the round that handed it in, at which cell and when.
+ */
+export type Replacement = { design_card: number, 
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number, 
+/**
+ * The cell of that round, and the cell's title in the work's flow version.
+ */
+cell: string | null, title: string | null, 
+/**
+ * When that round ended.
+ */
+at: number | null, 
+/**
+ * What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+ * the flow asked for it.
+ */
+changed: string | null, };
 
 /**
  * An ask of the owner: what is asked, and the owner's answer.
  */
 export type OwnerAsk = { id: number, 
 /**
- * The round that put it to the owner.
+ * The round that put it to the owner: its number in the work.
  */
 round: number, work: number, item: number | null, body: JsonValue, 
+/**
+ * The kind of each point it asks about, in order, with the kind's group.
+ */
+kinds: Array<AskKind>, 
 /**
  * None while it waits.
  */
 answer: JsonValue | null, };
+
+/**
+ * The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
+ * sort of question it is.
+ */
+export type AskKind = { kind: string, 
+/**
+ * The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
+ * an earlier flow version had.
+ */
+group: string | null, };
 
 /**
  * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -227,14 +324,18 @@ export type OwnerMessage = { id: number,
  */
 engine: boolean, 
 /**
- * The round whose return holds it, its cell and line, and when it ended; for the engine's notice, when it was
- * written.
+ * The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
+ * engine's notice, when it was written.
  */
 round: number | null, cell: string | null, line: string | null, at: number | null, work: number | null, item: number | null, title: string | null, text: string, 
 /**
  * When the owner marked it read; none while it is unread.
  */
-read_at: number | null, };
+read_at: number | null, 
+/**
+ * For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
+ */
+ask: number | null, ask_kinds: Array<AskKind>, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -256,19 +357,33 @@ why?: string,
 reply?: JsonValue, };
 
 /**
- * The owner's ruling on a design card, as the page and the command line hand it in.
+ * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
+ * decisions, all sent at once.
  */
 export type Ruling = { 
+/**
+ * One for each decision of the design card.
+ */
+decisions: Array<DecisionRuling>, };
+
+/**
+ * The ruling on one decision of a design card.
+ */
+export type DecisionRuling = { 
+/**
+ * The decision's number on the design card, from 1.
+ */
+decision: number, 
 /**
  * confirm or disagree.
  */
 verdict: string, 
 /**
- * What the ruling says.
+ * Why, for a disagreement; it may be left out when another approach is chosen.
  */
-text: string, 
+text?: string, 
 /**
- * The approach chosen instead of the one recommended: its name.
+ * For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
  */
 option?: string, };
 
@@ -287,7 +402,7 @@ export type Marked = { marked: number, };
  */
 export type Interjection = { id: number, work: number, line: string, speaker: string, text: string, 
 /**
- * The round it was handed in; none while it waits.
+ * The round of the work it was handed in, by its number in the work; none while it waits.
  */
 delivered_round: number | null, };
 
@@ -304,7 +419,7 @@ resume_at: string | null, waiting: JsonValue,
  */
 recorded: JsonValue, rounds: Array<RoundSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
 /**
- * What its agents told the owner, oldest first.
+ * What its agents told the owner, and what the engine told the owner of it, oldest first.
  */
 messages: Array<OwnerMessage>, interjections: Array<Interjection>, };
 
@@ -329,7 +444,7 @@ from: Array<Src>, };
  */
 export type RoundConditional = { 
 /**
- * Its address, such as `R12·2a·design`, `rule:ground` or `format:common`.
+ * Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
  */
 address: string, 
 /**
@@ -387,6 +502,25 @@ conditional: Array<RoundConditional>,
  */
 call: JsonValue | null, 
 /**
+ * The level an agent's round ran at: as its call record says, or for a round recorded before it said, the one
+ * level the configuration at the round's commit maps its model and effort to; none when no one level does.
+ */
+level: string | null, 
+/**
+ * The effort an agent's round ran with, as its command line gave it.
+ */
+effort: string | null, 
+/**
+ * For a round that locked a new acceptance: the acceptance locked before, which it replaced; none for one that
+ * locked the first.
+ */
+acceptance_before: JsonValue | null, 
+/**
+ * The limits of the flow's counters for the work's project, as the configuration the round ran with sets them,
+ * by counter.
+ */
+limits: { [key in string]: number }, 
+/**
  * The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
  * inputs were.
  */
@@ -440,6 +574,16 @@ queued: number | null,
  */
 work: number | null, at: string | null, 
 /**
+ * The stage its latest work is at, and the stages of that work's graph in their order, among which it stands;
+ * none and empty before a work starts.
+ */
+stage: string | null, stages: Array<string>, 
+/**
+ * Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+ * ruling.
+ */
+open_asks: number, open_design_cards: number, 
+/**
  * Its pull request: that of its latest work that has one, or the one it was imported with.
  */
 pr: number | null, };
@@ -469,9 +613,10 @@ export type LinkedItem = { item: ItemSummary, needs: string, };
  */
 export type ItemDetail = { item: ItemSummary, problem: string, why: string, approach: string | null, 
 /**
- * The locked acceptance, and the round that locked it; none until a first design passes its checks.
+ * The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
+ * design passes its checks.
  */
-acceptance: JsonValue | null, acceptance_round: number | null, 
+acceptance: JsonValue | null, acceptance_work: number | null, acceptance_round: number | null, 
 /**
  * The items it depends on, and the items that depend on it.
  */
@@ -494,16 +639,15 @@ shown: Array<Shown>, };
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
  */
-export type Shown = { work: number, round: number, cell: string, 
+export type Shown = { work: number, 
+/**
+ * The round that handed it back: its number in the work.
+ */
+round: number, cell: string, 
 /**
  * The path of the return it is at, as the flow writes it.
  */
 path: string, value: JsonValue, };
-
-/**
- * The owner's ask to switch the engine's mode.
- */
-export type SetMode = { mode: Mode, };
 
 /**
  * Why a request failed.
@@ -517,9 +661,19 @@ export type FlowView = { graphs: Array<GraphView>, };
 
 export type GraphView = { name: string, 
 /**
+ * How each line's session is kept (when it starts and which cells continue it), as the flow built into this
+ * program says: a compiled flow version keeps the lines, not what they are.
+ */
+lines: Array<Named>, 
+/**
  * Each cell, in the order the graph has them.
  */
-cells: Array<CellView>, };
+cells: Array<CellView>, 
+/**
+ * The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
+ * their names and no kind of question left out.
+ */
+common_format: string, };
 
 /**
  * One cell, as the flow page explains it.
@@ -559,7 +713,7 @@ export type CellInput = {
  */
 always: boolean, of: CellInputOf, 
 /**
- * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+ * The address it is given under, as the engine addresses it, with `‹work›`, `‹n›`, `‹id›`, `‹cell›` or `‹name›`
  * standing for what is known only when the round runs; none for what the agent reads itself.
  */
 address: string | null, 
@@ -567,12 +721,55 @@ address: string | null,
  * For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
  * it can be.
  */
-cells: Array<string>, };
+cells: Array<string>, 
+/**
+ * What it holds, for a text the flow itself writes: the cell's own return format and what each of its inputs
+ * is, as the engine gives them, with no project's settings beside their names.
+ */
+holds: string | null, };
 
 /**
  * What an input is.
  */
 export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "common_format" } | { "kind": "cell_format" } | { "kind": "cell_inputs" } | { "kind": "workspace" };
+
+/**
+ * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+ * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
+ * of the database holds.
+ */
+export type InputsNow = { projects: Array<ProjectNow>, 
+/**
+ * Each table and view agents can read, with what its definition says it holds.
+ */
+tables: Array<NamedText>, };
+
+/**
+ * One project's part of what the inputs from outside the flow hold now.
+ */
+export type ProjectNow = { project: string, 
+/**
+ * Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
+ */
+settings: Array<NamedText>, 
+/**
+ * The project's AGENTS.md as its checkout has it now.
+ */
+agents_md: string, 
+/**
+ * The index of its design tree as its checkout has it now: each node's path with its first line. The full text
+ * of the nodes an item cites is added for each item.
+ */
+design_tree: Array<NamedText>, 
+/**
+ * The project's own rules, each by its name with its text.
+ */
+rules: Array<NamedText>, };
+
+/**
+ * A name with a text.
+ */
+export type NamedText = { name: string, text: string, };
 
 /**
  * What a cell hands back, as a tree of fields.
@@ -792,6 +989,11 @@ within: string,
  */
 asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
 /**
+ * The kinds of question that only a project meeting a need can meet: an agent working on a project that does
+ * not meet it is not told of the kind.
+ */
+ask_needs?: Array<AskNeed>, 
+/**
  * How every agent's return is written, which the forms every return shares say once.
  */
 write?: Array<string>, 
@@ -815,6 +1017,20 @@ export type Rule = { name: string, desc: string, text: Array<string>,
 lines?: Array<string>, };
 
 export type CompiledInterject = { name: string, desc: string, text: Array<string>, from: Array<Named>, };
+
+/**
+ * A kind of question only a project meeting a need can meet.
+ */
+export type AskNeed = { kind: string, 
+/**
+ * One of `engine.needs`.
+ */
+need: string, 
+/**
+ * The kind with what it means, as a return format's description of the field that names a kind says it: what
+ * is taken out of that description when the kind is left out.
+ */
+text: string, };
 
 export type Named = { name: string, desc: string, };
 
@@ -877,7 +1093,16 @@ shown?: Array<string>,
  */
 read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
 
-export type CompiledInput = { id: string | null, what: string, from: Array<Src>, maybe: boolean, };
+export type CompiledInput = { id: string | null, 
+/**
+ * For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
+ * the forms every return shares say what it is.
+ */
+name?: string | null, 
+/**
+ * For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
+ */
+numbered?: string | null, what: string, from: Array<Src>, maybe: boolean, };
 
 /**
  * Where an input comes from.
