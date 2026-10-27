@@ -53,7 +53,7 @@ const UNCHECKED: [&str; 18] = [
     "answer 1 --text x",
     "design-cards",
     "design-card 1",
-    "rule 1 --verdict confirm --text x",
+    "rule 1 --confirm all",
     "say 1 hello",
     "pause 1 --why x",
     "resume 1",
