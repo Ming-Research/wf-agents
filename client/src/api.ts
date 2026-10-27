@@ -52,11 +52,7 @@ flow_version: number,
 /**
  * The configuration commit the engine runs with.
  */
-config_commit: string, 
-/**
- * The language everything the owner reads is written in, as the configuration's `owner.language` names it.
- */
-language: string, 
+config_commit: string,
 /**
  * When the engine started.
  */
@@ -377,6 +373,240 @@ export type SetMode = { mode: Mode, };
  * Why a request failed.
  */
 export type ApiError = { error: string, };
+
+/**
+ * What the flow page shows of a compiled flow besides the flow itself, graph by graph.
+ */
+export type FlowView = { graphs: Array<GraphView>, };
+
+export type GraphView = { name: string,
+/**
+ * Each cell, in the order the graph has them.
+ */
+cells: Array<CellView>, };
+
+/**
+ * One cell, as the flow page explains it.
+ */
+export type CellView = { id: string,
+/**
+ * For each row of its transition table, in order, the cells the row can lead to: its target, or the cells a
+ * target the engine keeps track of (`@self`, `@caller`, `@asker`, `@stopped`) can be.
+ */
+targets: Array<Array<string>>,
+/**
+ * Every row of every cell that can lead here, in the order of the cells and of their rows.
+ */
+entered_from: Array<RowRef>,
+/**
+ * What a round of the cell is given: for an agent's cell, every material, each with its origin and address;
+ * for any other cell, the sources of its inputs.
+ */
+materials: Array<Material>,
+/**
+ * What the cell hands back, with whatever reads each field.
+ */
+returns: Returns, };
+
+/**
+ * A row of a cell, by its place in the cell's transition table, from 0.
+ */
+export type RowRef = { cell: string, row: number, };
+
+/**
+ * Where a material an agent's round is given comes from, under the rule that each material is given once in a
+ * session.
+ */
+export type Origin = "line" | "start" | "outside" | "either" | "itself";
+
+/**
+ * One material a round of a cell is given.
+ */
+export type Material = { origin: Origin, of: MaterialOf,
+/**
+ * The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+ * standing for what is known only when the round runs; none for what the agent reads itself.
+ */
+address: string | null,
+/**
+ * For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
+ * it can be.
+ */
+cells: Array<string>, };
+
+/**
+ * What a material is.
+ */
+export type MaterialOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "settings" } | { "kind": "tables" } | { "kind": "common_format" } | { "kind": "cell_format" };
+
+/**
+ * What a cell hands back, as a tree of fields.
+ */
+export type Returns = {
+/**
+ * For an agent's cell: the field its return holds exactly one form in.
+ */
+within: string | null,
+/**
+ * For an agent's cell: the forms it may hand in, its own answer first.
+ */
+forms: Array<ReturnForm>,
+/**
+ * The fields every return holds: for an agent's cell those beside the form, for any other cell all of them.
+ */
+every: Array<Field>,
+/**
+ * What reads the return as a whole.
+ */
+used_by: Array<Use>, };
+
+/**
+ * One form an agent's return may hold.
+ */
+export type ReturnForm = {
+/**
+ * The form's field, such as `ask` or `tools`; none for the cell's own answer.
+ */
+field: string | null,
+/**
+ * The form's fields: the own answer's fields, or the one field the form is.
+ */
+fields: Array<Field>,
+/**
+ * What reads that a return is this form: the rows whose condition is the cell's own answer.
+ */
+used_by: Array<Use>, };
+
+/**
+ * The kind of value a field holds.
+ */
+export type FieldKind = "text" | "integer" | "number" | "boolean" | "enum" | "object" | "list" | "union" | "any";
+
+/**
+ * A field of a return, with whatever reads it.
+ */
+export type Field = { name: string,
+/**
+ * Its path as the flow writes it, such as `end.test_changes[added].catches`.
+ */
+path: string, kind: FieldKind,
+/**
+ * For a list, the kind of its items.
+ */
+item: FieldKind | null, desc: string | null, optional: boolean,
+/**
+ * For a list, the fewest items it holds.
+ */
+min: number | null,
+/**
+ * For one of a fixed set of values: each value, with what it means when the flow says.
+ */
+values: Array<[string, string | null]>, used_by: Array<Use>,
+/**
+ * The fields of an object, or of the objects a list holds.
+ */
+fields: Array<Field>,
+/**
+ * For one of several shapes: the field whose value says which, and what reads that field.
+ */
+disc: string | null, disc_used_by: Array<Use>,
+/**
+ * For one of several shapes: the fields every shape has, and each shape.
+ */
+common: Array<Field>, branches: Array<Branch>, };
+
+/**
+ * One of the shapes a field may take.
+ */
+export type Branch = {
+/**
+ * The value of the field that says which shape it is.
+ */
+value: string,
+/**
+ * Its path as the flow writes it, such as `result[green]`.
+ */
+path: string, desc: string | null, used_by: Array<Use>, fields: Array<Field>, };
+
+/**
+ * Something that reads a field of a return.
+ */
+export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, };
+
+/**
+ * What changed from one compiled flow to another, graph by graph.
+ */
+export type FlowDiff = { graphs: Array<GraphDiff>, };
+
+export type GraphDiff = { name: string,
+/**
+ * Whether the graph was added or removed whole, or changed.
+ */
+status: ChangeKind,
+/**
+ * What changed in the graph apart from its cells: its start and end, its rules, the interjection, the counters.
+ */
+changes: Array<Change>,
+/**
+ * Each cell added, removed or changed, in the order of the newer flow, the removed ones last.
+ */
+cells: Array<CellDiff>, };
+
+/**
+ * Whether a thing was added, removed or changed.
+ */
+export type ChangeKind = "added" | "removed" | "changed";
+
+export type CellDiff = { id: string,
+/**
+ * Its title in the newer flow, or in the older one for a cell removed.
+ */
+title: string, status: ChangeKind, changes: Array<Change>, };
+
+/**
+ * The part of a cell or a graph a change is in.
+ */
+export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
+
+/**
+ * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
+ */
+export type Change = { part: Part,
+/**
+ * Which one of the part: an input's text, a rule's or a row's name, a field's path, a check's name; empty for
+ * a part a cell has one of.
+ */
+key: string,
+/**
+ * What it was; none for what was added.
+ */
+before: JsonValue | null,
+/**
+ * What it is; none for what was removed.
+ */
+after: JsonValue | null, };
+
+/**
+ * A project's checkout, where the flow can be read at a git ref.
+ */
+export type FlowSource = { project: string, checkout: string,
+/**
+ * Its branches, the most recently committed first.
+ */
+refs: Array<string>, };
+
+/**
+ * The flow as `flow/flow.json` is at a git ref of a project's checkout, compiled by the flow's compiler.
+ */
+export type FlowAt = { project: string,
+/**
+ * The ref as it was asked for, and the commit it names.
+ */
+rev: string, commit: string, digest: string,
+/**
+ * The stored flow version with the same digest, when there is one.
+ */
+version: number | null, compiled: Compiled, view: FlowView, };
 
 export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>, 
 /**

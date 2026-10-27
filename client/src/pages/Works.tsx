@@ -5,12 +5,11 @@ import { Loaded, WorkBadge } from '../components';
 import { cost, duration, time } from '../format';
 import { useResource } from '../live';
 import { Link, navigate } from '../route';
-import { useT } from '../text';
+import { t } from '../text';
 
 const ENDED = new Set(['done', 'ended']);
 
 function Table({ works }: { works: WorkSummary[] }) {
-  const t = useT();
   const now = Date.now();
   return (
     <table className="list">
@@ -74,7 +73,6 @@ function Table({ works }: { works: WorkSummary[] }) {
 }
 
 export function Works() {
-  const t = useT();
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   return (
     <div className="page">

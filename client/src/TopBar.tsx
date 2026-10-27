@@ -8,11 +8,11 @@ import { time } from './format';
 import { postJson } from './http';
 import { useOnline, useStatus } from './live';
 import { Link, type Route } from './route';
-import { type T, useT } from './text';
+import { t } from './text';
 
 const MODES: Mode[] = ['run', 'step', 'hold'];
 
-function LastStep({ status, t }: { status: Status; t: T }) {
+function LastStep({ status }: { status: Status }) {
   const s = status.last_step;
   if (!s) return null;
   const what =
@@ -32,7 +32,6 @@ function LastStep({ status, t }: { status: Status; t: T }) {
 }
 
 function Engine() {
-  const t = useT();
   const online = useOnline();
   const status = useStatus();
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +72,7 @@ function Engine() {
           {status.stepping ? t('stepping') : t('next_step')}
         </button>
       ) : null}
-      <LastStep status={status} t={t} />
+      <LastStep status={status} />
       {status.halt !== null ? (
         <span className="bad" title={status.halt.why}>
           {t('halt', { kind: status.halt.kind, until: time(status.halt.until) })}
@@ -85,8 +84,8 @@ function Engine() {
   );
 }
 
-export function TopBar({ route }: { route: Route }) {
-  const t = useT();
+/// The bar; `slot` is given the part of it a view fills with what it needs at hand.
+export function TopBar({ route, slot }: { route: Route; slot: (el: HTMLElement | null) => void }) {
   const on = (pages: Route['page'][]) => (pages.includes(route.page) ? 'nav nav-on' : 'nav');
   return (
     <nav className="topbar">
@@ -100,6 +99,7 @@ export function TopBar({ route }: { route: Route }) {
       <Link to="/flow" className={on(['flow'])}>
         {t('nav_flow')}
       </Link>
+      <div className="bar-slot" ref={slot} />
       <Engine />
     </nav>
   );

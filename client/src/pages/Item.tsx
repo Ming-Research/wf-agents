@@ -5,7 +5,7 @@ import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../component
 import { cost, time } from '../format';
 import { useResource } from '../live';
 import { Link } from '../route';
-import { useT } from '../text';
+import { t } from '../text';
 
 type Row = { [key in string]: JsonValue };
 
@@ -34,7 +34,6 @@ function Acceptance({ value }: { value: JsonValue }) {
 }
 
 function Linked({ list }: { list: LinkedItem[] }) {
-  const t = useT();
   if (list.length === 0) return <p className="muted">{t('none')}</p>;
   return (
     <ul className="linked">
@@ -52,7 +51,6 @@ function Linked({ list }: { list: LinkedItem[] }) {
 }
 
 function Detail({ d }: { d: ItemDetail }) {
-  const t = useT();
   const i = d.item;
   return (
     <>

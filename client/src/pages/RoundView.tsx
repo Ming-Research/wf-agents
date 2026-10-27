@@ -3,14 +3,14 @@
 // came from; the return, the row it took or why it was sent back, the tools it ran with the files they kept, and what
 // it cost.
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import type { RoundDetail, ToolRun } from '../api';
 import { Facts, Json, Loaded, OutcomeBadge, Section } from '../components';
 import { cost, duration, time } from '../format';
 import { getText } from '../http';
 import { useResource } from '../live';
-import { srcText, useT } from '../text';
+import { srcText, t } from '../text';
 
 /// A file a tool kept, read when asked for.
 function KeptFile({ file, path }: { file: string; path: string }) {
@@ -36,7 +36,6 @@ function KeptFile({ file, path }: { file: string; path: string }) {
 }
 
 function Tool({ run }: { run: ToolRun }) {
-  const t = useT();
   return (
     <div className="card-box">
       <div>
@@ -64,27 +63,14 @@ function Tool({ run }: { run: ToolRun }) {
   );
 }
 
-function Detail({ d, onClose }: { d: RoundDetail; onClose: () => void }) {
-  const t = useT();
+function Detail({ d }: { d: RoundDetail }) {
   const r = d.round;
-  const top = useRef<HTMLDivElement>(null);
-  // A round picked further down the timeline is shown above it: bring it into view.
-  useEffect(() => {
-    top.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [r.id]);
   return (
-    <div className="round" ref={top}>
-      <div className="round-head">
-        <h2>
-          {t('round_title', { id: r.id })} <span className="cell-id">{r.cell ?? '–'}</span>{' '}
-          <OutcomeBadge outcome={r.outcome} />
-        </h2>
-        <button className="link" onClick={onClose}>
-          {t('close')}
-        </button>
-      </div>
+    <div className="round">
       <Facts
         rows={[
+          [t('round_cell'), r.cell],
+          [t('round_outcome'), <OutcomeBadge key="o" outcome={r.outcome} />],
           [t('round_line'), r.line],
           r.transition !== null && [t('round_transition'), <strong key="t">{r.transition}</strong>],
           r.why !== null && [t('round_why'), <pre key="w" className="j-text why">{r.why}</pre>],
@@ -199,7 +185,7 @@ function Detail({ d, onClose }: { d: RoundDetail; onClose: () => void }) {
   );
 }
 
-export function RoundView({ id, onClose }: { id: number; onClose: () => void }) {
+export function RoundView({ id }: { id: number }) {
   const round = useResource<RoundDetail>(`round:${id}`, `/api/v1/rounds/${id}`);
-  return <Loaded r={round}>{(d) => <Detail d={d} onClose={onClose} />}</Loaded>;
+  return <Loaded r={round}>{(d) => <Detail d={d} />}</Loaded>;
 }

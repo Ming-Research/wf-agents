@@ -1,221 +1,284 @@
-// A flow's state machine: elkjs places the cells and routes the rows between them, React Flow draws them. On a
-// work's page each cell carries what the work did there: the current cell, its round count, its rounds sent back or
-// failed, and the ways the work went.
+// A flow's state machine, filling the space it is given: the chart is built from the compiled flow and what the
+// interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a legend in the bottom-left
+// corner. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
+// flows are compared, the cells added and changed are marked.
 
-import {
-  Background,
-  Controls,
-  Handle,
-  MarkerType,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Node,
-  type NodeProps,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
-import type { CompiledCell, CompiledGraph, RoundSummary } from '../api';
-import type { Key } from '../i18n';
-import { useT } from '../text';
-import { build, type Overlay } from './flowGraph';
-import { bounds, layout, type Laid } from './layout';
-import { RoutedEdge, type Routed } from './RoutedEdge';
+import type { CompiledGraph, GraphView } from '../api';
+import { t } from '../text';
+import { FlowSvg, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import { type Laid, layoutChart } from './flowLayout';
+import { chart as build, MAIN } from './flowModel';
+import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
-const WIDTH = 230;
-const HEIGHT = 72;
+/// What a click on the chart picked.
+export type Pick =
+  | { kind: 'cell'; cell: string }
+  | { kind: 'rule'; rule: string; cell: string }
+  | { kind: 'interjection'; cell: string }
+  | { kind: 'shared'; cell: string }
+  | { kind: 'out'; cell: string; to: string }
+  | { kind: 'in'; cell: string; from: string };
 
-const KINDS: Record<string, Key> = {
-  agent: 'kind_agent',
-  engine: 'kind_engine',
-  tool: 'kind_tool',
-  owner: 'kind_owner',
+export type FlowChartHandle = {
+  /// Brings a cell into view: keeping the zoom when it is already in sight, or zooming in to read it.
+  focus: (cell: string, keep?: boolean) => void;
 };
 
-type CellData = { cell: CompiledCell; overlay: Overlay | null; selected: boolean };
-type CellFlowNode = Node<CellData, 'cell'>;
+/// The least zoom the chart opens at: a cell's text can be read at it.
+const READABLE = 0.62;
+const PAD = 24;
 
-function CellNode({ data }: NodeProps<CellFlowNode>) {
-  const t = useT();
-  const { cell, overlay, selected } = data;
-  const kindKey = KINDS[cell.kind];
-  const kind = kindKey ? t(kindKey) : cell.kind;
-  const classes = [
-    'cell',
-    `cell-${cell.kind}`,
-    selected ? 'cell-selected' : '',
-    overlay?.current ? 'cell-current' : '',
-    overlay && overlay.rounds > 0 ? 'cell-visited' : '',
-  ].join(' ');
+export type FlowChartProps = {
+  g: CompiledGraph;
+  view: GraphView;
+  marks: Marks;
+  /// The cell the chart opens on; with none, the top of the flow.
+  start: string | null;
+  onPick: (p: Pick) => void;
+  /// Where the panel floating over the right side begins, in page pixels; none while it is closed.
+  covered: () => number | null;
+  /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
+  legend: 'flow' | 'work' | 'compare';
+  ref?: Ref<FlowChartHandle>;
+};
+
+function Swatch({ children }: { children: ReactNode }) {
   return (
-    <div className={classes} style={{ width: WIDTH, height: HEIGHT }} title={cell.title}>
-      <Handle type="target" position={Position.Top} />
-      <div className="cell-head">
-        <span className="cell-id">{cell.id}</span>
-        <span className="cell-kind">{cell.line ?? kind}</span>
-        {cell.gate ? <span className="cell-gate">{t('cell_gate')}</span> : null}
-        {cell.stage ? <span className="cell-stage">{cell.stage}</span> : null}
-      </div>
-      <div className="cell-title">{cell.title}</div>
-      {overlay && (overlay.rounds > 0 || overlay.current) ? (
-        <div className="cell-badges">
-          {overlay.rounds > 0 ? <span className="cb cb-rounds">{overlay.rounds}</span> : null}
-          {overlay.sentBack > 0 ? <span className="cb cb-back">↩ {overlay.sentBack}</span> : null}
-          {overlay.failed > 0 ? <span className="cb cb-failed">✕ {overlay.failed}</span> : null}
-          {overlay.running ? <span className="cb cb-running">●</span> : null}
-        </div>
-      ) : null}
-      <Handle type="source" position={Position.Bottom} />
-    </div>
+    <svg className="fc legend-swatch" width="30" height="18" viewBox="0 0 30 18">
+      {children}
+    </svg>
   );
 }
 
-const nodeTypes = { cell: CellNode };
-const edgeTypes = { routed: RoutedEdge };
-
-/// The zoom a cell is read at, and the least zoom the whole graph is shown at before only its top is.
-const READ = 0.9;
-const OVERVIEW = 0.45;
-
-export type FlowChartProps = {
-  graph: CompiledGraph;
-  /// The work's rounds and the cell it is at, on a work's page.
-  rounds?: RoundSummary[];
-  at?: string | null;
-  selected: string | null;
-  /// The cell to show; with none, the whole graph is shown.
-  focus?: string | null;
-  onSelect: (cell: string) => void;
-};
-
-function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps) {
-  const t = useT();
-  const [common, setCommon] = useState(false);
-  const built = useMemo(() => build(graph, { common, rounds, at }), [graph, common, rounds, at]);
-  // The layout depends only on which cells and edges there are, not on what the work did at them.
-  const shape = useMemo(
-    () => built.edges.map((e) => e.id).join(' ') + '|' + built.nodes.map((n) => n.id).join(' '),
-    [built],
+function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legend'] }) {
+  const styles: string[] = [];
+  for (const c of g.cells) {
+    const s = styleOf(c);
+    if (!styles.includes(s)) styles.push(s);
+  }
+  const order = (s: string) => (s.startsWith('line-') ? 0 : s === 'fresh' ? 1 : 2);
+  styles.sort((a, b) => order(a) - order(b));
+  const lines = new Map(g.cells.filter((c) => c.kind === 'agent' && c.line).map((c) => [styleOf(c), c.line ?? '']));
+  const label = (s: string) => {
+    if (s === 'fresh') return t('legend_fresh');
+    if (s.startsWith('line-')) return t('legend_line', { line: s === 'line-other' ? t('legend_other_line') : (lines.get(s) ?? '') });
+    return s === 'kind-engine' ? t('legend_engine') : s === 'kind-tool' ? t('legend_tool') : t('legend_owner');
+  };
+  const rules = g.cells.some((c) => (c.rules ?? []).length > 0);
+  const flags = g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject));
+  return (
+    <details className="legend" open>
+      <summary>{t('legend')}</summary>
+      <ul>
+        {styles.map((s) => (
+          <li key={s}>
+            <Swatch>
+              <g className={`fc-cell ${s}`}>
+                <rect x="2" y="2" width="26" height="14" rx={s === 'kind-engine' || s === 'kind-owner' ? 7 : 2} />
+              </g>
+            </Swatch>
+            {label(s)}
+          </li>
+        ))}
+        {rules ? (
+          <li>
+            <Swatch>
+              <g className="fc-rule">
+                <polygon points="7,2 28,2 23,16 2,16" />
+              </g>
+            </Swatch>
+            {t('legend_rule')}
+          </li>
+        ) : null}
+        {flags ? (
+          <li>
+            <Swatch>
+              <g className="fc-flag">
+                <polygon points="2,2 28,2 28,16 2,16 8,9" />
+              </g>
+            </Swatch>
+            {t('legend_interjection')}
+          </li>
+        ) : null}
+        <li>
+          <Swatch>
+            <g className="fc-circle fc-shared">
+              <ellipse cx="15" cy="9" rx="8" ry="7" />
+            </g>
+          </Swatch>
+          {t('legend_shared')}
+        </li>
+        <li>
+          <Swatch>
+            <g className="fc-circle fc-out">
+              <ellipse cx="15" cy="9" rx="7" ry="7" />
+            </g>
+          </Swatch>
+          {t('legend_out')}
+        </li>
+        <li>
+          <Swatch>
+            <g className="fc-circle fc-in">
+              <ellipse cx="15" cy="9" rx="7" ry="7" />
+            </g>
+          </Swatch>
+          {t('legend_in')}
+        </li>
+        <li>
+          <Swatch>
+            <path className="fc-edge fc-edge-main" d="M 2 9 L 28 9" />
+          </Swatch>
+          {t('legend_main')}
+        </li>
+        {legend === 'work' ? (
+          <>
+            <li>
+              <Swatch>
+                <rect className="fc-ring" x="3" y="3" width="24" height="12" rx="3" />
+              </Swatch>
+              {t('legend_current')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-edge fc-edge-taken" d="M 2 9 L 28 9" />
+              </Swatch>
+              {t('legend_taken')}
+            </li>
+          </>
+        ) : null}
+        {legend === 'compare' ? (
+          <>
+            <li>
+              <Swatch>
+                <g className="fc-cell kind-tool fc-added">
+                  <rect x="2" y="2" width="26" height="14" rx="2" />
+                </g>
+              </Swatch>
+              {t('legend_added')}
+            </li>
+            <li>
+              <Swatch>
+                <g className="fc-cell kind-tool fc-changed">
+                  <rect x="2" y="2" width="26" height="14" rx="2" />
+                </g>
+              </Swatch>
+              {t('legend_changed')}
+            </li>
+          </>
+        ) : null}
+      </ul>
+      <p className="legend-keys">{t('legend_keys')}</p>
+    </details>
   );
-  const [laid, setLaid] = useState<{ shape: string; laid: Laid } | null>(null);
+}
+
+export function FlowChart(props: FlowChartProps) {
+  const { g, view, marks, start, onPick, covered, legend, ref } = props;
+  const model = useMemo(() => build(g, view), [g, view]);
+  const measured = useMemo(() => sizes(g, model), [g, model]);
+  const [laid, setLaid] = useState<{ model: typeof model; laid: Laid } | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    layout(
-      built.nodes.map((n) => ({
-        id: n.id,
-        width: WIDTH,
-        height: HEIGHT,
-        layer: n.id === graph.start ? ('FIRST' as const) : n.id === graph.end ? ('LAST' as const) : undefined,
-      })),
-      built.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+    const edges = new Map(model.edges.map((e) => [e.id, e]));
+    layoutChart(
+      model,
+      (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+      (id) => {
+        const e = edges.get(id);
+        return e ? labelSize(e) : null;
+      },
     ).then(
       (l) => {
-        if (live) setLaid({ shape, laid: l });
+        if (live) setLaid({ model, laid: l });
       },
-      () => {
-        // A layout that fails leaves the cells in a column, joined by straight lines.
-        if (live) setLaid({ shape, laid: { places: new Map(), routes: new Map() } });
+      (e: unknown) => {
+        if (live) setFailed(e instanceof Error ? e.message : String(e));
       },
     );
     return () => {
       live = false;
     };
-    // `built` changes with every round; the layout only when the shape does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape]);
-  // A layout of an earlier shape is not used: its routes do not fit.
-  const current = laid !== null && laid.shape === shape ? laid.laid : null;
-  // Once laid out: shows the cell `focus` names, or else the whole graph, or its top when the whole is too small
-  // to read.
-  const rf = useReactFlow();
-  const box = useRef<HTMLDivElement>(null);
-  const focused = focus != null && current !== null ? (current.places.get(focus) ?? null) : null;
-  const fx = focused?.x ?? null;
-  const fy = focused?.y ?? null;
-  const ready = rf.viewportInitialized;
+  }, [model, measured]);
+  const current = laid !== null && laid.model === model ? laid.laid : null;
+  const viewer = useRef<ViewerHandle>(null);
+  // Chart pixels: the drawing starts PAD before the layout's bounds.
+  const rect = (id: string): Rect | null => {
+    const b = current?.nodes.get(id);
+    if (!b || !current) return null;
+    return { x: b.x - current.bounds.x + PAD, y: b.y - current.bounds.y + PAD, width: b.width, height: b.height };
+  };
+  const rectRef = useRef(rect);
+  rectRef.current = rect;
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: (cell, keep = false) => {
+        const r = rectRef.current(`c:${cell}`);
+        if (r) viewer.current?.focus(r, keep);
+      },
+    }),
+    [],
+  );
+  // Once laid out, open on the cell asked for, or on the top of the main part at a zoom one can read.
+  const opened = useRef<Laid | null>(null);
   useEffect(() => {
-    if (current === null || !ready) return;
-    if (fx !== null && fy !== null) {
-      void rf.setCenter(fx + WIDTH / 2, fy + HEIGHT / 2, { zoom: READ, duration: 300 });
-      return;
+    if (current === null || opened.current === current || !viewer.current) return;
+    opened.current = current;
+    const main = current.parts.get(MAIN);
+    const around = main
+      ? { x: main.x - current.bounds.x + PAD, y: main.y - current.bounds.y + PAD, width: main.width, height: main.height }
+      : null;
+    viewer.current.start(READABLE, around);
+    if (start !== null) {
+      const r = rectRef.current(`c:${start}`);
+      if (r) viewer.current.focus(r, true);
     }
-    const b = bounds([...current.places.values()], WIDTH, HEIGHT);
-    if (b === null) return;
-    const w = box.current?.clientWidth ?? 800;
-    const h = box.current?.clientHeight ?? 600;
-    if (Math.min(w / b.width, h / b.height) * 0.94 >= OVERVIEW) {
-      void rf.fitBounds(b, { padding: 0.06, duration: 200 });
-    } else {
-      void rf.setCenter(b.x + b.width / 2, b.y + h / 2 / OVERVIEW - 20, { zoom: OVERVIEW, duration: 200 });
+  }, [current, start]);
+  const nodes = useMemo(() => new Map(model.nodes.map((n) => [n.id, n])), [model]);
+  const pick = (target: Element) => {
+    const id = target.closest('[data-node]')?.getAttribute('data-node');
+    const n = id ? nodes.get(id) : undefined;
+    if (!n) return;
+    switch (n.kind) {
+      case 'cell':
+        onPick({ kind: 'cell', cell: n.cell });
+        break;
+      case 'rule':
+        onPick({ kind: 'rule', rule: n.other ?? '', cell: n.cell });
+        break;
+      case 'interjection':
+        onPick({ kind: 'interjection', cell: n.cell });
+        break;
+      case 'shared':
+        onPick({ kind: 'shared', cell: n.cell });
+        break;
+      case 'out':
+        onPick({ kind: 'out', cell: n.cell, to: n.other ?? '' });
+        break;
+      case 'in':
+        onPick({ kind: 'in', cell: n.cell, from: n.other ?? '' });
+        break;
     }
-  }, [current, fx, fy, ready, rf]);
-  const nodes: CellFlowNode[] = useMemo(
-    () =>
-      built.nodes.map((n, i) => ({
-        id: n.id,
-        type: 'cell' as const,
-        position: current?.places.get(n.id) ?? { x: 0, y: i * (HEIGHT + 30) },
-        width: WIDTH,
-        height: HEIGHT,
-        data: { cell: n.cell, overlay: n.overlay, selected: n.id === selected },
-        draggable: false,
-        connectable: false,
-      })),
-    [built, current, selected],
-  );
-  const edges: Routed[] = useMemo(
-    () =>
-      built.edges.map((e) => {
-        const classes = ['flow-edge'];
-        if (e.taken > 0) classes.push('edge-taken');
-        if (e.main) classes.push('edge-main');
-        if (e.common) classes.push('edge-common');
-        if (e.source === selected || e.target === selected) classes.push('edge-near');
-        const label =
-          e.taken > 0 ? `${e.rows.join(', ')} ×${e.taken}` : e.source === selected ? e.rows.join(', ') : undefined;
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          type: 'routed' as const,
-          data: { points: current?.routes.get(e.id) ?? [] },
-          className: classes.join(' '),
-          label,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          focusable: false,
-        };
-      }),
-    [built, current, selected],
-  );
+  };
   return (
-    <div className="chart" ref={box}>
-      <label className="chart-option">
-        <input type="checkbox" checked={common} onChange={(e) => setCommon(e.target.checked)} />
-        {t('common_rows')}
-      </label>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodeClick={(_, node) => onSelect(node.id)}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        minZoom={0.1}
-      >
-        <Background />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+    <div className="flowchart">
+      {failed !== null ? <div className="error flowchart-note">{t('chart_layout_failed', { error: failed })}</div> : null}
+      {current === null && failed === null ? <div className="muted flowchart-note">{t('chart_laying_out')}</div> : null}
+      {current !== null ? (
+        <Viewer
+          ref={viewer}
+          width={current.bounds.width + 2 * PAD}
+          height={current.bounds.height + 2 * PAD}
+          onPick={pick}
+          covered={covered}
+        >
+          <FlowSvg g={g} chart={model} laid={current} lines={measured.lines} marks={marks} />
+        </Viewer>
+      ) : null}
+      <Legend g={g} legend={legend} />
     </div>
-  );
-}
-
-export function FlowChart(props: FlowChartProps) {
-  return (
-    <ReactFlowProvider>
-      <Chart {...props} />
-    </ReactFlowProvider>
   );
 }

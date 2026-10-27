@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { ItemState, JsonValue, RoundOutcome, WorkState } from './api';
 import type { Resource } from './live';
-import { useT } from './text';
+import { t } from './text';
 
 /// A JSON value laid out as a tree: long or multi-line text keeps its lines, and nested objects fold.
 export function Json({ value, depth = 0 }: { value: JsonValue | undefined; depth?: number }) {
@@ -64,23 +64,19 @@ export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | fa
 }
 
 export function WorkBadge({ state }: { state: WorkState }) {
-  const t = useT();
   return <span className={`badge state-${state}`}>{t(`state_${state}`)}</span>;
 }
 
 export function ItemBadge({ state }: { state: ItemState }) {
-  const t = useT();
   return <span className={`badge item-${state}`}>{t(`item_${state}`)}</span>;
 }
 
 export function OutcomeBadge({ outcome }: { outcome: RoundOutcome }) {
-  const t = useT();
   return <span className={`badge outcome-${outcome}`}>{t(`outcome_${outcome}`)}</span>;
 }
 
 /// What a read gives: its view when it came, or that it is still coming, or why it failed.
 export function Loaded<T>({ r, children }: { r: Resource<T>; children: (data: T) => ReactNode }) {
-  const t = useT();
   if (r.data !== undefined) return <>{children(r.data)}</>;
   if (r.error !== null) return <div className="error">{t('error', { error: r.error })}</div>;
   return <div className="muted">{t('loading')}</div>;

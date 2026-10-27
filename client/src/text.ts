@@ -1,17 +1,9 @@
-// The page's texts in the owner's language, and how parts of the flow are written out.
+// The page's texts, and how parts of the flow are written out in words.
 
 import type { Atom, Do, Src } from './api';
-import { type Key, langOf, translate } from './i18n';
-import { useStatus } from './live';
 
-export type T = (key: Key, vars?: Record<string, string | number>) => string;
-
-/// The texts in the language the engine's configuration names.
-export function useT(): T {
-  const status = useStatus();
-  const lang = langOf(status?.language);
-  return (key, vars) => translate(lang, key, vars);
-}
+export { t } from './messages';
+export type { Key } from './messages';
 
 /// Where an input is read from, as one line.
 export function srcText(s: Src): string {

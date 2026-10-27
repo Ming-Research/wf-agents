@@ -7,7 +7,17 @@ export type Route =
   | { page: 'work'; id: number; round: number | null; cell: string | null }
   | { page: 'items' }
   | { page: 'item'; id: number }
-  | { page: 'flow'; version: number | null; cell: string | null }
+  | {
+      page: 'flow';
+      /// The stored version shown; with none, the one new works start on.
+      version: number | null;
+      cell: string | null;
+      /// Instead of a stored version, the flow at a git ref of a project's checkout.
+      project: string | null;
+      ref: string | null;
+      /// The stored version the shown flow is compared with.
+      from: number | null;
+    }
   | { page: 'missing' };
 
 const num = (s: string | null | undefined): number | null => {
@@ -31,7 +41,16 @@ export function parse(pathname: string, search: string): Route {
   }
   if (first === 'flow' && parts.length <= 2) {
     const version = parts.length === 2 ? num(second) : null;
-    if (parts.length === 1 || version !== null) return { page: 'flow', version, cell: q.get('cell') };
+    if (parts.length === 1 || version !== null) {
+      return {
+        page: 'flow',
+        version,
+        cell: q.get('cell'),
+        project: q.get('project'),
+        ref: q.get('ref'),
+        from: num(q.get('from')),
+      };
+    }
   }
   return { page: 'missing' };
 }
@@ -53,7 +72,12 @@ export function href(r: Route): string {
     case 'item':
       return `/items/${r.id}`;
     case 'flow':
-      return `/flow${r.version === null ? '' : `/${r.version}`}${query([['cell', r.cell]])}`;
+      return `/flow${r.version === null ? '' : `/${r.version}`}${query([
+        ['project', r.project],
+        ['ref', r.ref],
+        ['from', r.from],
+        ['cell', r.cell],
+      ])}`;
     case 'missing':
       return '/';
   }

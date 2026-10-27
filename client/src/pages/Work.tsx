@@ -1,22 +1,22 @@
-// A work, for diagnosis: the state machine of the flow version it is pinned to with its path over it, its rounds,
-// and a round in full. A round leads to its cell on the chart, and a cell to its rounds.
+// A work, for diagnosis: the state machine of the flow version it is pinned to, filling the window under the bar,
+// with what the work did on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent
+// back or failed, the arrows it took standing out. The bar holds the work's facts; its rounds are listed on the left,
+// and a round opens in the panel with its cell brought into view, a cell with its rounds.
 
-import type { Compiled, CompiledGraph, RoundSummary, WorkDetail } from '../api';
+import { useState } from 'react';
+
+import type { Compiled, FlowView, RoundSummary, WorkDetail } from '../api';
+import { InBar } from '../bar';
 import { Facts, Json, Loaded, OutcomeBadge, Section, WorkBadge } from '../components';
+import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, time } from '../format';
-import { FlowChart } from '../graph/FlowChart';
+import { overlays, taken, chart } from '../graph/flowModel';
 import { useResource } from '../live';
 import { href, Link, navigate } from '../route';
-import { useT } from '../text';
-import { CellView } from './CellView';
+import { t } from '../text';
 import { RoundView } from './RoundView';
 
-function Timeline(props: {
-  rounds: RoundSummary[];
-  selected: number | null;
-  onRound: (r: RoundSummary) => void;
-}) {
-  const t = useT();
+function Timeline(props: { rounds: RoundSummary[]; selected: number | null; onRound: (r: RoundSummary) => void }) {
   if (props.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
   const newest = [...props.rounds].reverse();
   return (
@@ -31,7 +31,6 @@ function Timeline(props: {
             <td className="muted">#{r.id}</td>
             <td>
               <span className="cell-id">{r.cell ?? '–'}</span>
-              {r.line ? <span className="muted"> {r.line}</span> : null}
             </td>
             <td>
               <OutcomeBadge outcome={r.outcome} />
@@ -39,9 +38,7 @@ function Timeline(props: {
             <td className="clip" title={r.transition ?? r.why ?? ''}>
               {r.transition ?? r.why ?? ''}
             </td>
-            <td className="muted">{time(r.started_at)}</td>
             <td className="num muted">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
-            <td className="num muted">{cost(r.cost_usd)}</td>
           </tr>
         ))}
       </tbody>
@@ -49,158 +46,169 @@ function Timeline(props: {
   );
 }
 
-function Header({ d }: { d: WorkDetail }) {
-  const t = useT();
+function Bar({ d }: { d: WorkDetail }) {
   const w = d.work;
+  const facts = [
+    t('work_flow', { version: w.flow_version, graph: w.graph }),
+    w.stage ? t('work_stage', { stage: w.stage }) : null,
+    t('work_rounds', { n: w.rounds }),
+    w.sent_back > 0 ? t('sent_back_n', { n: w.sent_back }) : null,
+    w.failed > 0 ? t('failed_n', { n: w.failed }) : null,
+    w.open_cards > 0 ? t('open_cards_n', { n: w.open_cards }) : null,
+    w.branch ? `${t('branch')}: ${w.branch}` : null,
+    w.pr !== null ? `PR #${w.pr}` : null,
+    w.paused ? t('paused_why', { why: w.paused }) : null,
+    w.ended ? t('ended_why', { why: w.ended }) : null,
+  ]
+    .filter((x) => x !== null)
+    .join('\n');
   return (
-    <header className="work-head">
-      <h1>
-        {t('work_title', { id: w.id })}
+    <InBar>
+      <div className="bar-work" title={facts}>
+        <strong>{t('work_title', { id: w.id })}</strong>
         {w.item !== null ? (
-          <Link to={`/items/${w.item}`} className="head-item">
+          <Link to={`/items/${w.item}`} className="bar-item">
             #{w.item} {w.title}
           </Link>
         ) : null}
         <WorkBadge state={w.state} />
-      </h1>
-      <div className="head-facts">
-        <span>
-          <span className="cell-id">{w.at}</span> {w.at_title}
+        <span className="muted">
+          {t('work_at', { cell: w.at })} {w.at_title ?? ''}
         </span>
-        {w.stage ? <span>{w.stage}</span> : null}
-        <Link to={`/flow/${w.flow_version}`}>{t('work_flow', { version: w.flow_version, graph: w.graph })}</Link>
-        <span>
-          {t('col_rounds')} {w.rounds}
-        </span>
-        {w.sent_back > 0 ? <span className="warn">{t('sent_back_n', { n: w.sent_back })}</span> : null}
-        {w.failed > 0 ? <span className="bad">{t('failed_n', { n: w.failed })}</span> : null}
+        {w.sent_back > 0 ? <span className="warn">↩{w.sent_back}</span> : null}
+        {w.failed > 0 ? <span className="bad">✕{w.failed}</span> : null}
         {w.open_cards > 0 ? <span className="warn">{t('open_cards_n', { n: w.open_cards })}</span> : null}
-        <span>{cost(w.cost_usd)}</span>
-        {w.pr !== null ? <span>PR #{w.pr}</span> : null}
+        <span className="muted">{cost(w.cost_usd)}</span>
+        <Link to={`/flow/${w.flow_version}`} className="muted">
+          {t('work_flow_short', { version: w.flow_version })}
+        </Link>
       </div>
-      {w.paused ? <div className="why">{t('paused_why', { why: w.paused })}</div> : null}
-      {w.ended ? <div className="why">{t('ended_why', { why: w.ended })}</div> : null}
-    </header>
+    </InBar>
   );
 }
 
-function Body({ id, d, graph, round, cell }: {
+/// The work's rounds and records, in a drawer over the left of the chart.
+function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; onRound: (r: number) => void }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className={`drawer${open ? '' : ' drawer-closed'}`}>
+      <button type="button" className="drawer-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        {open ? '‹' : '›'} {t('rounds')} ({d.rounds.length})
+      </button>
+      {open ? (
+        <div className="drawer-body">
+          <Timeline rounds={d.rounds} selected={round} onRound={(r) => onRound(r.id)} />
+          {d.cards.length > 0 ? (
+            <Section title={t('cards')} open={false}>
+              {d.cards.map((c) => (
+                <div key={c.id} className="card-box">
+                  <div>
+                    #{c.id} {c.kind} · {c.status} ·{' '}
+                    <button className="link" onClick={() => onRound(c.round)}>
+                      {t('round_title', { id: c.round })}
+                    </button>
+                  </div>
+                  <Json value={c.body} />
+                  <Json value={c.rulings} />
+                </div>
+              ))}
+            </Section>
+          ) : null}
+          {d.interjections.length > 0 ? (
+            <Section title={t('interjections')} open={false}>
+              {d.interjections.map((x) => (
+                <div key={x.id} className="card-box">
+                  <div className="muted">
+                    #{x.id} {x.speaker} → {x.line} ·{' '}
+                    {x.delivered_round !== null
+                      ? t('delivered', { round: x.delivered_round })
+                      : t('waiting_delivery')}
+                  </div>
+                  <pre className="j-text">{x.text}</pre>
+                </div>
+              ))}
+            </Section>
+          ) : null}
+          <Section title={t('recorded')} open={false}>
+            <Facts
+              rows={[
+                [t('machine'), d.machine],
+                [t('worktree'), d.worktree],
+                [t('branch'), d.work.branch],
+                [t('pushed_head'), d.pushed_head],
+                [t('resume_at'), d.resume_at],
+                [t('waiting_cells'), <Json key="w" value={d.waiting} />],
+                [t('recorded'), <Json key="r" value={d.recorded} />],
+                [t('col_started'), time(d.work.started_at)],
+              ]}
+            />
+          </Section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Body({ id, d, compiled, view, round, cell }: {
   id: number;
   d: WorkDetail;
-  graph: CompiledGraph | null;
+  compiled: Compiled;
+  view: FlowView;
   round: number | null;
   cell: string | null;
 }) {
-  const t = useT();
+  const g = compiled.graphs.find((x) => x.name === d.work.graph);
+  const v = view.graphs.find((x) => x.name === d.work.graph);
+  if (!g || !v) return <p className="muted page">{t('none')}</p>;
   const roundCell = round !== null ? (d.rounds.find((r) => r.id === round)?.cell ?? null) : null;
-  const selectedCell = cell ?? roundCell;
-  const shown = cell !== null ? d.rounds.filter((r) => r.cell === cell) : d.rounds;
-  const cellDef = selectedCell !== null && graph ? (graph.cells.find((c) => c.id === selectedCell) ?? null) : null;
-  const go = (r: number | null, c: string | null) => navigate(href({ page: 'work', id, round: r, cell: c }));
+  const go = (r: number | null, c: string | null) => navigate(href({ page: 'work', id, round: r, cell: c }), true);
+  const model = chart(g, v);
   return (
-    <div className="split">
-      <div className="split-chart">
-        {graph ? (
-          <FlowChart
-            graph={graph}
-            rounds={d.rounds}
-            at={d.work.at}
-            selected={selectedCell}
-            focus={roundCell ?? d.work.at}
-            onSelect={(c) => go(null, c)}
-          />
-        ) : null}
-      </div>
-      <div className="split-side">
-        {round !== null ? <RoundView id={round} onClose={() => go(null, cell)} /> : null}
-        <Section
-          title={cell !== null ? t('rounds_at', { cell }) : t('rounds')}
-          extra={
-            cell !== null ? (
-              <button
-                className="link"
-                onClick={(e) => {
-                  e.preventDefault();
-                  go(round, null);
-                }}
-              >
-                {t('show_all')}
-              </button>
-            ) : null
-          }
-        >
-          <Timeline rounds={shown} selected={round} onRound={(r) => go(r.id, cell)} />
-        </Section>
-        {cellDef ? (
-          <Section title={`${t('definition')}: ${cellDef.id} ${cellDef.title}`} open={false}>
-            <CellView cell={cellDef} />
-          </Section>
-        ) : null}
-        {d.cards.length > 0 ? (
-          <Section title={t('cards')} open={false}>
-            {d.cards.map((c) => (
-              <div key={c.id} className="card-box">
-                <div>
-                  #{c.id} {c.kind} · {c.status} ·{' '}
-                  <button className="link" onClick={() => go(c.round, null)}>
-                    {t('round_title', { id: c.round })}
-                  </button>
-                </div>
-                <Json value={c.body} />
-                <Json value={c.rulings} />
-              </div>
-            ))}
-          </Section>
-        ) : null}
-        {d.interjections.length > 0 ? (
-          <Section title={t('interjections')} open={false}>
-            {d.interjections.map((x) => (
-              <div key={x.id} className="card-box">
-                <div className="muted">
-                  #{x.id} {x.speaker} → {x.line} ·{' '}
-                  {x.delivered_round !== null
-                    ? t('delivered', { round: x.delivered_round })
-                    : t('waiting_delivery')}
-                </div>
-                <pre className="j-text">{x.text}</pre>
-              </div>
-            ))}
-          </Section>
-        ) : null}
-        <Section title={t('recorded')} open={false}>
-          <Facts
-            rows={[
-              [t('machine'), d.machine],
-              [t('worktree'), d.worktree],
-              [t('branch'), d.work.branch],
-              [t('pushed_head'), d.pushed_head],
-              [t('resume_at'), d.resume_at],
-              [t('waiting_cells'), <Json key="w" value={d.waiting} />],
-              [t('recorded'), <Json key="r" value={d.recorded} />],
-            ]}
-          />
-        </Section>
-      </div>
-    </div>
+    <>
+      <Drawer d={d} round={round} onRound={(r) => go(r, null)} />
+      <FlowScreen
+        compiled={compiled}
+        g={g}
+        view={v}
+        legend="work"
+        marks={{
+          overlays: overlays(d.rounds, d.work.at),
+          taken: taken(model, g, d.rounds),
+          added: new Set(),
+          changed: new Set(),
+        }}
+        cell={cell}
+        onCell={(c) => go(null, c)}
+        start={roundCell ?? d.work.at}
+        rounds={d.rounds}
+        round={round}
+        onRound={(r) => go(r, null)}
+        renderRound={(r) => <RoundView id={r} />}
+      />
+    </>
   );
 }
 
 export function Work({ id, round, cell }: { id: number; round: number | null; cell: string | null }) {
   const detail = useResource<WorkDetail>(`work:${id}`, `/api/v1/works/${id}`);
   const version = detail.data?.work.flow_version ?? null;
-  const flow = useResource<Compiled>(null, version !== null ? `/api/v1/flows/${version}` : null);
+  const compiled = useResource<Compiled>(null, version !== null ? `/api/v1/flows/${version}` : null);
+  const view = useResource<FlowView>(null, version !== null ? `/api/v1/flows/${version}/view` : null);
   return (
-    <div className="page page-wide">
+    <div className="screen">
       <Loaded r={detail}>
-        {(d) => {
-          const graph = flow.data?.graphs.find((g) => g.name === d.work.graph) ?? null;
-          return (
-            <>
-              <Header d={d} />
-              <Body id={id} d={d} graph={graph} round={round} cell={cell} />
-            </>
-          );
-        }}
+        {(d) => (
+          <>
+            <Bar d={d} />
+            <Loaded r={compiled}>
+              {(c) => (
+                <Loaded r={view}>
+                  {(v) => <Body id={id} d={d} compiled={c} view={v} round={round} cell={cell} />}
+                </Loaded>
+              )}
+            </Loaded>
+          </>
+        )}
       </Loaded>
     </div>
   );

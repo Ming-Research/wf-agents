@@ -5,13 +5,12 @@ import { ItemBadge, Loaded } from '../components';
 import { ItemGraph } from '../graph/ItemGraph';
 import { useResource } from '../live';
 import { Link, navigate } from '../route';
-import { useT } from '../text';
+import { t } from '../text';
 
 /// The order states are listed in: what moves first, what is settled last.
 const ORDER: ItemState[] = ['working', 'queued', 'new', 'done', 'stopped', 'cancelled'];
 
 function Table({ items }: { items: ItemSummary[] }) {
-  const t = useT();
   return (
     <table className="list">
       <thead>
@@ -73,7 +72,6 @@ function Lists({ data }: { data: ItemsData }) {
 }
 
 export function Items() {
-  const t = useT();
   const items = useResource<ItemsData>('items', '/api/v1/items');
   return (
     <div className="page">
