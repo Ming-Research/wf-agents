@@ -2,10 +2,11 @@
 // (the cell, and for an agent its line, level, model, effort, whether it started or continued its line's session,
 // its time and cost) and where the work went, one under another, the cells and the rounds before and after it links
 // that open them. For an agent's round, then: its task, folded; its inputs, one row for each input of its cell by the
-// cell's own numbering, each marked sent this round or already in the session, those with nothing this round kept in
-// their place and struck through; what was sent this round, in the same order, each drawn by its shape; and what it
-// handed back, drawn by its shape too, with the row it took. For a step that is not an agent's, what it came to and
-// what it read; for tools, what each was asked and gave. The whole message as sent is folded at the end. Nothing is
+// cell's own numbering, each marked sent this round or already in the session, what it holds under it drawn by its
+// shape (open when sent this round, folded and read on opening when the session held it), those with nothing this
+// round kept in their place and struck through; and what it handed back, drawn by its shape too, with the row it
+// took. For a step that is not an agent's, what it came to and what it read; for tools, what each was asked and gave.
+// It ends with the message as sent and the return as handed back, raw and folded, for the final check. Nothing else is
 // shown as a tree of JSON or as escaped JSON text.
 
 import { type ReactNode, useContext, useState } from 'react';
@@ -16,8 +17,8 @@ import { numbered } from '../flow/CellPanel';
 import { type Flow, FlowContext } from '../flow/context';
 import { targetWords } from '../flow/words';
 import { cost, duration, time } from '../format';
-import { getText } from '../http';
-import { Acceptance, Approaches, Deviation, Design, Field, Grounds, Measure, Understanding } from '../item/Shapes';
+import { getJson, getText } from '../http';
+import { Acceptance, Approaches, Deviation, Design, Field, Fold, Grounds, Measure, Understanding } from '../item/Shapes';
 import { empty, isObj, label, Labelled, type Obj, str, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
@@ -381,7 +382,7 @@ function Counters({ rows, f, limits }: { rows: Obj[]; f: Flow | null; limits: { 
         const limit = limits[name];
         return (
           <li key={i}>
-            <strong>{t('counter_times', { n: str(r.times) })}</strong>
+            <strong>{str(r.times) === '1' ? t('counter_once') : t('counter_times', { n: str(r.times) })}</strong>
             {limit !== undefined ? <span className="muted"> {t('counter_limit', { n: limit })}</span> : null} {desc}
           </li>
         );
@@ -390,18 +391,91 @@ function Counters({ rows, f, limits }: { rows: Obj[]; f: Flow | null; limits: { 
   );
 }
 
-/// What was sent under one address, drawn by its shape: the work's counters in words, rows as a table, text as text.
-function Sent({ address, text, f, limits }: { address: string; text: string; f: Flow | null; limits: RoundDetail['limits'] }) {
-  if (address.endsWith('·engine·work_counters')) {
-    const v = parsed(text);
-    if (Array.isArray(v) && v.every(isObj)) return <Counters rows={v.filter(isObj)} f={f} limits={limits} />;
+/// What an input held under one address, drawn by its shape: the work's counters in words beside the project's
+/// limits, rows as a table, text as text.
+function Held({ address, value, f, limits }: {
+  address: string;
+  value: JsonValue;
+  f: Flow | null;
+  limits: RoundDetail['limits'];
+}) {
+  const v = typeof value === 'string' ? (parsed(value) ?? value) : value;
+  if (address.endsWith('·engine·work_counters') && Array.isArray(v) && v.every(isObj)) {
+    return <Counters rows={v.filter(isObj)} f={f} limits={limits} />;
   }
-  const v = parsed(text);
-  return <Content value={v !== undefined ? v : text} />;
+  return <Content value={v} />;
 }
 
-/// An agent's round: its task, its inputs, and what was sent this round.
-function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
+/// A return as the addresses of its values read it: the one form it holds beside the rest.
+function unwrapped(output: JsonValue | null, within: string): JsonValue | null {
+  if (!isObj(output)) return output;
+  const form = output[within];
+  return isObj(form) ? { ...output, ...form } : output;
+}
+
+/// The value at a path of a return, as an address names it (`end.test_changes[added]`): a branch keeps only what is of
+/// that branch, and the values at a path inside a list are a list.
+export function atPath(value: JsonValue | null | undefined, path: string): JsonValue | undefined {
+  let v: JsonValue | undefined = value ?? undefined;
+  for (const seg of path.split('.')) {
+    const hit = /^([^[]+)(?:\[(.+)\])?$/.exec(seg);
+    if (hit === null || v === undefined) return undefined;
+    const [, name, branch] = hit;
+    const of = (x: JsonValue): JsonValue | undefined => (isObj(x) ? x[name] : undefined);
+    v = Array.isArray(v) ? v.map(of).filter((x): x is JsonValue => x !== undefined) : of(v);
+    if (branch !== undefined && v !== undefined) {
+      const mine = (x: JsonValue) => isObj(x) && Object.values(x).some((y) => y === branch);
+      v = Array.isArray(v) ? v.filter(mine) : mine(v) ? v : undefined;
+    }
+  }
+  return v;
+}
+
+/// What an input already in the session held: given in an earlier round of the same session, or, for a value the
+/// session's own return produced, read from that return; none when neither has it.
+async function findHeld(address: string, d: RoundDetail, rounds: RoundSummary[], within: string): Promise<JsonValue | null> {
+  const earlier = rounds
+    .filter((r) => r.id < d.round.id && r.line !== null && r.line === d.round.line)
+    .reverse()
+    .slice(0, 16);
+  for (const r of earlier) {
+    const x = await getJson<RoundDetail>(`/api/v1/rounds/${r.id}`);
+    const given = parseMessage(x.message ?? '').given.get(address);
+    if (given !== undefined) return given;
+  }
+  const m = /^R(\d+)·([^·]+)·(.+)$/.exec(address);
+  if (m !== null && m[2] !== 'engine') {
+    const x = await getJson<RoundDetail>(`/api/v1/rounds/${m[1]}`);
+    return atPath(unwrapped(x.output, within), m[3]) ?? null;
+  }
+  return null;
+}
+
+/// An input the session already held, folded: what it holds is read from where the session got it when it is opened.
+function InSession({ address, d, rounds, f }: { address: string; d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
+  const [value, setValue] = useState<JsonValue | null | undefined>(undefined);
+  const toggle = (open: boolean) => {
+    if (!open || value !== undefined) return;
+    findHeld(address, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));
+  };
+  return (
+    <details className="input-held" onToggle={(e) => toggle(e.currentTarget.open)}>
+      <summary className="muted">{t('input_open')}</summary>
+      {value === undefined ? (
+        <p className="muted">{t('loading')}</p>
+      ) : value === null ? (
+        <p className="muted">{t('input_not_found')}</p>
+      ) : (
+        <Held address={address} value={value} f={f} limits={d.limits} />
+      )}
+    </details>
+  );
+}
+
+/// An agent's round: its task, folded, and its inputs, one row for each input of its cell by the cell's numbering,
+/// what was sent this round open under its row and what the session already held folded there, an input with
+/// nothing this round in its place, struck through.
+function AgentInputs({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
   const m = parseMessage(d.message ?? '');
   const sent = new Map(d.conditional.map((c) => [c.address, c.given]));
   const cell = d.round.cell !== null ? f?.cell(d.round.cell) : undefined;
@@ -442,41 +516,27 @@ function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
               className={x.addresses.length === 0 ? 'input-none' : undefined}
               title={x.addresses.length === 0 ? `${x.x.what}\n${t('input_nothing')}` : x.x.what}
             >
-              <strong>{shortName(x.x)}</strong>
-              {x.addresses.map((a) => (
-                <span key={a.address} className="input-src">
-                  {' '}
-                  <span className="muted">{sourceWords(a.address, title)}</span> <Chip sent={a.sent} />
-                </span>
-              ))}
-            </li>
-          ))}
-        </ol>
-        {itself.length > 0 ? (
-          <p className="muted">{t('round_itself', { names: itself.map(shortName).join(', ') })}</p>
-        ) : null}
-        {alsoSent.length > 0 ? (
-          <p className="muted">{t('round_also_sent', { names: alsoSent.map((c) => addressWords(c.address)).join(', ') })}</p>
-        ) : null}
-        {alsoHeld.length > 0 ? (
-          <p className="muted">{t('round_also_held', { names: alsoHeld.map((c) => addressWords(c.address)).join(', ') })}</p>
-        ) : null}
-      </section>
-      <section className="round-part">
-        <h4 className="round-h">{t('round_sent')}</h4>
-        {rows.every((x) => x.addresses.every((a) => !a.sent)) ? <p className="muted">{t('round_sent_none')}</p> : null}
-        {rows.map((x) => {
-          const now = x.addresses.filter((a) => a.sent);
-          if (now.length === 0) return null;
-          return (
-            <div key={x.no} className="sent-input">
-              <div className="sent-input-head">
-                {x.no}. <strong>{shortName(x.x)}</strong>
+              <div className="input-row">
+                <strong>{shortName(x.x)}</strong>
+                {x.addresses.length === 1 ? (
+                  <>
+                    <span className="muted">{sourceWords(x.addresses[0].address, title)}</span>
+                    <Chip sent={x.addresses[0].sent} />
+                  </>
+                ) : null}
               </div>
-              {now.map((a) => (
-                <div key={a.address} className="sent-part">
-                  {now.length > 1 ? <div className="muted">{sourceWords(a.address, title)}</div> : null}
-                  <Sent address={a.address} text={m.given.get(a.address) ?? ''} f={f} limits={d.limits} />
+              {x.addresses.map((a) => (
+                <div key={a.address} className="input-content">
+                  {x.addresses.length > 1 ? (
+                    <div className="input-row">
+                      <span className="muted">{sourceWords(a.address, title)}</span> <Chip sent={a.sent} />
+                    </div>
+                  ) : null}
+                  {a.sent ? (
+                    <Held address={a.address} value={m.given.get(a.address) ?? ''} f={f} limits={d.limits} />
+                  ) : (
+                    <InSession address={a.address} d={d} rounds={rounds} f={f} />
+                  )}
                 </div>
               ))}
               {noPoints(
@@ -485,15 +545,26 @@ function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
               ) ? (
                 <p className="muted">{t('round_no_points')}</p>
               ) : null}
-            </div>
-          );
-        })}
-        {alsoSent.map((c) => (
-          <details key={c.address} className="sent-other">
-            <summary className="muted">{addressWords(c.address)}</summary>
-            <Markdown text={m.given.get(c.address) ?? ''} />
-          </details>
-        ))}
+            </li>
+          ))}
+        </ol>
+        {itself.length > 0 ? (
+          <p className="muted">{t('round_itself', { names: itself.map(shortName).join(', ') })}</p>
+        ) : null}
+        {alsoSent.length > 0 ? (
+          <div className="also-sent">
+            <span className="muted">{t('round_also_sent')}</span>
+            {alsoSent.map((c) => (
+              <details key={c.address}>
+                <summary>{addressWords(c.address)}</summary>
+                <Markdown text={m.given.get(c.address) ?? ''} />
+              </details>
+            ))}
+          </div>
+        ) : null}
+        {alsoHeld.length > 0 ? (
+          <p className="muted">{t('round_also_held', { names: alsoHeld.map((c) => addressWords(c.address)).join(', ') })}</p>
+        ) : null}
       </section>
     </>
   );
@@ -670,6 +741,13 @@ function Answer({ value, before }: { value: Obj; before: JsonValue | null }) {
               return <Shaped key={k} name={name} body={<Acceptance value={v} met={new Map()} />} />;
             case 'new_acceptance':
               return <Shaped key={k} name={name} body={<NewAcceptance value={v} before={before} />} />;
+            case 'why':
+              // Why comes after what was decided, and is read on asking.
+              return (
+                <Fold key={k} title={<span className="decision-label">{name}</span>}>
+                  <Labelled value={v} />
+                </Fold>
+              );
             case 'deviations':
               return (
                 <Shaped
@@ -755,14 +833,34 @@ function cameTo(output: RoundDetail['output']): RoundDetail['output'] {
   return Object.keys(rest).length > 0 ? rest : null;
 }
 
+/// A raw text for the final check, folded: the message word for word, or a return exactly as handed in.
+function Raw({ title, note = null, text }: { title: string; note?: string | null; text: string }) {
+  return (
+    <details className="section round-part">
+      <summary>
+        <span className="section-title">{title}</span>
+      </summary>
+      <div className="section-body">
+        {note !== null ? <p className="muted">{note}</p> : null}
+        <pre className="j-text prompt">{text}</pre>
+      </div>
+    </details>
+  );
+}
+
 function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const f = useContext(FlowContext);
   const ran = d.message !== null;
-  const output = ran ? d.output : cameTo(d.output);
+  // What tools came to is what each of them gave, shown with them.
+  const output = ran ? d.output : d.tool_runs.length > 0 ? null : cameTo(d.output);
+  // For the final check, what was handed back as it was handed in: the agent's return (the one sent back, for a
+  // return sent back), or what the tools gave, or what the step came to.
+  const handed = d.tool_runs.length > 0 && !ran ? d.tool_runs.map((x) => x.result) : d.output;
+  const raw = handed !== null ? JSON.stringify(handed, null, 2) : null;
   return (
     <div className="round">
       <Path d={d} rounds={rounds} f={f} />
-      {ran ? <AgentInputs d={d} f={f} /> : null}
+      {ran ? <AgentInputs d={d} rounds={rounds} f={f} /> : null}
       {!ran && d.inputs.length > 0 ? (
         <details className="section round-part">
           <summary>
@@ -811,15 +909,13 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
             </section>
           ))
         : null}
-      {ran ? (
-        <details className="section round-part">
-          <summary>
-            <span className="section-title">{t('message')}</span>
-          </summary>
-          <div className="section-body">
-            <pre className="j-text prompt">{d.message}</pre>
-          </div>
-        </details>
+      {ran ? <Raw title={t('message')} text={d.message ?? ''} /> : null}
+      {raw !== null ? (
+        <Raw
+          title={ran ? t('round_raw_return') : d.tool_runs.length > 0 ? t('round_raw_tools') : t('round_raw_came_to')}
+          note={d.round.outcome === 'sent_back' ? t('round_raw_sent_back', { why: d.round.why ?? '' }) : null}
+          text={raw}
+        />
       ) : null}
     </div>
   );

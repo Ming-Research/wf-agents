@@ -9,7 +9,7 @@ import { addHops, lengthenLast, pathOf, type Route as Routed } from './graph/flo
 import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
-import { addressesByNumber, inputRows, jsonLines, modelName, sourceWords } from './pages/RoundView';
+import { addressesByNumber, atPath, inputRows, jsonLines, modelName, sourceWords } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
@@ -439,5 +439,13 @@ describe('a round', () => {
     expect(modelName('gpt-x')).toBe('gpt-x');
     expect(jsonLines('{"a":1}\n{"a":2,"b":"x"}')).toEqual([{ a: 1 }, { a: 2, b: 'x' }]);
     expect(jsonLines('not rows')).toBeNull();
+  });
+
+  it('reads a value of a return by the path its address names, a branch keeping only what is of it', () => {
+    const out = { design: 'd', end: { test_changes: [{ kind: 'added', name: 'a' }, { kind: 'removed', name: 'b' }] } };
+    expect(atPath(out, 'design')).toBe('d');
+    expect(atPath(out, 'end.test_changes[added]')).toEqual([{ kind: 'added', name: 'a' }]);
+    expect(atPath(out, 'end.test_changes.name')).toEqual(['a', 'b']);
+    expect(atPath(out, 'missing.path')).toBeUndefined();
   });
 });
