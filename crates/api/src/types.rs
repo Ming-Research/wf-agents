@@ -1,6 +1,8 @@
 //! What the interface hands out. Times are UTC milliseconds since the Unix epoch, as in the database; JSON the
 //! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept.
 
+use std::collections::BTreeMap;
+
 use flow::format::Src;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -472,6 +474,17 @@ pub struct RoundDetail {
     /// How the command line was called: the whole command line, the session started or resumed, the engine's and
     /// the command line's versions; none for a round no agent ran, or one recorded before.
     pub call: Option<Value>,
+    /// The level an agent's round ran at: as its call record says, or for a round recorded before it said, the one
+    /// level the configuration at the round's commit maps its model and effort to; none when no one level does.
+    pub level: Option<String>,
+    /// The effort an agent's round ran with, as its command line gave it.
+    pub effort: Option<String>,
+    /// For a round that locked a new acceptance: the acceptance locked before, which it replaced; none for one that
+    /// locked the first.
+    pub acceptance_before: Option<Value>,
+    /// The limits of the flow's counters for the work's project, as the configuration the round ran with sets them,
+    /// by counter.
+    pub limits: BTreeMap<String, u64>,
     /// The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
     /// inputs were.
     pub inputs: Vec<RoundInput>,
@@ -627,6 +640,9 @@ pub struct FlowView {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct GraphView {
     pub name: String,
+    /// How each line's session is kept (when it starts and which cells continue it), as the flow built into this
+    /// program says: a compiled flow version keeps the lines, not what they are.
+    pub lines: Vec<flow::format::Named>,
     /// Each cell, in the order the graph has them.
     pub cells: Vec<CellView>,
 }

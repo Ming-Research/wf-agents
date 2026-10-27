@@ -256,7 +256,7 @@ pub struct Block {
     pub asking: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Named {
     pub name: String,

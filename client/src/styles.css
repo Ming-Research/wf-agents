@@ -2546,17 +2546,87 @@ summary.works-label {
   max-width: none;
 }
 
-/* A round: what happened, its inputs and what it was given, what it handed back. */
+/* A round: where the work came from, who ran it and where it went, one under another; its task, inputs and what was
+   sent; what it handed back. */
 
-.round-what p {
-  margin: 0 0 4px;
+.path {
+  display: grid;
+  gap: 4px;
+}
+
+.path-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  padding-left: 12px;
+}
+
+.path-label {
+  color: var(--muted);
+  min-width: 2.2em;
+}
+
+.path-run {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.path-cell {
+  text-align: left;
+}
+
+.path-when {
+  font-size: 12.5px;
+  padding-left: 12px;
+}
+
+.row-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--code);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.round-part {
+  display: grid;
+  gap: 6px;
+}
+
+.round-h {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .round-inputs {
   margin: 0;
-  padding-left: 20px;
+  padding-left: 24px;
   display: grid;
   gap: 4px;
+}
+
+/* An input with nothing this round keeps its number's place, greyed and struck through. */
+.round-inputs li.input-none {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.chip.sent-now {
+  color: var(--good);
+}
+
+.chip.in-session {
+  color: var(--muted);
 }
 
 .addr {
@@ -2564,12 +2634,60 @@ summary.works-label {
   margin: 2px 6px 0 0;
 }
 
-.addr-held code {
+.sent-input {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sent-other > summary {
+  cursor: pointer;
+}
+
+.counters {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.rows-scroll {
+  overflow-x: auto;
+}
+
+table.rows td {
+  vertical-align: top;
+}
+
+.tool-asked {
+  display: grid;
+  gap: 4px;
+}
+
+.acc-chip-new,
+.acc-chip-changed {
+  color: var(--warn);
+}
+
+.acc-chip-unchanged {
   color: var(--muted);
 }
 
-.given summary {
-  cursor: pointer;
+.acc-chip-removed {
+  color: var(--bad);
+}
+
+tr.acc-removed td {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* How a line's session is kept, under a cell's title. */
+.panel-session {
+  display: block;
+  margin-top: 2px;
 }
 
 /* A work's state on one line: the badge, how long it has run, what waits for the owner as small chips; the reason it

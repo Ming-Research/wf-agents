@@ -9,6 +9,7 @@ import { addHops, lengthenLast, pathOf, type Route as Routed } from './graph/flo
 import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
+import { addressesByNumber, inputRows, jsonLines, modelName, sourceWords } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
@@ -184,6 +185,7 @@ const graph: CompiledGraph = {
 };
 
 const view: GraphView = {
+  lines: [],
   name: 'engineer',
   cells: graph.cells.map((c) => ({
     id: c.id,
@@ -397,5 +399,45 @@ describe('an ask', () => {
       { kind: 'para', text: 'Expected: line 1 taken\u3002' },
       { kind: 'code', text: 'one line of code.' },
     ]);
+  });
+});
+
+describe('a round', () => {
+  it("lists the cell's inputs by their numbers as the round had them, those with nothing in their place", () => {
+    const c = cell('x', [], {
+      inputs: [
+        { id: null, what: 'what is asked', from: [['@caller', 'ask']], maybe: false },
+        { id: null, what: 'the code', from: ['self'], maybe: false },
+        { id: null, what: 'the estimate', from: [['2a', 'estimate']], maybe: true },
+        { id: null, what: 'the counters', from: [{ db: 'work_counters', by: 'work' }], maybe: false },
+      ],
+    });
+    const workFrom = ['1. R350·2a·ask', 'Read yourself: the code', '3. R353·engine·work_counters', 'Rules: rule:general'];
+    expect(addressesByNumber(workFrom)).toEqual(
+      new Map([
+        [1, ['R350·2a·ask']],
+        [3, ['R353·engine·work_counters']],
+      ]),
+    );
+    const sent = new Map([
+      ['R350·2a·ask', false],
+      ['R353·engine·work_counters', true],
+    ]);
+    expect(inputRows(c, workFrom, sent).map((r) => [r.no, r.addresses])).toEqual([
+      [1, [{ address: 'R350·2a·ask', sent: false }]],
+      [2, []],
+      [3, [{ address: 'R353·engine·work_counters', sent: true }]],
+    ]);
+  });
+
+  it('says where an input comes from, names a model as people do, and reads rows a query gave', () => {
+    const title = (id: string) => `${id} Choose`;
+    expect(sourceWords('R350·2a·ask', title)).toBe('from R350 at 2a Choose');
+    expect(sourceWords('R353·engine·work_counters', title)).toBe('computed by the engine for R353');
+    expect(sourceWords('item:3', title)).toBe('item 3');
+    expect(modelName('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(modelName('gpt-x')).toBe('gpt-x');
+    expect(jsonLines('{"a":1}\n{"a":2,"b":"x"}')).toEqual([{ a: 1 }, { a: 2, b: 'x' }]);
+    expect(jsonLines('not rows')).toBeNull();
   });
 });

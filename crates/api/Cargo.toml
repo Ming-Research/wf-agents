@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+config = { path = "../config" }
 db = { path = "../db" }
 flow = { path = "../flow" }
 serde = { version = "1.0.229", features = ["derive"] }

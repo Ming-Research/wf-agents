@@ -487,14 +487,22 @@ pub fn committed(dir: &Path) -> Result<Committed, Error> {
         .map_err(fail)?
         .trim()
         .to_string();
-    let files = git(dir, &["ls-tree", "-r", "--name-only", &commit]).map_err(fail)?;
-    let files = files.lines().map(str::to_string).collect();
-    let config = read(&Commit {
-        dir,
-        commit: commit.clone(),
-        files,
-    })?;
+    let config = at(dir, &commit)?;
     Ok(Committed { commit, config })
+}
+
+/// Reads the configuration as a commit of the data directory has it: what a round that names that commit ran with.
+pub fn at(dir: &Path, commit: &str) -> Result<Config, Error> {
+    if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(fail(format!("not a commit: {commit}")));
+    }
+    let files = git(dir, &["ls-tree", "-r", "--name-only", commit]).map_err(fail)?;
+    let files = files.lines().map(str::to_string).collect();
+    read(&Commit {
+        dir,
+        commit: commit.to_string(),
+        files,
+    })
 }
 
 /// Reads the configuration as the data directory's files are now, committed or not.

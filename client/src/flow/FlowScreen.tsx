@@ -219,7 +219,7 @@ export function FlowScreen(props: FlowScreenProps) {
               <strong>{c.id}</strong> {c.title}
             </>
           ),
-          who: cellWho(g.cells, c),
+          who: cellWho(view, c),
           body: (
             <CellPanel
               c={c}

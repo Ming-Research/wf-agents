@@ -440,6 +440,25 @@ conditional: Array<RoundConditional>,
  */
 call: JsonValue | null, 
 /**
+ * The level an agent's round ran at: as its call record says, or for a round recorded before it said, the one
+ * level the configuration at the round's commit maps its model and effort to; none when no one level does.
+ */
+level: string | null, 
+/**
+ * The effort an agent's round ran with, as its command line gave it.
+ */
+effort: string | null, 
+/**
+ * For a round that locked a new acceptance: the acceptance locked before, which it replaced; none for one that
+ * locked the first.
+ */
+acceptance_before: JsonValue | null, 
+/**
+ * The limits of the flow's counters for the work's project, as the configuration the round ran with sets them,
+ * by counter.
+ */
+limits: { [key in string]: number }, 
+/**
  * The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
  * inputs were.
  */
@@ -579,6 +598,11 @@ export type ApiError = { error: string, };
 export type FlowView = { graphs: Array<GraphView>, };
 
 export type GraphView = { name: string, 
+/**
+ * How each line's session is kept (when it starts and which cells continue it), as the flow built into this
+ * program says: a compiled flow version keeps the lines, not what they are.
+ */
+lines: Array<Named>, 
 /**
  * Each cell, in the order the graph has them.
  */

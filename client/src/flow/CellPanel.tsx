@@ -9,7 +9,7 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CellInput, CompiledCell, CompiledInput, RoundSummary } from '../api';
+import type { CellDiff, CellInput, CompiledCell, CompiledInput, GraphView, Named, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
 import { time } from '../format';
 import { type Key, t } from '../text';
@@ -33,21 +33,24 @@ export function Section({ title, note, children, id }: {
   );
 }
 
-/// The words under a cell's title: who does its work, its line and how its session runs, its stage.
-export function who(c: CompiledCell, firstOfLine: boolean): string {
+/// The words under a cell's title: who does its work, its line, its stage, and how its line's session is kept (when
+/// it starts and which cells continue it) as the flow says it.
+export function who(c: CompiledCell, lines: Named[]): ReactNode {
   const parts: string[] = [];
+  const session = c.kind === 'agent' && c.line != null ? (lines.find((l) => l.name === c.line)?.desc ?? null) : null;
   if (c.kind === 'agent') {
-    if (c.line == null) parts.push(t('who_agent_fresh'));
-    else {
-      parts.push(t('who_agent', { line: c.line }));
-      parts.push(firstOfLine ? t('who_starts') : t('who_continues'));
-    }
+    parts.push(c.line == null ? t('who_agent_fresh') : t('who_agent', { line: c.line }));
   } else {
     parts.push(t(c.kind === 'tool' ? 'who_tool' : c.kind === 'owner' ? 'who_owner' : 'who_engine'));
   }
   if (c.gate) parts.push(t('who_gate'));
   if (c.stage) parts.push(t('who_stage', { stage: c.stage }));
-  return parts.join(' · ');
+  return (
+    <>
+      {parts.join(' · ')}
+      {session !== null ? <span className="panel-session">{session}</span> : null}
+    </>
+  );
 }
 
 /// The tabs of a cell's panel.
@@ -568,8 +571,7 @@ export function CellPanel(props: {
   );
 }
 
-/// The words under a cell's title, with whether it is the first cell of its line, which starts the line's session.
-export function cellWho(cells: CompiledCell[], c: CompiledCell): string {
-  const first = cells.find((x) => x.kind === 'agent' && x.line != null && x.line === c.line);
-  return who(c, first?.id === c.id);
+/// The words under a cell's title, with how its line's session is kept, as the flow's view of the graph says it.
+export function cellWho(view: GraphView, c: CompiledCell): ReactNode {
+  return who(c, view.lines);
 }

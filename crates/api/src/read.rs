@@ -749,18 +749,41 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
                 .collect()
         })
         .unwrap_or_default();
+    let call = input.get("call").cloned();
+    let effort = call.as_ref().and_then(|c| flag(c, "--effort"));
+    let level = call.as_ref().and_then(|c| {
+        c["level"].as_str().map(str::to_string).or_else(|| {
+            let model = summary.model.clone().or_else(|| flag(c, "--model"))?;
+            let cfg = config_at(data, &config_commit)?;
+            level_of(&cfg.install.agents.levels, &model, effort.as_deref())
+        })
+    });
+    let project: Option<String> = conn
+        .query_row(
+            "SELECT i.project FROM works w JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            [work],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let limits = project
+        .and_then(|p| Some(config_at(data, &config_commit)?.projects.get(&p)?.limits.clone()))
+        .unwrap_or_default();
     Ok(RoundDetail {
         work,
         flow_version,
         graph,
         session,
+        level,
+        effort,
+        acceptance_before: acceptance_before(conn, id)?,
+        limits,
         config_commit,
         message: input["message"]
             .as_str()
             .or(input["prompt"].as_str())
             .map(str::to_string),
         conditional,
-        call: input.get("call").cloned(),
+        call,
         inputs,
         input,
         output,
@@ -772,6 +795,54 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         interjections: interjections(conn, "WHERE delivered_round = ?1", id)?,
         round: summary,
     })
+}
+
+/// The word a command line gives after a flag, such as the model after `--model`.
+fn flag(call: &Value, name: &str) -> Option<String> {
+    let args = call["command"].as_array()?;
+    let i = args.iter().position(|a| a.as_str() == Some(name))?;
+    args.get(i + 1)?.as_str().map(str::to_string)
+}
+
+/// The configuration a round ran with, as the commit of the data directory it names has it; each commit is read once,
+/// since a commit never changes.
+fn config_at(data: &Path, commit: &str) -> Option<Arc<config::Config>> {
+    type Read = BTreeMap<(std::path::PathBuf, String), Option<Arc<config::Config>>>;
+    static READ: LazyLock<Mutex<Read>> = LazyLock::new(Mutex::default);
+    let key = (data.to_path_buf(), commit.to_string());
+    if let Some(c) = READ.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return c.clone();
+    }
+    let c = config::at(data, commit).ok().map(Arc::new);
+    READ.lock().unwrap_or_else(|e| e.into_inner()).insert(key, c.clone());
+    c
+}
+
+/// The one level of the configuration that runs a model with an effort; none when no level does, or several do.
+fn level_of(levels: &BTreeMap<String, config::Level>, model: &str, effort: Option<&str>) -> Option<String> {
+    let mut hits = levels
+        .iter()
+        .filter(|(_, l)| l.model == model && l.effort.as_deref() == effort);
+    match (hits.next(), hits.next()) {
+        (Some((name, _)), None) => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// The acceptance a round's lock replaced, as the record of changes keeps the item before it; none when the round
+/// locked none, or locked the first.
+fn acceptance_before(conn: &Connection, round: i64) -> Result<Option<Value>> {
+    let before: Option<Option<String>> = conn
+        .query_row(
+            "SELECT json_extract(old_row, '$.acceptance') FROM changes
+             WHERE table_name = 'items' AND json_extract(new_row, '$.acceptance_round') = ?1
+               AND json_extract(old_row, '$.acceptance_round') IS NOT ?1
+             ORDER BY id LIMIT 1",
+            [round],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(before.flatten().and_then(|t| serde_json::from_str(&t).ok()))
 }
 
 /// Every stored flow version, newest first.
@@ -1233,7 +1304,13 @@ mod tests {
                 { "address": "rule:ground", "hash": "h1", "given": true },
                 { "address": "R2·1·understanding", "hash": "h2", "given": false },
             ],
-            "call": { "command": ["claude", "-p"], "session": { "resumed": "s1" }, "engine": "c", "cli": "2" },
+            "call": {
+                "command": ["claude", "-p", "--effort", "high"],
+                "session": { "resumed": "s1" },
+                "engine": "c",
+                "cli": "2",
+                "level": "3",
+            },
             "engine": {},
         });
         let step = json!({ "inputs": [{ "from": cell.inputs[0].from, "value": "v" }], "given": {} });
@@ -1248,6 +1325,13 @@ mod tests {
                 "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', ?1, 'c', 80)",
                 [step.to_string()],
             )?;
+            // Round 2 locked the first acceptance, and round 4 a new one in its place.
+            for (acceptance, round) in [(r#"[{"id":"A1"}]"#, 2), (r#"[{"id":"A2"}]"#, 4)] {
+                tx.execute(
+                    "UPDATE items SET acceptance = ?1, acceptance_round = ?2 WHERE id = 1",
+                    db::rusqlite::params![acceptance, round],
+                )?;
+            }
             Ok(())
         })
         .unwrap();
@@ -1262,12 +1346,34 @@ mod tests {
             [("rule:ground", true), ("R2·1·understanding", false)]
         );
         assert_eq!(r.call.as_ref().unwrap()["session"]["resumed"], "s1");
+        assert_eq!((r.level.as_deref(), r.effort.as_deref()), (Some("3"), Some("high")));
+        assert_eq!(r.acceptance_before, Some(json!([{ "id": "A1" }])));
         assert_eq!(r.round.outcome, RoundOutcome::Failed);
         assert_eq!(r.round.why.as_deref(), Some("transient: API Error: 529 Overloaded"));
         let step = round(s.db.conn(), &cache, &s.data, 5).unwrap();
         assert_eq!(step.message, None);
+        assert_eq!((step.level, step.acceptance_before), (None, None));
         assert_eq!(step.inputs[0].what, cell.inputs[0].what);
         assert_eq!(step.inputs[0].from, cell.inputs[0].from);
+    }
+
+    // A round recorded before its level was finds it as the one level that runs its model with its effort.
+    #[test]
+    fn an_older_round_finds_its_level_by_its_model_and_effort() {
+        let level = |model: &str, effort: Option<&str>| config::Level {
+            desc: String::new(),
+            cli: "claude".into(),
+            model: model.into(),
+            effort: effort.map(str::to_string),
+        };
+        let levels = BTreeMap::from([
+            ("2".to_string(), level("m", Some("high"))),
+            ("3".to_string(), level("n", Some("high"))),
+            ("4".to_string(), level("n", Some("high"))),
+        ]);
+        assert_eq!(level_of(&levels, "m", Some("high")).as_deref(), Some("2"));
+        assert_eq!(level_of(&levels, "m", None), None);
+        assert_eq!(level_of(&levels, "n", Some("high")), None);
     }
 
     #[test]

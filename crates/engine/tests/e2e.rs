@@ -1472,6 +1472,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     );
     let call = &second["call"];
     assert_eq!(call["cli"], "scripted");
+    assert!(call["level"].is_string(), "{call}");
     assert_eq!(call["engine"], engine::VERSION);
     assert!(call["session"]["resumed"].is_string(), "{call}");
     assert!(first["call"]["session"]["started"].is_string());

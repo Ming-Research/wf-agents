@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use flow::format::{Atom, Do, Src};
+use flow::format::{Atom, Do, Named, Src};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
@@ -25,12 +25,21 @@ const STOPPED: &str = "@stopped";
 const FROM: &str = "@from";
 
 pub fn view(c: &Compiled) -> FlowView {
+    // How each line's session is kept is said only in the flow's source: the flow built into this program says it.
+    let source = serde_json::from_str::<flow::format::Source>(flow::FLOW).ok();
+    let lines = |name: &str| -> Vec<Named> {
+        source
+            .as_ref()
+            .and_then(|s| s.flows.iter().find(|f| f.name == name))
+            .map(|f| f.sessions.lines.clone())
+            .unwrap_or_default()
+    };
     FlowView {
-        graphs: c.graphs.iter().map(graph).collect(),
+        graphs: c.graphs.iter().map(|g| graph(g, lines(&g.name))).collect(),
     }
 }
 
-fn graph(g: &CompiledGraph) -> GraphView {
+fn graph(g: &CompiledGraph, lines: Vec<Named>) -> GraphView {
     let ways = Ways::new(g);
     let mut trees: BTreeMap<&str, Returns> = g.cells.iter().map(|c| (c.id.as_str(), returns(g, c))).collect();
     let mut uses: Vec<(String, String, Use)> = Vec::new();
@@ -72,6 +81,7 @@ fn graph(g: &CompiledGraph) -> GraphView {
         .collect();
     GraphView {
         name: g.name.clone(),
+        lines,
         cells,
     }
 }
@@ -861,7 +871,7 @@ mod tests {
 
     #[test]
     fn targets_the_engine_keeps_track_of_resolve_to_the_cells_they_can_be() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         // The tool cell goes back to the cell that called it.
         assert_eq!(cell(&v, "t").targets, vec![vec!["a".to_string()]]);
         // An answer to a cell on the receiving cell's line would go through it; `a` is not on its line.
@@ -883,7 +893,7 @@ mod tests {
 
     #[test]
     fn each_field_says_what_reads_it() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         let a = &cell(&v, "a").returns;
         let own = &a.forms[0];
         assert_eq!(
@@ -951,7 +961,7 @@ mod tests {
 
     #[test]
     fn an_input_has_its_address() {
-        let v = super::graph(&graph());
+        let v = super::graph(&graph(), Vec::new());
         let b = cell(&v, "b");
         let input = |i: usize, s: usize| {
             b.inputs

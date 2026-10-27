@@ -169,7 +169,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
     // structured-output schema.
     let mut kept = msg.kept.clone();
-    let call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
+    let mut call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
+    // The level the round runs at, which the configuration maps to its model and effort: the owner reads the round by
+    // it.
+    call["level"] = Value::String(level_name.clone());
     let input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
