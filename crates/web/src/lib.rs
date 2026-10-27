@@ -1,10 +1,11 @@
 //! The owner's interface as `wf-agents run` serves it, on its own threads beside the engine's loop: HTTP and JSON
-//! under `/api/v1` (GET to read, POST for what the owner asks of the engine), the event stream at `/api/v1/events`,
-//! and the page built into the binary at every other path.
+//! under `/api/v1` (GET to read, POST for what the owner asks of the engine and for marking messages read), the event
+//! stream at `/api/v1/events`, and the page built into the binary at every other path.
 //!
 //! It listens on the loopback address only, and refuses a request whose Host is not that address with its port (a
 //! domain name rebound to the loopback address), whose Origin is another site's, or that the browser says came from
-//! another site. Each read opens its own read-only connection to the database.
+//! another site. Each read opens its own read-only connection to the database; marking messages read opens one that
+//! writes as the owner.
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -129,6 +130,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/flows/{id}/view", get(flow_view))
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
+        .route("/api/v1/messages", get(messages))
+        .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -353,6 +356,27 @@ async fn items(State(app): State<App>) -> Result<Json<api::Items>, Fail> {
 
 async fn item(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::ItemDetail>, Fail> {
     read(&app, move |c, a| api::item(c, &a.flows, id)).await.map(Json)
+}
+
+#[derive(Deserialize)]
+struct Which {
+    /// Every message, those read too; otherwise only those unread.
+    #[serde(default)]
+    all: bool,
+}
+
+async fn messages(State(app): State<App>, Query(q): Query<Which>) -> Result<Json<Vec<api::OwnerMessage>>, Fail> {
+    read(&app, move |c, _| api::messages(c, q.all)).await.map(Json)
+}
+
+/// Marks messages to the owner read: the one write the interface makes to the database itself, as the owner.
+async fn mark_read(State(app): State<App>, Json(m): Json<api::MarkRead>) -> Result<Json<api::Marked>, Fail> {
+    let db = Arc::clone(&app.db);
+    tokio::task::spawn_blocking(move || api::mark_read(&db, &m))
+        .await
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(Fail::from)
 }
 
 async fn file(State(app): State<App>, Path((dir, name)): Path<(String, String)>) -> Result<Response, Fail> {

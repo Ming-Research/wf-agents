@@ -111,10 +111,10 @@ fn tree_changed(w: &Work, project: &config::Project) -> Result<bool, String> {
 }
 
 /// The work's design card not yet replaced: its id and status.
-fn current_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
+fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
     tx.query_row(
-        "SELECT c.id, c.status FROM cards c JOIN rounds r ON r.id = c.round
-         WHERE r.work = ?1 AND c.kind = 'design' AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
+        "SELECT c.id, c.status FROM design_cards c JOIN rounds r ON r.id = c.round
+         WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [work],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
@@ -122,9 +122,9 @@ fn current_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>
     .map_err(sql)
 }
 
-fn new_card(tx: &Transaction<'_>, round: i64, body: &Value) -> Result<i64, String> {
+fn new_design_card(tx: &Transaction<'_>, round: i64, body: &Value) -> Result<i64, String> {
     tx.execute(
-        "INSERT INTO cards (round, kind, body, status) VALUES (?1, 'design', ?2, 'open')",
+        "INSERT INTO design_cards (round, body, status) VALUES (?1, ?2, 'open')",
         params![round, body.to_string()],
     )
     .map_err(sql)?;
@@ -215,17 +215,13 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 return Ok(());
             };
             let posted: Option<i64> = tx
-                .query_row(
-                    "SELECT id FROM cards WHERE round = ?1 AND kind = 'design'",
-                    [round],
-                    |r| r.get(0),
-                )
+                .query_row("SELECT id FROM design_cards WHERE round = ?1", [round], |r| r.get(0))
                 .optional()
                 .map_err(sql)?;
             if posted.is_some() {
                 return Ok(());
             }
-            let card = new_card(tx, round, &body)?;
+            let card = new_design_card(tx, round, &body)?;
             notify(
                 tx,
                 Some(w),
@@ -237,10 +233,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "update_design_card" => {
             let Some(body) = at_value else { return Ok(()) };
-            let card = new_card(tx, ctx.round, &body)?;
-            if let Some((old, status)) = current_card(tx, w)?.filter(|(id, _)| *id != card) {
+            let card = new_design_card(tx, ctx.round, &body)?;
+            if let Some((old, status)) = current_design_card(tx, w)?.filter(|(id, _)| *id != card) {
                 tx.execute(
-                    "UPDATE cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
+                    "UPDATE design_cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
                     params![old, card],
                 )
                 .map_err(sql)?;
@@ -252,7 +248,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 notify(
                     tx,
                     Some(w),
-                    &format!("Design card {card} of {} replaces card {old}.{again}", ctx.about()),
+                    &format!(
+                        "Design card {card} of {} replaces design card {old}.{again}",
+                        ctx.about()
+                    ),
                 )?;
             } else {
                 notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
@@ -260,14 +259,14 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "replace_design_card" => {
             tx.execute(
-                "UPDATE cards SET status = 'replaced'
-                 WHERE kind = 'design' AND status IN ('open', 'ruled') AND round IN (SELECT id FROM rounds WHERE work = ?1)",
+                "UPDATE design_cards SET status = 'replaced'
+                 WHERE status IN ('open', 'ruled') AND round IN (SELECT id FROM rounds WHERE work = ?1)",
                 [w],
             )
             .map_err(sql)?;
         }
         "notify_pending_approvers" => {
-            let why = match current_card(tx, w)? {
+            let why = match current_design_card(tx, w)? {
                 Some((card, status)) if status == "open" => format!("design card {card} waits for your ruling"),
                 Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
                 None => "it waits for the items it depends on to merge".to_string(),
@@ -387,7 +386,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             }
         }
         "deliver_answers" => {
-            let line = ctx.cell.line.clone().unwrap_or_else(|| "engineer".into());
+            let line = line_of(ctx);
             // A return's answers, or those a redirect carries to the speakers it does not redirect for.
             let mut all = ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default();
             all.extend(
@@ -409,9 +408,42 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 )?;
             }
         }
+        "tell_owner" => {
+            let said: Vec<String> = ctx.unwrapped["tell_owner"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+                .collect();
+            for text in said {
+                tx.execute(
+                    "INSERT INTO owner_messages (round, text) VALUES (?1, ?2)",
+                    params![ctx.round, text],
+                )
+                .map_err(sql)?;
+                notify(
+                    tx,
+                    Some(w),
+                    &format!(
+                        "The {} of {} at cell {} tells you: {text}",
+                        line_of(ctx),
+                        ctx.about(),
+                        ctx.cell.id
+                    ),
+                )?;
+            }
+        }
         other => return Err(format!("no such engine action: {other}")),
     }
     Ok(())
+}
+
+/// The line of the cell an action is carried out for.
+fn line_of(ctx: &Ctx) -> String {
+    ctx.cell.line.clone().unwrap_or_else(|| "engineer".into())
 }
 
 /// Carries out what is due in the outbox; an action that fails is tried again later, waiting longer each time.

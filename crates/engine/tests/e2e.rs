@@ -173,6 +173,7 @@ impl Agents for Scripted {
         }
         let compactions = set.remove("@compactions").and_then(|c| c.as_i64()).unwrap_or(0);
         set.entry("side_reports".into()).or_insert(json!([]));
+        set.entry("tell_owner".into()).or_insert(json!([]));
         set.entry("progress".into())
             .or_insert(json!(format!("round {n} at {}", r.cell)));
         Reply {
@@ -564,6 +565,45 @@ fn a_single_step_runs_exactly_one_round() {
         assert_eq!(rounds(&e), n, "{log}");
         last = next.work;
     }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What an agent tells the owner is kept with its round, unread, and the owner is told; the work goes on.
+#[test]
+fn an_agent_tells_the_owner_and_the_work_goes_on() {
+    let s = setup("tell");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("tell_owner", json!(["The item's example does not run as written."]))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..4 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert!(at != "0" && at != "1", "{log}");
+    let (cell, text, read): (String, String, Option<i64>) = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.id = m.round",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (cell.as_str(), text.as_str(), read),
+        ("1", "The item's example does not run as written.", None)
+    );
+    assert_eq!(told(&s, "tells you: The item's example"), 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -991,7 +1031,7 @@ fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     assert_eq!(sent_back(&e), 0);
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM cards", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0);
     let _ = std::fs::remove_dir_all(&s.root);

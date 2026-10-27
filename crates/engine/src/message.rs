@@ -12,8 +12,8 @@
 //!
 //! Addresses: a value a round produced is `R<round>·<cell>·<path>`, by the earliest round that produced the same
 //! content; a value the engine reads or computes for a round is `R<round>·engine·<name>`, by the earliest round it
-//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `card:<id>`, `ij:<id>`, `work:<id>`,
-//! `format:common`, `format:<cell>` and `inputs:<cell>`.
+//! was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`, `ask:<id>` (an ask of
+//! the owner), `ij:<id>`, `work:<id>`, `format:common`, `format:<cell>` and `inputs:<cell>`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -484,9 +484,11 @@ impl Context<'_> {
                 let rows = p.value.as_array().cloned().unwrap_or_default();
                 match rel.as_str() {
                     "item_body" => rows.into_iter().map(|r| (format!("item:{}", r["item"]), r)).collect(),
-                    "item_cards" | "parent_design_cards" => {
-                        rows.into_iter().map(|r| (format!("card:{}", r["card"]), r)).collect()
-                    }
+                    "item_design_cards" | "parent_design_cards" => rows
+                        .into_iter()
+                        .map(|r| (format!("design_card:{}", r["design_card"]), r))
+                        .collect(),
+                    "item_asks" => rows.into_iter().map(|r| (format!("ask:{}", r["ask"]), r)).collect(),
                     "waiting_interjections" => rows
                         .into_iter()
                         .map(|r| {

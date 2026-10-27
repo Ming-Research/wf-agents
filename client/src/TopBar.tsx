@@ -1,12 +1,13 @@
-// The bar on every view: the three views, how the engine stands (and what stops every work, when something does), and
-// what the owner asks of it (its mode, and in single-step mode the next step).
+// The bar on every view: the views (the messages to the owner with how many are unread), how the engine stands (and
+// what stops every work, when something does), and what the owner asks of it (its mode, and in single-step mode the
+// next step).
 
 import { useState } from 'react';
 
-import type { Mode, Status } from './api';
+import type { Mode, OwnerMessage, Status } from './api';
 import { time } from './format';
 import { postJson } from './http';
-import { useOnline, useStatus } from './live';
+import { useOnline, useResource, useStatus } from './live';
 import { Link, type Route } from './route';
 import { t } from './text';
 
@@ -84,6 +85,18 @@ function Engine() {
   );
 }
 
+/// The view of the messages to the owner, with how many are unread.
+function Unread({ className }: { className: string }) {
+  const r = useResource<OwnerMessage[]>('messages', '/api/v1/messages');
+  const n = r.data?.length ?? 0;
+  return (
+    <Link to="/messages" className={className}>
+      {t('nav_messages')}
+      {n > 0 ? <span className="nav-count">{n}</span> : null}
+    </Link>
+  );
+}
+
 /// The bar; `slot` is given the part of it a view fills with what it needs at hand.
 export function TopBar({ route, slot }: { route: Route; slot: (el: HTMLElement | null) => void }) {
   const on = (pages: Route['page'][]) => (pages.includes(route.page) ? 'nav nav-on' : 'nav');
@@ -99,6 +112,7 @@ export function TopBar({ route, slot }: { route: Route; slot: (el: HTMLElement |
       <Link to="/flow" className={on(['flow'])}>
         {t('nav_flow')}
       </Link>
+      <Unread className={on(['messages'])} />
       <div className="bar-slot" ref={slot} />
       <Engine />
     </nav>

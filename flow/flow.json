@@ -316,36 +316,6 @@
         }
       ]
     },
-    "card": {
-      "name": "card",
-      "type": "obj",
-      "desc": "A card for the owner",
-      "fields": [
-        {
-          "name": "question",
-          "type": "text",
-          "desc": "One sentence asking what the owner must decide; no internal names"
-        },
-        {
-          "$ref": "options"
-        },
-        {
-          "name": "recommended",
-          "type": "text",
-          "desc": "Which option you recommend: its name"
-        },
-        {
-          "name": "confidence",
-          "type": "int",
-          "desc": "How sure you are of the recommendation, 1 to 5: 5 means the evidence settles it, 1 means judgment alone"
-        },
-        {
-          "name": "confidence_why",
-          "type": "text",
-          "desc": "Why you are that sure, and what fact would overturn the recommendation"
-        }
-      ]
-    },
     "checks_item": {
       "type": "obj",
       "fields": [
@@ -782,7 +752,7 @@
             "name": "from_parent",
             "type": "text",
             "optional": true,
-            "desc": "Only on an item split off from a parent: this decision is copied unchanged from the parent's card; give the parent's item number. Not for decisions of its own"
+            "desc": "Only on an item split off from a parent: this decision is copied unchanged from the parent's design card; give the parent's item number. Not for decisions of its own"
           }
         ],
         "branches": [
@@ -1201,6 +1171,36 @@
           }
         }
       ]
+    },
+    "choice": {
+      "name": "choice",
+      "type": "obj",
+      "desc": "What the owner is asked to decide",
+      "fields": [
+        {
+          "name": "question",
+          "type": "text",
+          "desc": "One sentence asking what the owner must decide; no internal names"
+        },
+        {
+          "$ref": "options"
+        },
+        {
+          "name": "recommended",
+          "type": "text",
+          "desc": "Which option you recommend: its name"
+        },
+        {
+          "name": "confidence",
+          "type": "int",
+          "desc": "How sure you are of the recommendation, 1 to 5: 5 means the evidence settles it, 1 means judgment alone"
+        },
+        {
+          "name": "confidence_why",
+          "type": "text",
+          "desc": "Why you are that sure, and what fact would overturn the recommendation"
+        }
+      ]
     }
   },
   "tools": [
@@ -1576,7 +1576,7 @@
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
-      "ask_owner": "Makes what is asked into a card in the owner's interface and notifies the owner; the work stops and waits without holding a slot. The owner's chosen option or sentence goes back unchanged to the side that asked.",
+      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the work stops and waits without holding a slot. The owner's chosen option or sentence goes back unchanged to the side that asked.",
       "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged."
     },
     "actions": {
@@ -1584,8 +1584,8 @@
       "lock_new_acceptance": "Writes the advisor's new acceptance conditions onto the item and locks them.",
       "post_design_card": "When the design tree changed, puts the design card in the database and sends it to the architect first: it blocks nothing yet, so the owner can look and stop it early.",
       "update_design_card": "Replaces the work's design card with the one handed in. Only the decisions that changed go through again, the architect first; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
-      "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner and the architect can no longer rule on them. A new design brings a new card; without a card there is nothing to mark.",
-      "notify_pending_approvers": "Tells each side that has not gone through the design card that the card is holding up the merge.",
+      "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner and the architect can no longer rule on them. A new design brings a new design card; without one there is nothing to mark.",
+      "notify_pending_approvers": "Tells each side that has not gone through the design card that the design card is holding up the merge.",
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
@@ -1595,13 +1595,14 @@
       "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "An urgent side report starts a round of the architect at once.",
-      "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries."
+      "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries.",
+      "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "design_paths_unchanged": "Nothing in the design paths changed in this round: the engine compares them on the branch at the start of the round and at its return. The design tree changes only when designing, implementing and fixing.",
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
-      "design_card_matches_tree": "The design paths changed on the branch and are committed. Each decision on the card matches a changed node (except those it says sub-items carry, which are not on this branch), and every changed node is on the card. A decision it says comes from the parent is word for word that section of the parent's card. An answer of unchanged changed nothing; a report can only answer unchanged; an answer of design_paths_only changed nothing outside the design paths.",
+      "design_card_matches_tree": "The design paths changed on the branch and are committed. Each decision on the design card matches a changed node (except those it says sub-items carry, which are not on this branch), and every changed node is on the design card. A decision it says comes from the parent is word for word that section of the parent's design card. An answer of unchanged changed nothing; a report can only answer unchanged; an answer of design_paths_only changed nothing outside the design paths.",
       "design_tree_check": "When the design paths changed, the design tree check the project's configuration names passes on the branch, given the fork point with main.",
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor with the kind acceptance_change first. Those the advisor changed, or the owner changed in a ruling on the design card, were locked by the engine then. A work that delivers a change has no report_answer condition.",
       "chosen_matches_ruling": "When the owner chose another approach in a ruling on the design card, that is the approach chosen; otherwise the agent asks the owner first.",
@@ -1612,7 +1613,7 @@
       "guard_test_results": "When the design chose no adversarial testing: each old-behaviour test's two results match the ci and ci_before runs the engine recorded; one red in either run, or unable to run before the change, is fixed in this round. Each new test is in the table its kind in the test changes says.",
       "adversarial_test_results": "Each row's two results match the ci and ci_before runs the engine recorded; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
       "test_kinds_match": "Tests the engineer added are in the table of the kind the engineer gave in the test changes. A test the adversarial tester wrote whose result before the change does not fit its kind is fixed in this round and run again.",
-      "design_card_when_tree_changed": "The engine compares the design paths on the branch with the version the last card matched: if they changed and this round handed in no new card, or did not change and it handed one in, the return is rejected.",
+      "design_card_when_tree_changed": "The engine compares the design paths on the branch with the version the last design card matched: if they changed and this round handed in no new design card, or did not change and it handed one in, the return is rejected.",
       "tests_only": "The commits from the head the engineer handed over to this head touch only the test paths the project's configuration names.",
       "disputed_tests_answered": "At a re-check, there is a row for each test the engineer called test_wrong or answered advisor_ruled.",
       "no_insisting_after_ruling": "What the engineer answered advisor_ruled is not insisted on, nor marked not_fixed.",
@@ -1628,8 +1629,8 @@
       "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: a flaky one was run again, and one red on main was seen red there.",
       "ruling_matches_advisor": "This work did ask the advisor about this row, and the ruling written matches the advisor's reply.",
       "owner_kinds_to_owner": "A point of a kind in the owner_only group is asked of the owner.",
-      "card_disagreement_redirects": "When this round's interjections hold a disagreement with the design card (the owner's or the architect's), the return is a redirect, not answers.",
-      "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side."
+      "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
+      "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with the design card (the owner's or the architect's), the return is a redirect, not answers."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -1649,10 +1650,10 @@
       "gates": "Whether the items depended on are merged and the design card is gone through.",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
-      "card": "Whether the reply or interjection brought back holds a disagreement with the design card.",
       "came_by": "How the work came to choose the way on.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
-      "waited": "Whether every item waited for is merged."
+      "waited": "Whether every item waited for is merged.",
+      "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with the design card."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
@@ -1775,14 +1776,14 @@
             "The tree is written for the agents that will change the code later and kept for the long term; the design card is written for the owner. Derivations, measurements and point-by-point comparisons go in `research/`; a node states only conclusions, and its reasons link straight to the section of the research notes.",
             "Record only key decisions: those that affect later implementation or the overall architecture. A decision is a real choice between several workable approaches, even one that looks obvious: it changes accepted behaviour or persistent state, a condition of safety or trust, a shared interface or representation, a clear performance commitment, or a lasting rule of the project. How big the work is or how many files it changes is no reason; a matter with only one workable approach is not recorded. Hold the granularity: too fine, and decisions drown in detail; too coarse, and important choices go unguarded.",
             "Say which kind of ground a reason is: a derivation states its premises and only the conclusions they give; an observation states what was seen and under what conditions; a principle or a single measurement shows only that the choice is suitable, not that it is the only one. Write the reasons when choosing, not afterwards.",
-            "A decision that cannot be settled during design still goes into the tree. A provisional one says in its reasons why it is decided this way for now, what is uncertain and when it would be reopened; one still to check says what assumption the work goes on under and how it will be checked. The design card marks the decision provisional or to check. When it is settled later, the node is changed and a new card handed in as usual.",
+            "A decision that cannot be settled during design still goes into the tree. A provisional one says in its reasons why it is decided this way for now, what is uncertain and when it would be reopened; one still to check says what assumption the work goes on under and how it will be checked. The design card marks the decision provisional or to check. When it is settled later, the node is changed and a new design card handed in as usual.",
             "The node format (the engine checks it when a round returns, and rejects the return if it fails): one node per file, named after the decision it governs; inside, one or more `Decision:` lines, optionally followed by a `Rejected:` list. Each field takes one line, with a blank line between fields; list items follow straight after the heading or the previous item. The tree uses ASCII only.",
             "`Decision:` states the choice, with the reason after `because`, the approach not chosen after `instead of`, or both; at least one of the two. Each `Rejected:` line reads `- <approach>: rejected because <reason>`, and the reason says how it differs from the chosen one, not just the choice turned around. Write for someone who has not seen the original material: spell out abbreviations and short names.",
             "A node holds no dates, history or progress; measurements and facts appear only as evidence in reasons, and anything mentioned is named for what it is, without dates or numbers.",
             "Before changing the tree, apply three filters: it is a decision, not a description, so a node that only describes is not wanted; it records the grounds, not the code, so an interface or implementation with no alternative to compare does not go in; a shared rule is written once, on the common ancestor. Keep each decision short: the choice, the deciding reason or the approach not chosen, and the qualifications needed to keep the meaning.",
             "To bring back a rejected approach, first say what has changed.",
-            "The tree and the implementation change together: during design, change the nodes on the branch, commit them locally and write the design card; when a later round changes the tree again, its return carries the whole card as it stands after the change. If the code holds an important design choice the tree does not yet have, add it. Before changing a node, read it and its ancestors.",
-            "Approaches the design card did not choose that are worth remembering go into the node's `Rejected:`, with the reasons the card gives. When the owner confirms the change, what the card chose is the node's decision; when the owner chooses another approach, the work goes back to design and the tree changes with it."
+            "The tree and the implementation change together: during design, change the nodes on the branch, commit them locally and write the design card; when a later round changes the tree again, its return carries the whole design card as it stands after the change. If the code holds an important design choice the tree does not yet have, add it. Before changing a node, read it and its ancestors.",
+            "Approaches the design card did not choose that are worth remembering go into the node's `Rejected:`, with the reasons the design card gives. When the owner confirms the change, what the design card chose is the node's decision; when the owner chooses another approach, the work goes back to design and the tree changes with it."
           ]
         },
         {
@@ -1790,7 +1791,7 @@
           "desc": "How the review reviews the design tree and the design in the code: it applies to a work that does not change the design tree too",
           "text": [
             "Review by the points below: the change to the design tree, the whole change, and the existing nodes concerned with their ancestors. A work that does not change the design tree is reviewed too: does a node govern each design choice in its code?",
-            "Card against tree: each decision on the design card says the same thing as the change to its node on the branch; the approaches the card did not choose that are worth remembering are in `Rejected:`; a decision marked provisional says in the node's reasons what is uncertain and when it would be reopened; one marked to check says what assumption the work goes on under and how it will be checked.",
+            "Design card against tree: each decision on the design card says the same thing as the change to its node on the branch; the approaches the design card did not choose that are worth remembering are in `Rejected:`; a decision marked provisional says in the node's reasons what is uncertain and when it would be reopened; one marked to check says what assumption the work goes on under and how it will be checked.",
             "Is it a decision: each node added or changed meets the node format and the three filters. Report nodes that describe and decide nothing, rejection reasons that go in circles, and choices or grounds that cannot be understood without the original material.",
             "Consistency: compare each changed node with its ancestors and siblings, and widen to related decisions where needed; for a change that governs a whole concept, read its whole subtree. Say which nodes you read; for every conflict, narrowing or broken dependency, quote both sides.",
             "Is the architecture right: for each structural choice, were holes in the design and better designs looked for while making and changing it, and can the owner see what was found? The returns of comparing approaches and of thinking again whether there is a better design are among your inputs. Report a concrete hole, or a clearly better design, left unaddressed; something deferred that is not recorded in the database counts too. Judge by what was built and the grounds recorded for it; do not demand imagined generality, and do not supply reasons for it after the code is written.",
@@ -1824,7 +1825,7 @@
             "One column per test or check removed, skipped or relaxed: compared with before, is there a technical reason; a compiler limitation, a timeout or an unimplemented feature is no reason.",
             "One column per new test: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
             "A work that delivers a report has another table: one column per acceptance condition, for which section of the report answers it and whether the answer is right; whether the evidence supports the conclusions; whether the approaches compared ran under the same conditions (the same load, machine, versions and settings); whether a conclusion claims more than was measured; whether it can be reproduced (the measurement code and commands are in the repository and rerun as written); whether \"what to do next\" holds; and, as for a change, one column per judgment in the research and design.",
-            "A work that changes the design tree has, after the table review, a round of its own for the design tree: one column for each point of the design tree review: card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints. The four points on code against decisions were reviewed in the table review and are not answered again."
+            "A work that changes the design tree has, after the table review, a round of its own for the design tree: one column for each point of the design tree review: design card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints. The four points on code against decisions were reviewed in the table review and are not answered again."
           ]
         }
       ],
@@ -1954,9 +1955,9 @@
             "row": "ask_owner",
             "fields": [
               {
-                "$ref": "card",
+                "$ref": "choice",
                 "optional": true,
-                "desc": "For something the owner must rule on, write the card: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials, configuration)"
+                "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials, configuration)"
               }
             ]
           }
@@ -2207,6 +2208,7 @@
           ],
           "every": [
             "side_reports",
+            "tell_owner",
             "progress"
           ],
           "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
@@ -2367,6 +2369,15 @@
             }
           },
           {
+            "name": "tell_owner",
+            "type": "list",
+            "desc": "Messages for the owner, a sentence or two each: what the owner should know that needs no decision and no answer, such as a risk you see, a surprise, or a judgment the owner may want to look at; the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "item": {
+              "type": "text",
+              "desc": "One message"
+            }
+          },
+          {
             "$ref": "progress_form"
           }
         ],
@@ -2382,6 +2393,10 @@
           {
             "at": "redirect.answers",
             "do": "deliver_answers"
+          },
+          {
+            "at": "tell_owner",
+            "do": "tell_owner"
           }
         ],
         "checks": [
@@ -2391,7 +2406,7 @@
           },
           {
             "at": "answers",
-            "check": "card_disagreement_redirects"
+            "check": "design_card_disagreement_redirects"
           },
           {
             "at": "answers.to",
@@ -2403,7 +2418,8 @@
           }
         ],
         "shown": [
-          "progress"
+          "progress",
+          "tell_owner"
         ],
         "shownSay": "Write it in the owner's language (the setting `owner.language`): the owner reads it on the item. Keep technical terms in their English original.",
         "readBy": [
@@ -2556,20 +2572,24 @@
           ],
           "inputs": [
             {
-              "what": "The item itself: its problem, why, approach (if written), whether it delivers a change or a report, and the cards of this work that were already ruled on",
+              "what": "The item itself: its problem, why, approach (if written), whether it delivers a change or a report, and the design cards and asks of the owner of this item's works, with their rulings and answers",
               "from": [
                 {
                   "db": "item_body",
                   "by": "item"
                 },
                 {
-                  "db": "item_cards",
+                  "db": "item_design_cards",
+                  "by": "item"
+                },
+                {
+                  "db": "item_asks",
                   "by": "item"
                 }
               ]
             },
             {
-              "what": "Where this work sits in the whole. Above: from its parent up to the root, the first paragraph of each one's problem and why, and their ruled cards. Beside: its siblings under the same parent, with a one-line conclusion for those done, how far those running got, and only the title for those not started. Around: the items just before and after it in its parent's plan. Whom it waits for and how far they are; who waits for it and for what",
+              "what": "Where this work sits in the whole. Above: from its parent up to the root, the first paragraph of each one's problem and why, and their ruled design cards. Beside: its siblings under the same parent, with a one-line conclusion for those done, how far those running got, and only the title for those not started. Around: the items just before and after it in its parent's plan. Whom it waits for and how far they are; who waits for it and for what",
               "from": [
                 {
                   "db": "item_context",
@@ -2758,10 +2778,10 @@
               "maybe": true
             },
             {
-              "what": "Rulings on the design card: the decisions the owner or the architect disagreed with and why, the approach the owner chose, the acceptance the owner changed; none if no card was turned down",
+              "what": "Rulings on the design card: the decisions the owner or the architect disagreed with and why, the approach the owner chose, the acceptance the owner changed; none if no design card was turned down",
               "from": [
                 {
-                  "db": "item_cards",
+                  "db": "item_design_cards",
                   "by": "item"
                 }
               ],
@@ -2886,10 +2906,10 @@
               ]
             },
             {
-              "what": "Rulings on the design card: the decisions the owner or the architect disagreed with and why, the approach the owner chose, the acceptance the owner changed; none if no card was turned down",
+              "what": "Rulings on the design card: the decisions the owner or the architect disagreed with and why, the approach the owner chose, the acceptance the owner changed; none if no design card was turned down",
               "from": [
                 {
-                  "db": "item_cards",
+                  "db": "item_design_cards",
                   "by": "item"
                 }
               ],
@@ -2916,7 +2936,7 @@
             "design_tree_writing"
           ],
           "prompt": [
-            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no file other than the measurement code and the design tree. Choose one of the approaches compared; if a design card was turned down and the owner chose another approach, choose that one, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. If the design tree must change (the design paths the project's configuration names, such as design/), change the nodes in this round as the design tree rules say and commit them locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the tree does not change, say why. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor with the kind acceptance_change and write them as the reply says. If you cannot choose, ask, with one point design_undecided saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the nodes this work carries itself and drops those given to sub-items. When this work was split off and the parent's card has decisions it says this work carries: write those nodes exactly as on the card, copy those decisions unchanged onto your card and say they come from the parent; the owner's rulings on the parent's card count for them as they are; decisions not on the parent's card are written as usual."
+            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no file other than the measurement code and the design tree. Choose one of the approaches compared; if a design card was turned down and the owner chose another approach, choose that one, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. If the design tree must change (the design paths the project's configuration names, such as design/), change the nodes in this round as the design tree rules say and commit them locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the tree does not change, say why. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor with the kind acceptance_change and write them as the reply says. If you cannot choose, ask, with one point design_undecided saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the nodes this work carries itself and drops those given to sub-items. When this work was split off and the parent's design card has decisions it says this work carries: write those nodes exactly as on it, copy those decisions unchanged onto your design card and say they come from the parent; the owner's rulings on the parent's design card count for them as they are; decisions not on the parent's design card are written as usual."
           ],
           "promptBy": {
             "by": "deliver",
@@ -3016,7 +3036,7 @@
                 },
                 {
                   "value": "change",
-                  "desc": "The design tree changes: change the nodes in this round as the design tree rules say, commit them locally, and write the card here. The card does not stop you going on; it only holds up the merge",
+                  "desc": "The design tree changes: change the nodes in this round as the design tree rules say, commit them locally, and write the design card here. It does not stop you going on; it only holds up the merge",
                   "fields": [
                     {
                       "$ref": "design_card"
@@ -3025,7 +3045,7 @@
                 },
                 {
                   "value": "design_paths_only",
-                  "desc": "What this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the design tree: change the nodes in this round as the design tree rules say, commit them locally, and write the card here; the implementation round changes no other file",
+                  "desc": "What this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the design tree: change the nodes in this round as the design tree rules say, commit them locally, and write the design card here; the implementation round changes no other file",
                   "fields": [
                     {
                       "$ref": "design_card"
@@ -3831,7 +3851,7 @@
                 "This work delivers a change: change the code by the design. If the branch has no change against main, you may not hand in done: ask, saying why no change is needed, such as another PR having fixed it already."
               ],
               "design_paths_only": [
-                "This work changes only the design paths: the nodes and the card were changed and committed in the design round. This round changes no file outside the design paths: check the nodes against the design and the card once more, and run the design tree check; if nodes must still change, change them as the design tree rules say and hand in a new card."
+                "This work changes only the design paths: the nodes and the design card were changed and committed in the design round. This round changes no file outside the design paths: check the nodes against the design and the design card once more, and run the design tree check; if nodes must still change, change them as the design tree rules say and hand in a new design card."
               ],
               "report": [
                 "This work delivers only a report: do the research and measurements by the design, write the conclusions into `research/` with the measurement code, so that they can be reproduced; change no implementation code and no file outside `research/`. The report states the problem, the approaches compared, what was measured, and the conclusions, which claim no more than was measured. With done, write what to do next in followup. If the research meets a gap in what is under test (a natural way of writing something rejected or handled badly), ask as usual; if the advisor judges it a gap, write it into the report and into followup."
@@ -3848,7 +3868,7 @@
             {
               "$ref": "design_card",
               "optional": true,
-              "desc": "Only when this round changed the design tree (the design paths the project's configuration names): the whole card as it stands after the change, one section per decision, written for the owner in the owner's language; otherwise leave it out"
+              "desc": "Only when this round changed the design tree (the design paths the project's configuration names): the whole design card as it stands after the change, one section per decision, written for the owner in the owner's language; otherwise leave it out"
             }
           ],
           "cases": [
@@ -4696,7 +4716,7 @@
                 "Do not read the changes to design tree nodes in the diff either. By the problem and the acceptance, read the whole diff and the code it touches, and think what the change must achieve and where it could go wrong: logic, edge cases, error paths, how it meets the code it did not change, whether the tests test it."
               ],
               "design_paths_only": [
-                "This work changes only the design paths, such as a specification or the design tree: those changes in the diff are what you review, so read them; still do not read the card or the reasons. By the problem and the acceptance, read these changes and the code they govern, and think what they must settle and where they could go wrong: do they contradict other clauses or nodes, do they say it clearly, are the examples right under the changed rules, do they match the code as it is."
+                "This work changes only the design paths, such as a specification or the design tree: those changes in the diff are what you review, so read them; still do not read the design card or the reasons. By the problem and the acceptance, read these changes and the code they govern, and think what they must settle and where they could go wrong: do they contradict other clauses or nodes, do they say it clearly, are the examples right under the changed rules, do they match the code as it is."
               ],
               "report": [
                 "This work delivers only a report: this round does not read the report itself (the research notes). Look only at the problem, the questions in the acceptance that the report must answer, and the raw results of every measurement the engine recorded with the measurement code, and draw your own conclusions into conclusions: which questions the data can answer, what the answers are, and how far they hold. Report as findings where the measurement itself could be wrong, such as approaches compared under different conditions, too much noise, or measuring something other than what had to be measured. The next round checks the report: where it claims more than you saw, or something different, that is a finding too."
@@ -5317,7 +5337,7 @@
             "design_tree_review"
           ],
           "prompt": [
-            "This round reviews only the change to the design tree: by the design tree review, one column each for card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints, each saying what your judgment rests on. The four points on code against decisions were reviewed in the table review and are not answered here. At a re-review, review only the nodes changed since the last review; last time's findings were answered in the table review and are not answered here. If you asked someone, carry on with this round's review when the reply comes."
+            "This round reviews only the change to the design tree: by the design tree review, one column each for design card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints, each saying what your judgment rests on. The four points on code against decisions were reviewed in the table review and are not answered here. At a re-review, review only the nodes changed since the last review; last time's findings were answered in the table review and are not answered here. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "out": [
             {
@@ -5409,7 +5429,7 @@
                   "by": "item"
                 },
                 {
-                  "db": "item_cards",
+                  "db": "item_design_cards",
                   "by": "item"
                 },
                 {
@@ -5705,7 +5725,7 @@
             "gates": [
               [
                 "clear",
-                "Every item depended on is merged; the design tree did not change, or the version of its change the owner confirmed and the architect looked at is word for word the one to merge (for decisions copied from a parent's card, the version gone through on the parent's card)"
+                "Every item depended on is merged; the design tree did not change, or the version of its change the owner confirmed and the architect looked at is word for word the one to merge (for decisions copied from a parent's design card, the version gone through on the parent's design card)"
               ],
               [
                 "waiting",
@@ -6053,7 +6073,7 @@
             {
               "$ref": "design_card",
               "optional": true,
-              "desc": "Only when this round changed the design tree (the design paths the project's configuration names): the whole card as it stands after the change, one section per decision, written for the owner in the owner's language; otherwise leave it out"
+              "desc": "Only when this round changed the design tree (the design paths the project's configuration names): the whole design card as it stands after the change, one section per decision, written for the owner in the owner's language; otherwise leave it out"
             }
           ],
           "cases": [
@@ -6978,7 +6998,7 @@
                 ],
                 [
                   "inp",
-                  "card",
+                  "design_card_disputed",
                   [
                     "no"
                   ]
@@ -7015,7 +7035,7 @@
                     ],
                     [
                       "inp",
-                      "card",
+                      "design_card_disputed",
                       [
                         "yes"
                       ]
@@ -7209,16 +7229,6 @@
                 "In the reply brought back, the architect gave all of this work to sub-items, and it keeps nothing"
               ]
             ],
-            "card": [
-              [
-                "yes",
-                "The reply or interjection brought back holds a disagreement with the design card (the owner's or the architect's)"
-              ],
-              [
-                "no",
-                "No disagreement with the design card"
-              ]
-            ],
             "came_by": [
               [
                 "reply",
@@ -7245,6 +7255,16 @@
               [
                 "no",
                 "No item to wait for now"
+              ]
+            ],
+            "design_card_disputed": [
+              [
+                "yes",
+                "The reply or interjection brought back holds a disagreement with the design card (the owner's or the architect's)"
+              ],
+              [
+                "no",
+                "No disagreement with the design card"
               ]
             ]
           }
@@ -7479,7 +7499,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it, and the engine rewrites the item's research from the new research. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, ask the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, and the architect takes it to the owner at the end. The owner_only group of the ask kinds may be asked of the owner only, with the card written. The code is read-only for you: change no file and commit nothing. Turn back points already answered when there is no new fact."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it, and the engine rewrites the item's research from the new research. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, ask the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, and the architect takes it to the owner at the end. The owner_only group of the ask kinds may be asked of the owner only, with the choice written. The code is read-only for you: change no file and commit nothing. Turn back points already answered when there is no new fact."
           ],
           "out": [
             {
@@ -7611,7 +7631,7 @@
               "what": "When the engine calls the architect to look at a design card: this work's design card, the design's description and the change to the design tree on the branch. Judge whether this design fits the whole, and say in the reply whether it passes and why; none unless called to look at a design card",
               "from": [
                 {
-                  "db": "item_cards",
+                  "db": "item_design_cards",
                   "by": "item"
                 },
                 {
@@ -7645,7 +7665,7 @@
           "step": "ask_owner",
           "inputs": [
             {
-              "what": "What is asked, from which cell (recorded by the engine): something only the owner can do (a permission, configuration, credentials), or a card (with options and a recommendation), or an agent's report that a field of what it must return does not fit the situation; none when the engine reports a flow anomaly",
+              "what": "What is asked, from which cell (recorded by the engine): something only the owner can do (a permission, configuration, credentials), or a choice (with options and a recommendation), or an agent's report that a field of what it must return does not fit the situation; none when the engine reports a flow anomaly",
               "from": [
                 [
                   "@caller",
@@ -7674,7 +7694,7 @@
                 {
                   "name": "text",
                   "type": "text",
-                  "desc": "The answer, or which option on the card was chosen"
+                  "desc": "The answer, or which option of the choice was chosen"
                 }
               ]
             }
@@ -7728,22 +7748,22 @@
       "designCard": [
         "A branch that changes, against main, the design paths the project's configuration names (design/ where there is a design tree) has a design card; one that does not has none. The engine knows from the change on the branch, not from what the agent says, and an agent has no other way to produce a design card.",
         "The design card is a gate before merging: the change to the design tree is merged only after the owner confirms it. It asks the owner nothing; anything to ask the owner goes through ask.",
-        "The card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One card per work, one section per decision. Its content is shown in the design section of the item's research; the card in the owner's interface shows only the decisions' names and links.",
-        "The card follows the design tree on the branch: written and committed on the branch during design, the card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new card, which the engine checks against the change on the branch.",
-        "Each new card (the first, from design, or a new one from a later round that changed the design tree) goes to the architect first: does this design fit the whole? This does not block the engineer, and nothing waits for the architect's conclusion. If the architect agrees, the card goes to the owner with the architect's comments; if not, this version does not go to the owner but is sent to the engineer as an interjection. When the owner and the architect disagree, the owner decides: the architect cannot change what the owner confirmed. Without a card, the architect has nothing to do.",
-        "The engine records by decision which version of each decision the owner and the architect each went through. When the card changes, only the changed decisions go through again: the architect first, then the owner, who is shown how the decision changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for 19.",
+        "The design card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One design card per work, one section per decision. Its content is shown in the design section of the item's research; the design card in the owner's interface shows only the decisions' names and links.",
+        "The design card follows the design tree on the branch: written and committed on the branch during design, the design card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new design card, which the engine checks against the change on the branch.",
+        "Each new design card (the first, from design, or a new one from a later round that changed the design tree) goes to the architect first: does this design fit the whole? This does not block the engineer, and nothing waits for the architect's conclusion. If the architect agrees, the design card goes to the owner with the architect's comments; if not, this version does not go to the owner but is sent to the engineer as an interjection. When the owner and the architect disagree, the owner decides: the architect cannot change what the owner confirmed. Without a design card, the architect has nothing to do.",
+        "The engine records by decision which version of each decision the owner and the architect each went through. When the design card changes, only the changed decisions go through again: the architect first, then the owner, who is shown how the decision changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for 19.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
         "A confirmation is only recorded, with a word to the engineer; the way on does not change. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
         "On a disagreement (another approach chosen, or why it does not work; to disagree with one decision, point at it), the engineer can only hand in redirect and go to 11 to choose the way on, and 11 may not carry on: to change the design, back to 2 to design again; if what the item needs has changed, back to 1; if unsure, ask the owner. 2 and 2a can read the ruling, still after a new or compacted session; if the owner chose another approach, 2a must choose it. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor. A disagreement from the architect is sent the same way.",
-        "When 11 chooses redesign or item_changed, the engine marks the cards this work has as replaced: the owner and the architect can no longer rule on them, and the new design gives a new card.",
-        "When sub-items were split off, the parent's card still covers the whole work, and each decision says who carries it; if the card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's card counts as gone through where the owner and the architect went through it on the parent's card, and need not go through again; decisions the sub-item adds go through as usual. At 19, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's card.",
-        "At 19, the engine compares the change to the design tree in the commit to be merged with the version both sides went through: it passes only if every decision is word for word the same. One not gone through, or changed since, waits at 19, and the engine tells the side that has not gone through it that this card is holding up the merge. What was gone through and has not changed since need not go through again."
+        "When 11 chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner and the architect can no longer rule on them, and the new design gives a new design card.",
+        "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner and the architect went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At 19, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
+        "At 19, the engine compares the change to the design tree in the commit to be merged with the version both sides went through: it passes only if every decision is word for word the same. One not gone through, or changed since, waits at 19, and the engine tells the side that has not gone through it that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
       ],
       "interject": {
         "name": "interjection",
         "desc": "What the owner or the architect says while a work runs, which the engine sends into an agent's session",
         "text": [
-          "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's confirmation or disagreement, and the architect's disagreement after looking at the card. When the owner and the architect say different things, the owner's word goes.",
+          "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's confirmation or disagreement, and the architect's disagreement after looking at the design card. When the owner and the architect say different things, the owner's word goes.",
           "Delivery: while an agent's round runs, the session manager gives it the interjections waiting each time it finishes using a tool; those not delivered by the end of the round go at the top of the next round's input. Interjections and the agents' answers are recorded on the work and visible in the owner's interface.",
           "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker, and the agent goes on in the same cell, like after a pause, with nothing drawn on the graph. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to 11; where to go is not thought about here but at 11, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
           "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (18 choosing what runs next, 19 judging whether it may enter the merge queue, including while 19 waits), it goes straight to 11 to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if 18 or 19 comes next, sent to 11 from there; if 20, the end, comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",

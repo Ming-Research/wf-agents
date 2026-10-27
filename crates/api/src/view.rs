@@ -350,11 +350,11 @@ impl<'a> Ways<'a> {
     }
 
     /// The address the engine gives what a source of an input of `c` holds under, and the cells a place it reads can
-    /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives (`conditional_of` in the
-    /// engine's message builder): a value a round produced is addressed by the round, the cell and the path; what
-    /// the engine reads or computes for a round by the round and its name; the item, its cards and the
-    /// interjections by their ids; and the locked acceptance and the researched problem by the round that wrote
-    /// them.
+    /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives
+    /// (`conditional_of` in the engine's message builder): a value a round produced is addressed by the round, the
+    /// cell and the path; what the engine reads or computes for a round by the round and its name; the item, its
+    /// design cards, its asks of the owner and the interjections by their ids; and the locked acceptance and the
+    /// researched problem by the round that wrote them.
     fn source(&self, c: &CompiledCell, s: &Src, trees: &BTreeMap<&str, Returns>) -> (Option<String>, Vec<String>) {
         let at = |address: String| (Some(address), Vec::new());
         match s {
@@ -363,7 +363,8 @@ impl<'a> Ways<'a> {
             Src::Engine(n) | Src::Recorded(n) => at(format!("R‹round›·engine·{n}")),
             Src::Db { relation, .. } => match relation.as_str() {
                 "item_body" => at("item:‹id›".into()),
-                "item_cards" | "parent_design_cards" => at("card:‹id›".into()),
+                "item_design_cards" | "parent_design_cards" => at("design_card:‹id›".into()),
+                "item_asks" => at("ask:‹id›".into()),
                 "waiting_interjections" => at("ij:‹id›".into()),
                 "item_acceptance" => at("R‹round›·‹cell›·acceptance".into()),
                 "item_problem" => at("R‹round›·1·understanding.problem".into()),

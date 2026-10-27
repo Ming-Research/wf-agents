@@ -29,6 +29,7 @@ describe('the addresses', () => {
       { page: 'work', id: 3, round: null, cell: '2a' },
       { page: 'items' },
       { page: 'item', id: 5 },
+      { page: 'messages' },
       { ...flow, version: 1, cell: '13' },
       flow,
       { ...flow, version: 2, from: 1 },
@@ -79,6 +80,8 @@ describe('events', () => {
     expect(named({ kind: 'round', work: 2, round: 9 })).toEqual(['works', 'work:2', 'round:9', 'items', 'item:*']);
     expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works']);
     expect(named({ kind: 'ready' })).toEqual([]);
+    expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*']);
+    expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2']);
   });
 });
 

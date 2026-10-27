@@ -12,6 +12,7 @@ mod bus;
 mod control;
 mod diff;
 mod events;
+mod marks;
 mod read;
 mod source;
 mod types;
@@ -22,7 +23,10 @@ pub use bus::{Bus, Envelope};
 pub use control::{Asked, Control, Next};
 pub use diff::diff;
 pub use events::events;
-pub use read::{Error, Flows, compiled_flow, file, flow_view, flows, item, items, round, version_of, work, works};
+pub use marks::mark_read;
+pub use read::{
+    Error, Flows, compiled_flow, file, flow_view, flows, item, items, messages, round, version_of, work, works,
+};
 pub use source::{Sources, refs};
 pub use types::*;
 pub use typescript::typescript;

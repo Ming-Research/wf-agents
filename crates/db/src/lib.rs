@@ -25,6 +25,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0002.sql"),
     include_str!("../../../db/migrations/0003.sql"),
     include_str!("../../../db/migrations/0004.sql"),
+    include_str!("../../../db/migrations/0005.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -804,6 +805,16 @@ mod tests {
                 "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')",
                 [],
             )?;
+            // A design card, and an ask a failed run raised, whose work it paused.
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'design', '[]', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{\"failed\":{}}', 'open')",
+                [],
+            )?;
+            tx.execute("UPDATE works SET paused = 'asked the owner in card 3' WHERE id = 1", [])?;
             tx.execute(
                 "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
                 [],
@@ -823,6 +834,16 @@ mod tests {
             .query_row("SELECT input FROM rounds WHERE id = 1", [], |r| r.get(0))
             .unwrap();
         assert_eq!(input, "{\"prompt\":\"p\"}");
+        // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
+        // its work goes on.
+        let ids = |q: &str| -> Vec<i64> {
+            let mut st = old.conn().prepare(q).unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert_eq!(ids("SELECT id FROM design_cards"), [2]);
+        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NULL"), [1]);
+        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NOT NULL"), [3]);
+        assert_eq!(ids("SELECT id FROM works WHERE paused IS NOT NULL"), Vec::<i64>::new());
         let broken: i64 = old
             .conn()
             .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))

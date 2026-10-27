@@ -176,6 +176,52 @@ fn the_flow_page_reads_a_version_explained_and_compared() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+// The page reads what agents told the owner, and the owner marks it read: one message, then the rest.
+#[test]
+fn the_owner_reads_messages_and_marks_them_read() {
+    let s = serve("messages");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", [])?;
+        tx.execute(
+            "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '5a', '{}', 'c', 1)",
+            [],
+        )?;
+        tx.execute("INSERT INTO owner_messages (round, text) VALUES (1, 'first'), (1, 'second')", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, unread) = get(s.port, "/api/v1/messages", &here, "");
+    assert_eq!(status, 200, "{unread}");
+    assert!(
+        unread.contains(r#""text":"first""#) && unread.contains(r#""cell":"5a""#),
+        "{unread}"
+    );
+    let (status, marked) = post(s.port, "/api/v1/messages/read", r#"{"ids":[1]}"#, "application/json");
+    assert_eq!(status, 200, "{marked}");
+    assert!(marked.ends_with(r#"{"marked":1}"#), "{marked}");
+    let (_, unread) = get(s.port, "/api/v1/messages", &here, "");
+    assert!(
+        !unread.contains(r#""text":"first""#) && unread.contains(r#""text":"second""#),
+        "{unread}"
+    );
+    let (_, marked) = post(s.port, "/api/v1/messages/read", r#"{"all":true}"#, "application/json");
+    assert!(marked.ends_with(r#"{"marked":1}"#), "{marked}");
+    let (_, every) = get(s.port, "/api/v1/messages?all=true", &here, "");
+    assert!(
+        every.contains(r#""text":"first""#) && every.contains(r#""text":"second""#),
+        "{every}"
+    );
+    assert!(!every.contains(r#""read_at":null"#), "{every}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 /// Reads the stream until `want` appears in it.
 fn read_until(s: &mut TcpStream, seen: &mut String, want: &str) {
     let started = Instant::now();

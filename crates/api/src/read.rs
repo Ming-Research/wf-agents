@@ -15,9 +15,9 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Card, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
-    LinkedItem, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RunningRound, Session, Shown,
-    ToolRun, WorkDetail, WorkState, WorkSummary,
+    DesignCard, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
+    LinkedItem, OwnerAsk, OwnerMessage, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary,
+    RunningRound, Session, Shown, ToolRun, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,7 +257,7 @@ fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState 
     if waits { WorkState::Waiting } else { WorkState::Ready }
 }
 
-fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open_cards: i64) -> WorkSummary {
+fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open: (i64, i64)) -> WorkSummary {
     let cell = g.and_then(|g| g.cell(&w.at));
     // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at.
     let stage = cell.and_then(|c| c.stage.clone()).or_else(|| {
@@ -295,25 +295,37 @@ fn summary(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>, open_cards:
                 started_at: r.started_at,
             }),
         cost_usd: rounds.iter().filter_map(|r| r.cost).sum(),
-        open_cards,
+        open_asks: open.0,
+        open_design_cards: open.1,
     }
 }
 
 /// The works a filter selects, as summaries, with their rows.
 fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, WorkSummary)>> {
-    let mut st = conn.prepare(
-        "SELECT r.work, count(*) FROM cards c JOIN rounds r ON r.id = c.round WHERE c.status = 'open' GROUP BY r.work",
+    let count = |q: &str| -> Result<HashMap<i64, i64>> {
+        let mut st = conn.prepare(q)?;
+        Ok(st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    };
+    let asks = count(
+        "SELECT r.work, count(*) FROM owner_asks a JOIN rounds r ON r.id = a.round WHERE a.answer IS NULL GROUP BY r.work",
     )?;
-    let open: HashMap<i64, i64> = st
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
+    let design_cards = count(
+        "SELECT r.work, count(*) FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.status = 'open'
+         GROUP BY r.work",
+    )?;
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
     for (w, rounds) in work_rows(conn, filter, args)? {
         let g = graphs
             .entry((w.flow_version, w.graph.clone()))
             .or_insert_with(|| flows.graph(conn, w.flow_version, &w.graph));
-        let s = summary(&w, &rounds, g.as_ref(), open.get(&w.id).copied().unwrap_or(0));
+        let open = (
+            asks.get(&w.id).copied().unwrap_or(0),
+            design_cards.get(&w.id).copied().unwrap_or(0),
+        );
+        let s = summary(&w, &rounds, g.as_ref(), open);
         out.push((w, s));
     }
     Ok(out)
@@ -351,25 +363,70 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     })
 }
 
-const CARD: &str = "SELECT c.id, c.round, r.work, w.item, c.kind, c.status, c.body, c.rulings, c.replaced_by
-FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work";
+const DESIGN_CARD: &str = "SELECT c.id, c.round, r.work, w.item, c.status, c.body, c.rulings, c.replaced_by
+FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work";
 
-fn cards(conn: &Connection, filter: &str, id: i64) -> Result<Vec<Card>> {
-    let mut st = conn.prepare(&format!("{CARD} {filter} ORDER BY c.id"))?;
+fn design_cards(conn: &Connection, filter: &str, id: i64) -> Result<Vec<DesignCard>> {
+    let mut st = conn.prepare(&format!("{DESIGN_CARD} {filter} ORDER BY c.id"))?;
     let rows = st.query_map([id], |r| {
-        Ok(Card {
+        Ok(DesignCard {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
-            kind: r.get(4)?,
-            status: r.get(5)?,
-            body: json(r.get(6)?).unwrap_or(Value::Null),
-            rulings: json(r.get(7)?).unwrap_or(Value::Null),
-            replaced_by: r.get(8)?,
+            status: r.get(4)?,
+            body: json(r.get(5)?).unwrap_or(Value::Null),
+            rulings: json(r.get(6)?).unwrap_or(Value::Null),
+            replaced_by: r.get(7)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+const ASK: &str = "SELECT a.id, a.round, r.work, w.item, a.body, a.answer
+FROM owner_asks a JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work";
+
+fn asks(conn: &Connection, filter: &str, id: i64) -> Result<Vec<OwnerAsk>> {
+    let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
+    let rows = st.query_map([id], |r| {
+        Ok(OwnerAsk {
+            id: r.get(0)?,
+            round: r.get(1)?,
+            work: r.get(2)?,
+            item: r.get(3)?,
+            body: json(r.get(4)?).unwrap_or(Value::Null),
+            answer: json(r.get(5)?),
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, r.work, w.item, i.title, m.text, m.read_at
+FROM owner_messages m JOIN rounds r ON r.id = m.round JOIN works w ON w.id = r.work
+LEFT JOIN sessions s ON s.id = r.session LEFT JOIN items i ON i.id = w.item";
+
+fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
+    let mut st = conn.prepare(&format!("{MESSAGE} {filter} ORDER BY m.id"))?;
+    let rows = st.query_map(params_from_iter(args), |r| {
+        Ok(OwnerMessage {
+            id: r.get(0)?,
+            round: r.get(1)?,
+            cell: r.get(2)?,
+            line: r.get(3)?,
+            at: r.get(4)?,
+            work: r.get(5)?,
+            item: r.get(6)?,
+            title: r.get(7)?,
+            text: r.get(8)?,
+            read_at: r.get(9)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// What agents told the owner, oldest first: those unread, or every one.
+pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
+    messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])
 }
 
 fn interjections(conn: &Connection, filter: &str, id: i64) -> Result<Vec<Interjection>> {
@@ -406,7 +463,9 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         waiting: json(w.waiting).unwrap_or(Value::Null),
         recorded: json(w.recorded).unwrap_or(Value::Null),
         rounds,
-        cards: cards(conn, "WHERE r.work = ?1", id)?,
+        design_cards: design_cards(conn, "WHERE r.work = ?1", id)?,
+        asks: asks(conn, "WHERE r.work = ?1", id)?,
+        messages: messages_where(conn, "WHERE r.work = ?1", &[id])?,
         interjections: interjections(conn, "WHERE work = ?1", id)?,
     })
 }
@@ -586,7 +645,8 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, id: i64) -> Result<R
         rejected,
         usage,
         tool_runs: tool_runs(conn, data, id)?,
-        cards: cards(conn, "WHERE c.round = ?1", id)?,
+        design_cards: design_cards(conn, "WHERE c.round = ?1", id)?,
+        asks: asks(conn, "WHERE a.round = ?1", id)?,
         interjections: interjections(conn, "WHERE delivered_round = ?1", id)?,
         round: summary,
     })
@@ -739,7 +799,8 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
             .filter_map(|l| linked(l.item, &l.needs))
             .collect(),
         works: works.into_iter().filter(|w| w.item == Some(id)).collect(),
-        cards: cards(conn, "WHERE w.item = ?1", id)?,
+        design_cards: design_cards(conn, "WHERE w.item = ?1", id)?,
+        asks: asks(conn, "WHERE w.item = ?1", id)?,
         shown: shown(conn, flows, id)?,
         item: summary,
     })

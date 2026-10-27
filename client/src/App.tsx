@@ -7,6 +7,7 @@ import { connect } from './live';
 import { Flow } from './pages/Flow';
 import { Item } from './pages/Item';
 import { Items } from './pages/Items';
+import { Messages } from './pages/Messages';
 import { Work } from './pages/Work';
 import { Works } from './pages/Works';
 import { Link, useRoute } from './route';
@@ -26,6 +27,7 @@ export function App() {
           {route.page === 'work' ? <Work id={route.id} round={route.round} cell={route.cell} /> : null}
           {route.page === 'items' ? <Items /> : null}
           {route.page === 'item' ? <Item id={route.id} /> : null}
+          {route.page === 'messages' ? <Messages /> : null}
           {route.page === 'flow' ? <Flow route={route} /> : null}
           {route.page === 'missing' ? (
             <div className="page">

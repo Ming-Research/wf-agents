@@ -1,5 +1,6 @@
-//! The owner's commands: creating items and ordering the queue, answering cards, interjecting, pausing, and the views
-//! of where everything stands. Every write is made as the owner, so `changes` records it as theirs.
+//! The owner's commands: creating items and ordering the queue, answering asks of the owner and ruling on design
+//! cards, interjecting, pausing, and the views of where everything stands. Every write is made as the owner, so
+//! `changes` records it as theirs.
 
 use std::path::Path;
 
@@ -136,75 +137,105 @@ pub fn queue(data: &Path, item: i64, place: Place) -> Result<(), String> {
         .map_err(sql)
 }
 
-/// How the owner answers a card.
+/// How the owner answers an ask of the owner.
 pub struct Answer {
-    pub card: i64,
+    pub ask: i64,
     pub text: String,
+    /// For what the architect is asked: why it was decided this way.
     pub why: Option<String>,
-    /// For a design card: confirm or disagree.
-    pub verdict: Option<String>,
-    /// For a design card: the approach chosen instead of the one recommended.
-    pub option: Option<String>,
-    /// For a question the architect is asked: the rest of the architect's reply, as JSON (children, rest, waits).
+    /// For what the architect is asked: the rest of the architect's reply, as JSON (children, rest, waits).
     pub reply: Option<Value>,
 }
 
 pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
     let mut db = open(data)?;
-    let card: Option<(String, String, String, i64, i64)> = db
+    let asked: Option<(String, Option<String>)> = db
+        .conn()
+        .query_row("SELECT body, answer FROM owner_asks WHERE id = ?1", [a.ask], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+        .map_err(sql)?;
+    let Some((body, answered)) = asked else {
+        return Err(format!("no ask {}", a.ask));
+    };
+    if answered.is_some() {
+        return Err(format!("ask {} is answered already", a.ask));
+    }
+    let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
+    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    if body["to"] == "architect" {
+        let mut reply = a.reply.clone().unwrap_or_else(|| json!({}));
+        reply["text"] = json!(a.text);
+        reply["why"] = json!(
+            a.why
+                .clone()
+                .unwrap_or_else(|| "The owner answered for the architect.".into())
+        );
+        answer["reply"] = reply;
+    }
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
+            params![a.ask, answer.to_string()],
+        )?;
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(format!("ask {} answered", a.ask))
+}
+
+/// How the owner rules on a design card.
+pub struct Ruling {
+    pub design_card: i64,
+    /// Confirm or disagree.
+    pub verdict: String,
+    pub text: String,
+    /// The approach chosen instead of the one recommended.
+    pub option: Option<String>,
+}
+
+pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
+    let mut db = open(data)?;
+    let found: Option<(String, i64)> = db
         .conn()
         .query_row(
-            "SELECT c.kind, c.status, c.body, r.work, r.id FROM cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
-            [a.card],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            "SELECT c.status, r.work FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
+            [r.design_card],
+            |x| Ok((x.get(0)?, x.get(1)?)),
         )
         .optional()
         .map_err(sql)?;
-    let Some((kind, status, body, work, _round)) = card else {
-        return Err(format!("no card {}", a.card));
+    let Some((status, work)) = found else {
+        return Err(format!("no design card {}", r.design_card));
     };
-    if status != "open" && !(kind == "design" && status == "ruled") {
-        return Err(format!("card {} is {status}: it can no longer be ruled", a.card));
+    if status == "replaced" {
+        return Err(format!(
+            "design card {} is replaced: it can no longer be ruled",
+            r.design_card
+        ));
     }
-    let mut ruling = json!({ "by": "owner", "at": db::now(), "text": a.text });
-    if kind == "design" {
-        let verdict = a
-            .verdict
-            .clone()
-            .ok_or("a design card is ruled with --verdict confirm or disagree")?;
-        if !matches!(verdict.as_str(), "confirm" | "disagree") {
-            return Err("the verdict on a design card is confirm or disagree".into());
-        }
-        ruling["verdict"] = json!(verdict);
-        if let Some(o) = &a.option {
-            ruling["option"] = json!(o);
-        }
-    } else {
-        ruling["verdict"] = json!("answer");
-        let to: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-        if to["to"] == "architect" {
-            let mut reply = a.reply.clone().unwrap_or_else(|| json!({}));
-            reply["text"] = json!(a.text);
-            reply["why"] = json!(
-                a.why
-                    .clone()
-                    .unwrap_or_else(|| "The owner answered for the architect.".into())
-            );
-            ruling["reply"] = reply;
-        }
+    if !matches!(r.verdict.as_str(), "confirm" | "disagree") {
+        return Err("the verdict on a design card is confirm or disagree".into());
     }
-    let disagree = ruling["verdict"] == "disagree";
+    let mut ruling = json!({ "by": "owner", "at": db::now(), "text": r.text, "verdict": r.verdict });
+    if let Some(o) = &r.option {
+        ruling["option"] = json!(o);
+    }
+    let disagree = r.verdict == "disagree";
     db.write(Actor::Owner, |tx| {
-        let rulings: String = tx.query_row("SELECT rulings FROM cards WHERE id = ?1", [a.card], |r| r.get(0))?;
+        let rulings: String = tx.query_row("SELECT rulings FROM design_cards WHERE id = ?1", [r.design_card], |x| {
+            x.get(0)
+        })?;
         let mut list: Vec<Value> = serde_json::from_str(&rulings).unwrap_or_default();
         list.push(ruling.clone());
         tx.execute(
-            "UPDATE cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
-            params![a.card, Value::Array(list).to_string()],
+            "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
+            params![r.design_card, Value::Array(list).to_string()],
         )?;
         // A disagreement with the design card reaches the engineer as an interjection; a confirmation needs none.
         if disagree {
-            let text = format!("{} {}: disagree. {}", engine::CARD_RULING, a.card, a.text);
+            let text = format!("{} {}: disagree. {}", engine::DESIGN_CARD_RULING, r.design_card, r.text);
             tx.execute(
                 "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
                 params![work, text],
@@ -213,7 +244,7 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         Ok(())
     })
     .map_err(sql)?;
-    Ok(format!("card {} ruled", a.card))
+    Ok(format!("design card {} ruled", r.design_card))
 }
 
 pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {
@@ -296,8 +327,10 @@ pub fn status(data: &Path) -> Result<String, String> {
     show(
         data,
         "SELECT w.id AS work, w.item, i.title, w.at, w.pr, w.paused, w.ended,
-                (SELECT group_concat(c.id) FROM cards c JOIN rounds r ON r.id = c.round
-                 WHERE r.work = w.id AND c.status = 'open') AS open_cards,
+                (SELECT group_concat(a.id) FROM owner_asks a JOIN rounds r ON r.id = a.round
+                 WHERE r.work = w.id AND a.answer IS NULL) AS open_asks,
+                (SELECT group_concat(c.id) FROM design_cards c JOIN rounds r ON r.id = c.round
+                 WHERE r.work = w.id AND c.status = 'open') AS open_design_cards,
                 (SELECT count(*) FROM interjections x WHERE x.work = w.id AND x.delivered_round IS NULL) AS waiting_says,
                 (SELECT r.cell || ' ' || coalesce(r.transition, CASE WHEN r.rejected IS NOT NULL THEN 'sent back' ELSE 'running' END)
                  FROM rounds r WHERE r.work = w.id ORDER BY r.id DESC LIMIT 1) AS last
@@ -307,29 +340,47 @@ pub fn status(data: &Path) -> Result<String, String> {
     )
 }
 
-pub fn cards(data: &Path, all: bool) -> Result<String, String> {
+pub fn asks(data: &Path, all: bool) -> Result<String, String> {
     let q = format!(
-        "SELECT c.id AS card, c.kind, c.status, r.work, w.item, r.cell, c.body FROM cards c
-         JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work {} ORDER BY c.id",
-        if all {
-            ""
-        } else {
-            "WHERE c.status = 'open' OR (c.kind = 'design' AND c.status = 'ruled')"
-        }
+        "SELECT a.id AS ask, r.work, w.item, r.cell, a.body, a.answer FROM owner_asks a
+         JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work {} ORDER BY a.id",
+        if all { "" } else { "WHERE a.answer IS NULL" }
     );
     show(data, &q, &[], 80)
 }
 
-pub fn card(data: &Path, id: i64) -> Result<String, String> {
+pub fn ask(data: &Path, id: i64) -> Result<String, String> {
     let db = open(data)?;
     let rows = query_json(
         db.conn(),
-        "SELECT c.id AS card, c.kind, c.status, r.work, r.cell, c.body, c.rulings, c.replaced_by FROM cards c
+        "SELECT a.id AS ask, r.work, r.cell, a.body, a.answer FROM owner_asks a
+         JOIN rounds r ON r.id = a.round WHERE a.id = ?1",
+        &[&id],
+        1,
+    )?;
+    let row = rows.first().ok_or_else(|| format!("no ask {id}"))?;
+    serde_json::to_string_pretty(row).map_err(sql)
+}
+
+pub fn design_cards(data: &Path, all: bool) -> Result<String, String> {
+    let q = format!(
+        "SELECT c.id AS design_card, c.status, r.work, w.item, r.cell, c.body FROM design_cards c
+         JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work {} ORDER BY c.id",
+        if all { "" } else { "WHERE c.status <> 'replaced'" }
+    );
+    show(data, &q, &[], 80)
+}
+
+pub fn design_card(data: &Path, id: i64) -> Result<String, String> {
+    let db = open(data)?;
+    let rows = query_json(
+        db.conn(),
+        "SELECT c.id AS design_card, c.status, r.work, r.cell, c.body, c.rulings, c.replaced_by FROM design_cards c
          JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
         &[&id],
         1,
     )?;
-    let row = rows.first().ok_or_else(|| format!("no card {id}"))?;
+    let row = rows.first().ok_or_else(|| format!("no design card {id}"))?;
     serde_json::to_string_pretty(row).map_err(sql)
 }
 

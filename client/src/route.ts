@@ -7,6 +7,7 @@ export type Route =
   | { page: 'work'; id: number; round: number | null; cell: string | null }
   | { page: 'items' }
   | { page: 'item'; id: number }
+  | { page: 'messages' }
   | {
       page: 'flow';
       /// The stored version shown; with none, the one new works start on.
@@ -35,6 +36,7 @@ export function parse(pathname: string, search: string): Route {
     if (id !== null) return { page: 'work', id, round: num(q.get('round')), cell: q.get('cell') };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
+  if (first === 'messages' && parts.length === 1) return { page: 'messages' };
   if (first === 'items' && parts.length === 2) {
     const id = num(second);
     if (id !== null) return { page: 'item', id };
@@ -71,6 +73,8 @@ export function href(r: Route): string {
       return '/items';
     case 'item':
       return `/items/${r.id}`;
+    case 'messages':
+      return '/messages';
     case 'flow':
       return `/flow${r.version === null ? '' : `/${r.version}`}${query([
         ['project', r.project],

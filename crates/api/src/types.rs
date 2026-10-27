@@ -1,5 +1,5 @@
 //! What the interface hands out. Times are UTC milliseconds since the Unix epoch, as in the database; JSON the
-//! database keeps whole (a round's input and return, a card's body) is handed out as it is kept.
+//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept.
 
 use flow::format::Src;
 use serde::{Deserialize, Serialize};
@@ -59,9 +59,10 @@ pub struct Status {
 /// Why the engine starts no new round for any work, and until when.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Halt {
-    /// The kind of failed run, as the flow names it: `usage_limit` or `offline`.
+    /// The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
     pub kind: String,
-    /// Until when: when the usage limit resets, or when the engine next looks whether the network is back.
+    /// Until when: when the usage limit resets, or when the engine next lets a round find out whether the cause has
+    /// passed.
     pub until: i64,
     /// What the command line reported.
     pub why: String,
@@ -84,8 +85,12 @@ pub enum Event {
     Work { work: i64 },
     /// A round started or ended, or ran a tool.
     Round { work: i64, round: i64 },
-    /// A card was opened, ruled or replaced.
-    Card { card: i64, work: Option<i64> },
+    /// A design card was handed in, ruled or replaced.
+    DesignCard { design_card: i64, work: Option<i64> },
+    /// An ask of the owner was put or answered.
+    Ask { ask: i64, work: Option<i64> },
+    /// An agent told the owner something, or the owner marked it read.
+    OwnerMessage { message: i64, work: Option<i64> },
     /// An item, its dependencies or its place in the queue changed; no item when which one is no longer known.
     Item { item: Option<i64> },
     /// A flow version was stored.
@@ -100,7 +105,7 @@ pub enum WorkState {
     Running,
     /// Its next step is due; the engine takes it on its next pass.
     Ready,
-    /// It asked the owner or the architect, and waits for the card to be answered.
+    /// It asked the owner or the architect, and waits for the ask to be answered.
     Asking,
     /// It took a row that waits: for other works, or for its turn.
     Waiting,
@@ -151,8 +156,10 @@ pub struct WorkSummary {
     pub running: Option<RunningRound>,
     /// What its rounds cost, as the command lines reported it, in US dollars.
     pub cost_usd: f64,
-    /// Its cards still waiting for a ruling.
-    pub open_cards: i64,
+    /// Its asks of the owner still waiting for an answer.
+    pub open_asks: i64,
+    /// Its design cards still waiting for a ruling.
+    pub open_design_cards: i64,
 }
 
 /// How a round ended.
@@ -196,20 +203,63 @@ pub struct RoundSummary {
     pub progress: Option<String>,
 }
 
-/// A card, as the round that handed it in wrote it, with its rulings.
+/// A design card, as the round that handed it in wrote it, with its rulings.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Card {
+pub struct DesignCard {
     pub id: i64,
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
-    /// design or ask.
-    pub kind: String,
     /// open, ruled or replaced.
     pub status: String,
     pub body: Value,
     pub rulings: Value,
     pub replaced_by: Option<i64>,
+}
+
+/// An ask of the owner: what is asked, and the owner's answer.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct OwnerAsk {
+    pub id: i64,
+    /// The round that put it to the owner.
+    pub round: i64,
+    pub work: i64,
+    pub item: Option<i64>,
+    pub body: Value,
+    /// None while it waits.
+    pub answer: Option<Value>,
+}
+
+/// What an agent told the owner in a return, needing no answer.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct OwnerMessage {
+    pub id: i64,
+    /// The round whose return holds it, its cell and line, and when it ended.
+    pub round: i64,
+    pub cell: Option<String>,
+    pub line: Option<String>,
+    pub at: Option<i64>,
+    pub work: i64,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    pub text: String,
+    /// When the owner marked it read; none while it is unread.
+    pub read_at: Option<i64>,
+}
+
+/// Which messages to the owner the owner marks read: those named, or every one unread.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct MarkRead {
+    #[serde(default)]
+    pub ids: Vec<i64>,
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// How many messages a mark made read.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Marked {
+    pub marked: i64,
 }
 
 /// What the owner or the architect said to a work.
@@ -237,7 +287,10 @@ pub struct WorkDetail {
     /// The values its rows recorded.
     pub recorded: Value,
     pub rounds: Vec<RoundSummary>,
-    pub cards: Vec<Card>,
+    pub design_cards: Vec<DesignCard>,
+    pub asks: Vec<OwnerAsk>,
+    /// What its agents told the owner, oldest first.
+    pub messages: Vec<OwnerMessage>,
     pub interjections: Vec<Interjection>,
 }
 
@@ -326,7 +379,8 @@ pub struct RoundDetail {
     /// Tokens and cost as the command line reported them.
     pub usage: Option<Value>,
     pub tool_runs: Vec<ToolRun>,
-    pub cards: Vec<Card>,
+    pub design_cards: Vec<DesignCard>,
+    pub asks: Vec<OwnerAsk>,
     /// What was said to the work and handed in with this round.
     pub interjections: Vec<Interjection>,
 }
@@ -399,7 +453,8 @@ pub struct LinkedItem {
     pub needs: String,
 }
 
-/// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works and cards.
+/// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+/// and asks of the owner.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ItemDetail {
     pub item: ItemSummary,
@@ -413,7 +468,8 @@ pub struct ItemDetail {
     pub depends_on: Vec<LinkedItem>,
     pub depended_on_by: Vec<LinkedItem>,
     pub works: Vec<WorkSummary>,
-    pub cards: Vec<Card>,
+    pub design_cards: Vec<DesignCard>,
+    pub asks: Vec<OwnerAsk>,
     /// What the rounds of its works handed back that their flow versions show on the item, oldest first.
     pub shown: Vec<Shown>,
 }

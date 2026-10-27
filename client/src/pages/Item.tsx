@@ -1,4 +1,5 @@
-// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works and cards.
+// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+// and asks of the owner.
 
 import type { ItemDetail, JsonValue, LinkedItem } from '../api';
 import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
@@ -161,14 +162,14 @@ function Detail({ d }: { d: ItemDetail }) {
         <p className="muted">{t('item_shown_note')}</p>
         <Shown d={d} />
       </Section>
-      {d.cards.length > 0 ? (
-        <Section title={t('cards')}>
-          {d.cards.map((c) => (
-            <div key={c.id} className="card-box">
+      {d.design_cards.length > 0 ? (
+        <Section title={t('design_cards')}>
+          {d.design_cards.map((c) => (
+            <div key={c.id} className="boxed">
               <Facts
                 rows={[
                   ['#', c.id],
-                  [t('col_state'), `${c.kind} · ${c.status}`],
+                  [t('col_state'), c.status],
                   [
                     t('round_title', { id: c.round }),
                     <Link key="r" to={`/works/${c.work}?round=${c.round}`}>
@@ -179,6 +180,28 @@ function Detail({ d }: { d: ItemDetail }) {
               />
               <Json value={c.body} />
               <Json value={c.rulings} />
+            </div>
+          ))}
+        </Section>
+      ) : null}
+      {d.asks.length > 0 ? (
+        <Section title={t('asks')}>
+          {d.asks.map((a) => (
+            <div key={a.id} className="boxed">
+              <Facts
+                rows={[
+                  ['#', a.id],
+                  [t('col_state'), a.answer === null ? t('ask_waits') : t('ask_answered')],
+                  [
+                    t('round_title', { id: a.round }),
+                    <Link key="r" to={`/works/${a.work}?round=${a.round}`}>
+                      {t('work_title', { id: a.work })}
+                    </Link>,
+                  ],
+                ]}
+              />
+              <Json value={a.body} />
+              {a.answer !== null ? <Json value={a.answer} /> : null}
             </div>
           ))}
         </Section>

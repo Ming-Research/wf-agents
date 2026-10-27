@@ -83,31 +83,58 @@ CREATE TABLE dispatch_queue (
   position REAL NOT NULL UNIQUE
 ) STRICT;
 
-CREATE TABLE cards (
-  -- What the owner is asked to look at: design cards to confirm before a merge, and questions an agent puts to the
-  -- owner. A card is handed in by one round and belongs to that round; its work and item are found through it. A
-  -- ruled card never changes; a decision that has to change becomes a new card that replaces the old one.
-  -- Read by: cell 1 (cards ruled on this item and on the items that depend on it), 2 and 2a (rulings that disagreed or
-  -- chose another option), 2a (the latest design card of the items that depend on this one), 15 (the design card to
-  -- look at), 16 (the question), 19 (whether the design card has been confirmed).
+CREATE TABLE design_cards (
+  -- A change to the design tree for the owner to confirm before it is merged: each decision the change adds, changes
+  -- or removes. It asks the owner nothing; what the owner is asked is an ask of the owner. A design card is handed in
+  -- by one round and belongs to that round; its work and item are found through it. A ruled design card never
+  -- changes; a decision that has to change comes in a new design card that replaces the old one.
+  -- Read by: cell 1 (design cards ruled on this item), 2 and 2a (rulings that disagreed or chose another option), 2a
+  -- (the latest design card of the items that depend on this one), 15 (the design card to look at), 19 (whether the
+  -- design card has been confirmed).
   id INTEGER PRIMARY KEY,
-  -- The round that handed the card in.
+  -- The round that handed the design card in.
   round INTEGER NOT NULL REFERENCES rounds(id),
-  -- design: a change to the design tree, to confirm before the merge. ask: a question for the owner.
-  kind TEXT NOT NULL CHECK (kind IN ('design', 'ask')),
-  -- The card as the round handed it in, JSON, in the flow's design card or card shape. Copied from that round's
+  -- The design card as the round handed it in, JSON, in the flow's design card shape. Copied from that round's
   -- output, which never changes, so the copy cannot drift.
   body TEXT NOT NULL CHECK (json_valid(body)),
-  -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer card took its place and it
-  -- can no longer be ruled. Read by: the engine; cell 19.
+  -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer design card took its place
+  -- and it can no longer be ruled. Read by: the engine; cell 19.
   status TEXT NOT NULL CHECK (status IN ('open', 'ruled', 'replaced')),
   -- The rulings in the order given, JSON list: who ruled (owner or architect), the verdict, the option chosen and
   -- their own words. Read by: cells 1, 2, 2a and 19.
   rulings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rulings)),
-  -- The card that replaced this one. Read by: people following a decision to its latest card.
-  replaced_by INTEGER REFERENCES cards(id),
-  -- A replaced card names its successor, unless its work ended without one.
+  -- The design card that replaced this one. Read by: people following a decision to its latest design card.
+  replaced_by INTEGER REFERENCES design_cards(id),
+  -- A replaced design card names its successor, unless its work ended without one.
   CHECK (replaced_by IS NULL OR status = 'replaced')
+) STRICT;
+
+CREATE TABLE owner_asks (
+  -- An ask of the owner: what an agent asks the owner, or asks the architect while the owner answers for the
+  -- architect. The work waits for the answer, which goes back unchanged to the cell that asked. It belongs to the
+  -- round of the asking cell that put it to the owner; its work and item are found through it.
+  -- Read by: cell 1 (the asks of the owner on this item, with their answers); the engine, which waits for the answer.
+  id INTEGER PRIMARY KEY,
+  -- The round that put it to the owner.
+  round INTEGER NOT NULL REFERENCES rounds(id),
+  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
+  -- round was given, which never changes.
+  body TEXT NOT NULL CHECK (json_valid(body)),
+  -- The owner's answer, JSON: who answered and when, and the text; for an ask of the architect, the rest of the
+  -- architect's reply too. NULL while it waits. Read by: the engine; cell 1.
+  answer TEXT CHECK (answer IS NULL OR json_valid(answer))
+) STRICT;
+
+CREATE TABLE owner_messages (
+  -- What an agent tells the owner in a return, one row for each message: something the owner should know that needs
+  -- no decision and no answer. The work goes on. It belongs to the round whose return holds it; its work and item are
+  -- found through it. Read by: the owner's interface, which shows those unread.
+  id INTEGER PRIMARY KEY,
+  round INTEGER NOT NULL REFERENCES rounds(id),
+  -- The message, copied from that round's return, which never changes.
+  text TEXT NOT NULL,
+  -- When the owner marked it read; NULL while it is unread. Read by: the owner's interface.
+  read_at INTEGER
 ) STRICT;
 
 CREATE TABLE flow_versions (
@@ -327,8 +354,12 @@ CREATE INDEX works_by_item ON works (item);
 CREATE INDEX rounds_by_work ON rounds (work, id);
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (round);
--- The cards a round handed in.
-CREATE INDEX cards_by_round ON cards (round);
+-- The design cards a round handed in.
+CREATE INDEX design_cards_by_round ON design_cards (round);
+-- The ask of the owner a round put.
+CREATE INDEX owner_asks_by_round ON owner_asks (round);
+-- The messages to the owner still unread.
+CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
 -- Interjections still to hand in to a work.
 CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
 -- The history of one row.
@@ -368,20 +399,25 @@ CREATE VIEW item_acceptance AS
   -- Read by: cells 2a, 4, 5, 5a and 6.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_round FROM items;
 
-CREATE VIEW item_cards AS
-  -- Every card of the item's works, with its rulings. Read by: cells 1, 2, 2a, 15 and 19.
-  SELECT w.item, r.work, c.id AS card, c.round, c.kind, c.body, c.status, c.rulings, c.replaced_by
-  FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work;
+CREATE VIEW item_design_cards AS
+  -- Every design card of the item's works, with its rulings. Read by: cells 1, 2, 2a, 15 and 19.
+  SELECT w.item, r.work, c.id AS design_card, c.round, c.body, c.status, c.rulings, c.replaced_by
+  FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work;
+
+CREATE VIEW item_asks AS
+  -- Every ask of the owner of the item's works, with its answer. Read by: cell 1.
+  SELECT w.item, r.work, a.id AS ask, a.round, a.body, a.answer
+  FROM owner_asks a JOIN rounds r ON r.id = a.round JOIN works w ON w.id = r.work;
 
 CREATE VIEW parent_design_cards AS
   -- The design cards of the items that depend on this one, not yet replaced: what a split-off item's parent
   -- decided. Read by: cell 2a.
-  SELECT l.depends_on AS item, l.item AS parent, c.id AS card, c.body, c.status, c.rulings
+  SELECT l.depends_on AS item, l.item AS parent, c.id AS design_card, c.body, c.status, c.rulings
   FROM item_links l
   JOIN works w ON w.item = l.item
   JOIN rounds r ON r.work = w.id
-  JOIN cards c ON c.round = r.id
-  WHERE c.kind = 'design' AND c.status <> 'replaced';
+  JOIN design_cards c ON c.round = r.id
+  WHERE c.status <> 'replaced';
 
 CREATE VIEW item_dependencies AS
   -- What the item depends on, with what it needs of each and how far each is: the cell its latest work is at, or

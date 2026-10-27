@@ -54,7 +54,8 @@ function Bar({ d }: { d: WorkDetail }) {
     t('work_rounds', { n: w.rounds }),
     w.sent_back > 0 ? t('sent_back_n', { n: w.sent_back }) : null,
     w.failed > 0 ? t('failed_n', { n: w.failed }) : null,
-    w.open_cards > 0 ? t('open_cards_n', { n: w.open_cards }) : null,
+    w.open_asks > 0 ? t('open_asks_n', { n: w.open_asks }) : null,
+    w.open_design_cards > 0 ? t('open_design_cards_n', { n: w.open_design_cards }) : null,
     w.branch ? `${t('branch')}: ${w.branch}` : null,
     w.pr !== null ? `PR #${w.pr}` : null,
     w.paused ? t('paused_why', { why: w.paused }) : null,
@@ -77,7 +78,10 @@ function Bar({ d }: { d: WorkDetail }) {
         </span>
         {w.sent_back > 0 ? <span className="warn">↩{w.sent_back}</span> : null}
         {w.failed > 0 ? <span className="bad">✕{w.failed}</span> : null}
-        {w.open_cards > 0 ? <span className="warn">{t('open_cards_n', { n: w.open_cards })}</span> : null}
+        {w.open_asks > 0 ? <span className="warn">{t('open_asks_n', { n: w.open_asks })}</span> : null}
+        {w.open_design_cards > 0 ? (
+          <span className="warn">{t('open_design_cards_n', { n: w.open_design_cards })}</span>
+        ) : null}
         <span className="muted">{cost(w.cost_usd)}</span>
         <Link to={`/flow/${w.flow_version}`} className="muted">
           {t('work_flow_short', { version: w.flow_version })}
@@ -98,12 +102,43 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
       {open ? (
         <div className="drawer-body">
           <Timeline rounds={d.rounds} selected={round} onRound={(r) => onRound(r.id)} />
-          {d.cards.length > 0 ? (
-            <Section title={t('cards')} open={false}>
-              {d.cards.map((c) => (
-                <div key={c.id} className="card-box">
+          {d.messages.length > 0 ? (
+            <Section title={t('work_messages')} open={false}>
+              {d.messages.map((m) => (
+                <div key={m.id} className="boxed">
+                  <div className="muted">
+                    {m.cell !== null ? t('message_cell', { cell: m.cell }) : null} ·{' '}
+                    <button className="link" onClick={() => onRound(m.round)}>
+                      {t('round_title', { id: m.round })}
+                    </button>
+                  </div>
+                  <pre className="j-text">{m.text}</pre>
+                </div>
+              ))}
+            </Section>
+          ) : null}
+          {d.asks.length > 0 ? (
+            <Section title={t('asks')} open={false}>
+              {d.asks.map((a) => (
+                <div key={a.id} className="boxed">
                   <div>
-                    #{c.id} {c.kind} · {c.status} ·{' '}
+                    #{a.id} · {a.answer === null ? t('ask_waits') : t('ask_answered')} ·{' '}
+                    <button className="link" onClick={() => onRound(a.round)}>
+                      {t('round_title', { id: a.round })}
+                    </button>
+                  </div>
+                  <Json value={a.body} />
+                  {a.answer !== null ? <Json value={a.answer} /> : null}
+                </div>
+              ))}
+            </Section>
+          ) : null}
+          {d.design_cards.length > 0 ? (
+            <Section title={t('design_cards')} open={false}>
+              {d.design_cards.map((c) => (
+                <div key={c.id} className="boxed">
+                  <div>
+                    #{c.id} · {c.status} ·{' '}
                     <button className="link" onClick={() => onRound(c.round)}>
                       {t('round_title', { id: c.round })}
                     </button>
@@ -117,7 +152,7 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
           {d.interjections.length > 0 ? (
             <Section title={t('interjections')} open={false}>
               {d.interjections.map((x) => (
-                <div key={x.id} className="card-box">
+                <div key={x.id} className="boxed">
                   <div className="muted">
                     #{x.id} {x.speaker} → {x.line} ·{' '}
                     {x.delivered_round !== null

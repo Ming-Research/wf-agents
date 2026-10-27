@@ -32,7 +32,7 @@ use db::{Actor, Db};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
-pub use checks::CARD_RULING;
+pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
 pub use steps::next_message;
 pub use work::{Item, Round, Work, json_col, query_json};

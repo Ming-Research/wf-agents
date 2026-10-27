@@ -42,8 +42,11 @@ export function named(e: Event): string[] {
       return ['works', `work:${e.work}`, 'items', 'item:*'];
     case 'round':
       return ['works', `work:${e.work}`, `round:${e.round}`, 'items', 'item:*'];
-    case 'card':
+    case 'design_card':
+    case 'ask':
       return e.work === null ? ['works', 'work:*', 'item:*'] : ['works', `work:${e.work}`, 'item:*'];
+    case 'owner_message':
+      return e.work === null ? ['messages', 'work:*'] : ['messages', `work:${e.work}`];
     case 'item':
       return e.item === null ? ['items', 'item:*', 'works'] : ['items', `item:${e.item}`, 'works'];
     case 'flow':
@@ -94,6 +97,11 @@ export function connect(): void {
       bump(...named(e));
     }
   };
+}
+
+/// Reads again what `keys` name: after the page itself changed it, which no event tells.
+export function reread(...keys: string[]): void {
+  bump(...keys);
 }
 
 export function useOnline(): boolean {

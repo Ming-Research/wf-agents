@@ -35,11 +35,27 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
             "interjections" => {
                 one(conn, "SELECT work FROM interjections WHERE id = ?1", id).map(|work| Event::Work { work })
             }
-            "cards" => Some(Event::Card {
-                card: id,
+            "design_cards" => Some(Event::DesignCard {
+                design_card: id,
                 work: one(
                     conn,
-                    "SELECT r.work FROM cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
+                    "SELECT r.work FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
+                    id,
+                ),
+            }),
+            "owner_asks" => Some(Event::Ask {
+                ask: id,
+                work: one(
+                    conn,
+                    "SELECT r.work FROM owner_asks a JOIN rounds r ON r.id = a.round WHERE a.id = ?1",
+                    id,
+                ),
+            }),
+            "owner_messages" => Some(Event::OwnerMessage {
+                message: id,
+                work: one(
+                    conn,
+                    "SELECT r.work FROM owner_messages m JOIN rounds r ON r.id = m.round WHERE m.id = ?1",
                     id,
                 ),
             }),
@@ -84,7 +100,7 @@ mod tests {
                     "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
                     [],
                 )?;
-                tx.execute("INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')", [])?;
+                tx.execute("INSERT INTO owner_asks (round, body) VALUES (1, '{}')", [])?;
                 Ok(())
             })
             .unwrap();
@@ -97,7 +113,7 @@ mod tests {
             touched("rounds", 1),
             touched("tool_runs", 1),
             touched("works", 1),
-            touched("cards", 1),
+            touched("owner_asks", 1),
             touched("items", 1),
             touched("dispatch_queue", 1),
             touched("flow_versions", 1),
@@ -108,7 +124,7 @@ mod tests {
             [
                 Event::Round { work: 1, round: 1 },
                 Event::Work { work: 1 },
-                Event::Card { card: 1, work: Some(1) },
+                Event::Ask { ask: 1, work: Some(1) },
                 Event::Item { item: Some(1) },
                 Event::Flow { version: 1 },
             ]

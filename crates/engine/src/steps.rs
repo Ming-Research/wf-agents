@@ -397,6 +397,7 @@ fn not_applicable(
         json!(format!("The engine answered not applicable: {why}")),
     );
     output.insert("side_reports".into(), json!([]));
+    output.insert("tell_owner".into(), json!([]));
     let output = Value::Object(output);
     let item = e.item_of(w)?;
     let gathered = inputs::gather(e, w, g, cell, &item)?;
@@ -645,8 +646,8 @@ fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
     Ok(json!({}))
 }
 
-/// Cells 15 and 16: the question becomes a card for the owner, and the work waits for the answer. In this version
-/// the owner answers for the architect too, in the architect's form.
+/// Cells 15 and 16: the question becomes an ask of the owner, and the work waits for the answer. In this version the
+/// owner answers for the architect too, in the architect's form.
 fn ask(
     e: &mut Engine,
     w: &Work,
@@ -661,32 +662,27 @@ fn ask(
         "architect"
     };
     if let Some(r) = open.filter(|r| r.cell.as_deref() == Some(cell.id.as_str())) {
-        let card: Option<(i64, String, String)> =
+        let asked: Option<(i64, Option<String>)> =
             e.db.conn()
-                .query_row("SELECT id, status, rulings FROM cards WHERE round = ?1", [r.id], |x| {
-                    Ok((x.get(0)?, x.get(1)?, x.get(2)?))
+                .query_row("SELECT id, answer FROM owner_asks WHERE round = ?1", [r.id], |x| {
+                    Ok((x.get(0)?, x.get(1)?))
                 })
                 .ok();
-        let Some((id, status, rulings)) = card else {
-            return Err(format!("round {} asks, but has no card", r.id));
+        let Some((id, answer)) = asked else {
+            return Err(format!("round {} asks, but put no ask to the owner", r.id));
         };
-        if status != "ruled" {
-            return Ok(Advance::Waits(format!("card {id} waits for the owner")));
-        }
-        let rulings: Value = serde_json::from_str(&rulings).unwrap_or(Value::Null);
-        let last = rulings
-            .as_array()
-            .and_then(|rs| rs.last())
-            .cloned()
-            .unwrap_or(Value::Null);
-        let text = last["text"].as_str().unwrap_or_default().to_string();
+        let Some(answer) = answer else {
+            return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
+        };
+        let answer: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
+        let text = answer["text"].as_str().unwrap_or_default().to_string();
         let output = if to == "owner" {
             json!({ "reply": { "text": text } })
         } else {
-            match last.get("reply").filter(|x| x.is_object()) {
+            match answer.get("reply").filter(|x| x.is_object()) {
                 Some(reply) => json!({ "reply": reply }),
                 None => {
-                    json!({ "reply": { "text": text, "why": last["why"].as_str().unwrap_or("The owner answered for the architect.") } })
+                    json!({ "reply": { "text": text, "why": answer["why"].as_str().unwrap_or("The owner answered for the architect.") } })
                 }
             }
         };
@@ -696,7 +692,7 @@ fn ask(
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None);
     }
     let gathered = inputs::gather(e, w, g, cell, item)?;
-    // The card holds what the cells handed in: the question, how far the cell got, what failed. The history and the
+    // The ask holds what the cells handed in: the question, how far the cell got, what failed. The history and the
     // other tables the cell reads are in the database for the owner to look at.
     let asked: Vec<Value> = gathered
         .iter()
@@ -706,24 +702,29 @@ fn ask(
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
     let input = json!({ "inputs": recorded_inputs(&gathered) });
     let commit = e.config.commit.clone();
-    let text = format!("Work {} on item {} ({}) asks the {to}: card", w.id, item.id, item.title);
-    let card =
+    let whom = if to == "owner" {
+        "you".to_string()
+    } else {
+        "the architect, for whom you answer in this version".to_string()
+    };
+    let text = format!("Work {} on item {} ({}) asks {whom}: ask", w.id, item.id, item.title);
+    let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
             tx.execute(
-                "INSERT INTO cards (round, kind, body, status) VALUES (?1, 'ask', ?2, 'open')",
+                "INSERT INTO owner_asks (round, body) VALUES (?1, ?2)",
                 params![round, body.to_string()],
             )?;
-            let card = tx.last_insert_rowid();
-            let note = json!({ "text": format!("{text} {card}") });
+            let id = tx.last_insert_rowid();
+            let note = json!({ "text": format!("{text} {id}") });
             tx.execute(
                 "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'notify', ?2, ?3)",
                 params![w.id, note.to_string(), db::now()],
             )?;
-            Ok(card)
+            Ok(id)
         })
         .map_err(sql)?;
-    Ok(Advance::Waits(format!("card {card} waits for the owner")))
+    Ok(Advance::Waits(format!("ask {id} waits for the owner")))
 }
 
 /// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since

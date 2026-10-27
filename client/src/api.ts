@@ -72,11 +72,12 @@ halt: Halt | null, };
  */
 export type Halt = { 
 /**
- * The kind of failed run, as the flow names it: `usage_limit` or `offline`.
+ * The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
  */
 kind: string, 
 /**
- * Until when: when the usage limit resets, or when the engine next looks whether the network is back.
+ * Until when: when the usage limit resets, or when the engine next lets a round find out whether the cause has
+ * passed.
  */
 until: number, 
 /**
@@ -89,7 +90,7 @@ why: string, };
  * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
  * reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "card", card: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, };
 
 /**
  * Where a work stands.
@@ -134,9 +135,13 @@ sent_back: number, failed: number, running: RunningRound | null,
  */
 cost_usd: number, 
 /**
- * Its cards still waiting for a ruling.
+ * Its asks of the owner still waiting for an answer.
  */
-open_cards: number, };
+open_asks: number, 
+/**
+ * Its design cards still waiting for a ruling.
+ */
+open_design_cards: number, };
 
 /**
  * How a round ended.
@@ -169,17 +174,49 @@ why: string | null, started_at: number, ended_at: number | null, model: string |
 progress: string | null, };
 
 /**
- * A card, as the round that handed it in wrote it, with its rulings.
+ * A design card, as the round that handed it in wrote it, with its rulings.
  */
-export type Card = { id: number, round: number, work: number, item: number | null, 
-/**
- * design or ask.
- */
-kind: string, 
+export type DesignCard = { id: number, round: number, work: number, item: number | null, 
 /**
  * open, ruled or replaced.
  */
 status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, };
+
+/**
+ * An ask of the owner: what is asked, and the owner's answer.
+ */
+export type OwnerAsk = { id: number, 
+/**
+ * The round that put it to the owner.
+ */
+round: number, work: number, item: number | null, body: JsonValue, 
+/**
+ * None while it waits.
+ */
+answer: JsonValue | null, };
+
+/**
+ * What an agent told the owner in a return, needing no answer.
+ */
+export type OwnerMessage = { id: number, 
+/**
+ * The round whose return holds it, its cell and line, and when it ended.
+ */
+round: number, cell: string | null, line: string | null, at: number | null, work: number, item: number | null, title: string | null, text: string, 
+/**
+ * When the owner marked it read; none while it is unread.
+ */
+read_at: number | null, };
+
+/**
+ * Which messages to the owner the owner marks read: those named, or every one unread.
+ */
+export type MarkRead = { ids: Array<number>, all: boolean, };
+
+/**
+ * How many messages a mark made read.
+ */
+export type Marked = { marked: number, };
 
 /**
  * What the owner or the architect said to a work.
@@ -201,7 +238,11 @@ resume_at: string | null, waiting: JsonValue,
 /**
  * The values its rows recorded.
  */
-recorded: JsonValue, rounds: Array<RoundSummary>, cards: Array<Card>, interjections: Array<Interjection>, };
+recorded: JsonValue, rounds: Array<RoundSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
+/**
+ * What its agents told the owner, oldest first.
+ */
+messages: Array<OwnerMessage>, interjections: Array<Interjection>, };
 
 /**
  * The session of a line, as the command line knows it.
@@ -298,7 +339,7 @@ rejected: JsonValue | null,
 /**
  * Tokens and cost as the command line reported them.
  */
-usage: JsonValue | null, tool_runs: Array<ToolRun>, cards: Array<Card>, 
+usage: JsonValue | null, tool_runs: Array<ToolRun>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
 /**
  * What was said to the work and handed in with this round.
  */
@@ -355,7 +396,8 @@ export type Items = { items: Array<ItemSummary>, links: Array<ItemLink>, };
 export type LinkedItem = { item: ItemSummary, needs: string, };
 
 /**
- * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works and cards.
+ * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+ * and asks of the owner.
  */
 export type ItemDetail = { item: ItemSummary, problem: string, why: string, approach: string | null, 
 /**
@@ -365,7 +407,7 @@ acceptance: JsonValue | null, acceptance_round: number | null,
 /**
  * The items it depends on, and the items that depend on it.
  */
-depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, works: Array<WorkSummary>, cards: Array<Card>, 
+depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, works: Array<WorkSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
 /**
  * What the rounds of its works handed back that their flow versions show on the item, oldest first.
  */

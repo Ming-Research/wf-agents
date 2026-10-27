@@ -48,32 +48,47 @@ enum Command {
     /// The dispatch queue: which items start next.
     #[command(subcommand)]
     Queue(QueueCommand),
-    /// The cards waiting for the owner: questions, and design cards to rule on.
-    Cards {
-        /// Every card, ruled and replaced ones too.
+    /// The asks of the owner waiting for an answer.
+    Asks {
+        /// Every ask of the owner, those answered too.
         #[arg(long)]
         all: bool,
     },
-    /// One card in full, with its rulings.
-    Card { id: i64 },
-    /// Answers a question card, or rules on a design card.
+    /// One ask of the owner in full, with its answer.
+    Ask { id: i64 },
+    /// Answers an ask of the owner.
     Answer {
-        card: i64,
-        /// The answer, or what the ruling says.
+        ask: i64,
+        /// The answer.
         #[arg(long)]
         text: String,
-        /// For a question the architect is asked: why it was decided this way.
+        /// For what the architect is asked: why it was decided this way.
         #[arg(long)]
         why: Option<String>,
-        /// For a design card: confirm or disagree.
-        #[arg(long)]
-        verdict: Option<String>,
-        /// For a design card: the approach chosen instead.
-        #[arg(long)]
-        option: Option<String>,
-        /// For a question the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
+        /// For what the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
         #[arg(long)]
         reply: Option<String>,
+    },
+    /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
+    DesignCards {
+        /// Every design card, replaced ones too.
+        #[arg(long)]
+        all: bool,
+    },
+    /// One design card in full, with its rulings.
+    DesignCard { id: i64 },
+    /// Rules on a design card.
+    Rule {
+        design_card: i64,
+        /// Confirm or disagree.
+        #[arg(long)]
+        verdict: String,
+        /// What the ruling says.
+        #[arg(long)]
+        text: String,
+        /// The approach chosen instead of the one recommended.
+        #[arg(long)]
+        option: Option<String>,
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
@@ -353,32 +368,31 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             };
             owner::queue(d, item, place)
         }
-        Command::Cards { all } => print(owner::cards(d, all)),
-        Command::Card { id } => print(owner::card(d, id)),
-        Command::Answer {
-            card,
-            text,
-            why,
-            verdict,
-            option,
-            reply,
-        } => {
+        Command::Asks { all } => print(owner::asks(d, all)),
+        Command::Ask { id } => print(owner::ask(d, id)),
+        Command::Answer { ask, text, why, reply } => {
             let reply = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            print(owner::answer(
-                d,
-                owner::Answer {
-                    card,
-                    text,
-                    why,
-                    verdict,
-                    option,
-                    reply,
-                },
-            ))
+            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
         }
+        Command::DesignCards { all } => print(owner::design_cards(d, all)),
+        Command::DesignCard { id } => print(owner::design_card(d, id)),
+        Command::Rule {
+            design_card,
+            verdict,
+            text,
+            option,
+        } => print(owner::rule(
+            d,
+            owner::Ruling {
+                design_card,
+                verdict,
+                text,
+                option,
+            },
+        )),
         Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),
         Command::Pause { work, why } => owner::pause(d, work, Some(&why)),
         Command::Resume { work } => owner::pause(d, work, None),

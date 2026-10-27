@@ -464,9 +464,52 @@ details.input > summary {
   font-weight: 500;
 }
 
-.card-box {
+.boxed {
   border-top: 1px solid var(--line);
   padding: 6px 0;
+}
+
+.nav-count {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 11px;
+}
+
+.msg-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.msgs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.msg {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+.msg-unread .msg-text {
+  font-weight: 600;
+}
+
+.msg-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.msg-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
 }
 
 .kept {

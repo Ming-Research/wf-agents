@@ -37,7 +37,7 @@ function KeptFile({ file, path }: { file: string; path: string }) {
 
 function Tool({ run }: { run: ToolRun }) {
   return (
-    <div className="card-box">
+    <div className="boxed">
       <div>
         <strong>{run.tool}</strong> <span className="muted">{t('attempt', { n: run.attempt })}</span>{' '}
         <span className="muted">
@@ -152,7 +152,7 @@ function Detail({ d }: { d: RoundDetail }) {
       {d.interjections.length > 0 ? (
         <Section title={t('interjections')}>
           {d.interjections.map((x) => (
-            <div key={x.id} className="card-box">
+            <div key={x.id} className="boxed">
               <div className="muted">
                 {x.speaker} → {x.line}
               </div>
@@ -161,14 +161,27 @@ function Detail({ d }: { d: RoundDetail }) {
           ))}
         </Section>
       ) : null}
-      {d.cards.length > 0 ? (
-        <Section title={t('cards')}>
-          {d.cards.map((c) => (
-            <div key={c.id} className="card-box">
+      {d.design_cards.length > 0 ? (
+        <Section title={t('design_cards')}>
+          {d.design_cards.map((c) => (
+            <div key={c.id} className="boxed">
               <div>
-                #{c.id} {c.kind} · {c.status}
+                #{c.id} · {c.status}
               </div>
               <Json value={c.body} />
+            </div>
+          ))}
+        </Section>
+      ) : null}
+      {d.asks.length > 0 ? (
+        <Section title={t('asks')}>
+          {d.asks.map((a) => (
+            <div key={a.id} className="boxed">
+              <div>
+                #{a.id} · {a.answer === null ? t('ask_waits') : t('ask_answered')}
+              </div>
+              <Json value={a.body} />
+              {a.answer !== null ? <Json value={a.answer} /> : null}
             </div>
           ))}
         </Section>
