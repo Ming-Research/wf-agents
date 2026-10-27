@@ -62,7 +62,8 @@ pub type Activity = dyn Fn(i64, i64, &str);
 
 pub struct Engine {
     pub db: Db,
-    /// The data directory: the configuration, the database and the worktrees.
+    /// The data directory: the configuration, the database and what the engine writes beside them; README.md lists it
+    /// all.
     pub data: PathBuf,
     pub config: config::Committed,
     pub agents: Box<dyn Agents>,

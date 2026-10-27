@@ -6,10 +6,14 @@
 //! - `projects/<name>.toml`: one project each ([`Project`]); its `extends` lists files under `shared/` to start
 //!   from, merged in order: a later table merges into an earlier one key by key, and any other value, a list
 //!   included, replaces the earlier one whole;
+//! - `shared/<name>.toml`: the files that projects start from, by their `extends`;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
 //! - `db/`: the database, kept out of git;
 //! - `agents/<cli>/`: the configuration directory each CLI runs agents with, unless the CLI names another, kept out
 //!   of git; the owner logs in to the CLI there once.
+//!
+//! The command and the engine write more beside these, which are not committed either; README.md lists everything the
+//! data directory holds.
 //!
 //! The engine reads only what is committed, so each round names the configuration it ran with by its commit.
 //! `config check` reads the working tree instead, to check a change before it is committed. A field the types do not

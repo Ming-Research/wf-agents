@@ -65,9 +65,13 @@ enum Command {
         all: bool,
     },
     /// One ask of the owner in full, with its answer.
-    Ask { id: i64 },
+    Ask {
+        /// The ask's number, as `wf-agents asks` lists it.
+        id: i64,
+    },
     /// Answers an ask of the owner.
     Answer {
+        /// The ask to answer, by its number.
         ask: i64,
         /// The answer.
         #[arg(long)]
@@ -86,9 +90,13 @@ enum Command {
         all: bool,
     },
     /// One design card in full, with its rulings.
-    DesignCard { id: i64 },
+    DesignCard {
+        /// The design card's number, as `wf-agents design-cards` lists it.
+        id: i64,
+    },
     /// Rules on a design card.
     Rule {
+        /// The design card to rule on, by its number.
         design_card: i64,
         /// Confirm or disagree.
         #[arg(long)]
@@ -102,23 +110,32 @@ enum Command {
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
+        /// The work to say it to.
         work: i64,
+        /// What to say.
         text: String,
+        /// The line of the work it is for, as the flow names its lines.
         #[arg(long, default_value = "engineer")]
         line: String,
     },
     /// Pauses a work.
     Pause {
+        /// The work to pause.
         work: i64,
+        /// Why it is paused.
         #[arg(long)]
         why: String,
     },
     /// Lets a paused work go on.
-    Resume { work: i64 },
+    Resume {
+        /// The work to let go on.
+        work: i64,
+    },
     /// Where each work stands.
     Status,
     /// A work's rounds.
     History {
+        /// The work whose rounds to list.
         work: i64,
         /// Every round in full: what it was given and what it returned.
         #[arg(long)]
@@ -127,17 +144,24 @@ enum Command {
     /// The message the work's next agent round would be sent, built as the engine builds it, with nothing run or
     /// recorded.
     Message {
+        /// The work whose next round to show.
         work: i64,
         /// As JSON: the message, and each conditional input it gives or refers to, as a round records them.
         #[arg(long)]
         json: bool,
     },
     /// How many times a work took the rows that count each counter.
-    Counters { work: i64 },
+    Counters {
+        /// The work to count for.
+        work: i64,
+    },
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
     /// The time and cost of each work, or of one work's rounds by cell.
-    Cost { work: Option<i64> },
+    Cost {
+        /// The work whose rounds to show by cell; without it, every work.
+        work: Option<i64>,
+    },
 }
 
 /// How the engine dispatches.
@@ -162,8 +186,10 @@ impl From<RunMode> for api::Mode {
 /// What a new item is.
 #[derive(clap::Args)]
 struct AddItem {
+    /// The project the item belongs to, as the configuration names it.
     #[arg(long)]
     project: String,
+    /// What to do, as an action, within the length the configuration allows.
     #[arg(long)]
     title: String,
     /// What cannot be done or is wrong.
@@ -206,14 +232,19 @@ enum ItemCommand {
     List,
     /// Makes an item depend on another.
     Depend {
+        /// The item that depends on the other.
         item: i64,
+        /// The item it depends on.
         on: i64,
+        /// What it needs of that item, in one sentence.
         #[arg(long)]
         needs: String,
     },
     /// Cancels an item, and ends its work.
     Cancel {
+        /// The item to cancel.
         item: i64,
+        /// Why it is cancelled.
         #[arg(long)]
         why: String,
     },
@@ -225,11 +256,15 @@ enum QueueCommand {
     List,
     /// Puts an item in the queue: last, or first, or before or after another.
     Put {
+        /// The item to put in the queue.
         item: i64,
+        /// Puts it first.
         #[arg(long)]
         first: bool,
+        /// Puts it before this item.
         #[arg(long)]
         before: Option<i64>,
+        /// Puts it after this item.
         #[arg(long)]
         after: Option<i64>,
     },
@@ -587,3 +622,6 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     eprintln!("{} stopped: {} exists", db::now() / 1000, stop.display());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
