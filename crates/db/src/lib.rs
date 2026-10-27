@@ -213,8 +213,8 @@ impl Db {
     /// Opens the database at `path`, and migrates it when it is older than this wf-agents. It makes nothing: when the
     /// file does not exist or is empty, there is no database, and the error says so.
     pub fn open(path: &Path) -> Result<Db> {
-        let conn = connect(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-        let mut db = Db::set_up(conn)?;
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let mut db = Db::set_up(connect(path, flags)?)?;
         db.migrate(MIGRATIONS)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(db)
@@ -233,7 +233,8 @@ impl Db {
     /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one not at this wf-agents'
     /// version is refused, since its shape is not the one read.
     pub fn open_read_only(path: &Path) -> Result<Db> {
-        let conn = connect(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = connect(path, flags)?;
         conn.busy_timeout(Duration::from_secs(10))?;
         conn.pragma_update(None, "query_only", true)?;
         let at = version_of(&conn)?;
