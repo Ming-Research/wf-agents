@@ -81,7 +81,7 @@ pub enum Event {
     /// again.
     Resync,
     /// The engine's status changed.
-    Status { status: Status },
+    Status { status: Box<Status> },
     /// A work started, moved, was paused, resumed or ended, or was said something to.
     Work { work: i64 },
     /// A round started or ended, or ran a tool.

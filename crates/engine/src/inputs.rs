@@ -242,7 +242,7 @@ fn source(
             let first = values
                 .filter(|(_, v)| *v == value)
                 .map(|(r, _)| r)
-                .last()
+                .next_back()
                 .unwrap_or(round);
             Some(Part {
                 origin: Origin::Place {

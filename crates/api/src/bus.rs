@@ -60,10 +60,10 @@ impl Bus {
     pub fn publish(&self, event: Event) {
         let mut x = self.lock();
         if let Event::Status { status } = &event {
-            if x.status.as_ref() == Some(status) {
+            if x.status.as_ref() == Some(&**status) {
                 return;
             }
-            x.status = Some(status.clone());
+            x.status = Some((**status).clone());
         }
         x.seq += 1;
         let env = Envelope {

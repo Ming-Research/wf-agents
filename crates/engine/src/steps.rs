@@ -122,7 +122,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let used = line_rounds
         .iter()
         .any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
-    let held = Held::of(&line_rounds, g);
+    let held = Held::of(&line_rounds);
     let registry = message::registry(&work_rounds);
     let gathered = inputs::gather(e, w, g, cell, &item)?;
     let given = values::given(e, w, g, cell, &item, &gathered)?;

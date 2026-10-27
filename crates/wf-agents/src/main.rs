@@ -436,7 +436,9 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     .map_err(|x| x.to_string())?;
     let control = Arc::new(api::Control::new(mode));
     let first = status(&mut e, control.asked(), None, started_at)?;
-    bus.publish(api::Event::Status { status: first });
+    bus.publish(api::Event::Status {
+        status: Box::new(first),
+    });
     let port = web::start(web::Options {
         data: d.to_path_buf(),
         db: config::database(d),
@@ -459,7 +461,7 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
         let asked = control.asked();
         e.reload_config();
         let now = status(&mut e, asked, last.as_ref(), started_at)?;
-        bus.publish(api::Event::Status { status: now });
+        bus.publish(api::Event::Status { status: Box::new(now) });
         match asked.next() {
             api::Next::Pass => {
                 if !e.tick()? {

@@ -111,22 +111,12 @@ fn recorded(input: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-/// The hash of every value under the fields of a return, objects within objects.
-fn field_hashes(v: &Value, out: &mut HashSet<String>) {
-    if let Value::Object(o) = v {
-        for x in o.values() {
-            out.insert(hash(x));
-            field_hashes(x, out);
-        }
-    }
-}
-
 /// What a session already holds: what it was given and what it handed back since it was last compacted.
 #[derive(Debug, Default)]
 pub struct Held {
-    /// The hashes of the materials it was given or referred to, and of the values its returns hold.
-    pub hashes: HashSet<String>,
-    /// The rounds whose returns it holds.
+    /// The materials it was given or referred to, each as its address and the hash of its content.
+    pub materials: HashSet<(String, String)>,
+    /// The rounds whose returns it holds: every value they produced is in the session under its address.
     pub rounds: BTreeSet<i64>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
     pub compacted: Option<i64>,
@@ -135,7 +125,7 @@ pub struct Held {
 impl Held {
     /// What the session whose rounds these are, oldest first, holds now. A round counts once it handed in a return:
     /// a run that failed may never have reached the session.
-    pub fn of(session_rounds: &[Round], g: &CompiledGraph) -> Held {
+    pub fn of(session_rounds: &[Round]) -> Held {
         let mut h = Held::default();
         for r in session_rounds {
             if r.compactions > 0 {
@@ -145,30 +135,45 @@ impl Held {
                 };
                 continue;
             }
-            let Some(out) = &r.output else { continue };
+            if r.output.is_none() {
+                continue;
+            }
             h.rounds.insert(r.id);
-            h.hashes.extend(recorded(&r.input).into_iter().map(|x| x.1));
-            field_hashes(&g.unwrap(out), &mut h.hashes);
+            h.materials.extend(recorded(&r.input));
         }
         h
     }
 
-    /// Whether the session holds a material: one of its own returns' values, or the same content as something it
-    /// holds.
+    /// Whether the session holds a material: a value one of its own returns produced, or the same content under the
+    /// same address as one it was given. One content has one address, so the same content is held however it came.
     pub fn holds(&self, address: &str, hash: &str) -> bool {
-        round_of(address).is_some_and(|r| self.rounds.contains(&r)) || self.hashes.contains(hash)
+        let own = round_of(address).is_some_and(|r| self.rounds.contains(&r)) && !address.contains("·engine·");
+        own || self.materials.contains(&(address.to_string(), hash.to_string()))
     }
 }
 
-/// The address each content was first given or referred to by in the work, by its hash.
-pub fn registry(work_rounds: &[Round]) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+/// Every address each content was given or referred to by in the work, in the order they first appear, by its hash.
+pub fn registry(work_rounds: &[Round]) -> HashMap<String, Vec<String>> {
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
     for r in work_rounds {
         for (address, hash) in recorded(&r.input) {
-            out.entry(hash).or_insert(address);
+            let seen = out.entry(hash).or_default();
+            if !seen.contains(&address) {
+                seen.push(address);
+            }
         }
     }
     out
+}
+
+/// Whether a content is something one place copies from another: a list, an object, or a text of more than one word.
+/// A word or a number two places give alike is not one thing, and keeps the address of where it came from.
+fn copied(v: &Value) -> bool {
+    match v {
+        Value::Array(_) | Value::Object(_) => true,
+        Value::String(s) => s.trim().contains(char::is_whitespace),
+        _ => false,
+    }
 }
 
 /// Whether a value has nothing to give.
@@ -359,13 +364,13 @@ pub struct Context<'a> {
     pub given: &'a Map<String, Value>,
     pub columns: &'a [(String, String)],
     pub held: &'a Held,
-    pub registry: &'a HashMap<String, String>,
+    pub registry: &'a HashMap<String, Vec<String>>,
 }
 
 /// The materials of a message as it is built: each content once, under its one address.
 struct Materials<'a> {
     held: &'a Held,
-    registry: &'a HashMap<String, String>,
+    registry: &'a HashMap<String, Vec<String>>,
     list: Vec<Material>,
 }
 
@@ -374,7 +379,8 @@ impl Materials<'_> {
     /// keeps its address.
     fn add(&mut self, address: String, content: Value) -> String {
         let h = hash(&content);
-        if let Some(m) = self.list.iter().find(|m| m.hash == h) {
+        let one = copied(&content);
+        if let Some(m) = self.list.iter().find(|m| m.hash == h && (one || m.address == address)) {
             return m.address.clone();
         }
         let given = !self.held.holds(&address, &h);
@@ -387,22 +393,34 @@ impl Materials<'_> {
         address
     }
 
-    /// The address of a round's value: the earliest round that gave the same content in the work.
+    /// The address of a round's value: of the rounds that produced the same content in the work, wherever it was
+    /// copied to, the earliest.
     fn earliest(&self, address: String, content: &Value) -> String {
-        match self.registry.get(&hash(content)) {
-            Some(a) if round_of(a).zip(round_of(&address)).is_some_and(|(x, y)| x < y) => a.clone(),
+        if !copied(content) {
+            return address;
+        }
+        let known = self.registry.get(&hash(content)).into_iter().flatten();
+        let first = known
+            .filter(|a| !a.contains("·engine·"))
+            .filter_map(|a| Some((round_of(a)?, a)))
+            .min_by_key(|x| x.0);
+        match first {
+            Some((r, a)) if round_of(&address).is_some_and(|mine| r < mine) => a.clone(),
             _ => address,
         }
     }
 }
 
 impl Context<'_> {
-    /// The address of what the engine read or computed for this round: the earliest round it was the same for.
+    /// The address of what the engine read or computed for this round under a name: the earliest round it was the
+    /// same for.
     fn computed(&self, m: &Materials<'_>, name: &str, content: &Value) -> String {
-        match m.registry.get(&hash(content)) {
-            Some(a) => a.clone(),
-            None => format!("R{}·engine·{name}", self.round),
-        }
+        let suffix = format!("·engine·{name}");
+        m.registry
+            .get(&hash(content))
+            .and_then(|known| known.iter().find(|a| a.ends_with(&suffix)))
+            .cloned()
+            .unwrap_or_else(|| format!("R{}{suffix}", self.round))
     }
 
     fn cell_of_round(&self, id: i64) -> Option<String> {
@@ -873,10 +891,8 @@ mod tests {
     // run that handed nothing in.
     #[test]
     fn a_session_holds_what_it_was_given_and_returned_since_its_last_compaction() {
-        let g = graph();
         let given = |a: &str, v: &Value| json!({ "materials": [{ "address": a, "hash": hash(v), "given": true }] });
         let rule = json!("Facts first.");
-        let design = json!("the design");
         let rounds = [
             round(
                 2,
@@ -884,20 +900,60 @@ mod tests {
                 Some(json!({ "outcome": {}, "progress": "p" })),
                 0,
             ),
-            round(3, json!({}), Some(json!({ "outcome": { "design": design } })), 0),
+            round(3, json!({}), Some(json!({ "outcome": { "design": "d" } })), 0),
             round(4, given("ij:1", &json!("From the owner: x")), None, 0),
         ];
-        let h = Held::of(&rounds, &g);
+        let h = Held::of(&rounds);
         assert!(h.holds("rule:ground", &hash(&rule)));
+        assert!(!h.holds("rule:ground", &hash(&json!("Facts first, then the rest."))));
         assert!(h.holds("R3·2a·design", "any"));
-        assert!(h.holds("R9·2a·design", &hash(&design)));
+        assert!(!h.holds("R3·engine·project_guide", "any"));
         assert!(!h.holds("ij:1", &hash(&json!("From the owner: x"))));
         let mut later = rounds.to_vec();
         later.push(round(5, json!({}), Some(json!({ "outcome": {} })), 1));
-        let h = Held::of(&later, &g);
+        let h = Held::of(&later);
         assert!(!h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R3·2a·design", &hash(&design)));
+        assert!(!h.holds("R3·2a·design", "any"));
         assert_eq!(h.compacted, Some(5));
+    }
+
+    // The same content copied from one place to another is one material under the earliest round's address; a word
+    // two places give alike keeps each place's address.
+    #[test]
+    fn copied_content_has_one_address_and_a_word_keeps_its_own() {
+        let held = Held::default();
+        let acceptance = json!([{ "id": "A1", "condition": "It works." }]);
+        let registry = HashMap::from([
+            (hash(&acceptance), vec!["R25·12·reply.new_acceptance".to_string()]),
+            (hash(&json!("no")), vec!["R7·engine·adversarial".to_string()]),
+        ]);
+        let mut m = Materials {
+            held: &held,
+            registry: &registry,
+            list: Vec::new(),
+        };
+        assert_eq!(
+            m.earliest("R30·2a·acceptance".into(), &acceptance),
+            "R25·12·reply.new_acceptance"
+        );
+        assert_eq!(
+            m.earliest("R9·3b·answer.verdict".into(), &json!("no")),
+            "R9·3b·answer.verdict"
+        );
+        assert_eq!(m.add("R9·engine·rethought".into(), json!("no")), "R9·engine·rethought");
+        assert_eq!(
+            m.add("R9·3b·answer.verdict".into(), json!("no")),
+            "R9·3b·answer.verdict"
+        );
+        assert_eq!(
+            m.add("R30·2a·acceptance".into(), acceptance.clone()),
+            "R30·2a·acceptance"
+        );
+        assert_eq!(
+            m.add("R31·12·reply.new_acceptance".into(), acceptance),
+            "R30·2a·acceptance"
+        );
+        assert_eq!(m.list.len(), 3);
     }
 
     // The forms every return shares hold every tool and every role any cell has; a cell's own format names the ones
