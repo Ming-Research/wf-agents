@@ -6,12 +6,13 @@
 //! domain name rebound to the loopback address), whose Origin is another site's, or that the browser says came from
 //! another site. Each read opens its own read-only connection to the database.
 
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use api::{ApiError, Bus, Control, Envelope, Event, Flows, SetMode};
+use api::{ApiError, Bus, Control, Envelope, Event, Flows, SetMode, Sources};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
@@ -50,6 +51,8 @@ struct App {
     data: Arc<PathBuf>,
     db: Arc<PathBuf>,
     flows: Arc<Flows>,
+    /// The flows compiled at refs of the projects' checkouts.
+    sources: Arc<Sources>,
     bus: Arc<Bus>,
     control: Arc<Control>,
     events: broadcast::Sender<Envelope>,
@@ -75,6 +78,7 @@ pub fn start(o: Options) -> Result<u16, String> {
         data: Arc::new(o.data),
         db: Arc::new(o.db),
         flows: Arc::default(),
+        sources: Arc::default(),
         bus: o.bus,
         control: o.control,
         events,
@@ -118,7 +122,11 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}", get(work))
         .route("/api/v1/rounds/{id}", get(round))
         .route("/api/v1/flows", get(flows))
+        .route("/api/v1/flows/sources", get(flow_sources))
+        .route("/api/v1/flows/at", get(flow_at))
+        .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
+        .route("/api/v1/flows/{id}/view", get(flow_view))
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/files/{dir}/{name}", get(file))
@@ -147,6 +155,7 @@ impl From<api::Error> for Fail {
     fn from(e: api::Error) -> Fail {
         match e {
             api::Error::NotFound(s) => Fail::new(StatusCode::NOT_FOUND, s),
+            api::Error::Invalid(s) => Fail::new(StatusCode::UNPROCESSABLE_ENTITY, s),
             api::Error::Failed(s) => Fail::new(StatusCode::INTERNAL_SERVER_ERROR, s),
         }
     }
@@ -242,6 +251,100 @@ async fn flows(State(app): State<App>) -> Result<Json<Vec<api::FlowVersion>>, Fa
 async fn flow(State(app): State<App>, Path(id): Path<i64>) -> Result<Response, Fail> {
     let text = read(&app, move |c, _| api::compiled_flow(c, id)).await?;
     Ok(([(header::CONTENT_TYPE, "application/json")], text).into_response())
+}
+
+async fn flow_view(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::FlowView>, Fail> {
+    read(&app, move |c, a| api::flow_view(c, &a.flows, id)).await.map(Json)
+}
+
+/// The checkout of each project the committed configuration names, as it is now.
+fn checkouts(data: &std::path::Path) -> Result<BTreeMap<String, PathBuf>, api::Error> {
+    let committed = config::committed(data).map_err(|e| api::Error::Failed(e.to_string()))?;
+    Ok(committed
+        .config
+        .projects
+        .into_iter()
+        .map(|(name, p)| (name, p.checkout))
+        .collect())
+}
+
+fn checkout_of(data: &std::path::Path, project: &str) -> Result<PathBuf, api::Error> {
+    checkouts(data)?
+        .remove(project)
+        .ok_or_else(|| api::Error::NotFound(format!("no project {project} in the configuration")))
+}
+
+/// Each project's checkout, with its branches, where the flow can be read at a ref.
+async fn flow_sources(State(app): State<App>) -> Result<Json<Vec<api::FlowSource>>, Fail> {
+    read(&app, |_, a| {
+        Ok(checkouts(&a.data)?
+            .into_iter()
+            .map(|(project, checkout)| api::FlowSource {
+                project,
+                refs: api::refs(&checkout).unwrap_or_default(),
+                checkout: checkout.display().to_string(),
+            })
+            .collect())
+    })
+    .await
+    .map(Json)
+}
+
+#[derive(Deserialize)]
+struct At {
+    project: String,
+    #[serde(rename = "ref")]
+    rev: String,
+}
+
+/// The flow as `flow/flow.json` is at a git ref of a project's checkout, compiled, with what the page shows of it.
+async fn flow_at(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api::FlowAt>, Fail> {
+    read(&app, move |c, a| {
+        let checkout = checkout_of(&a.data, &q.project)?;
+        let (commit, compiled) = a.sources.at(&checkout, &q.rev)?;
+        let digest = compiled.digest();
+        Ok(api::FlowAt {
+            project: q.project,
+            rev: q.rev,
+            commit,
+            version: api::version_of(c, &digest)?,
+            digest,
+            view: api::view(&compiled),
+            compiled: (*compiled).clone(),
+        })
+    })
+    .await
+    .map(Json)
+}
+
+#[derive(Deserialize)]
+struct Between {
+    /// The older flow: a stored version.
+    from: i64,
+    /// The newer flow: a stored version, or the flow at a ref of a project's checkout.
+    to: Option<i64>,
+    project: Option<String>,
+    #[serde(rename = "ref")]
+    rev: Option<String>,
+}
+
+/// What changed from a stored flow version to another, or to the flow at a git ref of a project's checkout.
+async fn flow_diff(State(app): State<App>, Query(q): Query<Between>) -> Result<Json<api::FlowDiff>, Fail> {
+    read(&app, move |c, a| {
+        let from = a.flows.get(c, q.from)?;
+        let to = match (q.to, q.project, q.rev) {
+            (Some(v), None, None) => a.flows.get(c, v)?,
+            (None, Some(p), Some(r)) => a.sources.at(&checkout_of(&a.data, &p)?, &r)?.1,
+            _ => {
+                return Err(api::Error::Invalid(
+                    "compare with another version (to) or with a project's ref (project and ref)".into(),
+                ));
+            }
+        };
+        Ok(api::diff(&from, &to))
+    })
+    .await
+    .map(Json)
 }
 
 async fn items(State(app): State<App>) -> Result<Json<api::Items>, Fail> {

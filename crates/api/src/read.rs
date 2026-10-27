@@ -13,16 +13,20 @@ use flow::format::Src;
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
+use crate::view;
 use crate::{
-    Card, FlowVersion, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem,
-    RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, ToolRun, WorkDetail,
-    WorkState, WorkSummary,
+    Card, FlowVersion, FlowView, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile,
+    LinkedItem, RoundDetail, RoundInput, RoundMaterial, RoundOutcome, RoundSummary, RunningRound, Session, ToolRun,
+    WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// What was asked for does not exist.
     NotFound(String),
+    /// What was asked for is not what the interface takes, such as a ref that is no ref or a flow that does not
+    /// compile.
+    Invalid(String),
     /// The read failed.
     Failed(String),
 }
@@ -30,7 +34,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::NotFound(s) | Error::Failed(s) => write!(f, "{s}"),
+            Error::NotFound(s) | Error::Invalid(s) | Error::Failed(s) => write!(f, "{s}"),
         }
     }
 }
@@ -607,6 +611,18 @@ pub fn compiled_flow(conn: &Connection, version: i64) -> Result<String> {
     })
     .optional()?
     .ok_or_else(|| Error::NotFound(format!("no flow version {version}")))
+}
+
+/// What the flow page shows of a stored flow version besides the flow itself.
+pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowView> {
+    Ok(view::view(&flows.get(conn, version)?))
+}
+
+/// The stored flow version a compiled flow is, by its digest.
+pub fn version_of(conn: &Connection, digest: &str) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row("SELECT id FROM flow_versions WHERE digest = ?1", [digest], |r| r.get(0))
+        .optional()?)
 }
 
 fn item_state(cancelled: bool, queued: bool, work: Option<&WorkSummary>) -> ItemState {

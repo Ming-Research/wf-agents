@@ -962,6 +962,7 @@ version = "0.1.0"
 dependencies = [
  "api",
  "axum",
+ "config",
  "db",
  "serde",
  "serde_json",

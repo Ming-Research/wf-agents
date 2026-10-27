@@ -404,7 +404,6 @@ fn status(
         slots,
         flow_version: e.flow_now,
         config_commit: e.config.commit.clone(),
-        language: e.config.config.install.owner.language.clone(),
         started_at,
         version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
         halt: e.halt.as_ref().map(|h| api::Halt {

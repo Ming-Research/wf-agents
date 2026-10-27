@@ -135,6 +135,47 @@ fn the_owner_switches_the_mode_and_asks_for_a_step() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+/// A flow of two engine steps, as the database keeps a compiled flow.
+const FLOW: &str = r#"{"format":"wf-agents compiled 1","engine":{"steps":{},"actions":{},"checks":{},"inputs":{},
+"values":{},"needs":{}},"tools":[],"settings":[],"graphs":[{"name":"g","start":"a","end":"b","within":"outcome",
+"asking":[],"receive":null,"counters":[],"rules":[],"interject":null,"cells":[
+{"id":"a","kind":"engine","gate":false,"title":"Start","inputs":[],"prompt_by":null,"schema":{"type":"object",
+"properties":{"head":{"type":"string","description":"The head"}},"required":["head"]},"rows":[{"name":"go",
+"if":[["has","head"]],"to":"b","waits":false,"interject":false,"main":true,"common":false}]},
+{"id":"b","kind":"engine","gate":false,"title":"End","inputs":[{"what":"the head","from":[["a","head"]],
+"maybe":false}],"prompt_by":null,"schema":null,"rows":[]}]}]}"#;
+
+#[test]
+fn the_flow_page_reads_a_version_explained_and_compared() {
+    let s = serve("flow");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)",
+            [FLOW.replace('\n', "")],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, view) = get(s.port, "/api/v1/flows/1/view", &here, "");
+    assert_eq!(status, 200, "{view}");
+    // The end is entered from the start's row, and the start's field is read by the end's input and the row.
+    assert!(view.contains(r#""entered_from":[{"cell":"a","row":0}]"#), "{view}");
+    assert!(
+        view.contains(r#""used_by":[{"kind":"condition","cell":"a","row":0},{"kind":"input","cell":"b","input":0}]"#),
+        "{view}"
+    );
+    let (status, diff) = get(s.port, "/api/v1/flows/diff?from=1&to=1", &here, "");
+    assert_eq!(status, 200, "{diff}");
+    assert!(diff.ends_with(r#"{"graphs":[]}"#), "{diff}");
+    assert_eq!(get(s.port, "/api/v1/flows/diff?from=1", &here, "").0, 422);
+    assert_eq!(get(s.port, "/api/v1/flows/2/view", &here, "").0, 404);
+    // The data directory here holds no configuration, so no project's checkout is known.
+    assert_ne!(get(s.port, "/api/v1/flows/at?project=p&ref=main", &here, "").0, 200);
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 /// Reads the stream until `want` appears in it.
 fn read_until(s: &mut TcpStream, seen: &mut String, want: &str) {
     let started = Instant::now();

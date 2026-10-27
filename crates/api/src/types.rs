@@ -47,8 +47,6 @@ pub struct Status {
     pub flow_version: i64,
     /// The configuration commit the engine runs with.
     pub config_commit: String,
-    /// The language everything the owner reads is written in, as the configuration's `owner.language` names it.
-    pub language: String,
     /// When the engine started.
     pub started_at: i64,
     /// The version of wf-agents that runs.
@@ -425,4 +423,298 @@ pub struct SetMode {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ApiError {
     pub error: String,
+}
+
+/// What the flow page shows of a compiled flow besides the flow itself, graph by graph.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct FlowView {
+    pub graphs: Vec<GraphView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct GraphView {
+    pub name: String,
+    /// Each cell, in the order the graph has them.
+    pub cells: Vec<CellView>,
+}
+
+/// One cell, as the flow page explains it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CellView {
+    pub id: String,
+    /// For each row of its transition table, in order, the cells the row can lead to: its target, or the cells a
+    /// target the engine keeps track of (`@self`, `@caller`, `@asker`, `@stopped`) can be.
+    pub targets: Vec<Vec<String>>,
+    /// Every row of every cell that can lead here, in the order of the cells and of their rows.
+    pub entered_from: Vec<RowRef>,
+    /// What a round of the cell is given: for an agent's cell, every material, each with its origin and address;
+    /// for any other cell, the sources of its inputs.
+    pub materials: Vec<Material>,
+    /// What the cell hands back, with whatever reads each field.
+    pub returns: Returns,
+}
+
+/// A row of a cell, by its place in the cell's transition table, from 0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RowRef {
+    pub cell: String,
+    pub row: usize,
+}
+
+/// Where a material an agent's round is given comes from, under the rule that each material is given once in a
+/// session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    /// Written by the session's own line: its own returns, never given, only referred to.
+    Line,
+    /// Needed from the start: rules, the item, project settings, the database's index, the return formats; given
+    /// the first time the session needs them.
+    Start,
+    /// From outside: other lines' and the engine's outputs, tool results, replies, interjections; given when a
+    /// version the session does not hold appears.
+    Outside,
+    /// Written by this line or from outside, by the line of the round that wrote it, which is known only when the
+    /// round runs.
+    Either,
+    /// The agent reads it itself: it is no material.
+    Itself,
+}
+
+/// One material a round of a cell is given.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Material {
+    pub origin: Origin,
+    pub of: MaterialOf,
+    /// The address it is given under, as the engine addresses it, with `‹round›`, `‹id›`, `‹cell›` or `‹name›`
+    /// standing for what is known only when the round runs; none for what the agent reads itself.
+    pub address: Option<String>,
+    /// For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
+    /// it can be.
+    pub cells: Vec<String>,
+}
+
+/// What a material is.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MaterialOf {
+    /// One source of one of the cell's inputs, by their places in the cell's inputs and in the input's sources.
+    Input { input: usize, source: usize },
+    /// The project's rules, which every agent is given, as the project's configuration lists them.
+    ProjectRules,
+    /// A rule of the flow the cell is given.
+    Rule { name: String },
+    /// The project settings the project's rules name.
+    Settings,
+    /// The index of the database's tables and views, for a cell that has the query tool.
+    Tables,
+    /// The forms every agent's return shares.
+    CommonFormat,
+    /// The cell's own answer, and which of the shared forms the cell has.
+    CellFormat,
+}
+
+/// What a cell hands back, as a tree of fields.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Returns {
+    /// For an agent's cell: the field its return holds exactly one form in.
+    pub within: Option<String>,
+    /// For an agent's cell: the forms it may hand in, its own answer first.
+    pub forms: Vec<ReturnForm>,
+    /// The fields every return holds: for an agent's cell those beside the form, for any other cell all of them.
+    pub every: Vec<Field>,
+    /// What reads the return as a whole.
+    pub used_by: Vec<Use>,
+}
+
+/// One form an agent's return may hold.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ReturnForm {
+    /// The form's field, such as `ask` or `tools`; none for the cell's own answer.
+    pub field: Option<String>,
+    /// The form's fields: the own answer's fields, or the one field the form is.
+    pub fields: Vec<Field>,
+    /// What reads that a return is this form: the rows whose condition is the cell's own answer.
+    pub used_by: Vec<Use>,
+}
+
+/// The kind of value a field holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldKind {
+    Text,
+    Integer,
+    Number,
+    Boolean,
+    /// One of a fixed set of values.
+    Enum,
+    Object,
+    List,
+    /// One of several shapes, told apart by the value of one field.
+    Union,
+    /// Anything.
+    Any,
+}
+
+/// A field of a return, with whatever reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Field {
+    pub name: String,
+    /// Its path as the flow writes it, such as `end.test_changes[added].catches`.
+    pub path: String,
+    pub kind: FieldKind,
+    /// For a list, the kind of its items.
+    pub item: Option<FieldKind>,
+    pub desc: Option<String>,
+    pub optional: bool,
+    /// For a list, the fewest items it holds.
+    pub min: Option<u64>,
+    /// For one of a fixed set of values: each value, with what it means when the flow says.
+    pub values: Vec<(String, Option<String>)>,
+    pub used_by: Vec<Use>,
+    /// The fields of an object, or of the objects a list holds.
+    pub fields: Vec<Field>,
+    /// For one of several shapes: the field whose value says which, and what reads that field.
+    pub disc: Option<String>,
+    pub disc_used_by: Vec<Use>,
+    /// For one of several shapes: the fields every shape has, and each shape.
+    pub common: Vec<Field>,
+    pub branches: Vec<Branch>,
+}
+
+/// One of the shapes a field may take.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Branch {
+    /// The value of the field that says which shape it is.
+    pub value: String,
+    /// Its path as the flow writes it, such as `result[green]`.
+    pub path: String,
+    pub desc: Option<String>,
+    pub used_by: Vec<Use>,
+    pub fields: Vec<Field>,
+}
+
+/// Something that reads a field of a return.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Use {
+    /// An input of a cell, by its place in the cell's inputs.
+    Input { cell: String, input: usize },
+    /// The condition of a row.
+    Condition { cell: String, row: usize },
+    /// An action a row carries out on it.
+    Action { cell: String, row: usize, action: String },
+    /// What the engine does every time the cell returns it: shows it in a view, or carries out an action.
+    Always {
+        cell: String,
+        view: Option<String>,
+        action: Option<String>,
+    },
+    /// A check the engine makes on it before it takes a row.
+    Check { cell: String, check: String },
+    /// Handed to whoever takes over.
+    Handoff { cell: String },
+}
+
+/// What changed from one compiled flow to another, graph by graph.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct FlowDiff {
+    pub graphs: Vec<GraphDiff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct GraphDiff {
+    pub name: String,
+    /// Whether the graph was added or removed whole, or changed.
+    pub status: ChangeKind,
+    /// What changed in the graph apart from its cells: its start and end, its rules, the interjection, the counters.
+    pub changes: Vec<Change>,
+    /// Each cell added, removed or changed, in the order of the newer flow, the removed ones last.
+    pub cells: Vec<CellDiff>,
+}
+
+/// Whether a thing was added, removed or changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Removed,
+    Changed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CellDiff {
+    pub id: String,
+    /// Its title in the newer flow, or in the older one for a cell removed.
+    pub title: String,
+    pub status: ChangeKind,
+    pub changes: Vec<Change>,
+}
+
+/// The part of a cell or a graph a change is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Part {
+    Title,
+    Kind,
+    Gate,
+    Line,
+    Stage,
+    Step,
+    Needs,
+    Input,
+    Rule,
+    Prompt,
+    PromptBy,
+    Forms,
+    Field,
+    Row,
+    RowOrder,
+    Check,
+    Always,
+    Handoff,
+    Inenum,
+    Start,
+    End,
+    Asking,
+    Receive,
+    Counter,
+    Interjection,
+    Rounds,
+}
+
+/// One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Change {
+    pub part: Part,
+    /// Which one of the part: an input's text, a rule's or a row's name, a field's path, a check's name; empty for
+    /// a part a cell has one of.
+    pub key: String,
+    /// What it was; none for what was added.
+    pub before: Option<Value>,
+    /// What it is; none for what was removed.
+    pub after: Option<Value>,
+}
+
+/// A project's checkout, where the flow can be read at a git ref.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct FlowSource {
+    pub project: String,
+    pub checkout: String,
+    /// Its branches, the most recently committed first.
+    pub refs: Vec<String>,
+}
+
+/// The flow as `flow/flow.json` is at a git ref of a project's checkout, compiled by the flow's compiler.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct FlowAt {
+    pub project: String,
+    /// The ref as it was asked for, and the commit it names.
+    pub rev: String,
+    pub commit: String,
+    pub digest: String,
+    /// The stored flow version with the same digest, when there is one.
+    pub version: Option<i64>,
+    pub compiled: flow::Compiled,
+    pub view: FlowView,
 }
