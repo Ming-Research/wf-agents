@@ -673,7 +673,8 @@ within: string,
 asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
 /**
  * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
- * version stored before the flow said it.
+ * version stored before the flow said it in this form, which runs by the section of the flow built into the
+ * engine.
  */
 rounds?: Rounds | null, cells: Array<CompiledCell>, };
 
@@ -712,23 +713,15 @@ pauseAfter: number, pause: string, };
 export type Failed = { desc: string, kinds: Array<Failure>, };
 
 /**
- * One kind of run that ended without a return.
+ * One kind of run that ended without a return; every agent's cell has a shared row of its name for it.
  */
 export type Failure = { name: string, 
 /**
  * What the command line reports when this happens.
  */
-when: string, handle: Handle, 
-/**
- * For a failure retried: how many times the same round runs again.
- */
-retries?: number | null, 
-/**
- * The cell the work is taken to once the engine gives up; none for a failure it waits out.
- */
-then?: string | null, desc: string, };
+when: string, handle: Handle, desc: string, };
 
-export type Handle = "wait" | "retry" | "ask";
+export type Handle = "wait" | "retry" | "pause";
 
 export type CompiledCell = { id: string, 
 /**
@@ -783,7 +776,11 @@ lines: Array<string> | null,
  */
 without?: Array<string>, };
 
-export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { [key in string]: string }, do?: Array<Do>, counts: string | null, waits: boolean, interject: boolean, main: boolean, 
+export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { [key in string]: string }, do?: Array<Do>, counts: string | null, waits: boolean, 
+/**
+ * The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
+ */
+pauses: boolean, interject: boolean, main: boolean, 
 /**
  * A row every agent's cell has.
  */
@@ -793,9 +790,12 @@ common: boolean, note: string | null, };
  * A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
  * `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
  * them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
- * `["inp", name, values]` (a value the engine knows or rows recorded is one of them).
+ * `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Two hold for no return, and
+ * only the shared rows the rounds section gives every agent's cell have them: `["sent_back"]` (the return is sent
+ * back), with a number (that many of the cell's returns in a row are), and `["failed", kind]` (the run ended
+ * without a return, of that kind).
  */
-export type Atom = ["all"] | ["own"] | ["or", Array<Atom>] | ["has", string] | ["is" | "any" | "none" | "inp", string, Array<string>];
+export type Atom = ["all"] | ["own"] | ["or", Array<Atom>] | ["has", string] | ["is" | "any" | "none" | "inp", string, Array<string>] | ["sent_back"] | ["sent_back", number] | ["failed", string];
 
 /**
  * An action on a row: a name, or a name done for a place of the output.

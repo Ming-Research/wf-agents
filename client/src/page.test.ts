@@ -4,7 +4,7 @@ import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary 
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { addHops, pathOf, type Route as Routed } from './graph/flowLayout';
-import { ASKING, chart, circled, MAIN, overlays, partsOf, sharedRows, taken } from './graph/flowModel';
+import { ASKING, chart, circled, MAIN, numbers, overlays, partsOf, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
@@ -89,6 +89,7 @@ function row(name: string, to: string, extra: Partial<CompiledRow> = {}): Compil
     to,
     counts: null,
     waits: false,
+    pauses: false,
     interject: false,
     main: false,
     common: false,
@@ -205,11 +206,12 @@ describe('the chart of a flow', () => {
     expect(c.groups.map((g) => g.id)).toEqual(['stage:queued', 'stage:build', ASKING, 'stage:done']);
   });
 
-  it('draws the rows every agent cell shares as one circle beside it, numbered', () => {
-    expect(sharedRows(graph.cells[1])).toEqual([0, 3]);
-    expect(node('k:a')?.rows).toEqual([0, 3]);
-    expect(edge('c:a->k:a')?.label).toBe('①④');
+  it('draws the rows every agent cell shares as one circle beside it, numbered, those back to itself too', () => {
+    expect(sharedRows(graph.cells[1])).toEqual([0, 3, 4]);
+    expect(node('k:a')?.rows).toEqual([0, 3, 4]);
+    expect(edge('c:a->k:a')?.label).toBe('①④⑤');
     expect(edge('c:a->c:t')).toBeUndefined();
+    expect(numbers([0, 3, 4, 5, 6, 8])).toBe('①④–⑦⑨');
   });
 
   it('draws the rows to one cell as one arrow with their numbers and names, the main path marked', () => {

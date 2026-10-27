@@ -520,6 +520,12 @@ impl<'s> Graph<'s> {
                 let own = r.conditions.contains(&Atom::Own);
                 ensure!(agent || !own, "only an agent has an own answer to tell apart: {nid}");
                 ensure!(
+                    !r.conditions.iter().any(Atom::about_no_return),
+                    "a row switches on a return sent back or a failed run, which only the shared rows the rounds \
+                     section gives have: {nid} {}",
+                    r.name
+                );
+                ensure!(
                     to != "@asker" || asked.contains(&idx(nid)?),
                     "only a cell that is asked answers the one that asked: {nid} {}",
                     r.name

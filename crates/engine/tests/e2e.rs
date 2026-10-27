@@ -874,17 +874,6 @@ fn told(s: &Setup, word: &str) -> usize {
         .count()
 }
 
-/// The card a work's failed run raised: whom it asks, and the kind of failure.
-fn failure_card(e: &Engine) -> (i64, String, String) {
-    e.db.conn()
-        .query_row(
-            "SELECT id, json_extract(body, '$.to'), json_extract(body, '$.failed.kind') FROM cards WHERE kind = 'ask'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap()
-}
-
 // A usage limit stops every work until the time the CLI says it resets, the owner told once; then the work goes on
 // from its cell, and the failed run is not a return sent back.
 #[test]
@@ -956,10 +945,41 @@ fn a_passing_failure_runs_again_until_it_passes() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A failure no retry can help, such as an expired login, pauses the work and asks the owner at once.
+// An expired login stops every work, the owner told once, until a round runs again: the owner logs in and writes
+// nothing, the work neither pauses nor asks, and the failed run is not a return sent back.
 #[test]
-fn a_run_no_retry_can_help_asks_the_owner_at_once() {
-    let (s, mut e, said, item) = failing("cannot", "Not logged in · Please run /login".to_string(), 1);
+fn an_expired_login_stops_every_work_until_a_round_runs_again() {
+    let (s, mut e, said, item) = failing("login", "Not logged in · Please run /login".to_string(), 1);
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!(h.kind, "cannot_run");
+    assert!(h.until > db::now());
+    let before = rounds_count(&e);
+    e.tick().unwrap();
+    assert_eq!(rounds_count(&e), before);
+    assert_eq!(told(&s, "cannot_run"), 1);
+    e.halt.as_mut().unwrap().until = 0;
+    e.tick().unwrap();
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "1", "{log}");
+    assert_eq!(failed_kinds(&e), ["cannot_run"]);
+    assert_eq!(sent_back(&e), 0);
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM cards", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A prompt too long for the model pauses the work and tells the owner at once; once the owner lets the work go on,
+// the same cell runs again.
+#[test]
+fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
+    let (s, mut e, said, item) = failing("too_long", "Prompt is too long".to_string(), 1);
     for _ in 0..5 {
         e.tick().unwrap();
         if state(&e, item).unwrap().2.is_some() {
@@ -967,16 +987,29 @@ fn a_run_no_retry_can_help_asks_the_owner_at_once() {
         }
     }
     let log = said.borrow().join("\n");
-    let (_, at, paused) = state(&e, item).unwrap();
+    let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "1", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(
-        paused.contains("once") && paused.contains("asked the owner"),
-        "{paused}"
-    );
-    assert_eq!(failed_kinds(&e), ["cannot_run"]);
+    assert!(paused.contains("prompt_too_long"), "{paused}");
+    // The owner is told when the outbox is carried out, at the start of the next pass; the paused work stays.
+    e.tick().unwrap();
+    assert_eq!(told(&s, "is paused"), 1);
+    assert_eq!(failed_kinds(&e), ["prompt_too_long"]);
     assert_eq!(sent_back(&e), 0);
-    let (_, to, kind) = failure_card(&e);
-    assert_eq!((to.as_str(), kind.as_str()), ("owner", "cannot_run"));
+    e.db.write(db::Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+    for _ in 0..5 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "1" {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

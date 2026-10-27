@@ -61,8 +61,9 @@ pub struct CompiledGraph {
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
     /// What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
-    /// version stored before the flow said it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// version stored before the flow said it in this form, which runs by the section of the flow built into the
+    /// engine.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "stored_rounds")]
     pub rounds: Option<Rounds>,
     pub cells: Vec<CompiledCell>,
 }
@@ -103,6 +104,9 @@ pub struct CompiledRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
     pub waits: bool,
+    /// The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
+    #[serde(default)]
+    pub pauses: bool,
     pub interject: bool,
     pub main: bool,
     /// A row every agent's cell has.
@@ -285,6 +289,7 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
         Atom::Has(p) => !values(p).is_empty(),
         Atom::Is(p, vs) | Atom::AnyOf(p, vs) => hit(p, vs),
         Atom::NoneOf(p, vs) => !hit(p, vs),
+        Atom::SentBack(_) | Atom::Failed(_) => false,
     }
 }
 
@@ -707,10 +712,15 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     actions: r.actions.clone(),
                     counts: r.counts.clone(),
                     waits: r.waits,
+                    pauses: false,
                     interject: r.interject,
                     main: r.main,
                     common: r.common,
                     note: r.note.clone(),
+                })
+                .chain(match (&g.flow.rounds, c.kind) {
+                    (Some(r), CellKind::Agent) => no_return_rows(r),
+                    _ => Vec::new(),
                 })
                 .collect(),
             always: c.always.clone(),
@@ -753,44 +763,65 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
     Ok((out, stats))
 }
 
-/// The rounds section as written, once each kind of failure is known to go somewhere that exists.
+/// The rounds section as written, once every agent's cell can have a shared row of each kind's name.
 fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
-    ensure!(r.sent_back.pause_after > 0, "rounds.sentBack.pauseAfter is 0");
-    let mut seen = std::collections::BTreeSet::new();
-    for k in &r.failed.kinds {
-        ensure!(seen.insert(&k.name), "rounds.failed: two kinds named {}", k.name);
-        let to = k.then.as_deref();
-        match k.handle {
-            Handle::Wait => {
-                ensure!(
-                    to.is_none() && k.retries.is_none(),
-                    "rounds.failed {}: a failure waited out goes nowhere and is not retried",
-                    k.name
-                );
-            }
-            Handle::Retry => {
-                ensure!(
-                    k.retries.is_none() == to.is_none() && k.retries.is_none_or(|n| n > 0),
-                    "rounds.failed {}: a failure retried a number of times says where the work goes then, and one \
-                     retried until it passes goes nowhere",
-                    k.name
-                );
-            }
-            Handle::Ask => {
-                ensure!(
-                    k.retries.is_none() && to.is_some(),
-                    "rounds.failed {}: a failure asked about at once is not retried, and says where the work goes",
-                    k.name
-                );
-            }
-        }
-        if let Some(t) = to {
+    ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    for c in cells {
+        let mut seen = std::collections::BTreeSet::new();
+        for row in &c.rows {
             ensure!(
-                cells.iter().any(|c| c.id == t),
-                "rounds.failed {}: no such cell: {t}",
-                k.name
+                seen.insert(&row.name),
+                "a row of cell {} has the name of a shared row the rounds section gives: {}",
+                c.id,
+                row.name
             );
         }
     }
     Ok(r.clone())
+}
+
+/// The shared rows every agent's cell has for a round that ends in no return it takes, as the rounds section says:
+/// a return sent back runs the cell again, and so many in a row pause the work first; a failed run of each kind
+/// runs it again once the cause passes, or after a wait, or once the owner lets the paused work go on.
+fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
+    let row = |name: &str, atom: Atom, note: &str| CompiledRow {
+        name: name.to_string(),
+        conditions: vec![atom],
+        to: "@self".to_string(),
+        sets: BTreeMap::new(),
+        actions: Vec::new(),
+        counts: None,
+        waits: false,
+        pauses: false,
+        interject: false,
+        main: false,
+        common: true,
+        note: Some(note.to_string()),
+    };
+    let mut out = vec![
+        CompiledRow {
+            pauses: true,
+            ..row(
+                "sent_back_too_often",
+                Atom::SentBack(Some(r.sent_back.pause_after)),
+                &r.sent_back.pause,
+            )
+        },
+        row("sent_back", Atom::SentBack(None), &r.sent_back.desc),
+    ];
+    for k in &r.failed.kinds {
+        out.push(CompiledRow {
+            waits: k.handle == Handle::Wait,
+            pauses: k.handle == Handle::Pause,
+            ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
+        });
+    }
+    out
+}
+
+/// The rounds section of a stored flow version; none when it was stored in a form this engine no longer reads, so
+/// that the version stays readable and runs by the section of the flow built into the engine.
+fn stored_rounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Rounds>, D::Error> {
+    let v = Option::<Value>::deserialize(d)?;
+    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }

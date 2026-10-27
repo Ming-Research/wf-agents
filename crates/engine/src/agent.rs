@@ -308,7 +308,7 @@ fn json_in(text: &str) -> Option<Value> {
 /// The kinds of run that end without a return, as the flow's rounds section names them, and what tells each apart in
 /// what the CLI reports. The first kind whose words the report holds is the kind; a report that holds none of them is
 /// a passing failure.
-const KINDS: [(&str, &[&str]); 3] = [
+const KINDS: [(&str, &[&str]); 4] = [
     (
         "usage_limit",
         &[
@@ -329,12 +329,13 @@ const KINDS: [(&str, &[&str]); 3] = [
             "token has expired",
             "authentication_error",
             "authentication failed",
-            "prompt is too long",
-            "prompt too long",
-            "context length",
             "no such file or directory",
             "command not found",
         ],
+    ),
+    (
+        "prompt_too_long",
+        &["prompt is too long", "prompt too long", "context length"],
     ),
     (
         "offline",
@@ -526,7 +527,7 @@ mod tests {
         assert_eq!(failure_kind("Claude AI usage limit reached|1760000000"), "usage_limit");
         assert_eq!(failure_kind("You've hit your limit · resets 5pm"), "usage_limit");
         assert_eq!(failure_kind("Invalid API key · Please run /login"), "cannot_run");
-        assert_eq!(failure_kind("Prompt is too long"), "cannot_run");
+        assert_eq!(failure_kind("Prompt is too long"), "prompt_too_long");
         assert_eq!(
             failure_kind("claude: No such file or directory (os error 2)"),
             "cannot_run"

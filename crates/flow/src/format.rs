@@ -224,7 +224,7 @@ pub struct Failed {
     pub kinds: Vec<Failure>,
 }
 
-/// One kind of run that ended without a return.
+/// One kind of run that ended without a return; every agent's cell has a shared row of its name for it.
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Failure {
@@ -232,13 +232,6 @@ pub struct Failure {
     /// What the command line reports when this happens.
     pub when: String,
     pub handle: Handle,
-    /// For a failure retried: how many times the same round runs again before the work goes to `then`; none runs
-    /// it again until it passes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retries: Option<u32>,
-    /// The cell the work is taken to once the engine gives up; none for a failure it waits out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub then: Option<String>,
     pub desc: String,
 }
 
@@ -247,11 +240,10 @@ pub struct Failure {
 pub enum Handle {
     /// No new round starts for any work until the cause passes; then each work goes on from its cell.
     Wait,
-    /// The same round runs again, waiting longer each time, until it passes or as many times as the flow says, after
-    /// which the work goes to `then`.
+    /// The same round runs again, waiting longer each time, until it passes.
     Retry,
-    /// The work goes to `then` at once.
-    Ask,
+    /// The work pauses, and the owner is told; once the owner lets it go on, the same round runs again.
+    Pause,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -721,11 +713,14 @@ impl From<Src> for Value {
 /// A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
 /// `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
 /// them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
-/// `["inp", name, values]` (a value the engine knows or rows recorded is one of them).
+/// `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Two hold for no return, and
+/// only the shared rows the rounds section gives every agent's cell have them: `["sent_back"]` (the return is sent
+/// back), with a number (that many of the cell's returns in a row are), and `["failed", kind]` (the run ended
+/// without a return, of that kind).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(try_from = "Value", into = "Value")]
 #[ts(
-    type = "[\"all\"] | [\"own\"] | [\"or\", Array<Atom>] | [\"has\", string] | [\"is\" | \"any\" | \"none\" | \"inp\", string, Array<string>]"
+    type = "[\"all\"] | [\"own\"] | [\"or\", Array<Atom>] | [\"has\", string] | [\"is\" | \"any\" | \"none\" | \"inp\", string, Array<string>] | [\"sent_back\"] | [\"sent_back\", number] | [\"failed\", string]"
 )]
 pub enum Atom {
     All,
@@ -736,6 +731,19 @@ pub enum Atom {
     AnyOf(String, BTreeSet<String>),
     NoneOf(String, BTreeSet<String>),
     Inp(String, BTreeSet<String>),
+    SentBack(Option<u32>),
+    Failed(String),
+}
+
+impl Atom {
+    /// Whether the condition is about a round that ended in no return the cell takes, which no return meets.
+    pub fn about_no_return(&self) -> bool {
+        match self {
+            Atom::SentBack(_) | Atom::Failed(_) => true,
+            Atom::Or(xs) => xs.iter().any(Atom::about_no_return),
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<Value> for Atom {
@@ -770,6 +778,13 @@ impl TryFrom<Value> for Atom {
                     .map(Atom::Or)
             }
             "has" => len(2).and_then(|_| text(1)).map(Atom::Has),
+            "sent_back" if a.len() == 1 => Ok(Atom::SentBack(None)),
+            "sent_back" => {
+                len(2)?;
+                let n = a[1].as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(bad)?;
+                Ok(Atom::SentBack(Some(n)))
+            }
+            "failed" => len(2).and_then(|_| text(1)).map(Atom::Failed),
             "is" | "any" | "none" | "inp" => {
                 len(3)?;
                 let (p, s) = (text(1)?, set(2)?);
@@ -797,6 +812,9 @@ impl From<Atom> for Value {
             Atom::AnyOf(p, s) => serde_json::json!(["any", p, set(s)]),
             Atom::NoneOf(p, s) => serde_json::json!(["none", p, set(s)]),
             Atom::Inp(p, s) => serde_json::json!(["inp", p, set(s)]),
+            Atom::SentBack(None) => serde_json::json!(["sent_back"]),
+            Atom::SentBack(Some(n)) => serde_json::json!(["sent_back", n]),
+            Atom::Failed(k) => serde_json::json!(["failed", k]),
         }
     }
 }

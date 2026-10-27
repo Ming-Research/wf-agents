@@ -395,7 +395,6 @@ impl Engine {
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
-        failed::resume_answered(self)?;
         if self.halted() {
             return Ok(moved);
         }
@@ -428,7 +427,6 @@ impl Engine {
     pub fn step(&mut self, after: Option<i64>) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
-        failed::resume_answered(self)?;
         if self.halted() {
             return Ok(Stepped::default());
         }

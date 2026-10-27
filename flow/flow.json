@@ -7762,20 +7762,20 @@
         ]
       },
       "rounds": {
-        "desc": "What the engine does with an agent's round that does not end in a return the cell takes. Every agent's cell has this alike: a return can be sent back, or the agent's command line can end without handing in a return at all. Neither is a row of the cell.",
+        "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
         "sentBack": {
-          "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told where the return does not fit and what it must be.",
+          "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason; once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
-          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports.",
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
           "kinds": [
             {
               "name": "usage_limit",
               "when": "The account's usage limit is reached; the command line says when it resets",
               "handle": "wait",
-              "desc": "The engine starts no new round for any work until the time the command line gives, tells the owner once, then carries on each work from the cell it recorded. One cause stops every work alike, so no work uses up retries or raises a card of its own."
+              "desc": "The engine starts no new round for any work until the time the command line gives, tells the owner once, then carries on each work from the cell it recorded. One cause stops every work alike, so no work is retried or paused for it on its own."
             },
             {
               "name": "offline",
@@ -7791,10 +7791,15 @@
             },
             {
               "name": "cannot_run",
-              "when": "The login has expired, the command line cannot be found, or the prompt is too long for the model",
-              "handle": "ask",
-              "then": "16",
-              "desc": "Retrying cannot help, so the engine does not retry: it pauses the work and gives the owner a card at once. Only the owner can log in again or change what is installed; a prompt too long is a defect of the engine's to fix."
+              "when": "The login has expired, or the command line cannot be found",
+              "handle": "wait",
+              "desc": "Only the owner can log in again or install the command line, and one cause stops every work alike: the engine starts no new round for any work, tells the owner once, lets one round try every half minute, and once one runs carries on each work from the cell it recorded. The owner logs in or installs, and writes nothing."
+            },
+            {
+              "name": "prompt_too_long",
+              "when": "The prompt is too long for the model",
+              "handle": "pause",
+              "desc": "Running again cannot help: it is a defect of the engine's to fix. The engine pauses the work and tells the owner; once the owner lets the work go on, the same cell runs again."
             }
           ]
         },

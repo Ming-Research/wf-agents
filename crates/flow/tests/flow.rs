@@ -29,27 +29,68 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-// The rounds section reaches the compiled flow with every kind of failed run, and a kind that goes to no cell, or a
-// retried kind that does not say how many times, is refused.
+// The rounds section reaches the compiled flow with every kind of failed run, and gives every agent's cell, and only
+// an agent's, a shared row back to itself for a return sent back, for so many in a row, and for each kind; a row of
+// the flow's own cannot switch on what only those rows do, nor take one of their names.
 #[test]
-fn the_rounds_section_is_compiled_and_checked() {
+fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     let c = compiled();
-    let r = c.graph("engineer").unwrap().rounds.clone().expect("the rounds section");
+    let g = c.graph("engineer").unwrap();
+    let r = g.rounds.clone().expect("the rounds section");
     assert_eq!(r.sent_back.pause_after, 3);
     let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
-    assert_eq!(kinds, ["usage_limit", "offline", "transient", "cannot_run"]);
+    assert_eq!(
+        kinds,
+        ["usage_limit", "offline", "transient", "cannot_run", "prompt_too_long"]
+    );
+    for cell in &g.cells {
+        let shared: Vec<&flow::CompiledRow> = cell
+            .rows
+            .iter()
+            .filter(|x| x.conditions.iter().any(|a| a.about_no_return()))
+            .collect();
+        if cell.kind != "agent" {
+            assert!(shared.is_empty(), "{}", cell.id);
+            continue;
+        }
+        let names: Vec<&str> = shared.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "sent_back_too_often",
+                "sent_back",
+                "usage_limit",
+                "offline",
+                "transient",
+                "cannot_run",
+                "prompt_too_long"
+            ],
+            "{}",
+            cell.id
+        );
+        assert!(shared.iter().all(|x| x.to == "@self" && x.common && x.counts.is_none()));
+        let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
+        assert_eq!(pauses, ["sent_back_too_often", "prompt_too_long"]);
+        let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
+        assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
+        assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
+    }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "99".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "16".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("rounds.failed cannot_run: no such cell: 99"), "{e}");
-    // A passing failure runs again until it passes, so it goes nowhere; a number of times needs a cell to go to.
-    let transient = &r.failed.kinds[2];
-    assert!(transient.retries.is_none() && transient.then.is_none());
+    assert!(e.contains("unknown field `then`"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][2]["retries"] = 2.into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][1]["name"] = "pause".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
-        e.contains("a failure retried a number of times says where the work goes then"),
+        e.contains("has the name of a shared row the rounds section gives: pause"),
+        "{e}"
+    );
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["agentCommon"]["rows"][1]["if"] = serde_json::json!([["sent_back"]]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("a row switches on a return sent back or a failed run"),
         "{e}"
     );
 }

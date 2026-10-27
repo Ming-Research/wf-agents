@@ -56,11 +56,25 @@ const CALLER = '@caller';
 const ASKER = '@asker';
 const STOPPED = '@stopped';
 
-/// The rows an agent's cell shares with every agent's cell that the shared circle carries: all but those that come
-/// back to the cell itself, which the cell's transition table lists.
+/// The rows an agent's cell shares with every agent's cell, which the shared circle beside it carries: those that
+/// lead elsewhere, and those that come back to the cell itself (a pause, answers, a return sent back, a run that
+/// ended without a return).
 export function sharedRows(c: CompiledCell): number[] {
   if (c.kind !== 'agent') return [];
-  return c.rows.flatMap((r, i) => (r.common && r.to !== SELF ? [i] : []));
+  return c.rows.flatMap((r, i) => (r.common ? [i] : []));
+}
+
+/// Rows' numbers, circled, three or more in a row written as the first and the last.
+export function numbers(rows: number[]): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1) j += 1;
+    out.push(j - i >= 2 ? `${circled(rows[i])}–${circled(rows[j])}` : rows.slice(i, j + 1).map(circled).join(''));
+    i = j + 1;
+  }
+  return out.join('');
 }
 
 /// The part each cell is drawn in. The asking part is a part of its own; a cell outside it that no row leads to but
@@ -86,7 +100,7 @@ export function partsOf(g: CompiledGraph, v: GraphView): Map<string, string> {
 
 /// The label of an arrow: the rows' numbers and names, or only the names when the cell has one row.
 function label(c: CompiledCell, rows: number[], names = true): string {
-  const nos = c.rows.length > 1 ? rows.map(circled).join('') : '';
+  const nos = c.rows.length > 1 ? numbers(rows) : '';
   const said = names ? [...new Set(rows.map((i) => c.rows[i].name))].join(', ') : '';
   return [nos, said].filter((s) => s !== '').join(' ');
 }

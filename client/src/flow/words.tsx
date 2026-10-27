@@ -42,6 +42,10 @@ export function conditionWords(a: Atom, known: Set<string>): string {
       return t('cond_none', { path: `\`${a[1]}\``, values: valuesWords(a[2]) });
     case 'inp':
       return t(known.has(a[1]) ? 'cond_engine' : 'cond_recorded', { name: `\`${a[1]}\``, values: valuesWords(a[2]) });
+    case 'sent_back':
+      return a.length === 2 ? t('cond_sent_back_n', { n: a[1] }) : t('cond_sent_back');
+    case 'failed':
+      return t('cond_failed', { kind: `\`${a[1]}\`` });
   }
 }
 

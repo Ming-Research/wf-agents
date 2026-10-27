@@ -89,9 +89,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             sent_back.len(),
             cell.id
         );
-        e.pause(w.id, &why)?;
-        (e.say)(&format!("work {} paused: {why}", w.id));
-        return Ok(Advance::Stopped);
+        return failed::pause(e, w, &why);
     }
     let (level, cli) = e
         .config
@@ -198,11 +196,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let Some(output) = reply.output.clone() else {
         let f = Failed {
             w,
-            g,
             cell,
             round,
-            at_cell: &at_cell,
-            resumed,
             section: &section,
         };
         return f.handle(e, ended, &reply);

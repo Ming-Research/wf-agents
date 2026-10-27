@@ -1,7 +1,8 @@
-//! Agent rounds that do not end in a return the cell takes, handled as the flow's rounds section says. A return sent
-//! back runs the cell again, and so many in a row pause the work. A run that ends without a return is told apart by
-//! what the command line reports, and is waited out for every work, run again, or asked about; it never counts as a
-//! return sent back.
+//! Agent rounds that do not end in a return the cell takes, handled as the flow's rounds section says, which gives
+//! every agent's cell a shared row for each. A return sent back runs the cell again, and so many in a row pause the
+//! work. A run that ends without a return is told apart by what the command line reports, and is waited out for every
+//! work, run again until it passes, or pauses the work; it never counts as a return sent back, and never asks for a
+//! written answer.
 
 use std::time::Duration;
 
@@ -26,8 +27,8 @@ pub struct Halt {
     pub why: String,
 }
 
-/// How long the engine waits, each time the network is found down, before it lets one round find out whether it is
-/// back.
+/// How long the engine waits, each time a cause it does not know the end of is found to last (the network is down,
+/// the login has expired), before it lets one round find out whether it has passed.
 const PROBE: i64 = 30_000;
 
 /// The longest a run that failed in passing waits before it runs again.
@@ -126,15 +127,24 @@ pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s:
     })
 }
 
+/// Pauses a work and tells the owner why; once the owner lets it go on, its cell runs again.
+pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
+    let item = e.item_of(w)?;
+    let text = format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET paused = ?2 WHERE id = ?1", params![w.id, why])?;
+        actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
+    })
+    .map_err(sql)?;
+    (e.say)(&format!("work {} paused: {why}", w.id));
+    Ok(Advance::Stopped)
+}
+
 /// What a round whose run ended without a return was, and what came of it.
 pub struct Failed<'a> {
     pub w: &'a Work,
-    pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
     pub round: i64,
-    /// The cell's rounds before this one, newest first, and when the owner last let the work go on.
-    pub at_cell: &'a [Round],
-    pub resumed: Option<i64>,
     pub section: &'a Rounds,
 }
 
@@ -187,11 +197,18 @@ impl Failed<'_> {
                 });
                 if first {
                     e.told = Some(kind.name.clone());
-                    let text = format!(
-                        "No agent round starts for any work until {}: the command line reports {} ({what}). Each work goes on from its cell then.",
-                        utc(until),
-                        kind.name
-                    );
+                    let text = if kind.name == "usage_limit" {
+                        format!(
+                            "No agent round starts for any work until {}: the command line reports {} ({what}). Each work goes on from its cell then.",
+                            utc(until),
+                            kind.name
+                        )
+                    } else {
+                        format!(
+                            "No agent round starts for any work while the command line reports {} ({what}): {} One round tries every half minute, and each work goes on from its cell once one runs.",
+                            kind.name, kind.desc
+                        )
+                    };
                     let w = self.w.id;
                     e.db.write(Actor::Engine, |tx| {
                         actions::notify(tx, Some(w), &text).map_err(db::Error::Abort)
@@ -200,106 +217,17 @@ impl Failed<'_> {
                 }
                 Ok(Advance::Waits(format!("{} until {}", kind.name, utc(until))))
             }
-            Handle::Retry => {
-                // A failure retried without a number of times runs again until it passes.
-                let tries = retried(self.at_cell, self.resumed, self.section).len() + 1;
-                if kind.retries.is_none_or(|n| tries as u32 <= n) {
-                    return Ok(Advance::Moved);
-                }
-                self.give_up(e, &kind, &what, tries)
+            // The cell runs again once its wait is over, until it passes.
+            Handle::Retry => Ok(Advance::Moved),
+            Handle::Pause => {
+                let why = format!(
+                    "cell {}: the agent's run ended without a return ({}): {what}",
+                    self.cell.id, kind.name
+                );
+                pause(e, self.w, &why)
             }
-            Handle::Ask => self.give_up(e, &kind, &what, 1),
         }
     }
-
-    /// Pauses the work and asks whom the kind's cell asks (the architect or the owner, a card for the owner either
-    /// way in this version, while the architect's flow does not run); the cell runs again once the card is answered.
-    fn give_up(&self, e: &mut Engine, kind: &Failure, what: &str, tries: usize) -> Result<Advance, String> {
-        let w = self.w;
-        let to = match kind
-            .then
-            .as_deref()
-            .and_then(|t| self.g.cell(t))
-            .and_then(|c| c.step.as_deref())
-        {
-            Some("ask_architect") => "architect",
-            _ => "owner",
-        };
-        let item = e.item_of(w)?;
-        let body = json!({
-            "to": to,
-            "work": w.id,
-            "item": item.id,
-            "title": item.title,
-            "failed": {
-                "cell": self.cell.id,
-                "kind": kind.name,
-                "what": what,
-                "tries": tries,
-                "round": self.round,
-                "then": kind.then,
-            },
-        });
-        let why = format!(
-            "cell {}: the agent's run ended without a return, {} ({}): {what}",
-            self.cell.id,
-            if tries == 1 {
-                "once".to_string()
-            } else {
-                format!("{tries} times in a row")
-            },
-            kind.name
-        );
-        let note = format!(
-            "Work {} on item {} ({}) asks the {to}: {why}; card",
-            w.id, item.id, item.title
-        );
-        let round = self.round;
-        let card =
-            e.db.write(Actor::Engine, |tx| {
-                tx.execute(
-                    "INSERT INTO cards (round, kind, body, status) VALUES (?1, 'ask', ?2, 'open')",
-                    params![round, body.to_string()],
-                )?;
-                let card = tx.last_insert_rowid();
-                actions::notify(tx, Some(w.id), &format!("{note} {card}")).map_err(db::Error::Abort)?;
-                tx.execute(
-                    "UPDATE works SET paused = ?2 WHERE id = ?1",
-                    params![w.id, format!("{why}; asked the {to} in card {card}")],
-                )?;
-                Ok(card)
-            })
-            .map_err(sql)?;
-        (e.say)(&format!("work {} paused: {why}; card {card}", w.id));
-        Ok(Advance::Stopped)
-    }
-}
-
-/// Lets each work paused for a failed run go on once the card the run raised is answered: its cell runs again.
-pub fn resume_answered(e: &mut Engine) -> Result<(), String> {
-    let rows = work::query_json(
-        e.db.conn(),
-        "SELECT w.id AS work, c.id AS card FROM works w
-           JOIN rounds r ON r.id = (SELECT max(x.id) FROM rounds x WHERE x.work = w.id)
-           JOIN cards c ON c.round = r.id
-         WHERE w.paused IS NOT NULL AND w.ended IS NULL AND c.kind = 'ask' AND c.status = 'ruled'
-           AND json_extract(r.rejected, '$.failed') IS NOT NULL",
-        &[],
-        1000,
-    )?;
-    for r in rows {
-        let (work, card) = (
-            r["work"].as_i64().unwrap_or_default(),
-            r["card"].as_i64().unwrap_or_default(),
-        );
-        e.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
-            Ok(())
-        })
-        .map_err(sql)?;
-        (e.say)(&format!("work {work} goes on: card {card} is answered"));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

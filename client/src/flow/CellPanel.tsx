@@ -217,6 +217,7 @@ function Table({ c, highlight }: { c: CompiledCell; highlight: number[] }) {
               {r.main ? <span className="tag tag-main">{t('row_main')}</span> : null}
               {r.common ? <span className="tag">{t('row_shared')}</span> : null}
               {r.waits ? <span className="tag">{t('row_waits')}</span> : null}
+              {r.pauses ? <span className="tag">{t('row_pauses')}</span> : null}
               {r.interject ? <span className="tag">{t('row_interjection')}</span> : null}
             </div>
             <div className="tx">
