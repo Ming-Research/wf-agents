@@ -25,7 +25,7 @@ const blank = (l: string) => l.trim() === '';
 const indentOf = (l: string) => l.length - l.trimStart().length;
 const ordered = (marker: string) => /\d/.test(marker);
 /// A sentence ends with a full stop, an exclamation or a question mark, those of Chinese and Japanese too.
-const endsSentence = (l: string) => /[。！？.!?]\s*$/.test(l);
+const endsSentence = (l: string) => /[\u3002\uff01\uff1f.!?]\s*$/.test(l);
 
 /// The blocks of a text.
 export function parse(text: string): Block[] {
