@@ -423,7 +423,10 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
 /// with a commit, whose committed configuration is valid. A place that is not one gets nothing made in it.
 fn init(d: &Path) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
-    engine::compile_for(&committed.config)?;
+    // The compile of the flow is the slow part of the check, and where `create` refuses anyway it is left out.
+    if !engine::database::exists(d) {
+        engine::compile_for(&committed.config)?;
+    }
     let path = engine::database::create(d)?;
     println!("created {}", path.display());
     Ok(())

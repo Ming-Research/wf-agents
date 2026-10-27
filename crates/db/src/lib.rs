@@ -167,7 +167,7 @@ impl Db {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = match Connection::open_with_flags(path, flags) {
             Ok(conn) => conn,
-            Err(_) if !path.exists() => return Err(Error::Missing),
+            Err(_) if matches!(path.try_exists(), Ok(false)) => return Err(Error::Missing),
             Err(e) => return Err(e.into()),
         };
         let mut db = Db::set_up(conn)?;
@@ -293,23 +293,20 @@ impl Db {
     /// makes the triggers that track changes afresh. A file with nothing in it holds no database.
     fn migrate(&mut self, migrations: &[&str]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
-        if version_of(&self.conn)? == version {
+        // Settled on reads that take no lock, so that a database which needs nothing, or is refused, does not wait
+        // for a writer.
+        let at = version_of(&self.conn)?;
+        if up_to_date(at, version)? {
             return Ok(());
+        }
+        if at == 0 {
+            return Err(refusal(&self.conn)?);
         }
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         // Judged again under the lock: another process may have migrated it while this one waited.
         let at = version_of(&tx)?;
-        if at > version {
-            return Err(Error::Newer(at));
-        }
-        if at == version {
+        if up_to_date(at, version)? {
             return Ok(());
-        }
-        if at == 0 {
-            if is_empty(&tx)? {
-                return Err(Error::Missing);
-            }
-            return Err(Error::Foreign);
         }
         for m in &migrations[at as usize - 1..] {
             tx.execute_batch(m)?;
@@ -319,6 +316,22 @@ impl Db {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Whether a database at version `at` is already at `version`; one from a newer wf-agents is refused.
+fn up_to_date(at: i64, version: i64) -> Result<bool> {
+    if at > version {
+        return Err(Error::Newer(at));
+    }
+    Ok(at == version)
+}
+
+/// Why a file at version 0 is no database of this program: it holds nothing, or it holds other tables.
+fn refusal(conn: &Connection) -> Result<Error> {
+    if is_empty(conn)? {
+        return Ok(Error::Missing);
+    }
+    Ok(Error::Foreign)
 }
 
 /// The version a database is at, which is 0 for a file with nothing made in it.
@@ -1038,15 +1051,21 @@ mod tests {
         assert!(!Path::new(&format!("{}-wal", path.display())).exists());
     }
 
-    // A database made at a path has the shape of a new one in memory, with its version and triggers, and opens again;
-    // a place with a database or other tables in it is refused and what is there stays; an empty file is taken.
+    /// The database has the shape of a new one in memory, triggers and version included.
+    fn assert_like_new(db: &Db) {
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(db.conn()).unwrap(), shape(new.conn()).unwrap());
+        assert_eq!(version_of(db.conn()).unwrap(), VERSION);
+    }
+
+    // A database made at a path, whether there was no file or an empty one, has the shape of a new one in memory, with
+    // its version and triggers, and opens again; a place with a database or other tables in it is refused and what is
+    // there stays.
     #[test]
     fn creating_makes_a_new_database_and_refuses_a_place_with_anything_in_it() {
         let path = temp("create");
         let mut made = Db::create(&path).unwrap();
-        let new = Db::in_memory().unwrap();
-        assert_eq!(shape(made.conn()).unwrap(), shape(new.conn()).unwrap());
-        assert_eq!(version_of(made.conn()).unwrap(), VERSION);
+        assert_like_new(&made);
         made.write(Actor::Owner, |tx| item(tx, "kept")).unwrap();
         drop(made);
         assert!(matches!(Db::create(&path), Err(Error::Exists)));
@@ -1063,8 +1082,31 @@ mod tests {
 
         let empty = temp("create-empty");
         std::fs::write(&empty, b"").unwrap();
-        Db::create(&empty).unwrap();
+        let created = Db::create(&empty).unwrap();
+        assert_like_new(&created);
         Db::open(&empty).unwrap();
+    }
+
+    // Of two creations at the same path at once only one builds; the other is told a database is there, and the
+    // database opens.
+    #[test]
+    fn of_two_creations_at_once_only_one_builds() {
+        for round in 0..8 {
+            let path = temp(&format!("race-{round}"));
+            let start = std::sync::Barrier::new(2);
+            let racer = || {
+                start.wait();
+                Db::create(&path).map(|_| ())
+            };
+            let made = std::thread::scope(|s| {
+                let (a, b) = (s.spawn(racer), s.spawn(racer));
+                [a.join().unwrap(), b.join().unwrap()]
+            });
+            let built = made.iter().filter(|r| r.is_ok()).count();
+            let told = made.iter().filter(|r| matches!(r, Err(Error::Exists))).count();
+            assert_eq!((built, told), (1, 1), "{made:?}");
+            Db::open(&path).unwrap();
+        }
     }
 
     // A database migrated from an older version has the shape of one created afresh; a migration that forgets a
