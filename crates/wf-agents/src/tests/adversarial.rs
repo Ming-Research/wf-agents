@@ -3,7 +3,9 @@
 //! reads are in one table, with the command lines they write, so that clap, which parses those command lines, can be
 //! asked which of them are wrong. The forms outside the convention are in two more tables: the ones the check has to
 //! report, and the ones it has to leave alone. A case stands for one branch of the reader, and its name says which;
-//! two cases for the same branch are one. The texts that the acceptance conditions name are in `readme.rs`.
+//! two cases for the same branch are one. The texts that the acceptance conditions name are in `readme.rs`. The wrong
+//! commands that the check passes in silence, and the right texts that it reports, each have a test of their own below
+//! the tables, so that a row of them can be settled alone.
 
 use clap::error::ErrorKind;
 
@@ -27,6 +29,16 @@ struct Form {
     name: &'static str,
     /// The Markdown that writes it.
     text: &'static str,
+}
+
+/// A wrong command line written in a form the check has to read or report, so that it does not pass in silence.
+struct Hidden {
+    /// What it tries.
+    name: &'static str,
+    /// The Markdown that writes it.
+    text: &'static str,
+    /// The command line it means, as a shell runs it, which clap turns down.
+    runs: &'static str,
 }
 
 const CASES: &[Case] = &[
@@ -154,6 +166,46 @@ const CASES: &[Case] = &[
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
+    Case {
+        // CommonMark 0.31, fenced code blocks: a closing fence is made of the character that opened the block.
+        name: "a line of tildes does not close a block fenced with backticks",
+        text: "```\n~~~\nwf-agents queue add\n```",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        // CommonMark 0.31, fenced code blocks: a closing fence has nothing but spaces after it, so a fence with an
+        // info string is a line of the block.
+        name: "a fence with an info string does not close a block",
+        text: "```\n```sh\nwf-agents queue add\n```",
+        runs: &["wf-agents queue add"],
+        wrong: "add",
+    },
+    Case {
+        // CommonMark 0.31, fenced code blocks: a fence is three characters or more, so struck-out text opens none.
+        name: "two tildes are not a fence",
+        text: "~~struck out~~\nwf-agents belongs to no project",
+        runs: &[],
+        wrong: "",
+    },
+    Case {
+        name: "a short option before the subcommands of a group",
+        text: "`wf-agents queue -h`",
+        runs: &["wf-agents queue -h"],
+        wrong: "",
+    },
+    Case {
+        name: "an option is looked up in the command it follows, not in another",
+        text: "`wf-agents status --verdict confirm`",
+        runs: &["wf-agents status --verdict confirm"],
+        wrong: "verdict",
+    },
+    Case {
+        name: "an option of a command written before that command",
+        text: "`wf-agents --once run`",
+        runs: &["wf-agents --once run"],
+        wrong: "once",
+    },
 ];
 
 /// Forms the check does not read, in which `wf-agents` starts a command: it has to report each, whether the command in
@@ -199,6 +251,22 @@ const OUTSIDE: &[Form] = &[
         name: "an option in prose",
         text: "Start it with wf-agents --version",
     },
+    Form {
+        name: "a semicolon after a command that is right",
+        text: "`wf-agents status; echo done`",
+    },
+    Form {
+        name: "a command substitution with no second command",
+        text: "`wf-agents say 3 $(date)`",
+    },
+    Form {
+        name: "an ampersand with no second command",
+        text: "`wf-agents run --once &`",
+    },
+    Form {
+        name: "a command in prose, with a full stop after it",
+        text: "Start it with wf-agents run.",
+    },
 ];
 
 /// Places where `wf-agents` is not the start of a command: the check has to leave each alone.
@@ -214,6 +282,68 @@ const QUIET: &[Form] = &[
     Form {
         name: "an indented line that goes on with a paragraph",
         text: "Prose that goes on\n    wf-agents belongs to no project",
+    },
+    Form {
+        name: "a path to the crate in a line that is no command",
+        text: "`cd crates/wf-agents && cargo test`",
+    },
+    Form {
+        name: "the name joined by a dash to a number",
+        text: "`wf-agents-1 status`",
+    },
+];
+
+/// Spans that wrap right after the name, so that the name ends a line and the command is on the next one.
+const WRAPPED: &[Hidden] = &[
+    Hidden {
+        name: "a wrong subcommand on the next line",
+        text: "see `wf-agents\nqueue add` now",
+        runs: "wf-agents queue add",
+    },
+    Hidden {
+        name: "a wrong option on the next line, in a list",
+        text: "- run `wf-agents\n  run --twice` now",
+        runs: "wf-agents run --twice",
+    },
+];
+
+/// The program run by the path of the binary, which is not the program's name alone.
+const BY_PATH: &[Hidden] = &[
+    Hidden {
+        name: "a path in the build directory",
+        text: "`./target/release/wf-agents run --twice`",
+        runs: "wf-agents run --twice",
+    },
+    Hidden {
+        name: "a path in the home directory",
+        text: "`~/.local/bin/wf-agents queue add`",
+        runs: "wf-agents queue add",
+    },
+];
+
+/// An option written inside brackets, as the synopsis of a command writes it.
+const IN_BRACKETS: &[Hidden] = &[
+    Hidden {
+        name: "square brackets",
+        text: "`wf-agents run [--twice]`",
+        runs: "wf-agents run --twice",
+    },
+    Hidden {
+        name: "parentheses",
+        text: "`wf-agents run (--twice)`",
+        runs: "wf-agents run --twice",
+    },
+];
+
+/// Places where `wf-agents` is the name of a package, which no command of the program starts at.
+const PACKAGE: &[Form] = &[
+    Form {
+        name: "a package after -p, with an option after it",
+        text: "`cargo test -p wf-agents --test cli`",
+    },
+    Form {
+        name: "a package after --package, with a word after it",
+        text: "`cargo test --package wf-agents readme`",
     },
 ];
 
@@ -258,6 +388,41 @@ fn clap_turns_down(line: &str) -> Option<String> {
         | ErrorKind::DisplayVersion => None,
         _ => Some(err.to_string()),
     }
+}
+
+/// The rows among `rows` that the check passes in silence: a row that clap takes is no wrong command, and a wrong one
+/// needs a problem reported for it, whatever the problem says.
+fn passed_in_silence(rows: &[Hidden]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for row in rows {
+        if clap_turns_down(row.runs).is_none() {
+            failures.push(format!("{}: clap takes {}", row.name, row.runs));
+        } else if found(row.text).is_empty() {
+            failures.push(format!("{}: wrong, and nothing is reported", row.name));
+        }
+    }
+    failures
+}
+
+/// The forms among `forms` that the check reports though `wf-agents` starts no command in them.
+fn reported_though_quiet(forms: &[Form]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for form in forms {
+        let got = found(form.text);
+        if !got.is_empty() {
+            failures.push(format!("{}: reported though it is no command: {got:?}", form.name));
+        }
+    }
+    failures
+}
+
+/// The bullets of `entries`, one for each, as the README writes the data directory's entries.
+fn bullets(entries: &[&str]) -> String {
+    let mut lines = Vec::new();
+    for entry in entries {
+        lines.push(format!("- `{entry}`: what it is"));
+    }
+    lines.join("\n")
 }
 
 // The cases are right about the command lines they write, by clap, which parses them: it turns down a wrong case for
@@ -320,13 +485,7 @@ fn a_form_outside_the_convention_is_reported() {
 // A place where `wf-agents` is a heading or a word of prose, or stands alone, is not a command and is not reported.
 #[test]
 fn a_place_where_the_name_is_not_a_command_is_not_reported() {
-    let mut failures = Vec::new();
-    for form in QUIET {
-        let got = found(form.text);
-        if !got.is_empty() {
-            failures.push(format!("{}: reported though it is no command: {got:?}", form.name));
-        }
-    }
+    let failures = reported_though_quiet(QUIET);
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -384,4 +543,83 @@ fn every_command_is_checked_at_its_own_depth() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A span that wraps right after the name is a place where the program starts a command, though the name ends the line
+// and the command is on the next: the line break between them must not hide a wrong command.
+#[test]
+fn a_span_that_wraps_after_the_name_is_reported() {
+    let failures = passed_in_silence(WRAPPED);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A binary run by its path is a place where the program starts a command: a path that ends in the name is the name of
+// the program as well as a path to a directory of the crate.
+#[test]
+fn a_binary_run_by_its_path_is_reported() {
+    let failures = passed_in_silence(BY_PATH);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// An option in brackets is an option the command line names, as a synopsis writes it: a wrong one must be named.
+#[test]
+fn an_option_hidden_in_brackets_is_named() {
+    let failures = passed_in_silence(IN_BRACKETS);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// The word after `-p` or `--package` is the name of a package whatever follows it, as it is when it ends the span.
+#[test]
+fn a_package_named_wf_agents_is_not_a_command() {
+    let failures = reported_though_quiet(PACKAGE);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// What follows `-p wf-agents` is not always a cargo option: after `--` it is the command that cargo runs, which can be
+// wrong, so it is a place where the program starts a command.
+#[test]
+fn a_command_run_through_cargo_is_reported() {
+    let got = found("`cargo run -p wf-agents -- run --twice`");
+    assert!(got.iter().any(|problem| is_unread(problem)), "{got:#?}");
+}
+
+// A command line that begins with an option, or has one between its subcommands, does not begin with the words that run
+// the command, so it does not write that command (acceptance A1).
+#[test]
+fn a_command_line_that_starts_with_an_option_does_not_write_the_command() {
+    let lines = "`wf-agents --data DIR queue put 3`\n`wf-agents queue --data DIR put 3`";
+    let got = found_without("wf-agents queue put", lines);
+    assert_eq!(got, ["wf-agents queue put: never written"]);
+}
+
+// The bullets of the data directory count where they stand, under its heading and up to the next one: the same bullets
+// before the heading or under the next one do not, and neither does a line that only names an entry.
+#[test]
+fn the_data_directory_section_is_what_stands_under_its_heading() {
+    let entries = readme::DATA_DIRECTORY;
+    let list = bullets(&entries);
+    let heading = "### The data directory";
+    let right = format!("## Before\n\n{heading}\n\n{list}\n\n### The next one\n");
+    assert!(readme::unlisted(&right).is_empty());
+    let apart = format!("{list}\n\n{heading}\n\nNo bullets.\n\n### The next one\n\n{list}\n");
+    assert_eq!(readme::unlisted(&apart), entries);
+    let mut named = Vec::new();
+    for entry in entries {
+        named.push(format!("- the file `{entry}`: what it is"));
+    }
+    let only_named = format!("{heading}\n\n{}\n", named.join("\n"));
+    assert_eq!(readme::unlisted(&only_named), entries);
+}
+
+// A line in a code block that begins with `#` is no heading: the section can show the data directory's own `.gitignore`
+// with a comment in it, and the bullets after the block still count.
+#[test]
+fn a_comment_in_a_code_block_does_not_end_the_data_directory_section() {
+    let entries = readme::DATA_DIRECTORY;
+    let (before, after) = entries.split_at(5);
+    let (first, last) = (bullets(before), bullets(after));
+    let block = "```\n# the data directory's own .gitignore\ndb/\n```";
+    let text = format!("### The data directory\n\n{first}\n\n{block}\n\n{last}\n");
+    let missing = readme::unlisted(&text);
+    assert!(missing.is_empty(), "{missing:?} are not listed");
 }

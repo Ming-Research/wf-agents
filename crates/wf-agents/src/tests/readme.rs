@@ -28,7 +28,7 @@ pub(super) const CONVENTION: &str = "a command line is a code span on one line, 
 
 // What the README's section on the data directory lists. This list is a copy: it keeps the README from losing an
 // entry, and does not notice a path the engine starts to write.
-const DATA_DIRECTORY: [&str; 11] = [
+pub(super) const DATA_DIRECTORY: [&str; 11] = [
     "install.toml",
     "shared/",
     "projects/",
@@ -342,7 +342,7 @@ fn section<'a>(text: &'a str, title: &str) -> Vec<&'a str> {
 
 /// The entries of the data directory that the README's section on it does not list as a bullet that begins with the
 /// entry in code font. An entry that the README names somewhere else does not count.
-fn unlisted(text: &str) -> Vec<&'static str> {
+pub(super) fn unlisted(text: &str) -> Vec<&'static str> {
     let lines = section(text, "### The data directory");
     DATA_DIRECTORY
         .into_iter()
