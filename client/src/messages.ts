@@ -325,7 +325,7 @@ const messages = {
   cond_engine: "the engine's value {name} is {values}",
   cond_recorded: 'the recorded value {name} is {values}',
   cond_sent_back: 'the return is sent back',
-  cond_sent_back_n: 'the return is sent back, the {n}th of this cell in a row',
+  cond_sent_back_n: "the return is sent back, making {n} of this cell's returns sent back in a row",
   cond_failed: 'the run ends without a return, of the kind {kind}',
   cond_and: ', and ',
   cond_or: ', or ',
