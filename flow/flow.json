@@ -2349,6 +2349,15 @@
         ],
         "inputs": [
           {
+            "name": "Project guide",
+            "what": "The project's AGENTS.md, and the index of the design tree (a title and one sentence per node), with the full text of the nodes the item cites",
+            "from": [
+              {
+                "engine": "project_guide"
+              }
+            ]
+          },
+          {
             "name": "Design goal",
             "what": "The project's design goal, as the project's configuration says it",
             "from": [
@@ -2692,14 +2701,6 @@
                 {
                   "db": "item_context",
                   "by": "item"
-                }
-              ]
-            },
-            {
-              "what": "The project's AGENTS.md; the index of the design tree (a title and one sentence per node), with the full text of the nodes the item cites",
-              "from": [
-                {
-                  "engine": "project_guide"
                 }
               ]
             },

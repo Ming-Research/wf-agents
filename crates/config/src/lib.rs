@@ -752,6 +752,48 @@ pub fn worktrees(dir: &Path) -> PathBuf {
     dir.join("worktrees")
 }
 
+/// What a project says of itself in a checkout or a worktree at `root`, which agents are given as the project guide:
+/// its AGENTS.md, the index of its design tree under the design paths (each node's path and first line), and the
+/// full text of the nodes `cites` names by their paths.
+pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json::Value {
+    use serde_json::{Map, Value, json};
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
+    let mut index = Map::new();
+    let mut cited = Map::new();
+    for d in design.iter().filter(|d| d.ends_with('/')) {
+        for f in files_under(&root.join(d)) {
+            let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy().into_owned();
+            let body = std::fs::read_to_string(&f).unwrap_or_default();
+            let first = body
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or_default()
+                .to_string();
+            if cites.contains(&rel) {
+                cited.insert(rel.clone(), Value::String(body));
+            }
+            index.insert(rel, Value::String(first));
+        }
+    }
+    json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
+}
+
+/// The Markdown files under a directory, in the order of their paths.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            out.extend(files_under(&p));
+        } else if p.extension().is_some_and(|x| x == "md") {
+            out.push(p);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

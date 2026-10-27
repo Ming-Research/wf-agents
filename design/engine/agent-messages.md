@@ -6,6 +6,8 @@ Decision: What each of a cell's inputs is, as the flow describes it, is the cond
 
 Decision: The inputs every agent's cell has (the project's design goal, the results of the tools asked for, the interjections) go by a name the flow gives them, are described once in `format:common`, and each cell's `inputs:<cell>` names them by their number only, instead of every cell's list describing them again, because the same long descriptions were repeated at each new cell of a session.
 
+Decision: The project guide (the project's AGENTS.md, the index of its design tree and the nodes the item cites) is an input every agent's cell has, given once in a session and referred to after, and a message gives the project's own context, its guide and its settings such as its design goal, before anything else it gives, instead of the guide given to the research round only and the project's context after the formats and the rules, because the review, the adversarial tester, the advisor and a session started afresh read no project instructions of their own, and the project is what every other input is read against.
+
 Decision: A cell with no task of its own is sent no Task heading, instead of an empty one, because an empty heading tells the agent there is a task it was not given.
 
 Decision: The value of each setting a rule or a return format names is written beside its name where it is named, and the work's worktree, branch and main are the conditional input `work:<id>`, instead of a conditional input for each setting and the worktree's sentences in every round, because a setting is read with what names it, a heading for each short value cost more than the value, and the worktree does not change within a work.

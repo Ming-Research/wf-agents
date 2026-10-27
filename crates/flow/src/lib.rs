@@ -21,6 +21,7 @@ mod check;
 mod compiled;
 mod field;
 pub mod format;
+pub mod formats;
 mod graph;
 mod reads;
 mod returns;

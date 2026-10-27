@@ -175,6 +175,12 @@ function OtherInput({ c, m }: { c: CompiledCell; m: CellInput }) {
   );
 }
 
+/// Whether an input is the project's own context, which the message gives before anything else: the project's guide
+/// and a setting of its configuration, such as its design goal.
+export function projectOwn(x: CompiledInput): boolean {
+  return x.from.some((s) => typeof s === 'object' && !Array.isArray(s) && ('config' in s || ('engine' in s && s.engine === 'project_guide')));
+}
+
 /// The cell's inputs, each with the number the message's list to work from gives it, or none for an input the agent
 /// reads itself; the engine numbers them so in `inputs:<cell>`.
 export function numbered(c: CompiledCell): Array<{ x: CompiledInput; i: number; no: number | null }> {
@@ -284,11 +290,14 @@ function AgentInputs({ c }: { c: CompiledCell }) {
       <Section title={t('inputs_conditional')}>
         <ul className="bl">
           {own.map(({ x, i, no }) =>
-            no === null ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
+            no === null || !projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
           )}
           {others.map((m, i) => (
             <OtherInput key={i} c={c} m={m} />
           ))}
+          {own.map(({ x, i, no }) =>
+            no === null || projectOwn(x) ? null : <NumberedInput key={i} no={no} x={x} sources={sources(i)} />,
+          )}
         </ul>
       </Section>
     </>
