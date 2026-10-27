@@ -107,6 +107,8 @@ const messages = {
   round_inputs: 'Its inputs',
   round_nothing: 'Nothing this round: {names}',
   round_by_engine: 'engine',
+  round_left_open: 'left open',
+  round_left_open_hint: 'The engine stopped in this round or a pause left it open; the next round closes it and runs the cell again.',
   round_by_tools: 'tools',
   round_by_owner: 'owner',
   round_not_asked: 'not asked: no {need}',

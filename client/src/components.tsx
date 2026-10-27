@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 
-import type { ItemState, JsonValue, RoundOutcome, WorkState } from './api';
+import type { ItemState, JsonValue, RoundOutcome, Status, WorkState, WorkSummary } from './api';
 import type { Resource } from './live';
 import { t } from './text';
 
@@ -62,6 +62,13 @@ export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | fa
       )}
     </dl>
   );
+}
+
+/// A work's state as it is now: a round left open while the engine holds and runs nothing (one the engine stopped in,
+/// or one a pause left open) is not running; the work is ready, and its next round closes that round first.
+export function liveState(w: WorkSummary, status: Status | null): WorkState {
+  if (w.state === 'running' && status !== null && status.mode === 'hold' && status.stepping !== w.id) return 'ready';
+  return w.state;
 }
 
 export function WorkBadge({ state }: { state: WorkState }) {

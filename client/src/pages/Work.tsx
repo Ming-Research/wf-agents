@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { Compiled, CompiledGraph, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
-import { Loaded, OutcomeBadge, Section } from '../components';
+import { liveState, Loaded, OutcomeBadge, Section } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
@@ -31,6 +31,8 @@ function who(r: RoundSummary, g: CompiledGraph): string {
 function Timeline(props: {
   rounds: RoundSummary[];
   g: CompiledGraph;
+  /// Whether a round still open is one left over, not one running: the engine holds and runs nothing of this work.
+  stale: boolean;
   selected: number | null;
   onRound: (r: RoundSummary) => void;
 }) {
@@ -52,7 +54,13 @@ function Timeline(props: {
                 <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
               </td>
               <td className="clip" title={what}>
-                {r.outcome !== 'took' ? <OutcomeBadge outcome={r.outcome} /> : null}{' '}
+                {r.outcome === 'running' && props.stale ? (
+                  <span className="badge" title={t('round_left_open_hint')}>
+                    {t('round_left_open')}
+                  </span>
+                ) : r.outcome !== 'took' ? (
+                  <OutcomeBadge outcome={r.outcome} />
+                ) : null}{' '}
                 <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
               </td>
               <td className="num muted">{r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}</td>
@@ -77,7 +85,12 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const stepping = status?.stepping === w.id;
-  const can = status !== null && status.mode === 'hold' && status.halt === null && status.stepping === null && w.state === 'ready';
+  const can =
+    status !== null &&
+    status.mode === 'hold' &&
+    status.halt === null &&
+    status.stepping === null &&
+    liveState(w, status) === 'ready';
   const next = useResource<NextRound>(`work:${w.id}`, can ? `/api/v1/works/${w.id}/next` : null);
   useEffect(() => {
     if (!stepping) return;
@@ -221,6 +234,7 @@ function Drawer({ d, g, round, onRound }: {
   round: number | null;
   onRound: (r: number) => void;
 }) {
+  const status = useStatus();
   const [open, setOpen] = useState(true);
   return (
     <div className={`drawer${open ? '' : ' drawer-closed'}`}>
@@ -231,7 +245,13 @@ function Drawer({ d, g, round, onRound }: {
         <div className="drawer-body">
           {d.work.paused !== null ? <Paused d={d} /> : null}
           <Next d={d} onRound={onRound} />
-          <Timeline rounds={d.rounds} g={g} selected={round} onRound={(r) => onRound(r.id)} />
+          <Timeline
+            rounds={d.rounds}
+            g={g}
+            stale={status !== null && status.mode === 'hold' && status.stepping !== d.work.id}
+            selected={round}
+            onRound={(r) => onRound(r.id)}
+          />
           {d.messages.length > 0 ? (
             <Section title={t('work_messages')} open={false}>
               {d.messages.map((m) => (

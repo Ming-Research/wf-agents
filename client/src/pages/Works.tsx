@@ -6,9 +6,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { WorkSummary } from '../api';
-import { Loaded, WorkBadge } from '../components';
+import { liveState, Loaded, WorkBadge } from '../components';
 import { cost, duration, time } from '../format';
-import { useResource } from '../live';
+import { useResource, useStatus } from '../live';
 import { Link, navigate } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
@@ -40,7 +40,8 @@ function useNow(ticking: boolean): number {
 }
 
 function Table({ works, selected }: { works: WorkSummary[]; selected: number | null }) {
-  const now = useNow(works.some((w) => w.state === 'running'));
+  const status = useStatus();
+  const now = useNow(works.some((w) => liveState(w, status) === 'running'));
   return (
     <table className="list works-table">
       <colgroup>
@@ -89,8 +90,8 @@ function Table({ works, selected }: { works: WorkSummary[]; selected: number | n
               )}
             </td>
             <td className="state-cell" title={w.paused ?? w.ended ?? undefined}>
-              <WorkBadge state={w.state} />
-              {w.state === 'running' && w.running ? (
+              <WorkBadge state={liveState(w, status)} />
+              {liveState(w, status) === 'running' && w.running ? (
                 <span className="muted">
                   {' '}
                   {t('running_for', { time: duration(Math.max(0, now - w.running.started_at)) })}
