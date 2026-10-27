@@ -41,6 +41,28 @@ pub fn create_worktree(checkout: &Path, dir: &Path, branch: &str, main: &str) ->
     head(dir)
 }
 
+/// Takes over a branch: the worktree when it is there, otherwise one made afresh from the branch, the local one or else
+/// the remote one fetched; gives the commit it stands at.
+pub fn take_over_worktree(checkout: &Path, dir: &Path, branch: &str) -> Result<String, String> {
+    if dir.join(".git").exists() {
+        return head(dir);
+    }
+    // A worktree removed by hand is still registered until pruned, and its branch cannot be checked out again.
+    git(checkout, &["worktree", "prune"])?;
+    let d = dir.to_string_lossy();
+    if resolve(checkout, &format!("refs/heads/{branch}")).is_some() {
+        git(checkout, &["worktree", "add", "-q", &d, branch])?;
+    } else {
+        let remote = format!("refs/remotes/origin/{branch}");
+        git(
+            checkout,
+            &["fetch", "-q", "origin", &format!("refs/heads/{branch}:{remote}")],
+        )?;
+        git(checkout, &["worktree", "add", "-q", "-b", branch, &d, &remote])?;
+    }
+    head(dir)
+}
+
 /// Removes a work's worktree; its branch stays.
 pub fn remove_worktree(checkout: &Path, dir: &Path) -> Result<(), String> {
     if dir.exists() {

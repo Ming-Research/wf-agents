@@ -7,6 +7,7 @@ const FLOW: &str = include_str!("../../../flow/flow.json");
 fn context() -> flow::Context {
     flow::Context {
         relations: db::relations(db::SCHEMA).unwrap(),
+        tables: db::index_of(db::SCHEMA).unwrap(),
     }
 }
 
@@ -15,7 +16,7 @@ fn compiled() -> flow::Compiled {
 }
 
 // The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked
-// it out: as many cells, rows, states and places, and the same inputs and rules already in each agent's session.
+// it out: as many cells, rows, states and places.
 #[test]
 fn the_engineer_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
@@ -26,29 +27,109 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
         (s.cells, s.rows, s.states, s.places),
         (want("cells"), want("rows"), want("states"), want("places"))
     );
+}
+
+// The rounds section reaches the compiled flow with every kind of failed run, and gives every agent's cell, and only
+// an agent's, a shared row back to itself for a return sent back, for so many in a row, and for each kind; a row of
+// the flow's own cannot switch on what only those rows do, nor take one of their names.
+#[test]
+fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
+    let c = compiled();
     let g = c.graph("engineer").unwrap();
-    // The reference holds an input with nothing to give, one read from the database or the repository, as held; the
-    // compiled flow says a session holds only inputs read from returns.
-    for (k, v) in r["held"].as_object().unwrap() {
-        let (cell, i) = k.split_once('.').unwrap();
-        let x = &g.cell(cell).unwrap().inputs[i.parse::<usize>().unwrap()];
-        let returns = x.from.iter().all(|s| matches!(s, flow::format::Src::Place(..)));
+    let r = g.rounds.clone().expect("the rounds section");
+    assert_eq!(r.sent_back.pause_after, 3);
+    let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
+    assert_eq!(
+        kinds,
+        ["usage_limit", "offline", "transient", "cannot_run", "prompt_too_long"]
+    );
+    for cell in &g.cells {
+        let shared: Vec<&flow::CompiledRow> = cell
+            .rows
+            .iter()
+            .filter(|x| x.conditions.iter().any(|a| a.about_no_return()))
+            .collect();
+        if cell.kind != "agent" {
+            assert!(shared.is_empty(), "{}", cell.id);
+            continue;
+        }
+        let names: Vec<&str> = shared.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(
-            x.held == Some(flow::Held::Session),
-            returns && v.as_bool().unwrap(),
-            "input {k}"
+            names,
+            [
+                "sent_back_too_often",
+                "sent_back",
+                "usage_limit",
+                "offline",
+                "transient",
+                "cannot_run",
+                "prompt_too_long"
+            ],
+            "{}",
+            cell.id
+        );
+        assert!(shared.iter().all(|x| x.to == "@self" && x.common && x.counts.is_none()));
+        let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
+        assert_eq!(pauses, ["sent_back_too_often", "prompt_too_long"]);
+        let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
+        assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
+        assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
+    }
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "16".into();
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(e.contains("unknown field `then`"), "{e}");
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["rounds"]["failed"]["kinds"][1]["name"] = "pause".into();
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("has the name of a shared row the rounds section gives: pause"),
+        "{e}"
+    );
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][0]["agentCommon"]["rows"][1]["if"] = serde_json::json!([["sent_back"]]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("a row switches on a return sent back or a failed run"),
+        "{e}"
+    );
+}
+
+// Every agent's cell is given the general rules and the project's design goal; every engineer's cell and the
+// advisor's are given the engineering standards; no cell has an input that only says to read something itself; and
+// the forms every return shares say how a return is written. A rule given to a line cannot be named by a cell again.
+#[test]
+fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    for cell in g.cells.iter().filter(|x| x.kind == "agent") {
+        let rules: Vec<(&str, bool)> = cell.rules.iter().map(|r| (r.name.as_str(), r.shared)).collect();
+        assert_eq!(rules[0], ("general", true), "{}", cell.id);
+        let engineer = matches!(cell.line.as_deref(), Some("engineer" | "advisor"));
+        assert_eq!(rules.contains(&("engineering", true)), engineer, "{}", cell.id);
+        assert!(
+            cell.inputs
+                .iter()
+                .any(|i| i.from == [flow::format::Src::Config("design_goal".into())]),
+            "{}",
+            cell.id
+        );
+        assert!(
+            !cell.inputs.iter().any(|i| i.from == [flow::format::Src::Itself]),
+            "{}",
+            cell.id
         );
     }
-    for (k, v) in r["rules"].as_object().unwrap() {
-        let (cell, rule) = k.split_once('.').unwrap();
-        let c = g.cell(cell).unwrap();
-        let held = if rule == "project" {
-            c.project_rules
-        } else {
-            c.rules.iter().find(|x| x.name == rule).map(|x| x.held)
-        };
-        assert_eq!(held == Some(flow::Held::Session), v.as_bool().unwrap(), "rule {k}");
-    }
+    assert!(g.write.iter().any(|l| l.starts_with("Only your return is read")));
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let cells = v["flows"][0]["nodes"].as_array_mut().unwrap();
+    let four = cells.iter_mut().find(|n| n["id"] == "4").unwrap();
+    four["rules"] = serde_json::json!(["design_tree_writing", "engineering"]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("a cell names a rule every cell of its line is given: 4"),
+        "{e}"
+    );
 }
 
 // What the engine stores reads back as it was, with the same digest each time.
@@ -136,7 +217,7 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(required, ["outcome", "side_reports"]);
+    assert_eq!(required, ["outcome", "side_reports", "tell_owner"]);
 }
 
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,

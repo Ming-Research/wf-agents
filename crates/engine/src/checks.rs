@@ -9,7 +9,7 @@
 //! yet: CI gives each job's result, not each test's, so test results are checked only against what the jobs show;
 //! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
 //! a red check said not to be caused by the change and a ruling said to be the advisor's are taken as written once
-//! the advisor was asked; and a decision copied from a parent's card is not compared with it.
+//! the advisor was asked; and a decision copied from a parent's design card is not compared with it.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -18,12 +18,11 @@ use std::sync::OnceLock;
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::Value;
 
-use crate::inputs::{at_path, last_return};
+use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, Work};
 use crate::{Engine, form_of, git, values};
 
-/// The text a ruling on a design card is interjected with; a disagreement says so after it.
-pub const CARD_RULING: &str = "Ruling on design card";
+pub use db::DESIGN_CARD_RULING;
 
 pub struct Ctx<'a> {
     pub e: &'a Engine,
@@ -116,12 +115,9 @@ impl Ctx<'_> {
             .collect()
     }
 
-    /// The accepted rounds of a cell of this work, newest first.
+    /// The rounds of a cell of this work that handed in its own answer, newest first.
     fn accepted(&self, cell: &str) -> Result<Vec<Round>, String> {
-        Ok(work::rounds_at(self.e.db.conn(), self.w.id, cell)?
-            .into_iter()
-            .filter(|r| r.transition.is_some())
-            .collect())
+        answered(self.e, self.w, self.g, cell)
     }
 
     fn last(&self, cell: &str, path: &str) -> Result<Option<Value>, String> {
@@ -157,6 +153,25 @@ impl Ctx<'_> {
         Ok(rows.into_iter().map(|r| r["result"].clone()).collect())
     }
 
+    /// Whether a gh command or a query, as an agent writes it, is one this work handed in.
+    fn handed_in(&self, command: &str) -> Result<bool, String> {
+        let plain = |s: &str| s.trim().trim_start_matches("gh ").trim().to_string();
+        let want = plain(command);
+        if want.is_empty() {
+            return Ok(false);
+        }
+        let rows = work::query_json(
+            self.e.db.conn(),
+            "SELECT coalesce(json_extract(t.args, '$.command'), json_extract(t.args, '$.sql')) AS given
+             FROM tool_runs t JOIN rounds r ON r.id = t.round WHERE r.work = ?1 AND t.tool IN ('gh', 'query')",
+            &[&self.w.id],
+            10_000,
+        )?;
+        Ok(rows
+            .iter()
+            .any(|r| r["given"].as_str().is_some_and(|g| plain(g) == want)))
+    }
+
     fn pushed_head(&self) -> Result<Option<String>, String> {
         self.e
             .db
@@ -190,31 +205,8 @@ fn owner_only() -> &'static BTreeSet<String> {
     })
 }
 
-/// File paths a text cites: each run of the characters a path is written with that has a slash in it, cut before
-/// a line number, whatever language the text around it is in.
-fn cited_paths(text: &str) -> Vec<String> {
-    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '*')))
-        .map(|w| w.trim_end_matches('.'))
-        .filter(|w| w.contains('/') && !w.starts_with('/'))
-        .map(str::to_string)
-        .collect()
-}
-
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
     match check {
-        "cited_places_exist" => {
-            let wt = c.wt()?;
-            for text in strs(v) {
-                for p in cited_paths(&text) {
-                    // A path whose first part is not in the worktree is not taken for a file path.
-                    let first = p.split('/').next().unwrap_or_default();
-                    if wt.join(first).exists() && !wt.join(&p).exists() {
-                        return fail(format!("{p} is not in the worktree"));
-                    }
-                }
-            }
-            Ok(())
-        }
         "research_only" => {
             let wt = c.wt()?;
             if !git::is_clean(wt)? {
@@ -285,14 +277,14 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 let node = d["node"].as_str().unwrap_or_default().to_string();
                 if !tree.iter().any(|f| in_node(&node, f)) {
                     return fail(format!(
-                        "the card has a decision in {node}, which did not change on the branch"
+                        "the design card has a decision in {node}, which did not change on the branch"
                     ));
                 }
                 nodes.push(node);
             }
             if let Some(f) = tree.iter().find(|f| !nodes.iter().any(|n| in_node(n, f))) {
                 return fail(format!(
-                    "{f} changed on the branch, and no decision on the card is in it"
+                    "{f} changed on the branch, and no decision on the design card is in it"
                 ));
             }
             if at.is_some_and(|a| a.contains("design_paths_only")) {
@@ -358,8 +350,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let chosen = v.and_then(Value::as_str).unwrap_or_default();
             let rulings = work::query_json(
                 c.e.db.conn(),
-                "SELECT c.rulings FROM cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND c.kind = 'design' ORDER BY c.id DESC",
+                "SELECT c.rulings FROM design_cards c JOIN rounds r ON r.id = c.round JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 ORDER BY c.id DESC",
                 &[&c.item.id],
                 100,
             )?;
@@ -579,10 +571,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let tree = c.design(&git::changed(wt, &base, "HEAD")?);
             match (tree.is_empty(), v.is_some()) {
                 (false, false) => fail(format!(
-                    "the design paths changed since the last card ({}): hand in the new card",
+                    "the design paths changed since the last design card ({}): hand in the new design card",
                     tree.join(", ")
                 )),
-                (true, true) => fail("the design paths did not change since the last card: hand in no card"),
+                (true, true) => fail("the design paths did not change since the last design card: hand in none"),
                 _ => Ok(()),
             }
         }
@@ -654,7 +646,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             for b in bases.iter().filter(|b| b["kind"] == "fact") {
                 let run = b["run"].as_str().unwrap_or_default();
-                let n: i64 =
+                let linked: i64 =
                     c.e.db
                         .conn()
                         .query_row(
@@ -664,8 +656,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                             |r| r.get(0),
                         )
                         .map_err(|e| e.to_string())?;
-                if n == 0 {
-                    return fail(format!("the run {run:?} is not one the engine recorded for this work"));
+                // A gh command or a query has no link: it is cited by what was handed in.
+                let check = b["check"].as_str().unwrap_or_default();
+                if linked == 0 && !c.handed_in(check)? {
+                    return fail(format!(
+                        "the run {run:?} is not one the engine recorded for this work: give the link from the tool's result, or, for a gh command or a query, write it in check as you handed it in"
+                    ));
                 }
             }
             Ok(())
@@ -832,10 +828,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 _ => Ok(()),
             }
         }
-        "card_disagreement_redirects" => {
+        // A flow version stored before this check was named so calls it `card_disagreement_redirects`.
+        "design_card_disagreement_redirects" | "card_disagreement_redirects" => {
             let disagreed = c.interjections.iter().any(|i| {
                 let t = i["text"].as_str().unwrap_or_default();
-                t.starts_with(CARD_RULING) && t.contains("disagree")
+                t.starts_with(DESIGN_CARD_RULING) && t.contains("disagree")
             });
             if disagreed && v.is_some() {
                 fail("this round's interjections disagree with the design card: hand in redirect, not answers")
@@ -884,6 +881,17 @@ fn ruled_ids(c: &Ctx<'_>) -> Result<BTreeSet<String>, String> {
     Ok(out)
 }
 
+/// Whether a log says a test failed: a line names it with a word of failure besides its name. A red run's log lists
+/// the tests that passed too.
+fn names_failing(log: &str, name: &str) -> bool {
+    const FAILED: [&str; 6] = ["FAIL", "fail", "panicked", "----", "\u{2715}", "\u{2717}"];
+    !name.is_empty()
+        && log.lines().filter(|l| l.contains(name)).any(|l| {
+            let rest = l.replace(name, "");
+            FAILED.iter().any(|w| rest.contains(w))
+        })
+}
+
 /// A test said to be green on the head while every run on the head was red names it, or said to be red while every
 /// check on the head was green, does not match the runs; the same for the code before the change.
 fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String> {
@@ -898,7 +906,7 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
     let names_red = |checks: Option<&Value>, name: &str| {
         items(checks)
             .iter()
-            .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| l.contains(name)))
+            .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| names_failing(l, name)))
     };
     for t in items(v) {
         let name = t["name"].as_str().unwrap_or_default();
@@ -943,16 +951,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cited_paths_are_found_in_text() {
-        assert_eq!(
-            cited_paths("see crates/flow/src/run.rs:42 and `db/schema.sql`."),
-            ["crates/flow/src/run.rs", "db/schema.sql"]
-        );
-        assert!(cited_paths("https://github.com/a/b/actions/runs/1").is_empty());
-        assert!(cited_paths("/etc/passwd").is_empty());
-        assert_eq!(
-            cited_paths("见 crates/wf-agents/src/main.rs：第 12 行"),
-            ["crates/wf-agents/src/main.rs"]
-        );
+    fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
+        let log = "test a::passes ... ok\ntest a::breaks ... FAILED\n---- a::panics stdout ----\ntest a::fails_cleanly ... ok";
+        assert!(!names_failing(log, "passes"));
+        assert!(!names_failing(log, "fails_cleanly"));
+        assert!(names_failing(log, "breaks"));
+        assert!(names_failing(log, "panics"));
+        assert!(!names_failing(log, ""));
     }
 }

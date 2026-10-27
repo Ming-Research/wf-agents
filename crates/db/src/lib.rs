@@ -5,38 +5,55 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::functions::FunctionFlags;
-use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-use rusqlite::{Connection, OpenFlags, ToSql, Transaction, TransactionBehavior, params};
+use rusqlite::hooks::{Action, AuthAction, AuthContext, Authorization};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, ToSql, Transaction, TransactionBehavior, params};
+use serde_json::Value;
 
 pub use rusqlite;
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
-/// The steps that bring an existing database up to [`SCHEMA`]: the first takes version 1 to 2, the next 2 to 3, and
-/// so on. A change to `db/schema.sql` adds one in the same pull request. The first one also adds
-/// `db/migrations/0001.sql`, the schema as it was at version 1, and a test that a database migrated from it has the
-/// shape of one created from [`SCHEMA`].
-pub const MIGRATIONS: &[&str] = &[];
+/// The steps that bring an existing database up to [`SCHEMA`]: `db/migrations/0002.sql` takes version 1 to 2, the
+/// next 2 to 3, and so on. A change to `db/schema.sql` adds one in the same pull request. `db/migrations/0001.sql` is
+/// the schema as it was at version 1, from which a test migrates a database and compares it with one created from
+/// [`SCHEMA`].
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("../../../db/migrations/0002.sql"),
+    include_str!("../../../db/migrations/0003.sql"),
+    include_str!("../../../db/migrations/0004.sql"),
+    include_str!("../../../db/migrations/0005.sql"),
+    include_str!("../../../db/migrations/0006.sql"),
+    include_str!("../../../db/migrations/0007.sql"),
+    include_str!("../../../db/migrations/0008.sql"),
+    include_str!("../../../db/migrations/0009.sql"),
+    include_str!("../../../db/migrations/0010.sql"),
+];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 4] = ["rounds", "tool_runs", "changes", "outbox"];
+const UNTRACKED: [&str; 5] = ["rounds", "tool_runs", "changes", "outbox", "contents"];
 
 /// The line a table's description has when agents may not read it.
 const HIDDEN: &str = "Hidden from agents.";
+
+/// The text a ruling on a design card is interjected with; a disagreement says so after it. The owner's ruling writes
+/// it and the engine's checks read it.
+pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
 
 #[derive(Debug)]
 pub enum Error {
     Sql(rusqlite::Error),
     /// The database was made by a newer wf-agents: its version.
     Newer(i64),
+    /// The database is older than this wf-agents and was opened only to read, so it was not migrated: its version.
+    Older(i64),
     /// The file holds tables but is not a wf-agents database.
     Foreign,
     /// The dependency would close a cycle.
@@ -61,6 +78,10 @@ impl fmt::Display for Error {
             Error::Newer(v) => write!(
                 f,
                 "the database is at version {v}, newer than this wf-agents ({VERSION})"
+            ),
+            Error::Older(v) => write!(
+                f,
+                "the database is at version {v}, older than this wf-agents ({VERSION}): run the engine once to migrate it"
             ),
             Error::Foreign => write!(f, "the file holds tables but is not a wf-agents database"),
             Error::Cycle { item, depends_on } => {
@@ -113,11 +134,32 @@ struct Writer {
 
 type Current = Arc<Mutex<Option<Writer>>>;
 
+/// A row that a committed change touched: its table, and its rowid.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Changed {
+    pub table: String,
+    pub rowid: i64,
+}
+
+/// What is told the rows each committed write touched, given the connection that made it to look them up.
+pub type Listener = Box<dyn Fn(&Connection, &[Changed]) + Send>;
+
+/// The rows changed on a connection, kept until they can be told.
+#[derive(Default)]
+struct Watch {
+    /// Changed by the transaction still open.
+    pending: Vec<Changed>,
+    /// Changed by transactions that committed, not yet told.
+    committed: Vec<Changed>,
+}
+
 /// The database as the engine and the owner's commands use it. Every write goes through [`Db::write`]: a state
 /// table's triggers refuse a change made any other way, so none escapes `changes`.
 pub struct Db {
     conn: Connection,
     writer: Current,
+    watch: Arc<Mutex<Watch>>,
+    listener: Option<Listener>,
 }
 
 impl Db {
@@ -127,6 +169,32 @@ impl Db {
         let db = Db::set_up(Connection::open(path)?)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(db)
+    }
+
+    /// Opens the database at `path` only to read it, as it is: nothing is created or migrated, and a write on it
+    /// fails. A database not at this wf-agents' version is refused, since its shape is not the one read.
+    pub fn open_read_only(path: &Path) -> Result<Db> {
+        let conn =
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.busy_timeout(Duration::from_secs(10))?;
+        conn.pragma_update(None, "query_only", true)?;
+        let at: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if at > VERSION {
+            return Err(Error::Newer(at));
+        }
+        if at < VERSION {
+            return Err(Error::Older(at));
+        }
+        let writer: Current = Arc::new(Mutex::new(None));
+        register(&conn, "wf_tx", &writer, |w| w.tx)?;
+        register(&conn, "wf_at", &writer, |w| w.at)?;
+        register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
+        Ok(Db {
+            conn,
+            writer,
+            watch: Arc::default(),
+            listener: None,
+        })
     }
 
     /// A new database in memory.
@@ -141,9 +209,52 @@ impl Db {
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
-        let mut db = Db { conn, writer };
+        let mut db = Db {
+            conn,
+            writer,
+            watch: Arc::default(),
+            listener: None,
+        };
         db.upgrade(SCHEMA, MIGRATIONS)?;
         Ok(db)
+    }
+
+    /// From now on tells `f` the rows each write on this connection touched, every table's, once its transaction
+    /// has committed: a reader that looks them up then sees them. Rows a statement outside [`Db::write`] changed are
+    /// told after the next write commits.
+    pub fn on_commit(&mut self, f: Listener) -> Result<()> {
+        let w = Arc::clone(&self.watch);
+        self.conn
+            .update_hook(Some(move |_: Action, _: &str, table: &str, rowid: i64| {
+                lock(&w).pending.push(Changed {
+                    table: table.to_string(),
+                    rowid,
+                });
+            }))?;
+        let w = Arc::clone(&self.watch);
+        self.conn.commit_hook(Some(move || {
+            let mut x = lock(&w);
+            let done = std::mem::take(&mut x.pending);
+            x.committed.extend(done);
+            // Lets the commit go on.
+            false
+        }))?;
+        let w = Arc::clone(&self.watch);
+        self.conn.rollback_hook(Some(move || lock(&w).pending.clear()))?;
+        self.listener = Some(f);
+        Ok(())
+    }
+
+    /// Tells the listener the rows committed since it was last told, each once.
+    fn tell(&self) {
+        let Some(f) = &self.listener else { return };
+        let rows = std::mem::take(&mut lock(&self.watch).committed);
+        if rows.is_empty() {
+            return;
+        }
+        let mut seen = HashSet::new();
+        let rows: Vec<Changed> = rows.into_iter().filter(|c| seen.insert(c.clone())).collect();
+        f(&self.conn, &rows);
     }
 
     /// The connection, for reads.
@@ -168,6 +279,7 @@ impl Db {
         set(&self.writer, None);
         let out = out?;
         tx.commit()?;
+        self.tell();
         Ok(out)
     }
 
@@ -205,6 +317,10 @@ impl Db {
 
 fn set(current: &Current, w: Option<Writer>) {
     *current.lock().unwrap_or_else(|e| e.into_inner()) = w;
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// A function the triggers call for the write in progress; outside one it fails, and so does the change.
@@ -351,16 +467,48 @@ pub fn open_for_agents(path: &Path, limit: Duration) -> Result<Connection> {
     Ok(conn)
 }
 
-/// What agents are told about the database: the definition of every table and view they can read, with the
-/// comments that say what each holds and who reads it, in the order the schema defines them.
-pub fn described(conn: &Connection) -> rusqlite::Result<String> {
+/// Opens the database at `path` for the owner's interface to read: read-only, every table readable, waiting while a
+/// write holds the database.
+pub fn open_read(path: &Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    conn.busy_timeout(Duration::from_secs(10))?;
+    conn.pragma_update(None, "query_only", true)?;
+    Ok(conn)
+}
+
+/// What agents are told about the database: each table and view they can read, by its name, with the first line of
+/// the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
+/// its comments included, with [`DEFINITION`] through the query tool.
+pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut st = conn.prepare(
-        "SELECT sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+        "SELECT name, sql FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
          AND instr(sql, ?1) = 0 ORDER BY rowid",
     )?;
-    let defs: Vec<String> = st.query_map([HIDDEN], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    Ok(defs.iter().map(|d| format!("{d};\n")).collect::<Vec<_>>().join("\n"))
+    let rows = st.query_map([HIDDEN], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (name, sql) = row?;
+        let first = sql
+            .lines()
+            .map(str::trim)
+            .find_map(|l| l.strip_prefix("--"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        out.push((name, first));
+    }
+    Ok(out)
 }
+
+/// What [`index`] gives for a schema, from the schema loaded into a database in memory.
+pub fn index_of(schema: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    let db = Connection::open_in_memory()?;
+    db.execute_batch(schema)?;
+    index(&db)
+}
+
+/// The query that gives one table's or view's definition in full, with its comments, for `<name>`.
+pub const DEFINITION: &str = "SELECT sql FROM sqlite_master WHERE name = '<name>'";
 
 /// Every table and view a schema defines, with its columns, from the schema loaded into a database in memory.
 pub fn relations(schema: &str) -> rusqlite::Result<BTreeMap<String, BTreeSet<String>>> {
@@ -427,6 +575,62 @@ pub fn shape(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         out.push(format!("table {name} strict={strict}"));
     }
     Ok(out)
+}
+
+/// How long a text must be for a round's record to keep it in `contents` and refer to it.
+pub const STORED: usize = 256;
+
+/// The key a text is kept under in `contents`: the SHA-256 of the text, in hex.
+pub fn content_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Keeps texts in `contents`, each once.
+pub fn keep(tx: &Transaction<'_>, texts: &[(String, String)]) -> rusqlite::Result<()> {
+    for (hash, text) in texts {
+        tx.execute(
+            "INSERT INTO contents (hash, text) VALUES (?1, ?2) ON CONFLICT (hash) DO NOTHING",
+            params![hash, text],
+        )?;
+    }
+    Ok(())
+}
+
+/// A round's record as it was: each `{"content": hash}` put back as the text kept under that hash, and each
+/// `{"parts": [...]}` (texts and such references) joined into one text. A record that refers to nothing, as every round
+/// recorded before `contents` was, comes back as it is.
+pub fn put_back(conn: &Connection, v: &Value) -> Value {
+    let text = |h: &str| -> Option<String> {
+        conn.query_row("SELECT text FROM contents WHERE hash = ?1", [h], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
+    };
+    let only = |v: &Value, key: &str| -> Option<Value> {
+        let o = v.as_object()?;
+        if o.len() == 1 { o.get(key).cloned() } else { None }
+    };
+    if let Some(h) = only(v, "content").and_then(|h| h.as_str().map(str::to_string)) {
+        return Value::String(text(&h).unwrap_or_else(|| format!("(content {h} is not kept)")));
+    }
+    if let Some(Value::Array(parts)) = only(v, "parts") {
+        let mut out = String::new();
+        for p in &parts {
+            if let Value::String(s) = put_back(conn, p) {
+                out.push_str(&s);
+            }
+        }
+        return Value::String(out);
+    }
+    match v {
+        Value::Array(xs) => Value::Array(xs.iter().map(|x| put_back(conn, x)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), put_back(conn, x))).collect()),
+        other => other.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -575,6 +779,40 @@ mod tests {
         assert_eq!(changes(&db).len(), 1);
     }
 
+    #[test]
+    fn a_committed_write_tells_the_rows_it_touched_and_a_failed_one_nothing() {
+        let mut db = Db::in_memory().unwrap();
+        let told: Arc<Mutex<Vec<Changed>>> = Arc::default();
+        let t = Arc::clone(&told);
+        db.on_commit(Box::new(move |_, rows| t.lock().unwrap().extend(rows.iter().cloned())))
+            .unwrap();
+        let take = || -> Vec<Changed> {
+            told.lock()
+                .unwrap()
+                .drain(..)
+                .filter(|c| c.table != "changes")
+                .collect()
+        };
+        let id = db.write(Actor::Owner, |tx| item(tx, "a")).unwrap();
+        let items = vec![Changed {
+            table: "items".into(),
+            rowid: id,
+        }];
+        assert_eq!(take(), items);
+        let failed = db.write(Actor::Owner, |tx| {
+            item(tx, "b")?;
+            Err::<(), _>(Error::Abort("given up".into()))
+        });
+        assert!(failed.is_err());
+        db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE items SET title = 'c' WHERE id = ?1", [id])?;
+            tx.execute("UPDATE items SET title = 'd' WHERE id = ?1", [id])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(take(), items);
+    }
+
     // Dependencies stay a directed acyclic graph.
     #[test]
     fn a_dependency_that_closes_a_cycle_is_refused() {
@@ -617,10 +855,140 @@ mod tests {
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
         assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
-        let d = described(db.conn()).unwrap();
-        assert!(d.contains("CREATE TABLE items") && d.contains("CREATE VIEW ready_items"));
-        assert!(!d.contains("CREATE TABLE sessions"));
-        assert!(d.contains("-- Item number, one sequence across all projects."));
+        // The index names each table and view with the first line of its description; the query it points to gives
+        // the whole definition with its comments.
+        let index = index(db.conn()).unwrap();
+        let names: Vec<&str> = index.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"items") && names.contains(&"ready_items"));
+        assert!(!names.contains(&"sessions"));
+        let (_, first) = index.iter().find(|(n, _)| n == "items").unwrap();
+        assert!(
+            first.starts_with("A piece of work to do, as its creator wrote it."),
+            "{first}"
+        );
+        let full: String = agent
+            .query_row(&DEFINITION.replace("<name>", "items"), [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            full.contains("-- Item number, one sequence across all projects."),
+            "{full}"
+        );
+    }
+
+    // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
+    // and every row that points to them.
+    #[test]
+    fn a_database_migrated_from_version_1_has_the_shape_of_a_new_one() {
+        let v1 = include_str!("../../../db/migrations/0001.sql");
+        let mut old = Db {
+            conn: Connection::open_in_memory().unwrap(),
+            writer: Arc::new(Mutex::new(None)),
+            watch: Arc::default(),
+            listener: None,
+        };
+        old.conn.pragma_update(None, "foreign_keys", true).unwrap();
+        register(&old.conn, "wf_tx", &old.writer, |w| w.tx).unwrap();
+        register(&old.conn, "wf_at", &old.writer, |w| w.at).unwrap();
+        register(&old.conn, "wf_actor", &old.writer, |w| w.actor.name()).unwrap();
+        old.upgrade(v1, &[]).unwrap();
+        old.write(Actor::Engine, |tx| {
+            let id = item(tx, "kept")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '1')", [id])?;
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (1, '1', '{\"prompt\":\"p\"}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{}', 'open')",
+                [],
+            )?;
+            // A design card, and an ask a failed run raised, whose work it paused.
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'design', '[]', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO cards (round, kind, body, status) VALUES (1, 'ask', '{\"failed\":{}}', 'open')",
+                [],
+            )?;
+            tx.execute("UPDATE works SET paused = 'asked the owner in card 3' WHERE id = 1", [])?;
+            tx.execute(
+                "INSERT INTO tool_runs (round, tool, args, attempt, queued_at) VALUES (1, 'gh', '{}', 1, 1)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE items SET acceptance = '[]', acceptance_round = 1 WHERE id = ?1",
+                [id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+        let input: String = old
+            .conn()
+            .query_row("SELECT input FROM rounds WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(input, "{\"prompt\":\"p\"}");
+        // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
+        // its work goes on.
+        let ids = |q: &str| -> Vec<i64> {
+            let mut st = old.conn().prepare(q).unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert_eq!(ids("SELECT id FROM design_cards"), [2]);
+        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NULL"), [1]);
+        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NOT NULL"), [3]);
+        assert_eq!(ids("SELECT id FROM works WHERE paused IS NOT NULL"), Vec::<i64>::new());
+        let broken: i64 = old
+            .conn()
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(broken, 0);
+        let sql = |db: &Db| -> String {
+            db.conn()
+                .query_row("SELECT sql FROM sqlite_schema WHERE name = 'rounds'", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(sql(&old), sql(&new));
+        let v: i64 = old
+            .conn()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, VERSION);
+    }
+
+    // A round's record keeps a large text once and refers to it; put back, it is the text it was. A record that
+    // refers to nothing comes back as it is.
+    #[test]
+    fn a_kept_text_is_put_back_where_the_record_refers_to_it() {
+        let mut db = Db::in_memory().unwrap();
+        let big = "x".repeat(STORED);
+        let h = content_hash(&big);
+        db.write(Actor::Engine, |tx| {
+            keep(tx, &[(h.clone(), big.clone()), (h.clone(), big.clone())])?;
+            Ok(())
+        })
+        .unwrap();
+        let stored = serde_json::json!({
+            "message": { "parts": ["# R1\n", { "content": h }, "\nend\n"] },
+            "call": { "command": ["claude", "--json-schema", { "content": h }] },
+            "old": "a whole text",
+        });
+        let back = put_back(db.conn(), &stored);
+        assert_eq!(back["message"], format!("# R1\n{big}\nend\n"));
+        assert_eq!(
+            back["call"]["command"],
+            serde_json::json!(["claude", "--json-schema", big])
+        );
+        assert_eq!(back["old"], "a whole text");
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM contents", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
     }
 
     // A database from a newer wf-agents, or a file that is not one, is not touched.
@@ -653,6 +1021,8 @@ mod tests {
             let mut db = Db {
                 conn: Connection::open_in_memory().unwrap(),
                 writer: Arc::new(Mutex::new(None)),
+                watch: Arc::default(),
+                listener: None,
             };
             db.upgrade(schema, migrations).unwrap();
             db
@@ -667,5 +1037,58 @@ mod tests {
             .unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
+    }
+
+    // A design card an earlier engine left open beside a newer card of its work is replaced by the next one; the
+    // newest stays, and so does a card of another work.
+    #[test]
+    fn a_design_card_left_open_beside_a_newer_one_is_replaced() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for w in [1, 2] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '4')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '2a', '{}', 'c', 1)",
+                    [w],
+                )?;
+            }
+            // Work 1: cards 1 and 2 left open beside card 3. Work 2: card 4 alone.
+            for (round, status) in [(1, "open"), (1, "ruled"), (1, "open"), (2, "open")] {
+                tx.execute(
+                    "INSERT INTO design_cards (round, body, status) VALUES (?1, '[]', ?2)",
+                    params![round, status],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        // The database as it was at version 8, before the repair, and the repair alone run on it.
+        db.conn.pragma_update(None, "user_version", 8).unwrap();
+        db.upgrade(SCHEMA, &MIGRATIONS[..8]).unwrap();
+        let mut st = db
+            .conn()
+            .prepare("SELECT status, replaced_by FROM design_cards ORDER BY id")
+            .unwrap();
+        let cards: Vec<(String, Option<i64>)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let want = [
+            ("replaced", Some(2)),
+            ("replaced", Some(3)),
+            ("open", None),
+            ("open", None),
+        ];
+        let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
+        assert_eq!(cards, want);
     }
 }

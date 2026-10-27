@@ -1,0 +1,5 @@
+Decision: The current state the engine needs for its next step is kept in `works` and written in the same transaction as the round that changed it, while the history (`rounds`, `tool_runs`) is written once and never changed, and the summaries people and agents read are computed from the history, because the next step then never depends on recomputing the whole history, and the history stays the record of what happened.
+
+Decision: The change records are written by triggers generated from `db/schema.sql`, for every table except the write-once history, instead of by each piece of code that writes, because no write can then forget to record itself, and the history tables are their own record.
+
+Decision: One agent run from the input the engine gives to the return handed in is one round; the engine's own step, one run of a tool cell and one answer from the owner are each a round too, and a round that only answers an interjection on a line not running has no cell, because then everything a work went through is in one table, in order.

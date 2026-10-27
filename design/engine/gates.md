@@ -1,0 +1,3 @@
+Decision: Each gate in the flow states what it needs (a setting in the project's configuration, or the plan in the database); a gate whose need is not met for the project is taken by the engine down its not-applicable row and recorded, without running a round, instead of asking an agent, because the answer is fixed by the configuration and a round spent on it is wasted.
+
+Decision: A gate the engine took down its not-applicable row is no column of the table review, and its preview says that the engine answers it and why, instead of a column asking whether its reason holds, because nobody judged it: the project's configuration answered it.

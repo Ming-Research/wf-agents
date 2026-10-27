@@ -37,6 +37,11 @@ pub struct Item {
     pub acceptance: Option<Value>,
     pub acceptance_round: Option<i64>,
     pub cancelled: Option<String>,
+    /// What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
+    /// request.
+    pub imported_from: Option<String>,
+    pub imported_branch: Option<String>,
+    pub imported_pr: Option<i64>,
 }
 
 /// A round as `rounds` holds it.
@@ -145,7 +150,8 @@ impl Work {
 impl Item {
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
         conn.query_row(
-            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_round, cancelled
+            "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_round, cancelled,
+                    imported_from, imported_branch, imported_pr
              FROM items WHERE id = ?1",
             [id],
             |r| {
@@ -161,6 +167,9 @@ impl Item {
                     acceptance: json_col(r.get(8)?),
                     acceptance_round: r.get(9)?,
                     cancelled: r.get(10)?,
+                    imported_from: r.get(11)?,
+                    imported_branch: r.get(12)?,
+                    imported_pr: r.get(13)?,
                 })
             },
         )
@@ -221,6 +230,20 @@ pub fn resumed_at(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     .map_err(sql)
 }
 
+/// When the owner last let the work go on after it paused, and why it had been paused, if ever.
+pub fn last_resume(conn: &Connection, work: i64) -> Result<Option<(i64, String)>, String> {
+    conn.query_row(
+        "SELECT at, json_extract(old_row, '$.paused') FROM changes
+         WHERE table_name = 'works' AND json_extract(row_key, '$.id') = ?1
+           AND json_extract(old_row, '$.paused') IS NOT NULL AND json_extract(new_row, '$.paused') IS NULL
+         ORDER BY at DESC LIMIT 1",
+        [work],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(sql)
+}
+
 /// The round of the work still running or waiting, if any.
 pub fn open_round(conn: &Connection, work: i64) -> Result<Option<Round>, String> {
     conn.query_row(
@@ -242,10 +265,41 @@ pub fn start_round(
     config_commit: &str,
     model: Option<&str>,
 ) -> Result<i64, String> {
+    start_numbered(conn, None, work, cell, session, input, config_commit, model)
+}
+
+/// The number the next round started will have. Only the engine starts rounds, one at a time, so an agent's message
+/// can name its round before the round is written.
+pub fn next_round(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("SELECT coalesce(max(id), 0) + 1 FROM rounds", [], |r| r.get(0))
+        .map_err(sql)
+}
+
+/// Starts a round under the number given, or the next one.
+#[allow(clippy::too_many_arguments)]
+pub fn start_numbered(
+    conn: &Connection,
+    id: Option<i64>,
+    work: i64,
+    cell: &str,
+    session: Option<i64>,
+    input: &Value,
+    config_commit: &str,
+    model: Option<&str>,
+) -> Result<i64, String> {
     conn.execute(
-        "INSERT INTO rounds (work, cell, session, input, config_commit, model, started_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![work, cell, session, input.to_string(), config_commit, model, db::now()],
+        "INSERT INTO rounds (id, work, cell, session, input, config_commit, model, started_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            id,
+            work,
+            cell,
+            session,
+            input.to_string(),
+            config_commit,
+            model,
+            db::now()
+        ],
     )
     .map_err(sql)?;
     Ok(conn.last_insert_rowid())
@@ -260,6 +314,8 @@ pub struct Ended {
     pub usage: Option<Value>,
     pub model: Option<String>,
     pub compactions: i64,
+    /// The command line the round ran with in the end, when it is not the one recorded at its start.
+    pub command: Option<Vec<String>>,
 }
 
 pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String> {
@@ -279,6 +335,13 @@ pub fn finish_round(conn: &Connection, id: i64, e: &Ended) -> Result<(), String>
         ],
     )
     .map_err(sql)?;
+    if let Some(c) = &e.command {
+        conn.execute(
+            "UPDATE rounds SET input = json_set(input, '$.call.command', json(?2)) WHERE id = ?1",
+            params![id, serde_json::to_string(c).unwrap_or_default()],
+        )
+        .map_err(sql)?;
+    }
     Ok(())
 }
 

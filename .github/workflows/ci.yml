@@ -26,10 +26,44 @@ jobs:
       # Installs the toolchain rust-toolchain.toml pins, with its components.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
+      # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
+      # now, and the last step fails when that differs from the committed file.
+      - name: Generate the page's types
+        run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
+      - name: Install the page's dependencies
+        working-directory: client
+        run: npm ci
+      - name: Type-check the page
+        working-directory: client
+        run: npm run typecheck
+      - name: Lint the page
+        working-directory: client
+        run: npm run lint
+      - name: Test the page
+        working-directory: client
+        run: npm test
+      # Before any cargo step that compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: npm run build
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+      - name: The page's types are current
+        run: git diff --exit-code -- client/src/api.ts
+      # What the Rust types generate, to commit when the step before fails.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: page-types
+          path: client/src/api.ts
+          if-no-files-found: ignore

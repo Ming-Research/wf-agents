@@ -300,6 +300,8 @@ impl Analysis<'_, '_> {
                 Atom::AnyOf(p, vs) => Cond::AnyOf(k(p), vs.clone()),
                 Atom::NoneOf(p, vs) => Cond::NoneOf(k(p), vs.clone()),
                 Atom::Inp(n, vs) => Cond::Inp(n.clone(), vs.clone()),
+                // No return meets it; the flow's own rows never have it.
+                Atom::SentBack(_) | Atom::Failed(_) => Cond::Or(Vec::new()),
             }
         }
         self.g.cells[ci]
