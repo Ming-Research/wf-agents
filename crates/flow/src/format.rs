@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 /// The whole of `flow.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -32,7 +33,7 @@ pub struct Source {
 }
 
 /// The engine's part of the flow, by name. Each map takes a name to what it does.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct EngineNames {
     /// What a cell that is not an agent does when the work reaches it: a cell's `step`.
@@ -196,7 +197,7 @@ pub struct Block {
     pub asking: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Named {
     pub name: String,
@@ -211,7 +212,7 @@ pub struct Sessions {
     pub rules: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
     pub name: String,
@@ -274,7 +275,7 @@ pub struct Limits {
     pub counters: Vec<Counter>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Counter {
     pub name: String,
@@ -334,7 +335,7 @@ pub struct InField {
 }
 
 /// One form of an agent's return: the cell's own answer, or one of the common fields.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -452,7 +453,7 @@ pub struct Node {
     pub rows: Option<Vec<RawRow>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct PromptBy {
     pub by: String,
@@ -485,14 +486,14 @@ pub struct RawRow {
 }
 
 /// An action on a row: a name, or a name done for a place of the output.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(untagged)]
 pub enum Do {
     Name(String),
     At(DoAt),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct DoAt {
     pub at: String,
@@ -517,7 +518,7 @@ impl Do {
 }
 
 /// What the engine does every time a cell returns a place: shows it in a view, or carries out an action.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Always {
     pub at: String,
@@ -528,7 +529,7 @@ pub struct Always {
 }
 
 /// A check the engine makes on a return, on a place of it or on the whole.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,8 +552,11 @@ pub struct Input {
 }
 
 /// Where an input comes from.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(try_from = "Value", into = "Value")]
+#[ts(
+    type = "[string, string] | \"self\" | { config: string } | { db: string, by?: string } | { engine: string } | { recorded: string }"
+)]
 pub enum Src {
     /// A place of a cell's last return: a cell, or `@stopped`, `@caller` or `@from`, and a path.
     Place(String, String),
@@ -629,8 +633,11 @@ impl From<Src> for Value {
 /// `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
 /// them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
 /// `["inp", name, values]` (a value the engine knows or rows recorded is one of them).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(try_from = "Value", into = "Value")]
+#[ts(
+    type = "[\"all\"] | [\"own\"] | [\"or\", Array<Atom>] | [\"has\", string] | [\"is\" | \"any\" | \"none\" | \"inp\", string, Array<string>]"
+)]
 pub enum Atom {
     All,
     Own,

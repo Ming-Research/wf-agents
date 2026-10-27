@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use ts_rs::TS;
 
 use crate::check::Analysis;
 use crate::field::{Field, segment};
@@ -15,7 +16,7 @@ use crate::graph::{Cell, CellKind, Graph, ensure};
 
 pub const COMPILED: &str = "wf-agents compiled 1";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct Compiled {
     pub format: String,
     pub engine: EngineNames,
@@ -28,7 +29,7 @@ pub struct Compiled {
     pub stats: Vec<Stats>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ToolUse {
     pub name: String,
     pub runs: String,
@@ -43,7 +44,7 @@ pub struct Stats {
     pub places: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledGraph {
     pub name: String,
     pub start: String,
@@ -59,7 +60,7 @@ pub struct CompiledGraph {
     pub cells: Vec<CompiledCell>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInterject {
     pub name: String,
     pub desc: String,
@@ -69,14 +70,14 @@ pub struct CompiledInterject {
 
 /// How an agent's cell gets an input or a rule: its line's session already holds it on every way to the cell, or
 /// the engine gives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Held {
     Session,
     Given,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -88,13 +89,13 @@ pub struct CompiledInput {
     pub held: Option<Held>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RuleUse {
     pub name: String,
     pub held: Held,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledRow {
     pub name: String,
     #[serde(rename = "if")]
@@ -115,7 +116,7 @@ pub struct CompiledRow {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledCell {
     pub id: String,
     /// engine, agent, tool or owner.

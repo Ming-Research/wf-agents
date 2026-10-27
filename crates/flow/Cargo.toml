@@ -10,6 +10,8 @@ publish.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.11.1"
+# The compiled flow's TypeScript types, which the owner's page reads, are generated from these types.
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 
 [dev-dependencies]
 db = { path = "../db" }
