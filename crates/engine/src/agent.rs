@@ -55,7 +55,9 @@ pub trait Agents {
     }
 }
 
-/// The command line a round runs with, the program first.
+/// The command line a round runs with, the program first. The CLI reads only the settings of its own configuration
+/// directory, not the project's: it reads no project instructions, such as the worktree's AGENTS.md, by itself, so the
+/// project's guide reaches the agent only as the engine gives it, once in a session.
 pub fn command_line(r: &Request) -> Vec<String> {
     let mut out = vec![r.cli.command.clone()];
     out.extend(r.cli.args.iter().cloned());
@@ -65,6 +67,8 @@ pub fn command_line(r: &Request) -> Vec<String> {
             "--output-format",
             "stream-json",
             "--verbose",
+            "--setting-sources",
+            "user",
             "--model",
             r.model.as_str(),
         ]
@@ -585,6 +589,8 @@ mod tests {
         let line = command_line(&r);
         assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
+        // It reads no project instructions or settings by itself.
+        assert!(line.windows(2).any(|w| w == ["--setting-sources", "user"]), "{line:?}");
         let c = call(&r, &line, "2.1.0 (Claude Code)");
         assert_eq!(c["session"]["resumed"], "s1");
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");

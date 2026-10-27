@@ -6,6 +6,9 @@ Decision: The command line is given one structured-output schema that is the sam
 
 Decision: An agent asks for the GitHub and database query tools by handing in `tools`, which the engine runs in its tool cell and gives back in the next round, instead of tools the agent calls in the middle of a round, because to the model either is one tool call, and going through the tool cell records every run and checks it against the list of allowed commands.
 
+Decision: The command line reads only the settings of the agents' own configuration directory (`--setting-sources user` for `claude`), so it reads no project instructions or project settings by itself, such as the worktree's AGENTS.md, instead of reading them as a session started in a project directory does, because the engine gives the project's guide as a material once in a session, and a guide the command line reads by itself comes twice and comes back in every session whether the session needs it or not.
+
 Rejected:
+- Starting the command line bare (`--bare`), which also reads no project instructions: rejected because it takes only an API key, not the account the owner logged in with.
 - A structured-output schema of a bare object: rejected because the model then handed in the nested objects as JSON strings, seen on three returns in a row.
 - Tools served to the agent in the middle of a round: rejected because it saves the model nothing, and the costs of handing back (fields a return must carry, a restart of the command line) belong to how a return is handed in and can be cut there.
