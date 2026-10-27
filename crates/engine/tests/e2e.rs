@@ -398,8 +398,8 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             (
                 Vec::new(),
                 vec![
-                    ("outcome.end.head", json!(head)),
-                    ("outcome.end.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
+                    ("outcome.head", json!(head)),
+                    ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
                 ],
             )
         }),
@@ -1177,8 +1177,8 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let output: Value = serde_json::from_str(&ran(&e).expect(&log)).unwrap();
     let result = &output["results"][0];
     assert_eq!(result["tool"], "query", "{output}");
-    let rows = result["ran"]["rows"].as_str().unwrap_or_default();
-    assert!(rows.lines().any(|l| l.contains("Add the feature")), "{output}");
+    let rows = result["ran"]["rows"].as_array().cloned().unwrap_or_default();
+    assert!(rows.iter().any(|r| r["title"] == "Add the feature"), "{output}");
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("13").and_then(|c| c.schema.clone()).unwrap();

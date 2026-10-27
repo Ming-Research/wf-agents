@@ -348,6 +348,11 @@ impl<'a> Ways<'a> {
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {
                 let (address, cells) = self.source(c, s, trees);
+                // A numbered table is one input the engine makes of all its sources.
+                let address = match &x.numbered {
+                    Some(_) => Some("R‹round›·engine·table".to_string()),
+                    None => address,
+                };
                 out.push(CellInput {
                     always: *s == Src::Itself,
                     of: CellInputOf::Input { input: i, source: j },
@@ -373,7 +378,7 @@ impl<'a> Ways<'a> {
             Src::Engine(n) | Src::Recorded(n) => at(format!("R‹work›-‹n›·engine·{n}")),
             Src::Db { relation, .. } => match relation.as_str() {
                 "item_body" => at("item:‹id›".into()),
-                "item_design_cards" | "parent_design_cards" => at("design_card:‹id›".into()),
+                "item_design_cards" | "parent_design_cards" | "work_design_card" => at("design_card:‹id›".into()),
                 "item_asks" => at("ask:‹id›".into()),
                 "waiting_interjections" => at("ij:‹id›".into()),
                 "item_acceptance" => at("R‹work›-‹n›·‹cell›·acceptance".into()),

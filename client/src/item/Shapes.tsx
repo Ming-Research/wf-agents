@@ -113,28 +113,75 @@ export function Approaches({ value, chosen }: { value: JsonValue; chosen: string
     return <Labelled value={value} />;
   }
   return (
-    <table className="list approaches">
-      <tbody>
-        {value.filter(isObj).map((o, i) => {
-          const name = str(o.name);
-          return (
-            <tr key={i} className={name === chosen ? 'recommended' : undefined}>
-              <td>
-                <strong>
-                  <MarkdownInline text={name} />
-                </strong>
-                {name === chosen ? <div className="option-recommended">{t('decision_chosen')}</div> : null}
-              </td>
-              <td>
-                <Field label={t('option_how')} value={o.how} />
-                <Field label={t('option_good')} value={o.good} />
-                <Field label={t('option_bad')} value={o.bad} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <OptionBoxes
+      options={value.filter(isObj)}
+      fields={[
+        ['how', t('option_how')],
+        ['good', t('option_good')],
+        ['bad', t('option_bad')],
+      ]}
+      recommended={chosen}
+      mark={t('decision_chosen')}
+    />
+  );
+}
+
+/// Approaches or options, each in a box of its own, one under another: its name, then each of its fields under its
+/// label, in order. The one recommended and the one the owner picked are marked on their boxes, and may be the same;
+/// with `onPick`, a click on a box picks it and a second click clears it.
+export function OptionBoxes(props: {
+  options: Obj[];
+  /// The fields under each option's name, each with its label.
+  fields: Array<[string, string]>;
+  recommended: string;
+  /// What the recommended option is called here.
+  mark: string;
+  picked?: string;
+  onPick?: ((name: string) => void) | null;
+}) {
+  const pick = props.onPick ?? null;
+  return (
+    <div className="option-boxes" role={pick !== null ? 'radiogroup' : undefined}>
+      {props.options.map((o, i) => {
+        const name = str(o.name);
+        const recommended = name !== '' && name === props.recommended;
+        const mine = name !== '' && name === props.picked;
+        const cls = ['option-box', recommended ? 'recommended' : '', mine ? 'picked' : '', pick !== null ? 'pickable' : '']
+          .filter((c) => c !== '')
+          .join(' ');
+        return (
+          <div
+            key={i}
+            className={cls}
+            onClick={pick !== null ? () => pick(name) : undefined}
+            onKeyDown={
+              pick !== null
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      pick(name);
+                    }
+                  }
+                : undefined
+            }
+            tabIndex={pick !== null ? 0 : undefined}
+            role={pick !== null ? 'radio' : undefined}
+            aria-checked={pick !== null ? mine : undefined}
+          >
+            <div className="option-head">
+              <strong>
+                <MarkdownInline text={name} />
+              </strong>
+              {recommended ? <span className="option-recommended">{props.mark}</span> : null}
+              {mine ? <span className="option-picked">{t('option_yours')}</span> : null}
+            </div>
+            {props.fields.map(([k, label]) => (
+              <Field key={k} label={label} value={o[k]} />
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

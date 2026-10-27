@@ -33,6 +33,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0009.sql"),
     include_str!("../../../db/migrations/0010.sql"),
     include_str!("../../../db/migrations/0011.sql"),
+    include_str!("../../../db/migrations/0012.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -47,6 +48,40 @@ const HIDDEN: &str = "Hidden from agents.";
 /// The text a ruling on a design card is interjected with; a disagreement says so after it. The owner's ruling writes
 /// it and the engine's checks read it.
 pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
+
+/// The verdicts of a ruling on a design card as `design_cards.rulings` holds it, one for each decision in the order
+/// given, each with its verdict and any approach chosen instead; a ruling made before rulings were per decision is one
+/// verdict on the card as a whole, with decision 0.
+pub fn ruling_verdicts(ruling: &serde_json::Value) -> Vec<(i64, String, Option<String>)> {
+    let text = |v: &serde_json::Value, k: &str| v.get(k).and_then(serde_json::Value::as_str).map(str::to_string);
+    match ruling.get("decisions").and_then(serde_json::Value::as_array) {
+        Some(ds) => ds
+            .iter()
+            .map(|d| {
+                let n = d
+                    .get("decision")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or_default();
+                (n, text(d, "verdict").unwrap_or_default(), text(d, "option"))
+            })
+            .collect(),
+        None => vec![(0, text(ruling, "verdict").unwrap_or_default(), text(ruling, "option"))],
+    }
+}
+
+/// Whether a ruling confirms a design card of so many decisions: every decision confirmed, or, for a ruling made
+/// before rulings were per decision, the card.
+pub fn ruling_confirms(ruling: &serde_json::Value, decisions: usize) -> bool {
+    let verdicts = ruling_verdicts(ruling);
+    let whole = verdicts.len() == 1 && verdicts[0].0 == 0;
+    let all = whole || (1..=decisions as i64).all(|n| verdicts.iter().any(|(d, _, _)| *d == n));
+    all && verdicts.iter().all(|(_, v, _)| v == "confirm")
+}
+
+/// Whether a ruling disagrees with any decision of its design card, or with the card.
+pub fn ruling_disagrees(ruling: &serde_json::Value) -> bool {
+    ruling_verdicts(ruling).iter().any(|(_, v, _)| v == "disagree")
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -494,8 +529,8 @@ pub fn open_read(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// What agents are told about the database: each table and view they can read, by its name, with the first line of
-/// the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
+/// What agents are told about the database: each table and view they can read, by its name, with the first sentence
+/// of the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
 /// its comments included, with [`DEFINITION`] through the query tool.
 pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut st = conn.prepare(
@@ -506,16 +541,26 @@ pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for row in rows {
         let (name, sql) = row?;
-        let first = sql
-            .lines()
-            .map(str::trim)
-            .find_map(|l| l.strip_prefix("--"))
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        out.push((name, first));
+        out.push((name, first_sentence(&sql)));
     }
     Ok(out)
+}
+
+/// The first sentence of the first comment of a definition: its lines joined, up to the first full stop that ends a
+/// sentence, so that a sentence that goes on to the next line is not cut short.
+fn first_sentence(sql: &str) -> String {
+    let comment: Vec<&str> = sql
+        .lines()
+        .map(str::trim)
+        .skip_while(|l| !l.starts_with("--"))
+        .map_while(|l| l.strip_prefix("--"))
+        .map(str::trim)
+        .collect();
+    let text = comment.join(" ");
+    match text.find(". ") {
+        Some(i) => text[..=i].to_string(),
+        None => text,
+    }
 }
 
 /// What [`index`] gives for a schema, from the schema loaded into a database in memory.
@@ -873,16 +918,22 @@ mod tests {
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
         assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
-        // The index names each table and view with the first line of its description; the query it points to gives
-        // the whole definition with its comments.
+        // The index names each table and view with the first sentence of its description, whole however many lines
+        // it takes; the query it points to gives the whole definition with its comments.
         let index = index(db.conn()).unwrap();
         let names: Vec<&str> = index.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"items") && names.contains(&"ready_items"));
         assert!(!names.contains(&"sessions"));
         let (_, first) = index.iter().find(|(n, _)| n == "items").unwrap();
-        assert!(
-            first.starts_with("A piece of work to do, as its creator wrote it."),
-            "{first}"
+        assert_eq!(first, "A piece of work to do, as its creator wrote it.");
+        for (n, first) in &index {
+            assert!(first.ends_with('.') && !first.contains(". "), "{n}: {first}");
+        }
+        assert_eq!(
+            first_sentence(
+                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell 8.\n  SELECT 1"
+            ),
+            "Rows the work holds: its findings, as the review wrote them."
         );
         let full: String = agent
             .query_row(&DEFINITION.replace("<name>", "items"), [], |r| r.get(0))
@@ -1136,5 +1187,33 @@ mod tests {
         ];
         let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
         assert_eq!(cards, want);
+    }
+
+    // A ruling with a verdict on each decision confirms its design card only when every decision is confirmed; one
+    // made before rulings were per decision confirms or disagrees with the card as a whole.
+    #[test]
+    fn a_design_card_is_confirmed_only_when_every_decision_is() {
+        let ruling = |ds: serde_json::Value| serde_json::json!({ "by": "owner", "at": 1, "decisions": ds });
+        let all = ruling(serde_json::json!([
+            { "decision": 1, "verdict": "confirm" },
+            { "decision": 2, "verdict": "confirm" }
+        ]));
+        assert!(ruling_confirms(&all, 2) && !ruling_disagrees(&all));
+        assert!(!ruling_confirms(&all, 3));
+        let one_not = ruling(serde_json::json!([
+            { "decision": 1, "verdict": "confirm" },
+            { "decision": 2, "verdict": "disagree", "option": "B", "text": "Keep it." },
+            { "decision": 3, "verdict": "confirm" }
+        ]));
+        assert!(!ruling_confirms(&one_not, 3) && ruling_disagrees(&one_not));
+        assert_eq!(
+            ruling_verdicts(&one_not)[1],
+            (2, "disagree".to_string(), Some("B".to_string()))
+        );
+        let whole = serde_json::json!({ "by": "owner", "verdict": "confirm", "text": "" });
+        assert!(ruling_confirms(&whole, 3) && !ruling_disagrees(&whole));
+        assert!(ruling_disagrees(
+            &serde_json::json!({ "verdict": "disagree", "text": "no" })
+        ));
     }
 }

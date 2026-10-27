@@ -114,6 +114,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         given,
         interjections,
         columns,
+        table,
         number,
         msg,
     } = compose(e, w, g, cell, &item)?;
@@ -177,7 +178,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
-        "engine": { "head": head, "change": change, "columns": columns, "interjections": ids },
+        "engine": { "head": head, "change": change, "columns": columns, "table": table, "interjections": ids },
     });
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -241,6 +242,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         unwrapped: g.unwrap(&output),
         head_start: head.clone(),
         columns: &columns,
+        table: &table,
         interjections: &interjections,
     };
     if let Err(why) = checks::run(&ctx) {
@@ -285,6 +287,8 @@ struct Composed {
     /// The interjections waiting for the line.
     interjections: Vec<Value>,
     columns: Vec<(String, String)>,
+    /// The rows of the cell's numbered table, each with its number.
+    table: Vec<Value>,
     /// The round it will be.
     number: RoundId,
     msg: message::Message,
@@ -319,6 +323,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         .filter(|r| r["line"] == line.as_str())
         .collect();
     let columns = message::columns(e, w, g, cell, item);
+    let table = inputs::table(&gathered);
     let number = work::next_round(e.db.conn(), w.id)?;
     let msg = message::Context {
         e,
@@ -331,6 +336,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         gathered: &gathered,
         given: &given,
         columns: &columns,
+        table: &table,
         held: &held,
         registry: &registry,
     }
@@ -352,6 +358,7 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         given,
         interjections,
         columns,
+        table,
         number,
         msg,
     })

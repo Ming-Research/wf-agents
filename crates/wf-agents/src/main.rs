@@ -87,18 +87,20 @@ enum Command {
     },
     /// One design card in full, with its rulings.
     DesignCard { id: i64 },
-    /// Rules on a design card.
+    /// Rules on a design card: a verdict on each of its decisions, by number, all at once. The card is confirmed when
+    /// every decision is.
     Rule {
         design_card: i64,
-        /// Confirm or disagree.
+        /// A decision confirmed, by its number; `all` for every decision but those disagreed with.
         #[arg(long)]
-        verdict: String,
-        /// What the ruling says.
+        confirm: Vec<String>,
+        /// A decision disagreed with, and why: `<number>=<why>`.
         #[arg(long)]
-        text: String,
-        /// The approach chosen instead of the one recommended.
+        disagree: Vec<String>,
+        /// Another of a decision's approaches, chosen instead of the one recommended: `<number>=<approach>`; with
+        /// --disagree for the same decision to say why.
         #[arg(long)]
-        option: Option<String>,
+        choose: Vec<String>,
     },
     /// Says something to a running work: the line it is for gets it in its next round.
     Say {
@@ -412,16 +414,16 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
             design_card,
-            verdict,
-            text,
-            option,
+            confirm,
+            disagree,
+            choose,
         } => print(owner::rule(
             d,
             owner::Ruling {
                 design_card,
-                verdict,
-                text,
-                option,
+                confirm,
+                disagree,
+                choose,
             },
         )),
         Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),

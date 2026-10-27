@@ -148,10 +148,12 @@ fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, S
     .map_err(sql)
 }
 
-fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value) -> Result<i64, String> {
+/// A new design card of a round, open, with what the round said changed from the cards it replaces.
+fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: Option<&Value>) -> Result<i64, String> {
+    let changed = changed.and_then(Value::as_str).filter(|s| !s.trim().is_empty());
     tx.execute(
-        "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, ?3, 'open')",
-        params![round.work, round.n, body.to_string()],
+        "INSERT INTO design_cards (work, round, body, status, changed) VALUES (?1, ?2, ?3, 'open', ?4)",
+        params![round.work, round.n, body.to_string(), changed],
     )
     .map_err(sql)?;
     Ok(tx.last_insert_rowid())
@@ -257,7 +259,29 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             if posted.is_some() {
                 return Ok(());
             }
-            let card = new_design_card(tx, round, &body)?;
+            // What changed from the cards a redesign set aside is said beside the card, in the same return.
+            let changed: Option<Value> = tx
+                .query_row(
+                    "SELECT json_extract(output, ?3) FROM rounds WHERE work = ?1 AND n = ?2",
+                    params![
+                        round.work,
+                        round.n,
+                        format!("$.{}.design_tree.design_card_changed", ctx.within)
+                    ],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(sql)?
+                .flatten()
+                .map(Value::String);
+            let card = new_design_card(tx, round, &body, changed.as_ref())?;
+            // The cards of this work the redesign set aside are replaced by this one.
+            tx.execute(
+                "UPDATE design_cards SET replaced_by = ?2
+                 WHERE status = 'replaced' AND replaced_by IS NULL AND id <> ?2 AND work = ?1",
+                params![w, card],
+            )
+            .map_err(sql)?;
             notify(
                 tx,
                 Some(w),
@@ -271,7 +295,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let Some(body) = at_value else { return Ok(()) };
             // The cards it replaces are read before it is made: read after, the newest not replaced is itself.
             let before = current_design_cards(tx, w)?;
-            let card = new_design_card(tx, ctx.round, &body)?;
+            let changed = at_path(&ctx.unwrapped, "design_card_changed");
+            let card = new_design_card(tx, ctx.round, &body, changed.as_ref())?;
             if before.is_empty() {
                 notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
             } else {

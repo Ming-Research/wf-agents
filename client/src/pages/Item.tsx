@@ -45,9 +45,17 @@ const DRAWN = new Set([
   'design_tree',
   'acceptance',
   'deviations',
+  'followup',
+  'conditions',
   'end.followup',
   'end.conditions',
 ]);
+
+/// The values shown under a path of the answer of implementing and fixing, oldest first: those of a flow version
+/// before that answer was flat, which held them under end, come first.
+function done(shown: Map<string, Shown[]>, path: string): Shown[] {
+  return [...(shown.get(`end.${path}`) ?? []), ...(shown.get(path) ?? [])];
+}
 
 /// The values shown on the item, by path, oldest first, those with nothing left out.
 function byPath(d: ItemDetail): Map<string, Shown[]> {
@@ -201,7 +209,7 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
 function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown[]> }) {
   const proposed = newest(shown.get('acceptance'));
   const met = new Map<string, Met>();
-  for (const x of shown.get('end.conditions') ?? []) {
+  for (const x of done(shown, 'conditions')) {
     if (!Array.isArray(x.value)) continue;
     for (const m of x.value) if (isObj(m) && typeof m.id === 'string') met.set(m.id, m);
   }
@@ -236,7 +244,7 @@ function Changes({ shown }: { shown: Map<string, Shown[]> }) {
   const deviations = (shown.get('deviations') ?? [])
     .flatMap((x) => (Array.isArray(x.value) ? x.value.map((v) => ({ x, v })) : [{ x, v: x.value }]))
     .reverse();
-  const followup = newest(shown.get('end.followup'));
+  const followup = newest(done(shown, 'followup'));
   if (deviations.length === 0 && followup === undefined) return null;
   return (
     <Block title={t('changes_title')}>

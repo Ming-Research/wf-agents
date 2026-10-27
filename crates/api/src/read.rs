@@ -372,7 +372,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
 
 /// A design card, with the one that replaced it: the round that handed that one in, and that round's work.
 const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
-       n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph
+       n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph, n.changed
 FROM design_cards c JOIN works w ON w.id = c.work
 LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
 LEFT JOIN works nw ON nw.id = n.work";
@@ -389,8 +389,7 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) ->
                 cell: r.get(10)?,
                 title: None,
                 at: r.get(11)?,
-                // The flow asks no agent yet for what a design card that replaces another changed and why.
-                changed: None,
+                changed: r.get(14)?,
             }),
             _ => None,
         };
@@ -1441,7 +1440,7 @@ mod tests {
     }
 
     // A replaced design card names the one that replaced it, with the round that handed that one in, its cell and
-    // when; the agent's own words on what changed are not asked for yet.
+    // when, and what that one's agent said changed and why.
     #[test]
     fn a_replaced_design_card_says_what_replaced_it() {
         let mut s = setup("replaced");
@@ -1451,7 +1450,7 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 3, '[]', 'open')",
+                "INSERT INTO design_cards (work, round, body, status, changed) VALUES (1, 3, '[]', 'open', 'Kept one table.')",
                 [],
             )?;
             tx.execute(
@@ -1472,7 +1471,7 @@ mod tests {
                 cell: Some("1".into()),
                 title: Some(title),
                 at: Some(50),
-                changed: None,
+                changed: Some("Kept one table.".into()),
             })
         );
         assert_eq!(d.design_cards[1].replaced, None);

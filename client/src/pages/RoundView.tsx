@@ -125,7 +125,8 @@ export function sourceWords(a: string, title: (cell: string) => string): string 
 
 /// An input by a short name: its own, or that of where it comes from.
 export function shortName(x: CompiledInput): string {
-  // An input written without an id has none in the compiled flow either.
+  // An input written without an id has none in the compiled flow either; one every agent's cell has goes by its name.
+  if (x.name) return x.name;
   if (x.id) return words(x.id);
   const s = x.from[0];
   if (s === undefined) return '';
@@ -489,10 +490,6 @@ function AgentInputs({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[];
   const alsoSent = others.filter((c) => c.given);
   const alsoHeld = others.filter((c) => !c.given);
   const itself = (cell?.inputs ?? []).filter((x) => x.from.every((s) => s === 'self'));
-  // The points the advisor answered before are given with the counters; none given means none before.
-  const noPoints = (x: CompiledInput, has: string[]) =>
-    x.from.some((s) => typeof s === 'object' && !Array.isArray(s) && 'db' in s && s.db === 'answered_points') &&
-    !has.some((a) => a.endsWith('·engine·answered_points'));
   return (
     <>
       {m.task !== null ? (
@@ -539,12 +536,6 @@ function AgentInputs({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[];
                   )}
                 </div>
               ))}
-              {noPoints(
-                x.x,
-                x.addresses.map((a) => a.address),
-              ) ? (
-                <p className="muted">{t('round_no_points')}</p>
-              ) : null}
             </li>
           ))}
         </ol>

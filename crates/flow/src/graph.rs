@@ -58,6 +58,8 @@ pub(crate) const POINTERS: [&str; 3] = ["@stopped", "@caller", "@from"];
 #[derive(Debug, Clone)]
 pub(crate) struct In {
     pub id: Option<String>,
+    pub name: Option<String>,
+    pub numbered: Option<String>,
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
@@ -215,6 +217,8 @@ impl Cell {
 fn input(x: &Input) -> In {
     In {
         id: x.id.clone(),
+        name: x.name.clone(),
+        numbered: x.numbered.clone(),
         what: x.what.clone(),
         from: x.from.clone(),
         maybe: x.maybe.unwrap_or(false),
@@ -372,6 +376,30 @@ impl<'s> Graph<'s> {
         for x in &common.inputs {
             let ok = x.with.as_ref().is_none_or(|w| form_fields.contains(w));
             ensure!(ok, "a common input brought back by no form: {:?}", x.with);
+            // A cell's list of what its inputs are names an input every cell has, which the shared forms describe.
+            ensure!(
+                x.name.as_ref().is_some_and(|n| !n.is_empty()) && x.numbered.is_none(),
+                "an input every agent's cell has goes by a name, and is no table: {}",
+                x.what
+            );
+        }
+        let common_named: BTreeSet<&String> = common.inputs.iter().filter_map(|x| x.name.as_ref()).collect();
+        ensure!(
+            common_named.len() == common.inputs.len(),
+            "two inputs every agent's cell has with one name"
+        );
+        for g in &flow.ask_kinds {
+            for (kind, need) in &g.needs {
+                ensure!(
+                    g.kinds.iter().any(|(k, _)| k == kind),
+                    "a group of kinds names a need for a kind it does not hold: {} {kind}",
+                    g.group
+                );
+                ensure!(
+                    source.engine.needs.contains_key(need),
+                    "a kind needs no such need: {kind} {need}"
+                );
+            }
         }
         for p in ["{forms}", "{every}", "{in}"] {
             ensure!(ret.say.contains(p), "returns.say does not hold {p}: {}", ret.say);
@@ -493,6 +521,26 @@ impl<'s> Graph<'s> {
             }
             let row_names: BTreeSet<&String> = raw_rows.iter().map(|r| &r.0.name).collect();
             ensure!(row_names.len() == raw_rows.len(), "two rows with one name: {nid}");
+            for x in &n.inputs {
+                ensure!(
+                    x.name.is_none(),
+                    "only an input every agent's cell has goes by a name: {nid} {}",
+                    x.what
+                );
+                let table = x
+                    .numbered
+                    .as_ref()
+                    .is_none_or(|p| agent && !p.is_empty() && x.from.iter().all(|s| matches!(s, Src::Place(..))));
+                ensure!(
+                    table,
+                    "only an agent's input read from returns is a table numbered with a prefix: {nid} {}",
+                    x.what
+                );
+            }
+            ensure!(
+                n.inputs.iter().filter(|x| x.numbered.is_some()).count() <= 1,
+                "a cell with two numbered tables: {nid}"
+            );
             let mut ins: Vec<In> = n.inputs.iter().map(input).collect();
             if agent {
                 let with = |x: &&Input| x.with.as_ref().is_none_or(|w| !gone.contains(w));

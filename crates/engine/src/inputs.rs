@@ -300,6 +300,100 @@ fn source(
     })
 }
 
+/// The rows of a cell's numbered table: each finding, column, test, conflict, check and entry its sources hold now,
+/// numbered with the table's prefix in the order of its sources, each saying where it came from (the cell and the
+/// path) besides what it holds; none when the cell has no numbered table or nothing to put in it.
+pub fn table(gathered: &[Gathered]) -> Vec<Value> {
+    let Some(x) = gathered.iter().find(|x| x.input.numbered.is_some()) else {
+        return Vec::new();
+    };
+    let prefix = x.input.numbered.clone().unwrap_or_default();
+    let mut rows = Vec::new();
+    for p in &x.parts {
+        let Origin::Place { cell, path, .. } = &p.origin else {
+            continue;
+        };
+        for entry in entries(path, &p.value) {
+            let mut row = Map::new();
+            row.insert("row".into(), Value::String(format!("{prefix}{}", rows.len() + 1)));
+            row.insert("from".into(), Value::String(format!("{cell}·{path}")));
+            row.extend(entry);
+            rows.push(Value::Object(row));
+        }
+    }
+    rows
+}
+
+/// What a row of a numbered table is known by outside it: a finding's number, or a test's name.
+pub fn row_key(row: &Value) -> Option<&str> {
+    ["fid", "test", "name"]
+        .iter()
+        .find_map(|k| row.get(*k).and_then(Value::as_str))
+}
+
+/// What one source of a table holds, one entry for each row: for a review's column with findings, each finding with
+/// the column's number; for a column it could not verify, the column; for a test, the test only when it went wrong
+/// (red after the change, or a result before it that does not fit its kind); for a result with checks, each check that
+/// is not green with the rest of the result, or the whole result when every check is green, as a flaky one is once
+/// run again; for what goes over the plan, each touch rule or budget; anything else as it is.
+fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
+    let items = match v {
+        Value::Array(xs) => xs.clone(),
+        other => vec![other.clone()],
+    };
+    let guards = path.ends_with("guard_tests");
+    let tests = guards || path.ends_with("new_tests");
+    let object = |v: Value| match v {
+        Value::Object(o) => o,
+        other => Map::from_iter([("value".to_string(), other)]),
+    };
+    let mut out = Vec::new();
+    for it in items {
+        let mut o = object(it);
+        if let Some(Value::Array(findings)) = o.get("findings").cloned() {
+            let column = o.get("id").cloned().unwrap_or(Value::Null);
+            for f in findings {
+                let mut m = Map::from_iter([("column".to_string(), column.clone())]);
+                m.extend(object(f));
+                out.push(m);
+            }
+        } else if o.contains_key("verdict") && o.contains_key("id") {
+            let column = o.remove("id").unwrap_or(Value::Null);
+            let mut m = Map::from_iter([("column".to_string(), column)]);
+            m.extend(o);
+            out.push(m);
+        } else if tests {
+            let at = |k: &str| o.get(k).and_then(Value::as_str);
+            let (head, base) = (at("on_head"), at("on_base"));
+            let unfit = if guards {
+                base != Some("green")
+            } else {
+                base == Some("green")
+            };
+            if head == Some("red") || unfit {
+                out.push(o);
+            }
+        } else if let Some(Value::Array(checks)) = o.get("checks").cloned() {
+            let not_green: Vec<Value> = checks.into_iter().filter(|c| c["result"] != "green").collect();
+            if not_green.is_empty() {
+                out.push(o);
+                continue;
+            }
+            o.remove("checks");
+            for c in not_green {
+                let mut m = o.clone();
+                m.extend(object(c));
+                out.push(m);
+            }
+        } else if let Some(Value::Array(over)) = o.get("over").cloned() {
+            out.extend(over.into_iter().map(object));
+        } else {
+            out.push(o);
+        }
+    }
+    out
+}
+
 /// The rows of a table or view for the item, work or project at hand.
 pub fn db_rows(e: &Engine, w: &Work, item: &Item, relation: &str, by: Option<&str>) -> Result<Vec<Value>, String> {
     let conn = e.db.conn();
@@ -521,5 +615,89 @@ mod tests {
             Some(json!([{ "change": "added", "test": "t" }]))
         );
         assert_eq!(at_path(&x, "nothing"), None);
+    }
+
+    // A numbered table holds a row for each finding, column not verified, test that went wrong, conflict and check not
+    // green, numbered across its sources in their order, each saying where it came from.
+    #[test]
+    fn a_numbered_table_numbers_every_row_across_its_sources() {
+        let place = |cell: &str, path: &str, value: Value| Part {
+            origin: Origin::Place {
+                round: RoundId::new(1, 9),
+                first: RoundId::new(1, 9),
+                cell: cell.into(),
+                path: path.into(),
+            },
+            value,
+        };
+        let finding = |fid: &str| json!({ "fid": fid, "where": "w", "what": "x", "fix": "y" });
+        let g = Gathered {
+            input: CompiledInput {
+                id: None,
+                name: None,
+                numbered: Some("F".into()),
+                what: "The table to answer".into(),
+                from: Vec::new(),
+                maybe: true,
+            },
+            parts: vec![
+                place(
+                    "5a",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] }]),
+                ),
+                place(
+                    "5b",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }]),
+                ),
+                place(
+                    "5a",
+                    "columns[cannot_verify]",
+                    json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
+                ),
+                place(
+                    "6",
+                    "new_tests",
+                    json!([
+                        { "name": "fails_before", "on_head": "green", "on_base": "red" },
+                        { "name": "passes_before", "on_head": "green", "on_base": "green" }
+                    ]),
+                ),
+                place(
+                    "6",
+                    "guard_tests",
+                    json!([{ "name": "guard", "on_head": "green", "on_base": "green" }]),
+                ),
+                place(
+                    "7",
+                    "result[conflict]",
+                    json!({ "kind": "conflict", "files": ["a.rs"] }),
+                ),
+                place(
+                    "7",
+                    "result[red]",
+                    json!({ "kind": "red", "checks": [
+                        { "name": "check", "result": "red", "run": "u" },
+                        { "name": "other", "result": "green", "run": "v" }
+                    ] }),
+                ),
+            ],
+            value: None,
+        };
+        let rows = table(std::slice::from_ref(&g));
+        let ids: Vec<&str> = rows.iter().filter_map(|r| r["row"].as_str()).collect();
+        assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]);
+        assert_eq!(
+            (&rows[0]["from"], &rows[0]["column"], &rows[0]["fid"]),
+            (&json!("5a·columns[findings]"), &json!("2"), &json!("R1"))
+        );
+        assert_eq!(rows[2]["from"], "5b·columns[findings]");
+        assert_eq!((&rows[3]["column"], rows[3].get("id")), (&json!("3"), None));
+        assert_eq!(rows[4]["name"], "passes_before");
+        assert_eq!(rows[5]["files"], json!(["a.rs"]));
+        assert_eq!((&rows[6]["kind"], &rows[6]["name"]), (&json!("red"), &json!("check")));
+        assert_eq!(row_key(&rows[0]), Some("R1"));
+        assert_eq!(row_key(&rows[4]), Some("passes_before"));
     }
 }

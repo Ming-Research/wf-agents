@@ -291,14 +291,17 @@ fn the_owner_answers_and_rules_on_the_page() {
     let (status, again) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
     assert_eq!(status, 422, "{again}");
     assert!(again.contains("answered already"), "{again}");
-    let ruling = r#"{"verdict":"disagree","text":"Keep the old name."}"#;
+    let ruling = r#"{"decisions":[{"decision":1,"verdict":"disagree","text":"Keep the old name."}]}"#;
     let (status, done) = post(s.port, "/api/v1/design-cards/1/rule", ruling, "application/json");
     assert_eq!(status, 200, "{done}");
     let said: String = db
         .conn()
         .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(said, "Ruling on design card 1: disagree. Keep the old name.");
+    assert_eq!(
+        said,
+        "Ruling on design card 1:\n- decision 1: disagree: Keep the old name."
+    );
     // A paused work goes on; one that is not paused is refused.
     db.write(db::Actor::Engine, |tx| {
         tx.execute("UPDATE works SET paused = 'cell 13: no' WHERE id = 1", [])?;

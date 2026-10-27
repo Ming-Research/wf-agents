@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use flow::{CompiledCell, CompiledGraph};
+use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -338,10 +338,65 @@ fn quoted(names: &[String]) -> String {
     names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
 }
 
-/// The forms every agent's return in a graph shares, with each cell's own answer apart: what `format:common` gives.
-/// A form some cells have with fewer alternatives (fewer tools, fewer roles to ask) is given with all of them;
-/// `format:<cell>` says which a cell has.
-pub fn common_format(g: &CompiledGraph) -> String {
+/// The kinds of question a project cannot meet, which its agents are not told of: those whose need it does not meet.
+pub fn kinds_left_out<'g>(g: &'g CompiledGraph, project: Option<&config::Project>) -> Vec<&'g AskNeed> {
+    g.ask_needs
+        .iter()
+        .filter(|k| !project.is_some_and(|p| p.has(&k.need).unwrap_or(false)))
+        .collect()
+}
+
+/// A schema without the kinds of question left out: each taken out of the list of values of the field that names a
+/// kind, and its meaning out of that field's description, where the flow joins the kinds' meanings with "; ".
+fn without_kinds(schema: &mut Value, gone: &[&AskNeed]) {
+    match schema {
+        Value::Object(o) => {
+            if let Some(Value::Array(values)) = o.get_mut("enum")
+                && values
+                    .iter()
+                    .any(|v| gone.iter().any(|k| v.as_str() == Some(k.kind.as_str())))
+            {
+                values.retain(|v| !gone.iter().any(|k| v.as_str() == Some(k.kind.as_str())));
+                if let Some(Value::String(d)) = o.get_mut("description") {
+                    for k in gone {
+                        *d = d
+                            .replace(&format!("; {}", k.text), "")
+                            .replace(&format!("{}; ", k.text), "");
+                    }
+                }
+            }
+            for v in o.values_mut() {
+                without_kinds(v, gone);
+            }
+        }
+        Value::Array(xs) => {
+            for x in xs {
+                without_kinds(x, gone);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The inputs every agent's cell may have besides its own, each by its name with what it is, in the order the cells
+/// have them.
+fn common_inputs(g: &CompiledGraph) -> Vec<(&str, &str)> {
+    let mut out: Vec<(&str, &str)> = Vec::new();
+    for x in g.cells.iter().filter(|c| c.kind == "agent").flat_map(|c| &c.inputs) {
+        if let Some(n) = x.name.as_deref()
+            && !out.iter().any(|(m, _)| *m == n)
+        {
+            out.push((n, x.what.as_str()));
+        }
+    }
+    out
+}
+
+/// The forms every agent's return in a graph shares, with each cell's own answer apart, and the inputs every agent's
+/// cell may have: what `format:common` gives. A form some cells have with fewer alternatives (fewer tools, fewer
+/// roles to ask) is given with all of them; `format:<cell>` says which a cell has. The kinds of question left out for
+/// the project are not in it.
+pub fn common_format(g: &CompiledGraph, gone: &[&AskNeed]) -> String {
     let mut forms: Vec<(String, Value)> = Vec::new();
     let mut every: Map<String, Value> = Map::new();
     let mut without: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -402,26 +457,40 @@ pub fn common_format(g: &CompiledGraph) -> String {
     } else {
         format!("; {}", leaves.join("; "))
     };
-    let write: String = g.write.iter().map(|l| format!("- {l}\n")).collect();
-    let write = if write.is_empty() {
-        String::new()
-    } else {
-        format!("\n\nHow a return is written:\n{write}")
-    };
-    format!(
+    let mut parts = vec![format!(
         "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
          the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
-         also holds {every}{leaves}.{write}\n\nEach field, as JSON Schema; no object holds fields it does not list, \
-         and a part used in more than one place is under `$defs`:\n\n{json}",
+         also holds {every}{leaves}.",
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),
-        json = once(lean(&Value::Object(schema))),
-    )
+    )];
+    if !g.write.is_empty() {
+        let lines: Vec<String> = g.write.iter().map(|l| format!("- {l}")).collect();
+        parts.push(format!("How a return is written:\n{}", lines.join("\n")));
+    }
+    let inputs = common_inputs(g);
+    if !inputs.is_empty() {
+        let lines: Vec<String> = inputs.iter().map(|(n, what)| format!("- {n}: {what}")).collect();
+        parts.push(format!(
+            "The inputs every agent's cell may have besides its own, which each cell's `inputs:<cell>` names by their \
+             number only:\n{}",
+            lines.join("\n")
+        ));
+    }
+    let mut schema = lean(&Value::Object(schema));
+    without_kinds(&mut schema, gone);
+    parts.push(format!(
+        "Each field, as JSON Schema; no object holds fields it does not list, and a part used in more than one place \
+         is under `$defs`:\n\n{}",
+        once(schema)
+    ));
+    parts.join("\n\n")
 }
 
-/// A cell's own answer, and which of the forms every return shares the cell has: what `format:<cell>` gives.
-pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
+/// A cell's own answer, and which of the forms every return shares the cell has: what `format:<cell>` gives. The
+/// kinds of question left out for the project are not in it.
+pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell, gone: &[&AskNeed]) -> String {
     let alts = cell
         .schema
         .as_ref()
@@ -452,6 +521,8 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
             }
         }
     }
+    let mut own = lean(&own);
+    without_kinds(&mut own, gone);
     format!(
         "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema; instead of it, a return of this cell may \
          hold these forms of `format:common`: {others}.\n\n{json}",
@@ -459,7 +530,7 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
         title = cell.title,
         w = g.within,
         others = others.join(", "),
-        json = once(lean(&own)),
+        json = once(own),
     )
 }
 
@@ -497,6 +568,8 @@ pub struct Context<'a> {
     /// The values the engine knows and rows recorded, which pick the lines the prompt adds.
     pub given: &'a Map<String, Value>,
     pub columns: &'a [(String, String)],
+    /// The rows of the cell's numbered table, each with its number, as [`crate::inputs::table`] makes them.
+    pub table: &'a [Value],
     pub held: &'a Held,
     pub registry: &'a HashMap<String, Vec<String>>,
 }
@@ -587,7 +660,7 @@ impl Context<'_> {
                 let rows = p.value.as_array().cloned().unwrap_or_default();
                 match rel.as_str() {
                     "item_body" => rows.into_iter().map(|r| (format!("item:{}", r["item"]), r)).collect(),
-                    "item_design_cards" | "parent_design_cards" => rows
+                    "item_design_cards" | "parent_design_cards" | "work_design_card" => rows
                         .into_iter()
                         .map(|r| (format!("design_card:{}", r["design_card"]), r))
                         .collect(),
@@ -775,21 +848,23 @@ impl Context<'_> {
         };
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
-        // of each setting the formats and the rules name is written beside its name.
+        // of each setting the formats and the rules name is written beside its name, and the kinds of question the
+        // project cannot meet are left out of the formats.
+        let project = e.config.config.projects.get(&item.project);
+        let gone = kinds_left_out(g, project);
         m.add(
             "format:common".into(),
-            Value::String(with_settings(e, &item.project, common_format(g), true)),
+            Value::String(with_settings(e, &item.project, common_format(g, &gone), true)),
         );
         m.add(
             format!("format:{}", c.id),
-            Value::String(with_settings(e, &item.project, cell_format(g, c), true)),
+            Value::String(with_settings(e, &item.project, cell_format(g, c, &gone), true)),
         );
         let numbered = cell_inputs(c);
         if !numbered.is_empty() {
             m.add(format!("inputs:{}", c.id), Value::String(numbered));
         }
         let mut rules = Vec::new();
-        let project = e.config.config.projects.get(&item.project);
         for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
             let Some(text) = e.config.config.rules.get(&name) else {
                 continue;
@@ -825,6 +900,15 @@ impl Context<'_> {
                 continue;
             }
             number += 1;
+            // A numbered table is one input the engine computes from its sources, each row with its number.
+            if x.input.numbered.is_some() {
+                if !self.table.is_empty() {
+                    let content = Value::Array(self.table.to_vec());
+                    let address = self.computed(&m, "table", &content);
+                    work_from.push(format!("{number}. {}", m.add(address, content)));
+                }
+                continue;
+            }
             let mut addrs: Vec<String> = Vec::new();
             for p in &x.parts {
                 for (address, content) in self.conditional_of(&m, p) {
@@ -867,7 +951,6 @@ impl Context<'_> {
                 out.line("");
             }
         }
-        out.line("## Task\n");
         let mut task: Vec<&str> = c.prompt.iter().map(String::as_str).collect();
         if let Some(pb) = &c.prompt_by
             && let Some(v) = self.given.get(&pb.by).and_then(Value::as_str)
@@ -875,8 +958,12 @@ impl Context<'_> {
         {
             task.extend(lines.iter().map(String::as_str));
         }
-        out.keep(&task.join("\n"));
-        out.line("");
+        // A cell with no task of its own has no heading for one.
+        if !task.is_empty() {
+            out.line("## Task\n");
+            out.keep(&task.join("\n"));
+            out.line("");
+        }
         if !work_from.is_empty() {
             out.line("## Work from\n");
             for l in &work_from {
@@ -953,14 +1040,18 @@ impl Writer {
 }
 
 /// What each numbered input of a cell is, the inputs the agent reads itself left out: what `inputs:<cell>` gives, and
-/// what the numbers in a message's list of inputs to work from stand for.
+/// what the numbers in a message's list of inputs to work from stand for. An input every agent's cell has is named
+/// only: `format:common` says what it is.
 pub fn cell_inputs(cell: &CompiledCell) -> String {
     let lines: Vec<String> = cell
         .inputs
         .iter()
         .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
         .enumerate()
-        .map(|(i, x)| format!("{}. {}", i + 1, x.what))
+        .map(|(i, x)| match &x.name {
+            Some(name) => format!("{}. {name}, which format:common describes", i + 1),
+            None => format!("{}. {}", i + 1, x.what),
+        })
         .collect();
     if lines.is_empty() {
         return String::new();
@@ -1071,9 +1162,15 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
                         ));
                     }
                 }
-                let ends = crate::inputs::last_return(e, w, g, "4", "end").ok().flatten();
-                for t in ends
-                    .and_then(|r| r["end"]["test_changes"].as_array().cloned())
+                // A return of a flow version before the answer was flat holds the test changes under end.
+                let done = crate::inputs::last_return(e, w, g, "4", "test_changes").ok().flatten();
+                for t in done
+                    .and_then(|r| {
+                        r.get("test_changes")
+                            .or_else(|| r["end"].get("test_changes"))
+                            .and_then(Value::as_array)
+                            .cloned()
+                    })
                     .unwrap_or_default()
                 {
                     let name = t["test"].as_str().unwrap_or_default();
@@ -1232,7 +1329,7 @@ mod tests {
     #[test]
     fn the_common_format_holds_every_alternative_and_a_cell_says_which_it_has() {
         let g = graph();
-        let common = common_format(&g);
+        let common = common_format(&g, &[]);
         for t in [
             "\"ci\"",
             "\"ci_before\"",
@@ -1252,14 +1349,50 @@ mod tests {
             "{common}"
         );
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
-        let four = cell_format(&g, g.cell("4").unwrap());
+        let four = cell_format(&g, g.cell("4").unwrap(), &[]);
         assert!(
             four.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{four}"
         );
         assert!(four.contains("`ask` (to advisor, architect, owner)"), "{four}");
-        let twelve = cell_format(&g, g.cell("12").unwrap());
+        let twelve = cell_format(&g, g.cell("12").unwrap(), &[]);
         assert!(twelve.contains("`ask` (to architect, owner)"), "{twelve}");
         assert!(!twelve.contains("`redirect`"), "{twelve}");
+    }
+
+    // What the inputs every agent's cell has are is said once, in the common format; each cell's list of its inputs
+    // names them only, and says in full what its own are.
+    #[test]
+    fn the_inputs_every_cell_has_are_described_once() {
+        let g = graph();
+        let common = common_format(&g, &[]);
+        let four = g.cell("4").unwrap();
+        let goal = four
+            .inputs
+            .iter()
+            .find(|x| x.name.as_deref() == Some("Design goal"))
+            .unwrap();
+        assert_eq!(common.matches(goal.what.as_str()).count(), 1, "{common}");
+        let listed = cell_inputs(four);
+        assert!(!listed.contains(goal.what.as_str()), "{listed}");
+        assert!(
+            listed.contains("Design goal, which format:common describes"),
+            "{listed}"
+        );
+        assert!(listed.contains(four.inputs[0].what.as_str()), "{listed}");
+    }
+
+    // A kind of question whose need the project does not meet is left out of the formats, value and meaning, and the
+    // other kinds stay.
+    #[test]
+    fn a_kind_the_project_cannot_meet_is_left_out_of_the_formats() {
+        let g = graph();
+        let gone = kinds_left_out(&g, None);
+        assert!(gone.iter().any(|k| k.kind == "gap_under_test"), "{gone:?}");
+        let common = common_format(&g, &gone);
+        assert!(!common.contains("gap_under_test"), "{common}");
+        assert!(!common.contains("rejects a natural way of writing"), "{common}");
+        assert!(common.contains("\"unsure\""), "{common}");
+        assert!(common_format(&g, &[]).contains("gap_under_test"));
     }
 }

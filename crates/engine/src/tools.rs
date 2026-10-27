@@ -97,10 +97,16 @@ fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String
     }
 }
 
-/// The rows a query found as the flow's query tool gives them: one text, one JSON object per line. The compiled flow's
-/// schema for the tool cell's return says a text, and the engine checks its own tool cell's return against it.
-fn rows_text(rows: &[Value]) -> String {
-    rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")
+/// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
+/// enough to give here; otherwise none, and what `save` gives for them written one JSON object per line, which says
+/// where they were saved.
+fn rows_given(rows: Vec<Value>, save: impl FnOnce(String) -> String) -> (Vec<Value>, Option<String>) {
+    let text = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+    if text.len() <= LONG {
+        (rows, None)
+    } else {
+        (Vec::new(), Some(save(text)))
+    }
 }
 
 /// Splits a command line into words as a shell would, without running anything: quotes group, a backslash escapes.
@@ -682,8 +688,12 @@ fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Fa
         };
         Ok(match run() {
             Ok((rows, cut)) => {
-                let rows = inline_or_saved(e, round, n, rows_text(&rows));
-                json!({ "ran": { "verdict": "ran", "rows": rows, "cut": cut } })
+                let (rows, saved) = rows_given(rows, |text| inline_or_saved(e, round, n, text));
+                let mut ran = json!({ "verdict": "ran", "rows": rows, "cut": cut });
+                if let Some(s) = saved {
+                    ran["saved"] = Value::String(s);
+                }
+                json!({ "ran": ran })
             }
             Err(why) => json!({ "ran": { "verdict": "error", "error": why } }),
         })
@@ -951,15 +961,24 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
     }
 
     #[test]
-    fn a_query_gives_its_rows_as_one_text_one_object_per_line() {
+    fn a_query_gives_its_rows_as_objects_and_saves_them_one_per_line_when_too_long() {
         let rows = vec![
-            json!({ "id": 206, "title": "Say" }),
+            json!({ "id": 206, "title": "Say \"done\"" }),
             json!({ "id": 207, "title": null }),
         ];
-        assert_eq!(
-            rows_text(&rows),
-            "{\"id\":206,\"title\":\"Say\"}\n{\"id\":207,\"title\":null}"
-        );
+        let given = rows_given(rows.clone(), |_| unreachable!("short rows are given here"));
+        assert_eq!(given, (rows, None));
+        let long: Vec<Value> = (0..2000).map(|i| json!({ "id": i, "text": "x".repeat(20) })).collect();
+        let kept = std::cell::RefCell::new(String::new());
+        let (given, saved) = rows_given(long, |text| {
+            *kept.borrow_mut() = text;
+            "saved to f".to_string()
+        });
+        assert!(given.is_empty());
+        assert_eq!(saved.as_deref(), Some("saved to f"));
+        let kept = kept.into_inner();
+        assert_eq!(kept.lines().count(), 2000);
+        assert_eq!(kept.lines().next(), Some(r#"{"id":0,"text":"xxxxxxxxxxxxxxxxxxxx"}"#));
     }
 
     #[test]

@@ -36,7 +36,26 @@ pub struct Ctx<'a> {
     /// The worktree's HEAD when the round started.
     pub head_start: Option<String>,
     pub columns: &'a [(String, String)],
+    /// The rows of the cell's numbered table as this round was given them, each with its number.
+    pub table: &'a [Value],
     pub interjections: &'a [Value],
+}
+
+/// What a row a fix answered by its number in the table it was given is known by outside the table: a finding's
+/// number or a test's name; the number itself for a round given no numbered table, as before the fix table numbered
+/// its rows.
+fn known_as(table: &[Value], id: &str) -> String {
+    table
+        .iter()
+        .find(|r| r["row"] == id)
+        .and_then(crate::inputs::row_key)
+        .unwrap_or(id)
+        .to_string()
+}
+
+/// The numbered table a round of the fix cell was given, as its record keeps it.
+fn table_of(r: &Round) -> Vec<Value> {
+    items(r.input.get("engine").and_then(|x| x.get("table")))
 }
 
 /// Runs every check of the cell that applies to the return; gives every reason it fails.
@@ -391,24 +410,50 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "chosen_matches_ruling" => {
             let chosen = v.and_then(Value::as_str).unwrap_or_default();
-            let rulings = work::query_json(
+            let cards = work::query_json(
                 c.e.db.conn(),
-                "SELECT c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1 ORDER BY c.id DESC",
+                "SELECT c.body, c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1
+                 ORDER BY c.id DESC",
                 &[&c.item.id],
                 100,
             )?;
-            let option = rulings
-                .iter()
-                .flat_map(|r| items(Some(&r["rulings"])))
-                .filter(|r| r["by"] == "owner")
-                .filter_map(|r| r["option"].as_str().map(str::to_string))
-                .next();
-            match option {
-                Some(o) if o != chosen => fail(format!(
-                    "the owner chose \"{o}\" in a ruling on the design card; that is the approach chosen"
-                )),
-                _ => Ok(()),
+            // The owner's last ruling, on the latest design card the owner ruled on.
+            let Some((body, ruling)) = cards.iter().find_map(|x| {
+                items(Some(&x["rulings"]))
+                    .into_iter()
+                    .rev()
+                    .find(|r| r["by"] == "owner")
+                    .map(|r| (items(Some(&x["body"])), r))
+            }) else {
+                return Ok(());
+            };
+            let verdicts = db::ruling_verdicts(&ruling);
+            // A ruling on the card as a whole, made before rulings were per decision: its approach is the design's.
+            if let [(0, _, Some(o))] = verdicts.as_slice() {
+                return if o != chosen {
+                    fail(format!(
+                        "the owner chose \"{o}\" in a ruling on the design card; that is the approach chosen"
+                    ))
+                } else {
+                    Ok(())
+                };
             }
+            // Each decision the owner chose another approach for chooses it on the new design card, in the same node.
+            let card = items(at_path(&c.unwrapped, "design_tree.design_card").as_ref());
+            for (k, _, o) in &verdicts {
+                let Some(o) = o else { continue };
+                let node = body
+                    .get((*k - 1).max(0) as usize)
+                    .and_then(|d| d["node"].as_str())
+                    .unwrap_or_default();
+                if !card.iter().any(|d| d["node"] == node && d["chosen"] == o.as_str()) {
+                    return fail(format!(
+                        "the owner chose \"{o}\" for decision {k} of the design card ({node}): the new design card's \
+                         decision in that node chooses it"
+                    ));
+                }
+            }
+            Ok(())
         }
         "head_pushed_and_green" => {
             let wt = c.wt()?;
@@ -533,7 +578,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 }
             }
             test_results_match_runs(c, v)?;
-            let changes = items(c.unwrapped.pointer("/end/test_changes"));
+            let changes = items(c.unwrapped.get("test_changes"));
             let listed: Vec<String> = strs(at_path(&Value::Array(items(v)), "name").as_ref());
             let kind = if new { "new_behaviour" } else { "old_behaviour" };
             for x in changes.iter().filter(|x| x["change"] == "added" && x["kind"] == kind) {
@@ -563,7 +608,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let rows = items(c.unwrapped.get(table));
             let mut kinds: Vec<(String, String)> = Vec::new();
             for cell in ["4", "8"] {
-                for x in items(c.last(cell, "end.test_changes")?.as_ref()) {
+                // A return of a flow version before the answer was flat holds the test changes under end.
+                let changes = match c.last(cell, "test_changes")? {
+                    Some(x) => Some(x),
+                    None => c.last(cell, "end.test_changes")?,
+                };
+                for x in items(changes.as_ref()) {
                     if x["change"] == "added" {
                         kinds.push((
                             x["test"].as_str().unwrap_or_default().into(),
@@ -620,6 +670,32 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 _ => Ok(()),
             }
         }
+        "design_card_changed_when_replacing" => {
+            // The design card it says what changed of sits beside it, under the card's own name.
+            let card_at = at.map(|a| a.trim_end_matches("_changed")).unwrap_or_default();
+            let card = at_path(&c.unwrapped, card_at);
+            let said = v.is_some_and(|x| x.as_str().is_none_or(|s| !s.trim().is_empty()));
+            let before: i64 =
+                c.e.db
+                    .conn()
+                    .query_row(
+                        "SELECT count(*) FROM design_cards d JOIN rounds r ON r.id = d.round WHERE r.work = ?1",
+                        [c.w.id],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+            match (card.is_some(), said, before > 0) {
+                (false, true, _) => fail("what changed is said only with a design card"),
+                (true, false, true) => fail(
+                    "this design card replaces this work's earlier design card: say in design_card_changed what \
+                     changed from it and why",
+                ),
+                (true, true, false) => {
+                    fail("this is the work's first design card and replaces none: leave design_card_changed out")
+                }
+                _ => Ok(()),
+            }
+        }
         "tests_only" => {
             let wt = c.wt()?;
             let Some(from) = c.w.pushed_head.clone() else {
@@ -645,11 +721,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             let tests = strs(v);
             for fix in c.accepted("8")?.into_iter().filter(|r| r.id > last6) {
+                let table = table_of(&fix);
                 for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
-                    let id = row["id"].as_str().unwrap_or_default();
+                    let id = known_as(&table, row["id"].as_str().unwrap_or_default());
                     if matches!(row["answer"].as_str(), Some("test_wrong" | "advisor_ruled"))
-                        && c.accepted("6")?.first().is_some_and(|r| mentions(r, id))
-                        && !tests.iter().any(|t| t == id)
+                        && c.accepted("6")?.first().is_some_and(|r| mentions(r, &id))
+                        && !tests.iter().any(|t| *t == id)
                     {
                         return fail(format!(
                             "no row for {id}, which the engineer answered {}",
@@ -828,6 +905,17 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     return fail(format!("{id} is answered twice"));
                 }
             }
+            // A round given a numbered table answers each of its rows by its number, and nothing else.
+            if !c.table.is_empty() {
+                let rows: Vec<&str> = c.table.iter().filter_map(|r| r["row"].as_str()).collect();
+                if let Some(x) = seen.iter().find(|x| !rows.contains(&x.as_str())) {
+                    return fail(format!("{x} is not a row of the table: answer each row by its number"));
+                }
+                let missing: Vec<&str> = rows.iter().copied().filter(|r| !seen.contains(*r)).collect();
+                if !missing.is_empty() {
+                    return fail(format!("no answer for {}", missing.join(", ")));
+                }
+            }
             Ok(())
         }
         "no_disagreeing_after_insist" => {
@@ -844,8 +932,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             match rows
                 .iter()
                 .filter(|r| matches!(r["answer"].as_str(), Some("disagree" | "test_wrong")))
-                .find_map(|r| r["id"].as_str().filter(|id| insisted.contains(*id)))
-            {
+                .find_map(|r| {
+                    r["id"]
+                        .as_str()
+                        .map(|id| known_as(c.table, id))
+                        .filter(|k| insisted.contains(k))
+                }) {
                 Some(id) => fail(format!("{id} was insisted on; when neither side gives way, ask")),
                 None => Ok(()),
             }
@@ -913,9 +1005,10 @@ fn mentions(r: &Round, id: &str) -> bool {
 fn ruled_ids(c: &Ctx<'_>) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
     for fix in c.accepted("8")? {
+        let table = table_of(&fix);
         for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
             if row["answer"] == "advisor_ruled" {
-                out.extend(row["id"].as_str().map(str::to_string));
+                out.extend(row["id"].as_str().map(|id| known_as(&table, id)));
             }
         }
     }

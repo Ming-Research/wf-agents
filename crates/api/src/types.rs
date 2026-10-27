@@ -270,8 +270,8 @@ pub struct Replacement {
     pub title: Option<String>,
     /// When that round ended.
     pub at: Option<i64>,
-    /// What the newer design card changed and why, in a sentence or two of its agent's; none while the flow asks no
-    /// agent for it.
+    /// What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+    /// the flow asked for it.
     pub changed: Option<String>,
 }
 
@@ -349,14 +349,26 @@ pub struct Answer {
     pub reply: Option<Value>,
 }
 
-/// The owner's ruling on a design card, as the page and the command line hand it in.
+/// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
+/// decisions, all sent at once.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Ruling {
+    /// One for each decision of the design card.
+    pub decisions: Vec<DecisionRuling>,
+}
+
+/// The ruling on one decision of a design card.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct DecisionRuling {
+    /// The decision's number on the design card, from 1.
+    pub decision: i64,
     /// confirm or disagree.
     pub verdict: String,
-    /// What the ruling says.
-    pub text: String,
-    /// The approach chosen instead of the one recommended: its name.
+    /// Why, for a disagreement; it may be left out when another approach is chosen.
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<String>,
+    /// For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
     #[serde(default)]
     #[ts(optional)]
     pub option: Option<String>,

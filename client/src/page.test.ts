@@ -9,6 +9,7 @@ import { addHops, lengthenLast, pathOf, type Route as Routed } from './graph/flo
 import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
+import { firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
 import { addressesByNumber, atPath, inputRows, jsonLines, modelName, sourceWords } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
@@ -451,5 +452,33 @@ describe('a round', () => {
     expect(atPath(out, 'end.test_changes[added]')).toEqual([{ kind: 'added', name: 'a' }]);
     expect(atPath(out, 'end.test_changes.name')).toEqual(['a', 'b']);
     expect(atPath(out, 'missing.path')).toBeUndefined();
+  });
+});
+
+describe('a ruling on a design card', () => {
+  const unset: Verdict = { verdict: null, text: '', option: '' };
+
+  it('is set decision by decision: the approach recommended confirms, another is chosen, and a second click clears', () => {
+    const chose = pickApproach(unset, 'B', 'A');
+    expect(chose).toEqual({ verdict: 'disagree', text: '', option: 'B' });
+    expect(verdictReady(chose)).toBe(true);
+    expect(pickApproach(chose, 'B', 'A')).toEqual(unset);
+    expect(pickApproach({ ...chose, text: 'Too slow.' }, 'B', 'A')).toEqual({ verdict: 'disagree', text: 'Too slow.', option: '' });
+    expect(pickApproach(chose, 'A', 'A')).toEqual({ verdict: 'confirm', text: '', option: '' });
+    expect(verdictReady({ verdict: 'disagree', text: ' ', option: '' })).toBe(false);
+    expect(verdictReady(unset)).toBe(false);
+  });
+
+  it('is summed up before sending, one line for each decision', () => {
+    expect(verdictLine(1, 'confirm', '', '')).toBe('Decision 1: confirm');
+    expect(verdictLine(2, 'disagree', 'B', 'One table is enough.')).toBe('Decision 2: disagree, choosing B: One table is enough.');
+    expect(verdictLine(3, 'disagree', '', 'No.')).toBe('Decision 3: disagree: No.');
+    expect(verdictLine(4, null, '', '')).toBe('Decision 4: not ruled yet');
+  });
+
+  it('titles each decision with its first sentence', () => {
+    expect(firstSentence('Keep one table. It is simpler.')).toBe('Keep one table.');
+    expect(firstSentence('v1.2 stays\nmore')).toBe('v1.2 stays');
+    expect(firstSentence('x'.repeat(200)).length).toBe(120);
   });
 });

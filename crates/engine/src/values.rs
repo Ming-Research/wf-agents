@@ -187,12 +187,15 @@ pub struct DesignCard {
     pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
+    /// How many decisions it holds; one for a card whose body holds none.
+    pub decisions: usize,
 }
 
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id
+        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
+                max(1, coalesce(json_array_length(c.body), 1))
          FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
          WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
@@ -202,6 +205,7 @@ pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
                 status: r.get(0)?,
                 rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
                 head: r.get(2)?,
+                decisions: r.get::<_, i64>(4)? as usize,
             })
         },
     );
@@ -212,12 +216,12 @@ pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     }
 }
 
-/// Whether the work's design card has a ruling that disagrees.
+/// Whether the work's design card has a ruling that disagrees with any of its decisions.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(design_card(e, w)?.is_some_and(|c| {
         c.rulings
             .as_array()
-            .is_some_and(|rs| rs.iter().any(|r| r["verdict"] == "disagree"))
+            .is_some_and(|rs| rs.iter().any(db::ruling_disagrees))
     }))
 }
 
@@ -241,12 +245,13 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
     let Some(card) = design_card(e, w)? else {
         return Ok(Some("a design card for the change to the design tree".to_string()));
     };
+    // The owner's last ruling confirms every decision of the card.
     let confirmed = card.status == "ruled"
         && card
             .rulings
             .as_array()
             .and_then(|rs| rs.last())
-            .is_some_and(|r| r["by"] == "owner" && r["verdict"] == "confirm");
+            .is_some_and(|r| r["by"] == "owner" && db::ruling_confirms(r, card.decisions));
     if !confirmed {
         return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
     }

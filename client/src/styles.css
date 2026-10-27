@@ -789,13 +789,8 @@ pre.prompt,
   color: var(--warn);
 }
 
-.approaches td,
 .acceptance td {
   vertical-align: top;
-}
-
-.approaches tr.recommended td:first-child {
-  box-shadow: inset 3px 0 var(--good);
 }
 
 .acceptance-by {
@@ -2755,32 +2750,66 @@ tr.acc-removed td {
   gap: 8px;
 }
 
+.card-head p {
+  margin: 2px 0 0;
+}
+
+/* A decision of a design card: a numbered fold under its one-line title. */
+
 .decision {
   border-left: 3px solid var(--line);
   padding: 2px 0 2px 10px;
-  display: grid;
-  gap: 6px;
 }
 
 .decision-head {
   display: flex;
   gap: 6px;
-  align-items: center;
+  align-items: baseline;
   flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.decision-n {
+  font-weight: 600;
+}
+
+.decision-title {
+  font-weight: 600;
+  flex: 1 1 16em;
+}
+
+.decision-body {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.decision-more > summary {
+  cursor: pointer;
+}
+
+.decision-more-body {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+/* How firm the agent holds a decision: its own view, not a ruling, so in words and no badge. */
+
+.decision-kind {
+  font-size: 12.5px;
+  font-style: italic;
 }
 
 .decision-settled {
-  background: #e3f3ea;
   color: var(--good);
 }
 
 .decision-provisional {
-  background: #fdf0dc;
   color: var(--warn);
 }
 
 .decision-to_check {
-  background: #fbe3e3;
   color: var(--bad);
 }
 
@@ -2790,31 +2819,44 @@ tr.acc-removed td {
   color: var(--muted);
 }
 
-.decision-options td {
-  vertical-align: top;
-  white-space: normal;
+/* Options and approaches, each a box of its own, one under another: its name over what it does and why. The option
+   the agent recommends is marked green at its edge; the one the owner clicked is filled; both can be one. */
+
+.option-boxes {
+  display: grid;
+  gap: 6px;
 }
 
-/* The option the agent recommends is marked green at its edge; the one the owner clicked is filled; both can be one. */
+.option-box {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 10px;
+  display: grid;
+  gap: 4px;
+}
 
-.decision-options tr.recommended td:first-child {
+.option-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.option-box.recommended {
   box-shadow: inset 3px 0 var(--good);
 }
 
-.decision-options tr.pickable {
+.option-box.pickable {
   cursor: pointer;
 }
 
-.decision-options tr.pickable:hover td {
+.option-box.pickable:hover {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-.decision-options tr.picked td {
+.option-box.picked {
   background: var(--accent-soft);
-}
-
-.decision-options tr.picked td:last-child {
-  box-shadow: inset -3px 0 var(--accent);
+  border-color: var(--accent);
 }
 
 .option-recommended {
@@ -2951,6 +2993,23 @@ tr.acc-removed td {
 .decide-button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* The verdict the owner set on a decision, before sending. */
+
+.decide-button.on {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.decision-rule {
+  border-top: none;
+  padding-top: 0;
+}
+
+.rule-summary ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 /* Code an agent wrote inside a text, such as a command for the owner to run. */

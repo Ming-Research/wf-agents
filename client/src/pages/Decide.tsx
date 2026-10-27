@@ -1,10 +1,13 @@
-// What the owner decides on the page. A design card is laid out as the decisions it holds (for each: whether it is
-// settled, the node, what changes from what to what and why, the approaches compared with their verdicts, how sure and
-// what would overturn it), with its rulings, and while it waits for a ruling, the owner confirms it or disagrees with a
-// reason, and may click another approach to rule for it. A replaced design card says only what replaced it, when, in
-// which round and at which cell, its full text folded. An ask of the owner is laid out as what it asks about, each
-// point under its kind coloured by the kind's group, and for a decision the options with the one recommended; while it
-// waits, the owner clicks an option and says what more there is to say. Both write what the command line writes, and
+// What the owner decides on the page. A design card says first how many decisions it holds, the node they share, and
+// that it asks nothing now but is confirmed before the merge; then each decision is a numbered fold under a one-line
+// title, with its kind in words that say it is the agent's view and how sure the agent is: open, the decision and why;
+// folded, the approaches compared and what would overturn it. While it waits for a ruling, the owner rules on each
+// decision (confirm, disagree with a reason, or click another of its approaches to choose it) and sends the verdicts on
+// all of them at once, after a summary of what is sent. A replaced design card says only what replaced it, when, in
+// which round and at which cell, and what changed, its full text folded. An ask of the owner is laid out as what it
+// asks about, each point under its kind coloured by the kind's group, and for a decision the options with the one
+// recommended; while it waits, the owner clicks an option and says what more there is to say. Options and approaches
+// are boxes one under another, each its name over what it does and why. Both write what the command line writes, and
 // the engine goes on at once.
 
 import { useState, type MouseEvent } from 'react';
@@ -12,6 +15,7 @@ import { useState, type MouseEvent } from 'react';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
 import { roundName, time } from '../format';
 import { postJson } from '../http';
+import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
@@ -47,170 +51,234 @@ function Text({ label, value }: { label: string; value: JsonValue | undefined })
   );
 }
 
-/// The options of a choice, which are also how the owner chooses: a click picks an option and a second click clears
-/// it. The option the agent recommends and the one the owner picked are marked apart, and may be the same.
-function Options(props: {
-  options: Obj[];
-  /// The fields shown beside each option's name: what it does, then the verdict or the cost.
-  fields: [string, string];
-  recommended: string;
-  /// What the recommended option is called here.
-  mark: string;
-  picked: string;
-  onPick: ((name: string) => void) | null;
-}) {
-  const pick = props.onPick;
-  return (
-    <table className="list decision-options">
-      <tbody>
-        {props.options.map((o, i) => {
-          const name = str(o.name);
-          const recommended = name !== '' && name === props.recommended;
-          const mine = name !== '' && name === props.picked;
-          const cls = [recommended ? 'recommended' : '', mine ? 'picked' : '', pick !== null ? 'pickable' : '']
-            .filter((c) => c !== '')
-            .join(' ');
-          return (
-            <tr
-              key={i}
-              className={cls === '' ? undefined : cls}
-              onClick={pick !== null ? () => pick(name) : undefined}
-              onKeyDown={
-                pick !== null
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        pick(name);
-                      }
-                    }
-                  : undefined
-              }
-              tabIndex={pick !== null ? 0 : undefined}
-              role={pick !== null ? 'radio' : undefined}
-              aria-checked={pick !== null ? mine : undefined}
-            >
-              <td>
-                <strong>
-                  <MarkdownInline text={name} />
-                </strong>
-                {recommended ? <div className="option-recommended">{props.mark}</div> : null}
-                {mine ? <div className="option-picked">{t('option_yours')}</div> : null}
-              </td>
-              <td>
-                <Markdown text={str(o[props.fields[0]])} />
-              </td>
-              <td className="muted">
-                <Markdown text={str(o[props.fields[1]])} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
+/// The first sentence of a text, as a title on one line: up to its first full stop, at most 120 characters.
+export function firstSentence(text: string): string {
+  const line = text.trim().split('\n')[0] ?? '';
+  const m = /^(.+?[.!?])(\s|$)/.exec(line);
+  const one = m !== null ? m[1] : line;
+  return one.length > 120 ? `${one.slice(0, 119)}…` : one;
 }
 
-/// One decision of a design card.
-function Decision({ d, picked, onPick }: { d: Obj; picked: string; onPick: ((name: string) => void) | null }) {
-  const settled = str(d.settled);
-  const options = Array.isArray(d.options) ? d.options.filter(isObj) : [];
-  const sure = str(d.sure);
+/// How firm the agent holds a decision, in words that say it is the agent's view and not a ruling.
+function kindWords(d: Obj): string {
+  switch (str(d.settled)) {
+    case 'settled':
+      return t('kind_settled');
+    case 'provisional':
+      return t('kind_provisional', { what: firstSentence(str(d.uncertain)) });
+    case 'to_check':
+      return t('kind_to_check', { what: firstSentence(str(d.assume)) });
+  }
+  return words(str(d.settled));
+}
+
+/// What the owner set for one decision before sending: a verdict, and for a disagreement why and any approach chosen
+/// instead.
+export type Verdict = { verdict: 'confirm' | 'disagree' | null; text: string; option: string };
+
+const UNSET: Verdict = { verdict: null, text: '', option: '' };
+
+/// Whether a decision's verdict can be sent: a confirmation, or a disagreement that says why or chooses an approach.
+export function verdictReady(v: Verdict): boolean {
+  return v.verdict === 'confirm' || (v.verdict === 'disagree' && (v.text.trim() !== '' || v.option !== ''));
+}
+
+/// One decision's verdict in words, as the summary before sending and the rulings given say it.
+export function verdictLine(n: number, verdict: string | null, option: string, text: string): string {
+  const head =
+    verdict === 'confirm'
+      ? t('rule_line_confirm', { n })
+      : verdict === 'disagree'
+        ? option !== ''
+          ? t('rule_line_choose', { n, option })
+          : t('rule_line_disagree', { n })
+        : t('rule_line_unset', { n });
+  return verdict === 'disagree' && text.trim() !== '' ? `${head}: ${text.trim()}` : head;
+}
+
+/// What a click on an approach of a decision sets: the approach recommended confirms the decision; another chooses it
+/// instead, disagreeing; the approach chosen already, clicked again, is cleared.
+export function pickApproach(v: Verdict, name: string, recommended: string): Verdict {
+  if (name === v.option) return { ...v, option: '', verdict: v.text.trim() !== '' ? 'disagree' : null };
+  if (name === recommended) return { verdict: 'confirm', text: '', option: '' };
+  return { ...v, option: name, verdict: 'disagree' };
+}
+
+/// The owner's verdict on one decision while the card waits: confirm, or disagree saying why; another approach is
+/// chosen by clicking it among the approaches compared.
+function RuleDecision({ v, set }: { v: Verdict; set: (v: Verdict) => void }) {
   return (
-    <div className="decision">
-      <div className="decision-head">
-        <span className={`badge decision-${settled}`}>{words(settled)}</span>
-        <span className="badge">{t(`decision_${str(d.change)}` as 'decision_add')}</span>
-        <code>{str(d.node)}</code>
+    <div className="decide decision-rule">
+      <div className="decide-row">
+        <button
+          type="button"
+          className={`decide-button${v.verdict === 'confirm' ? ' on' : ''}`}
+          onClick={() => set({ verdict: 'confirm', text: '', option: '' })}
+          aria-pressed={v.verdict === 'confirm'}
+        >
+          {t('rule_confirm')}
+        </button>
+        <button
+          type="button"
+          className={`decide-button${v.verdict === 'disagree' ? ' on' : ''}`}
+          onClick={() => set({ ...v, verdict: 'disagree' })}
+          aria-pressed={v.verdict === 'disagree'}
+        >
+          {t('rule_disagree')}
+        </button>
       </div>
-      <Text label={t('decision_before')} value={d.before} />
-      <Text label={t('decision_after')} value={d.after} />
-      <Text label={t('decision_why')} value={d.why} />
-      {options.length > 0 ? (
-        <Options
-          options={options}
-          fields={['does', 'verdict']}
-          recommended={str(d.chosen)}
-          mark={t('decision_chosen')}
-          picked={picked}
-          onPick={onPick}
-        />
-      ) : null}
-      {sure !== '' ? (
-        <Text label={t('decision_sure', { sure })} value={`${t(`sure_${sure}` as 'sure_1')}. ${str(d.sure_why)}`} />
-      ) : null}
-      <Text label={t('decision_overturn')} value={d.overturn} />
-      <Text label={t('decision_uncertain')} value={d.uncertain} />
-      <Text label={t('decision_reopen')} value={d.reopen} />
-      <Text label={t('decision_assume')} value={d.assume} />
-      <Text label={t('decision_check')} value={d.check} />
-      <Text label={t('decision_carried_by')} value={d.carried_by} />
-      <Text label={t('decision_from_parent')} value={d.from_parent} />
+      {v.verdict === 'disagree' ? (
+        <>
+          {v.option !== '' ? <p className="muted pick-hint">{t('rule_chosen_option', { option: v.option })}</p> : null}
+          <textarea
+            value={v.text}
+            rows={2}
+            placeholder={t(v.option !== '' ? 'rule_why_more_hint' : 'rule_why_hint')}
+            onChange={(e) => set({ ...v, text: e.target.value })}
+          />
+        </>
+      ) : (
+        <p className="muted pick-hint">{t('rule_pick_hint')}</p>
+      )}
     </div>
   );
 }
 
-/// The rulings given, in order.
+/// One decision of a design card, a numbered fold under a one-line title, with whether it is new, how firm the agent
+/// holds it and how sure it is: open, the decision and why (and what it was, when it changes one); folded, the
+/// approaches compared, which the owner may click to choose one for this decision, how sure and what would overturn it.
+function Decision(props: { d: Obj; n: number; showNode: boolean; v: Verdict | null; set: ((v: Verdict) => void) | null }) {
+  const { d, n, v, set } = props;
+  const change = str(d.change);
+  const options = Array.isArray(d.options) ? d.options.filter(isObj) : [];
+  const chosen = str(d.chosen);
+  const sure = str(d.sure);
+  const decision = change === 'remove' ? d.before : d.after;
+  const pick = set !== null && v !== null ? (name: string) => set(pickApproach(v, name, chosen)) : null;
+  return (
+    <details className="decision" open>
+      <summary className="decision-head">
+        <span className="decision-n">{n}.</span>
+        <span className="decision-title">
+          <MarkdownInline text={firstSentence(str(decision))} />
+        </span>
+        {change === 'add' ? <span className="badge">{t('decision_new')}</span> : null}
+        {change === 'remove' ? <span className="badge">{t('decision_remove')}</span> : null}
+        <span className={`decision-kind decision-${str(d.settled)}`}>{kindWords(d)}</span>
+        {sure !== '' ? <span className="muted">{t('decision_sure_short', { sure })}</span> : null}
+      </summary>
+      <div className="decision-body">
+        {props.showNode ? <code>{str(d.node)}</code> : null}
+        <Text label={t('decision_is')} value={decision} />
+        {change === 'change' ? <Text label={t('decision_before')} value={d.before} /> : null}
+        <Text label={t('decision_why')} value={d.why} />
+        <details className="decision-more">
+          <summary className="muted">{t('decision_more', { n: options.length })}</summary>
+          <div className="decision-more-body">
+            {options.length > 0 ? (
+              <OptionBoxes
+                options={options}
+                fields={[
+                  ['does', t('option_does')],
+                  ['verdict', t('option_verdict')],
+                ]}
+                recommended={chosen}
+                mark={t('decision_chosen')}
+                picked={v?.option ?? ''}
+                onPick={pick}
+              />
+            ) : null}
+            {sure !== '' ? (
+              <Text label={t('decision_sure', { sure })} value={`${t(`sure_${sure}` as 'sure_1')}. ${str(d.sure_why)}`} />
+            ) : null}
+            <Text label={t('decision_overturn')} value={d.overturn} />
+            <Text label={t('decision_uncertain')} value={d.uncertain} />
+            <Text label={t('decision_reopen')} value={d.reopen} />
+            <Text label={t('decision_assume')} value={d.assume} />
+            <Text label={t('decision_check')} value={d.check} />
+            <Text label={t('decision_carried_by')} value={d.carried_by} />
+            <Text label={t('decision_from_parent')} value={d.from_parent} />
+          </div>
+        </details>
+        {set !== null && v !== null ? <RuleDecision v={v} set={set} /> : null}
+      </div>
+    </details>
+  );
+}
+
+/// The rulings given, in order: a verdict on each decision, or for one made before rulings were per decision, one on
+/// the card.
 function Rulings({ rulings }: { rulings: JsonValue }) {
   const list = Array.isArray(rulings) ? rulings.filter(isObj) : [];
   if (list.length === 0) return null;
   return (
     <ul className="rulings">
-      {list.map((r, i) => (
-        <li key={i}>
-          <strong>{t('ruling_by', { by: str(r.by), verdict: str(r.verdict) })}</strong>
-          {r.option ? <span> · {t('ruling_option', { option: str(r.option) })}</span> : null}
-          {typeof r.at === 'number' ? <span className="muted"> · {time(r.at)}</span> : null}
-          {str(r.text) !== '' ? <Markdown text={str(r.text)} /> : null}
-        </li>
-      ))}
+      {list.map((r, i) => {
+        const each = Array.isArray(r.decisions) ? r.decisions.filter(isObj) : null;
+        return (
+          <li key={i}>
+            <strong>
+              {each !== null ? t('ruling_of', { by: str(r.by) }) : t('ruling_by', { by: str(r.by), verdict: str(r.verdict) })}
+            </strong>
+            {each === null && r.option ? <span> · {t('ruling_option', { option: str(r.option) })}</span> : null}
+            {typeof r.at === 'number' ? <span className="muted"> · {time(r.at)}</span> : null}
+            {each !== null ? (
+              <ul>
+                {each.map((d, j) => (
+                  <li key={j}>
+                    {verdictLine(Number(d.decision), str(d.verdict), str(d.option), str(d.text))}
+                  </li>
+                ))}
+              </ul>
+            ) : str(r.text) !== '' ? (
+              <Markdown text={str(r.text)} />
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-/// The owner's ruling on a design card that waits for one: confirm, or disagree with a reason; the approach clicked
-/// in the card, when one is, is ruled for instead of the one recommended.
-function RuleForm(props: { c: DesignCard; option: string; options: boolean; recommended: boolean }) {
-  const { c, option, options } = props;
-  const [text, setText] = useState('');
+/// What the owner sends: a summary of the verdict set on each decision, and the button that sends them all at once,
+/// once every decision has one that can be sent.
+function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const send = (verdict: 'confirm' | 'disagree') => {
+  const ready = verdicts.every(verdictReady);
+  const send = () => {
     setBusy(true);
     setError(null);
-    const body = option === '' ? { verdict, text } : { verdict, text, option };
-    postJson(`/api/v1/design-cards/${c.id}/rule`, body).then(decided, (e: unknown) => {
+    const decisions = verdicts.map((v, i) => ({
+      decision: i + 1,
+      verdict: v.verdict ?? 'confirm',
+      ...(v.verdict === 'disagree' && v.text.trim() !== '' ? { text: v.text.trim() } : {}),
+      ...(v.verdict === 'disagree' && v.option !== '' ? { option: v.option } : {}),
+    }));
+    postJson(`/api/v1/design-cards/${c.id}/rule`, { decisions }).then(decided, (e: unknown) => {
       setBusy(false);
       setError(e instanceof Error ? e.message : String(e));
     });
   };
   return (
-    <div className="decide">
-      {options ? (
-        <p className="muted pick-hint">
-          {option === ''
-            ? t('rule_pick_hint')
-            : t(props.recommended ? 'rule_picked_recommended' : 'rule_picked', { option })}
-        </p>
-      ) : null}
-      <textarea
-        value={text}
-        rows={3}
-        placeholder={t('rule_text_hint')}
-        onChange={(e) => setText(e.target.value)}
-        disabled={busy}
-      />
+    <div className="decide rule-summary">
+      <span className="decision-label">{t('rule_summary_title')}</span>
+      <ul>
+        {verdicts.map((v, i) => (
+          <li key={i} className={verdictReady(v) ? undefined : 'muted'}>
+            {verdictLine(i + 1, v.verdict, v.option, v.text)}
+          </li>
+        ))}
+      </ul>
       <div className="decide-row">
-        <button type="button" className="decide-button" onClick={() => send('confirm')} disabled={busy}>
-          {t('rule_confirm')}
-        </button>
         <button
           type="button"
           className="decide-button"
-          onClick={() => send('disagree')}
-          disabled={busy || text.trim() === ''}
-          title={text.trim() === '' ? t('rule_disagree_needs') : undefined}
+          onClick={send}
+          disabled={busy || !ready}
+          title={ready ? undefined : t('rule_not_ready')}
         >
-          {t('rule_disagree')}
+          {t('rule_send')}
         </button>
       </div>
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
@@ -218,30 +286,49 @@ function RuleForm(props: { c: DesignCard; option: string; options: boolean; reco
   );
 }
 
-/// A design card's decisions and rulings, and while it waits, the ruling: one approach may be clicked across the
-/// card, as a ruling chooses one.
+/// A design card: how many decisions, the node they share, that it asks nothing now and is confirmed before the merge;
+/// each decision; the rulings given; and while it waits, the owner's verdict on each decision and what is sent.
 function CardBody({ c }: { c: DesignCard }) {
-  const [picked, setPicked] = useState('');
-  const open = c.status === 'open';
   const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const options = decisions.some((d) => Array.isArray(d.options) && d.options.length > 0);
-  const pick = open ? (name: string) => setPicked((p) => (p === name ? '' : name)) : null;
+  const open = c.status === 'open';
+  const [set, setSet] = useState<Verdict[]>([]);
+  const verdicts = decisions.map((_, i) => set[i] ?? UNSET);
+  const setOne = (i: number) => (v: Verdict) =>
+    setSet(() => verdicts.map((x, j) => (j === i ? v : x)));
+  const nodes = [...new Set(decisions.map((d) => str(d.node)))];
+  const shared = nodes.length === 1 && nodes[0] !== '' ? nodes[0] : null;
+  if (decisions.length === 0) {
+    return (
+      <div className="card-view">
+        <Labelled value={c.body} />
+        <Rulings rulings={c.rulings} />
+      </div>
+    );
+  }
   return (
     <div className="card-view">
-      {decisions.length === 0 ? (
-        <Labelled value={c.body} />
-      ) : (
-        decisions.map((d, i) => <Decision key={i} d={d} picked={open ? picked : ''} onPick={pick} />)
-      )}
-      <Rulings rulings={c.rulings} />
-      {open ? (
-        <RuleForm
-          c={c}
-          option={picked}
-          options={options}
-          recommended={decisions.some((d) => str(d.chosen) === picked)}
+      <div className="card-head">
+        <strong>{decisions.length === 1 ? t('card_one_decision') : t('card_decisions', { n: decisions.length })}</strong>
+        {shared !== null ? (
+          <>
+            {' '}
+            <code>{shared}</code>
+          </>
+        ) : null}
+        <p className="muted">{t('card_asks_nothing')}</p>
+      </div>
+      {decisions.map((d, i) => (
+        <Decision
+          key={i}
+          d={d}
+          n={i + 1}
+          showNode={shared === null}
+          v={open ? verdicts[i] : null}
+          set={open ? setOne(i) : null}
         />
-      ) : null}
+      ))}
+      <Rulings rulings={c.rulings} />
+      {open ? <RuleForm c={c} verdicts={verdicts} /> : null}
     </div>
   );
 }
@@ -396,9 +483,12 @@ export function AskView({ a }: { a: OwnerAsk }) {
       {choice !== null ? (
         <>
           <p className="ask-question">{str(choice.question)}</p>
-          <Options
+          <OptionBoxes
             options={options}
-            fields={['does', 'cost_risk']}
+            fields={[
+              ['does', t('option_does')],
+              ['cost_risk', t('option_cost')],
+            ]}
             recommended={str(choice.recommended)}
             mark={t('ask_recommended')}
             picked={waits ? picked : ''}

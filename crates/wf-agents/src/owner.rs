@@ -190,23 +190,68 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
     api::answer(&mut db, a.ask, &given)
 }
 
-/// How the owner rules on a design card.
+/// How the owner rules on a design card: the decisions confirmed, by number or `all`; those disagreed with, each as
+/// `<number>=<why>`; and those another approach is chosen for, each as `<number>=<approach>`.
 pub struct Ruling {
     pub design_card: i64,
-    /// Confirm or disagree.
-    pub verdict: String,
-    pub text: String,
-    /// The approach chosen instead of the one recommended.
-    pub option: Option<String>,
+    pub confirm: Vec<String>,
+    pub disagree: Vec<String>,
+    pub choose: Vec<String>,
 }
 
-/// Rules on a design card, as the page does.
+/// Rules on a design card, as the page does: a verdict on each decision, all at once. A decision disagreed with, or
+/// another approach chosen for, is not confirmed by `all`.
 pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
     let mut db = open(data)?;
+    let count: i64 = db
+        .conn()
+        .query_row(
+            "SELECT max(1, coalesce(json_array_length(body), 1)) FROM design_cards WHERE id = ?1",
+            [r.design_card],
+            |x| x.get(0),
+        )
+        .optional()
+        .map_err(sql)?
+        .unwrap_or(1);
+    let number = |s: &str| {
+        s.trim()
+            .parse::<i64>()
+            .map_err(|_| format!("not the number of a decision: {s}"))
+    };
+    let verdict = |decision: i64, v: &str| api::DecisionRuling {
+        decision,
+        verdict: v.to_string(),
+        text: None,
+        option: None,
+    };
+    let mut by: std::collections::BTreeMap<i64, api::DecisionRuling> = std::collections::BTreeMap::new();
+    for c in &r.confirm {
+        let all: Vec<i64> = if c.trim() == "all" {
+            (1..=count).collect()
+        } else {
+            vec![number(c)?]
+        };
+        for n in all {
+            by.insert(n, verdict(n, "confirm"));
+        }
+    }
+    for (given, choosing) in [(&r.disagree, false), (&r.choose, true)] {
+        for x in given {
+            let (n, said) = x
+                .split_once('=')
+                .ok_or_else(|| format!("write it as <number>=<text>: {x}"))?;
+            let n = number(n)?;
+            let d = by.entry(n).or_insert_with(|| verdict(n, "disagree"));
+            d.verdict = "disagree".into();
+            if choosing {
+                d.option = Some(said.trim().to_string());
+            } else {
+                d.text = Some(said.trim().to_string());
+            }
+        }
+    }
     let given = api::Ruling {
-        verdict: r.verdict,
-        text: r.text,
-        option: r.option,
+        decisions: by.into_values().collect(),
     };
     api::rule(&mut db, r.design_card, &given)
 }

@@ -18,6 +18,8 @@ pub(crate) struct Field {
     /// An enum's values with what each means.
     pub values: Vec<(String, String)>,
     pub fields: Vec<Field>,
+    /// An object with no fields listed, which holds whatever fields its value has.
+    pub open: bool,
     pub item: Option<Box<Field>>,
     pub branches: Vec<Branch>,
     /// The fields every branch of a union has.
@@ -147,6 +149,7 @@ impl Shapes<'_> {
                 None => Vec::new(),
             },
             fields: all(x.fields.as_deref().unwrap_or_default())?,
+            open: kind == Kind::Obj && x.fields.is_none(),
             item: match &x.item {
                 Some(i) => Some(Box::new(self.field(i, tools, roles)?)),
                 None => None,
@@ -277,7 +280,7 @@ pub(crate) fn places(fields: &[Field], prefix: &str, out: &mut Vec<Place>) {
     for f in fields {
         let k = format!("{prefix}{}", f.name);
         let g = inner(f);
-        let leaf = matches!(g.kind, Kind::Text | Kind::Int | Kind::Bool | Kind::Enum);
+        let leaf = matches!(g.kind, Kind::Text | Kind::Int | Kind::Bool | Kind::Enum) || g.open;
         out.push(Place {
             key: k.clone(),
             kind: PlaceKind::Field,
