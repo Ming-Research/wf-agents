@@ -105,6 +105,8 @@ pub(crate) struct Cell {
     pub always: Vec<Always>,
     pub checks: Vec<Check>,
     pub handoff: Vec<String>,
+    /// What the owner's page shows on the item: the owner reads it there.
+    pub shown: Vec<String>,
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
     pub by_id: BTreeMap<String, usize>,
     /// What the rows switch on: the output and, as fields named `@<id>`, the inputs read by id.
@@ -188,11 +190,13 @@ impl Cell {
         out
     }
 
-    /// The paths read on every return: what the cell always does and checks, and what it hands off.
+    /// The paths read on every return: what the cell always does and checks, what it hands off, and what the owner
+    /// reads on the item.
     pub fn readers(&self, out: &mut Vec<String>) {
         out.extend(self.always.iter().map(|x| x.at.clone()));
         out.extend(self.checks.iter().filter_map(|x| x.at.clone()));
         out.extend(self.handoff.iter().cloned());
+        out.extend(self.shown.iter().cloned());
     }
 
     /// The paths a row itself reads, besides what every return reads.
@@ -562,6 +566,7 @@ impl<'s> Graph<'s> {
             let mut say = String::new();
             let mut always = n.always.clone().unwrap_or_default();
             let mut checks = n.checks.clone().unwrap_or_default();
+            let mut shown = n.shown.clone().unwrap_or_default();
             if agent {
                 for f in &common.out {
                     let field = shapes.field(f, &tools, &my_roles)?;
@@ -572,6 +577,7 @@ impl<'s> Graph<'s> {
                 forms = ret.forms.iter().filter(|f| has_form(n, f)).cloned().collect();
                 say = say_of(&forms);
                 always.extend(common.always.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
+                shown.extend(common.shown.iter().filter(|p| !gone.contains(head(p))).cloned());
                 checks.extend(
                     common
                         .checks
@@ -634,6 +640,7 @@ impl<'s> Graph<'s> {
                 always,
                 checks,
                 handoff: n.handoff.clone().unwrap_or_default(),
+                shown,
                 inenums,
                 by_id,
                 sw: Vec::new(),
@@ -981,8 +988,6 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         .replace("{na}", n.na.as_deref().unwrap_or(""));
     let mut inputs = n.inputs.clone();
     inputs.extend(g.inputs.iter().cloned());
-    let mut always = n.always.clone().unwrap_or_default();
-    always.extend(na.map(|x| x.always.clone()));
     Ok(Node {
         id: id.clone(),
         kind: NodeKind::Agent,
@@ -996,9 +1001,10 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         prompt_by: None,
         out: Some(na.map(|x| vec![x.out.clone()]).unwrap_or_default()),
         cases: Some(rows),
-        always: Some(always),
+        always: n.always.clone(),
         checks: None,
         handoff: None,
+        shown: n.shown.clone(),
         inenums: n.inenums.clone(),
         asks: None,
         about: n.about.clone(),

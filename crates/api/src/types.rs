@@ -411,6 +411,19 @@ pub struct ItemDetail {
     pub depended_on_by: Vec<LinkedItem>,
     pub works: Vec<WorkSummary>,
     pub cards: Vec<Card>,
+    /// What the rounds of its works handed back that their flow versions show on the item, oldest first.
+    pub shown: Vec<Shown>,
+}
+
+/// A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Shown {
+    pub work: i64,
+    pub round: i64,
+    pub cell: String,
+    /// The path of the return it is at, as the flow writes it.
+    pub path: String,
+    pub value: Value,
 }
 
 /// The owner's ask to switch the engine's mode.
@@ -614,6 +627,8 @@ pub enum Use {
     Check { cell: String, check: String },
     /// Handed to whoever takes over.
     Handoff { cell: String },
+    /// Shown on the item the work is on: the owner reads it there.
+    Shown { cell: String },
 }
 
 /// What changed from one compiled flow to another, graph by graph.
@@ -673,6 +688,7 @@ pub enum Part {
     Check,
     Always,
     Handoff,
+    Shown,
     Inenum,
     Start,
     End,

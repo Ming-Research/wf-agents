@@ -92,8 +92,15 @@ case!(no_such_engine_action, "no such engine action: nope", |v| {
 case!(no_such_engine_check, "no such engine check: nope", |v| {
     node(v, "5")["checks"] = json!([{ "check": "nope" }]);
 });
+case!(
+    something_done_every_time_that_names_a_view,
+    "names one action, and no view",
+    |v| {
+        node(v, "13")["always"] = json!([{ "at": "results", "view": "work_progress" }]);
+    }
+);
 case!(no_such_view, "no table or view nope", |v| {
-    node(v, "6")["always"][0]["view"] = json!("nope");
+    node(v, "0")["inputs"][0]["from"][0]["db"] = json!("nope");
 });
 case!(
     a_view_read_by_a_column_it_lacks,
@@ -409,6 +416,12 @@ case!(
 );
 
 // Nothing dropped.
+case!(a_follow_up_the_item_no_longer_shows, "nobody reads end.followup", |v| {
+    node(v, "4")["shown"] = json!(["deviations"]);
+});
+case!(a_shown_place_the_return_does_not_have, "nope", |v| {
+    node(v, "4")["shown"] = json!(["deviations", "end.followup", "nope"]);
+});
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
     drop_source(v, "8", json!(["5a", "columns[findings]"]));
 });

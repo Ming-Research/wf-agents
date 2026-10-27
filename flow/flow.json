@@ -2399,28 +2399,12 @@
         ],
         "always": [
           {
-            "at": "side_reports",
-            "view": "side_reports"
-          },
-          {
             "at": "side_reports.urgent",
             "do": "wake_architect"
           },
           {
-            "at": "progress",
-            "view": "work_progress"
-          },
-          {
-            "at": "pause",
-            "view": "work_progress"
-          },
-          {
             "at": "answers",
             "do": "deliver_answers"
-          },
-          {
-            "at": "redirect",
-            "view": "work_progress"
           }
         ],
         "checks": [
@@ -2440,6 +2424,12 @@
             "at": "redirect.answers.to",
             "check": "answers_match_speakers"
           }
+        ],
+        "shown": [
+          "progress",
+          "pause",
+          "redirect",
+          "side_reports"
         ]
       },
       "gate": {
@@ -2489,10 +2479,6 @@
                 ]
               }
             ]
-          },
-          "always": {
-            "at": "answer[not_applicable]",
-            "view": "not_applicable_answers"
           }
         }
       },
@@ -2721,12 +2707,6 @@
               "main": true
             }
           ],
-          "always": [
-            {
-              "at": "understanding",
-              "view": "item_research"
-            }
-          ],
           "checks": [
             {
               "at": "understanding.grounds[verified].where",
@@ -2735,6 +2715,9 @@
             {
               "check": "research_only"
             }
+          ],
+          "shown": [
+            "understanding"
           ]
         },
         {
@@ -2876,16 +2859,13 @@
               "main": true
             }
           ],
-          "always": [
-            {
-              "at": "options",
-              "view": "item_research"
-            }
-          ],
           "checks": [
             {
               "check": "design_paths_unchanged"
             }
+          ],
+          "shown": [
+            "options"
           ],
           "inenums": {
             "deliver": "deliver_kind"
@@ -3127,32 +3107,6 @@
               "to": "3a"
             }
           ],
-          "always": [
-            {
-              "at": "chosen",
-              "view": "item_research"
-            },
-            {
-              "at": "why",
-              "view": "item_research"
-            },
-            {
-              "at": "measure",
-              "view": "item_research"
-            },
-            {
-              "at": "design",
-              "view": "item_research"
-            },
-            {
-              "at": "acceptance",
-              "view": "item_research"
-            },
-            {
-              "at": "design_tree",
-              "view": "item_research"
-            }
-          ],
           "checks": [
             {
               "at": "measure",
@@ -3185,6 +3139,14 @@
           ],
           "handoff": [
             "design"
+          ],
+          "shown": [
+            "chosen",
+            "why",
+            "measure",
+            "design",
+            "acceptance",
+            "design_tree"
           ],
           "inenums": {
             "rethought": [
@@ -3532,12 +3494,6 @@
                   "design"
                 ]
               ]
-            }
-          ],
-          "always": [
-            {
-              "at": "progress",
-              "view": "item_research"
             }
           ]
         },
@@ -3933,14 +3889,6 @@
           ],
           "always": [
             {
-              "at": "deviations",
-              "view": "item_research"
-            },
-            {
-              "at": "end.followup",
-              "view": "work_followups"
-            },
-            {
               "at": "design_card",
               "do": "update_design_card"
             }
@@ -3974,6 +3922,10 @@
               "at": "design_card",
               "check": "design_tree_check"
             }
+          ],
+          "shown": [
+            "deviations",
+            "end.followup"
           ],
           "inenums": {
             "work": "work_kind"
@@ -4473,12 +4425,6 @@
                 ]
               ],
               "to": "5a"
-            }
-          ],
-          "always": [
-            {
-              "at": "directions",
-              "view": "adversarial_directions"
             }
           ],
           "checks": [
@@ -5275,16 +5221,6 @@
               "main": true
             }
           ],
-          "always": [
-            {
-              "at": "columns[not_applicable].reason",
-              "view": "not_applicable_columns"
-            },
-            {
-              "at": "withdrawn",
-              "view": "withdrawn_findings"
-            }
-          ],
           "checks": [
             {
               "at": "columns.id",
@@ -5427,12 +5363,6 @@
               ],
               "to": "19",
               "main": true
-            }
-          ],
-          "always": [
-            {
-              "at": "columns[not_applicable].reason",
-              "view": "not_applicable_columns"
             }
           ],
           "checks": [
@@ -6168,18 +6098,6 @@
           ],
           "always": [
             {
-              "at": "deviations",
-              "view": "item_research"
-            },
-            {
-              "at": "rows[advisor_ruled]",
-              "view": "advisor_rulings"
-            },
-            {
-              "at": "end.followup",
-              "view": "work_followups"
-            },
-            {
               "at": "design_card",
               "do": "update_design_card"
             }
@@ -6225,6 +6143,10 @@
               "at": "design_card",
               "check": "design_tree_check"
             }
+          ],
+          "shown": [
+            "deviations",
+            "end.followup"
           ]
         },
         {
@@ -6879,16 +6801,6 @@
               "to": "15",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
-            }
-          ],
-          "always": [
-            {
-              "at": "main[flaky]",
-              "view": "flaky_reds"
-            },
-            {
-              "at": "main[known_red]",
-              "view": "known_red_counts"
             }
           ]
         },
@@ -7655,10 +7567,6 @@
             }
           ],
           "always": [
-            {
-              "at": "points",
-              "view": "answered_points"
-            },
             {
               "at": "reply.new_acceptance",
               "do": "lock_new_acceptance"

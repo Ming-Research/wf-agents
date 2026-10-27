@@ -148,6 +148,9 @@ pub struct CompiledCell {
     pub checks: Vec<Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub handoff: Vec<String>,
+    /// Paths of the return the owner's page shows on the item the work is on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
 }
@@ -709,6 +712,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             always: c.always.clone(),
             checks: c.checks.clone(),
             handoff: c.handoff.clone(),
+            shown: c.shown.clone(),
             inenums: c.inenums.clone(),
         });
     }

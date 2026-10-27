@@ -26,6 +26,7 @@ const PART: Record<Part, Key> = {
   check: 'part_check',
   always: 'part_always',
   handoff: 'part_handoff',
+  shown: 'part_shown',
   inenum: 'part_inenum',
   start: 'part_start',
   end: 'part_end',
@@ -57,7 +58,7 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   if (v === null) return [];
   if (part === 'row') return [rowWords(v as unknown as CompiledRow, known)];
   if (part === 'input') return [inputWords(v as unknown as CompiledInput)];
-  if (part === 'prompt' || part === 'handoff' || part === 'row_order' || part === 'asking') return lines(v);
+  if (part === 'prompt' || part === 'handoff' || part === 'shown' || part === 'row_order' || part === 'asking') return lines(v);
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return [String(v)];
   return [JSON.stringify(v, null, 1)];
 }

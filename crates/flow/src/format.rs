@@ -371,6 +371,9 @@ pub struct AgentCommon {
     pub always: Vec<Always>,
     #[serde(default)]
     pub checks: Vec<Check>,
+    /// Paths of every agent's return the owner's page shows on the item the work is on.
+    #[serde(default)]
+    pub shown: Vec<String>,
 }
 
 /// What one return of an agent holds: exactly one form, inside the field `in`, and every field of `every`.
@@ -443,7 +446,6 @@ pub struct GateNa {
     /// With `{about}`, and `{na}` for the gate's example of when it does not apply.
     pub prompt: String,
     pub out: RawField,
-    pub always: Always,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -495,6 +497,8 @@ pub struct Node {
     pub checks: Option<Vec<Check>>,
     /// Paths of the output that the cell hands to whoever takes over.
     pub handoff: Option<Vec<String>>,
+    /// Paths of the output the owner's page shows on the item the work is on: the owner reads them there.
+    pub shown: Option<Vec<String>>,
     /// The values the engine knows that the cell's rows or prompt read: each a list of values with what each
     /// means, or the name of an enum shape.
     pub inenums: Option<BTreeMap<String, Values>>,
@@ -579,10 +583,12 @@ impl Do {
     }
 }
 
-/// What the engine does every time a cell returns a place: shows it in a view, or carries out an action.
+/// What the engine does every time a cell's return holds a place: the place that sets it off, and the action. The
+/// flow names only actions here; a flow version stored before may name a view instead, which did nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Always {
+    /// The place of the return whose presence sets the action off.
     pub at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,

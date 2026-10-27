@@ -47,6 +47,7 @@ pub fn typescript() -> String {
         decl::<Items>(&cfg),
         decl::<LinkedItem>(&cfg),
         decl::<ItemDetail>(&cfg),
+        decl::<Shown>(&cfg),
         decl::<SetMode>(&cfg),
         decl::<ApiError>(&cfg),
         // The flow page.

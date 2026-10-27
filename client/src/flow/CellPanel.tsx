@@ -391,6 +391,17 @@ export function CellPanel(props: {
           </ul>
         </Section>
       ) : null}
+      {(c.shown ?? []).length > 0 ? (
+        <Section title={t('sec_shown')} note={t('shown_note')}>
+          <ul className="bl">
+            {(c.shown ?? []).map((p) => (
+              <li key={p}>
+                <code>{p}</code>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
       <Section title={t('sec_entered')}>
         {(view?.entered_from ?? []).length === 0 ? <p className="fmt">{t('entered_none')}</p> : null}
         <ul className="bl">

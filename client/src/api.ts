@@ -362,7 +362,20 @@ acceptance: JsonValue | null, acceptance_round: number | null,
 /**
  * The items it depends on, and the items that depend on it.
  */
-depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, works: Array<WorkSummary>, cards: Array<Card>, };
+depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, works: Array<WorkSummary>, cards: Array<Card>, 
+/**
+ * What the rounds of its works handed back that their flow versions show on the item, oldest first.
+ */
+shown: Array<Shown>, };
+
+/**
+ * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
+ */
+export type Shown = { work: number, round: number, cell: string, 
+/**
+ * The path of the return it is at, as the flow writes it.
+ */
+path: string, value: JsonValue, };
 
 /**
  * The owner's ask to switch the engine's mode.
@@ -531,7 +544,7 @@ path: string, desc: string | null, used_by: Array<Use>, fields: Array<Field>, };
 /**
  * Something that reads a field of a return.
  */
-export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, };
+export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, } | { "kind": "shown", cell: string, };
 
 /**
  * What changed from one compiled flow to another, graph by graph.
@@ -566,7 +579,7 @@ title: string, status: ChangeKind, changes: Array<Change>, };
 /**
  * The part of a cell or a graph a change is in.
  */
-export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
+export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
 
 /**
  * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
@@ -731,7 +744,11 @@ rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by: PromptBy | null, form
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, checks?: Array<Check>, handoff?: Array<string>, inenums?: { [key in string]: Array<[string, string]> }, };
+schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, checks?: Array<Check>, handoff?: Array<string>, 
+/**
+ * Paths of the return the owner's page shows on the item the work is on.
+ */
+shown?: Array<string>, inenums?: { [key in string]: Array<[string, string]> }, };
 
 export type CompiledInput = { id: string | null, what: string, from: Array<Src>, maybe: boolean, };
 

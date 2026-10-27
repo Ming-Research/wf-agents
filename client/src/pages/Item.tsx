@@ -50,6 +50,38 @@ function Linked({ list }: { list: LinkedItem[] }) {
   );
 }
 
+const empty = (v: JsonValue) =>
+  v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
+
+/// What the rounds of the item's works handed back that the flow shows on the item, work by work, round by round.
+function Shown({ d }: { d: ItemDetail }) {
+  const values = d.shown.filter((x) => !empty(x.value));
+  if (values.length === 0) return <p className="muted">{t('none')}</p>;
+  const works = [...new Set(values.map((x) => x.work))];
+  return (
+    <>
+      {works.map((w) => (
+        <div key={w} className="shown-work">
+          <h3>
+            <Link to={`/works/${w}`}>{t('work_title', { id: w })}</Link>
+          </h3>
+          {values
+            .filter((x) => x.work === w)
+            .map((x, i) => (
+              <div key={i} className="shown-value">
+                <div className="muted">
+                  <Link to={`/works/${w}?round=${x.round}`}>{t('round_title', { id: x.round })}</Link> ·{' '}
+                  {t('shown_at', { cell: x.cell })} · <code>{x.path}</code>
+                </div>
+                <Json value={x.value} />
+              </div>
+            ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function Detail({ d }: { d: ItemDetail }) {
   const i = d.item;
   return (
@@ -124,6 +156,10 @@ function Detail({ d }: { d: ItemDetail }) {
             </tbody>
           </table>
         )}
+      </Section>
+      <Section title={t('item_shown')}>
+        <p className="muted">{t('item_shown_note')}</p>
+        <Shown d={d} />
       </Section>
       {d.cards.length > 0 ? (
         <Section title={t('cards')}>

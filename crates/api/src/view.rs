@@ -300,6 +300,9 @@ impl<'a> Ways<'a> {
         for h in &c.handoff {
             read(h, Use::Handoff { cell: c.id.clone() }, &mut out);
         }
+        for p in &c.shown {
+            read(p, Use::Shown { cell: c.id.clone() }, &mut out);
+        }
         out
     }
 

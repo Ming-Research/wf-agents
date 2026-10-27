@@ -215,6 +215,8 @@ export function UseChip({ u, here }: { u: Use; here: string }) {
       );
     case 'handoff':
       return <span className="use">{of(u.cell, t('use_handoff'))}</span>;
+    case 'shown':
+      return <span className="use">{of(u.cell, t('use_shown'))}</span>;
   }
 }
 

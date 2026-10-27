@@ -160,13 +160,13 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
             for r in &c.rows {
                 actions.extend(r.actions.iter().map(Do::name).map(str::to_string));
             }
+            // What is done every time is an action; a view would read a field without anything being done with it.
             for x in &c.always {
                 match (&x.view, &x.action) {
-                    (Some(v), None) => relations.push((v.clone(), None, format!("{} always at {}", c.id, x.at))),
                     (None, Some(d)) => {
                         actions.insert(d.clone());
                     }
-                    _ => problems.push(format!("{}: always at {} names one view or one action", c.id, x.at)),
+                    _ => problems.push(format!("{}: always at {} names one action, and no view", c.id, x.at)),
                 }
             }
             checks.extend(c.checks.iter().map(|x| x.check.clone()));

@@ -191,6 +191,7 @@ fn cell(gf: &CompiledGraph, from: &CompiledCell, gt: &CompiledGraph, to: &Compil
     };
     by_name(&mut out, Part::Always, &always(from), &always(to));
     changed(&mut out, Part::Handoff, "", &from.handoff, &to.handoff);
+    changed(&mut out, Part::Shown, "", &from.shown, &to.shown);
     let inenums =
         |c: &CompiledCell| -> Vec<(String, Value)> { c.inenums.iter().map(|(k, v)| (k.clone(), value(v))).collect() };
     by_name(&mut out, Part::Inenum, &inenums(from), &inenums(to));
