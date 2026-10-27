@@ -9,7 +9,6 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  useNodesInitialized,
   useReactFlow,
   type Node,
   type NodeProps,
@@ -19,7 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { Items, ItemSummary } from '../api';
 import { ItemBadge } from '../components';
-import { layout, type Laid } from './layout';
+import { bounds, layout, type Laid } from './layout';
 import { RoutedEdge, type Routed } from './RoutedEdge';
 
 const WIDTH = 220;
@@ -50,16 +49,6 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
 
 const nodeTypes = { item: ItemNode };
 const edgeTypes = { routed: RoutedEdge };
-
-function Fit({ shape }: { shape: string | null }) {
-  const rf = useReactFlow();
-  const measured = useNodesInitialized();
-  useEffect(() => {
-    if (shape === null || !measured) return;
-    void rf.fitView({ padding: 0.1, duration: 200, maxZoom: 1 });
-  }, [shape, measured, rf]);
-  return null;
-}
 
 type Props = { items: Items; selected?: number | null; onSelect: (item: number) => void };
 
@@ -98,6 +87,16 @@ function Graph({ items, selected, onSelect }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
   const current = laid !== null && laid.shape === shape ? laid.laid : null;
+  // Once laid out, the whole graph is shown, no larger than it is.
+  const rf = useReactFlow();
+  const ready = rf.viewportInitialized;
+  useEffect(() => {
+    if (current === null || !ready) return;
+    const b = bounds([...current.places.values()], WIDTH, HEIGHT);
+    if (b !== null) void rf.fitBounds(b, { padding: 0.1, duration: 200 }).then(() => {
+      if (rf.getZoom() > 1) void rf.zoomTo(1);
+    });
+  }, [current, ready, rf]);
   const nodes: ItemFlowNode[] = useMemo(
     () =>
       items.items.map((item, i) => ({
@@ -147,7 +146,6 @@ function Graph({ items, selected, onSelect }: Props) {
       >
         <Background />
         <Controls showInteractive={false} />
-        <Fit shape={current !== null ? shape : null} />
       </ReactFlow>
     </div>
   );

@@ -10,19 +10,18 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  useNodesInitialized,
   useReactFlow,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, RoundSummary } from '../api';
 import type { Key } from '../i18n';
 import { useT } from '../text';
 import { build, type Overlay } from './flowGraph';
-import { layout, type Laid } from './layout';
+import { bounds, layout, type Laid } from './layout';
 import { RoutedEdge, type Routed } from './RoutedEdge';
 
 const WIDTH = 230;
@@ -76,17 +75,9 @@ function CellNode({ data }: NodeProps<CellFlowNode>) {
 const nodeTypes = { cell: CellNode };
 const edgeTypes = { routed: RoutedEdge };
 
-/// Once the cells are laid out and measured: shows the cell `focus` names, or else the whole graph.
-function Fit({ focus, shape }: { focus: string | null; shape: string | null }) {
-  const rf = useReactFlow();
-  const measured = useNodesInitialized();
-  useEffect(() => {
-    if (shape === null || !measured) return;
-    if (focus === null) void rf.fitView({ padding: 0.06, duration: 200, minZoom: 0.3 });
-    else void rf.fitView({ nodes: [{ id: focus }], duration: 300, minZoom: 0.9, maxZoom: 0.9 });
-  }, [focus, shape, measured, rf]);
-  return null;
-}
+/// The zoom a cell is read at, and the least zoom the whole graph is shown at before only its top is.
+const READ = 0.9;
+const OVERVIEW = 0.45;
 
 export type FlowChartProps = {
   graph: CompiledGraph;
@@ -131,6 +122,30 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
   }, [shape]);
   // A layout of an earlier shape is not used: its routes do not fit.
   const current = laid !== null && laid.shape === shape ? laid.laid : null;
+  // Once laid out: shows the cell `focus` names, or else the whole graph, or its top when the whole is too small
+  // to read.
+  const rf = useReactFlow();
+  const box = useRef<HTMLDivElement>(null);
+  const focused = focus != null && current !== null ? (current.places.get(focus) ?? null) : null;
+  const fx = focused?.x ?? null;
+  const fy = focused?.y ?? null;
+  const ready = rf.viewportInitialized;
+  useEffect(() => {
+    if (current === null || !ready) return;
+    if (fx !== null && fy !== null) {
+      void rf.setCenter(fx + WIDTH / 2, fy + HEIGHT / 2, { zoom: READ, duration: 300 });
+      return;
+    }
+    const b = bounds([...current.places.values()], WIDTH, HEIGHT);
+    if (b === null) return;
+    const w = box.current?.clientWidth ?? 800;
+    const h = box.current?.clientHeight ?? 600;
+    if (Math.min(w / b.width, h / b.height) * 0.94 >= OVERVIEW) {
+      void rf.fitBounds(b, { padding: 0.06, duration: 200 });
+    } else {
+      void rf.setCenter(b.x + b.width / 2, b.y + h / 2 / OVERVIEW - 20, { zoom: OVERVIEW, duration: 200 });
+    }
+  }, [current, fx, fy, ready, rf]);
   const nodes: CellFlowNode[] = useMemo(
     () =>
       built.nodes.map((n, i) => ({
@@ -170,7 +185,7 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
     [built, current, selected],
   );
   return (
-    <div className="chart">
+    <div className="chart" ref={box}>
       <label className="chart-option">
         <input type="checkbox" checked={common} onChange={(e) => setCommon(e.target.checked)} />
         {t('common_rows')}
@@ -187,7 +202,6 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
       >
         <Background />
         <Controls showInteractive={false} />
-        <Fit focus={focus ?? null} shape={current !== null ? shape : null} />
       </ReactFlow>
     </div>
   );
