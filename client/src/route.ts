@@ -21,9 +21,25 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
+/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its decisions, the policy and
+/// the plan, where things stand as it understands them, or the rounds of the wake shown.
+export const ARCHITECT_TABS = ['asks', 'queue', 'decisions', 'policy', 'understanding', 'rounds'] as const;
+export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
+
+export type ArchitectRoute = {
+  page: 'architect';
+  /// The wake shown, by its work; with none, the wake running, else the latest.
+  wake: number | null;
+  tab: ArchitectTab;
+  /// The round of the wake shown that is open, by its number in the wake; only with a wake named.
+  round: number | null;
+  cell: string | null;
+};
+
 export type Route =
   | { page: 'works' }
   | WorkRoute
+  | ArchitectRoute
   | { page: 'items' }
   | { page: 'item'; id: number }
   | { page: 'messages' }
@@ -71,6 +87,17 @@ export function parse(pathname: string, search: string): Route {
       };
     }
   }
+  if (first === 'architect' && parts.length === 1) {
+    const wake = num(q.get('wake'));
+    const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'asks';
+    return {
+      page: 'architect',
+      wake,
+      tab,
+      round: wake !== null ? roundOf(wake, q.get('round')) : null,
+      cell: q.get('cell'),
+    };
+  }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'messages' && parts.length === 1) return { page: 'messages' };
   if (first === 'items' && parts.length === 2) {
@@ -110,6 +137,13 @@ export function href(r: Route): string {
         ['round', r.round === null ? null : roundName(r.id, r.round)],
         ['cell', r.cell],
       ])}`;
+    case 'architect':
+      return `/architect${query([
+        ['wake', r.wake],
+        ['tab', r.tab === 'asks' ? null : r.tab],
+        ['round', r.wake !== null && r.round !== null ? roundName(r.wake, r.round) : null],
+        ['cell', r.cell],
+      ])}`;
     case 'items':
       return '/items';
     case 'item':
@@ -131,6 +165,11 @@ export function href(r: Route): string {
 /// The address of a work's page: its rounds with nothing open, or what `more` names.
 export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'>> = {}): string {
   return href({ page: 'work', id, round: null, cell: null, tab: 'rounds', only: null, ...more });
+}
+
+/// The address of the architect's page: the wake running or the latest, on its asks, or what `more` names.
+export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}): string {
+  return href({ page: 'architect', wake: null, tab: 'asks', round: null, cell: null, ...more });
 }
 
 const NAVIGATED = 'wf-navigate';

@@ -321,10 +321,13 @@ export type DrawProps = {
   marks: Marks;
   /// Whether the labels carry the rows' numbers: the flow's author reads them; a work's chart leaves them out.
   numbered: boolean;
+  /// Whether this drawing defines the arrowheads every drawing on the page refers to: the first of the graphs drawn
+  /// side by side does, so that an id is defined once.
+  defs?: boolean;
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
   const title = (id: string) => {
@@ -360,24 +363,26 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
       }}
       onPointerLeave={() => setHover(null)}
     >
-      <defs>
-        {['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'lit'].map((k) => (
-          <marker
-            key={k}
-            id={`fc-arrow-${k}`}
-            className={`fc-head fc-head-${k}`}
-            viewBox="0 0 10 10"
-            refX="0"
-            refY="5"
-            markerUnits="userSpaceOnUse"
-            markerWidth={HEAD}
-            markerHeight={HEAD}
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" />
-          </marker>
-        ))}
-      </defs>
+      {defs ? (
+        <defs>
+          {['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'lit'].map((k) => (
+            <marker
+              key={k}
+              id={`fc-arrow-${k}`}
+              className={`fc-head fc-head-${k}`}
+              viewBox="0 0 10 10"
+              refX="0"
+              refY="5"
+              markerUnits="userSpaceOnUse"
+              markerWidth={HEAD}
+              markerHeight={HEAD}
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
+          ))}
+        </defs>
+      ) : null}
       {chart.groups.map((gr) => {
         const box = laid.groups.get(gr.id);
         if (!box) return null;

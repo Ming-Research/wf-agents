@@ -26,8 +26,8 @@ import { t } from '../text';
 export { words };
 
 /// What the owner decided has been written: everything it shows is read again.
-function decided() {
-  reread('works', 'work:*', 'items', 'item:*', 'round:*');
+export function decided() {
+  reread('works', 'work:*', 'items', 'item:*', 'round:*', 'architect');
 }
 
 /// Brings an element of the page into view, opening whatever folds it; false when the page does not have it.
@@ -488,7 +488,7 @@ export function KindChip({ k }: { k: AskKind }) {
 }
 
 /// The owner's answer to an ask that waits: the option clicked in its choice, when one is, and words.
-function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string; options: boolean }) {
+export function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string; options: boolean }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

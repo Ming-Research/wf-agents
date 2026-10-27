@@ -215,6 +215,24 @@ export function lengthenLast(r: Route, min: number): Route {
   return { points: [...p.slice(0, n - 3), away(c), away(a), b], label, hops: r.hops };
 }
 
+/// The room between two graphs drawn side by side, and the room above each for its name when there are several.
+export const BESIDE_GRAPHS = 160;
+export const GRAPH_TITLE = 44;
+
+/// Where graphs drawn side by side go, left to right with their tops in line: each one's left edge, how far down
+/// they start, and the size they take together. With several, each has room above it for its name.
+export function besides(sizes: Size[]): { x: number[]; top: number; width: number; height: number } {
+  const top = sizes.length > 1 ? GRAPH_TITLE : 0;
+  const x: number[] = [];
+  let at = 0;
+  for (const s of sizes) {
+    x.push(at);
+    at += s.width + BESIDE_GRAPHS;
+  }
+  const width = sizes.length > 0 ? at - BESIDE_GRAPHS : 0;
+  return { x, top, width, height: top + Math.max(0, ...sizes.map((s) => s.height)) };
+}
+
 /// Lays the chart out. `size` gives each node's size and `labelSize` each arrow's label's, none for no label.
 export async function layoutChart(
   c: Chart,

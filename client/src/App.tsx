@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 
 import { connect } from './live';
+import { Architect } from './pages/Architect';
 import { Flow } from './pages/Flow';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
@@ -15,7 +16,7 @@ export function App() {
   const route = useRoute();
   useEffect(() => connect(), []);
   const work = route.page === 'work' ? route : null;
-  const screen = ['flow', 'work', 'works', 'items', 'item'].includes(route.page);
+  const screen = ['flow', 'work', 'works', 'architect', 'items', 'item'].includes(route.page);
   return (
     <div className={screen ? 'app app-screen' : 'app'}>
       <TopBar route={route} />
@@ -28,6 +29,7 @@ export function App() {
         {route.page === 'items' || route.page === 'item' ? (
           <Items selected={route.page === 'item' ? route.id : null} />
         ) : null}
+        {route.page === 'architect' ? <Architect route={route} /> : null}
         {route.page === 'messages' ? <Messages /> : null}
         {route.page === 'flow' ? <Flow route={route} /> : null}
         {route.page === 'missing' ? (

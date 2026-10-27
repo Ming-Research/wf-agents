@@ -1661,10 +1661,6 @@ svg.fc {
   box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
 }
 
-.flow-tools-graph {
-  top: 52px;
-}
-
 .bar-flow {
   display: flex;
   align-items: center;
@@ -3792,4 +3788,237 @@ details.dc[open] > summary::before,
   color: var(--panel);
   font-size: 12px;
   pointer-events: none;
+.ask-tried {
+  margin-top: 4px;
+}
+
+/* Several graphs on one chart, side by side, each under its name. */
+
+.fc-sheets {
+  position: relative;
+}
+
+.fc-sheet {
+  position: absolute;
+  top: 0;
+}
+
+.fc-sheet-name {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 24px 6px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.diff-graph {
+  margin: 12px 0 4px;
+  font-size: 14px;
+}
+
+/* The architect's page: its line, the chart under it, and what opens from the line over the chart's top right. */
+
+.arch-screen {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.arch-wake-switch {
+  margin-left: auto;
+}
+
+.arch-pop {
+  top: 40px;
+  left: auto;
+  right: 12px;
+  max-width: calc(100% - 24px);
+}
+
+.arch-pop textarea {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--panel);
+  color: var(--text);
+  resize: vertical;
+}
+
+.arch-say {
+  width: 460px;
+}
+
+.arch-wakes {
+  min-width: 560px;
+}
+
+.arch-wakes-list {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.arch-wakes-list td.clip {
+  max-width: 260px;
+}
+
+.chip-button {
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+}
+
+/* Who raised a matter, as the colour of its kind. */
+
+.src-work {
+  --kind: #0b7a75;
+}
+
+.src-architect {
+  --kind: #5a4fcf;
+}
+
+.src-owner {
+  --kind: #b8442c;
+}
+
+.src-engine {
+  --kind: #8a6200;
+}
+
+@media (prefers-color-scheme: dark) {
+  .src-work {
+    --kind: #4cc9c0;
+  }
+
+  .src-architect {
+    --kind: #a99cff;
+  }
+
+  .src-owner {
+    --kind: #f2876c;
+  }
+
+  .src-engine {
+    --kind: #e0b54f;
+  }
+}
+
+.arch-matters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.arch-matter {
+  border-top: 1px solid var(--line);
+  padding: 5px 0;
+}
+
+.arch-matter-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+  font-size: 12.5px;
+}
+
+.arch-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.arch-numbered > li::marker {
+  font-weight: 600;
+}
+
+.arch-part {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.arch-setting {
+  border-top: 2px solid var(--warn);
+}
+
+.arch-from {
+  font-size: 12.5px;
+}
+
+.arch-entry > summary {
+  cursor: pointer;
+}
+
+/* The entry's line stays beside the fold's marker, wrapping within itself. */
+.arch-entry > summary > .work-item-head {
+  max-width: calc(100% - 1.5em);
+  vertical-align: top;
+}
+
+.arch-entry-body {
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.arch-change-for {
+  font-size: 12.5px;
+}
+
+.arch-changes > li {
+  padding: 4px 0;
+}
+
+.arch-tick {
+  display: inline-block;
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+.arch-reading {
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+
+.verdict-good,
+.arch-kept {
+  background: color-mix(in srgb, var(--good) 16%, transparent);
+  color: var(--good);
+}
+
+.verdict-bad,
+.arch-broken {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad);
+}
+
+.arch-at_risk {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+/* The lines of work as a table: every column wraps, so that the table fits the column it is in. */
+.arch-table-wrap {
+  overflow-x: auto;
+}
+
+.arch-lines {
+  width: 100%;
+  font-size: 12.5px;
+}
+
+.arch-lines td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
 }

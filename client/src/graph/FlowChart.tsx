@@ -1,30 +1,35 @@
 // A flow's state machine, filling the space it is given: the chart is built from the compiled flow and what the
 // interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a "?" in the bottom-left
-// corner that opens what every mark means. On a work's page each cell carries what the work did there and the arrows
-// the work took stand out, and the rows' numbers, which serve the flow's author, are left out; when two flows are
-// compared, the cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it.
+// corner that opens what every mark means. Several graphs are drawn side by side on the one chart, each under its
+// name, and move and zoom together. On a work's page each cell carries what the work did there and the arrows the work
+// took stand out, and the rows' numbers, which serve the flow's author, are left out; when two flows are compared, the
+// cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import type { CompiledGraph, GraphView } from '../api';
 import { t } from '../text';
 import { FlowSvg, Halo, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
-import { type Laid, layoutChart } from './flowLayout';
-import { chart as build, MAIN } from './flowModel';
+import { besides, type Laid, layoutChart } from './flowLayout';
+import { type Chart, chart as build, MAIN } from './flowModel';
 import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
-/// What a click on the chart picked.
+/// A graph of the flow, with what the interface says of it.
+export type Graph = { g: CompiledGraph; view: GraphView };
+
+/// What a click on the chart picked, in which graph.
 export type Pick =
-  | { kind: 'cell'; cell: string }
-  | { kind: 'rule'; rule: string; cell: string }
-  | { kind: 'interjection'; cell: string }
-  | { kind: 'shared'; cell: string }
-  | { kind: 'out'; cell: string; to: string }
-  | { kind: 'in'; cell: string; from: string };
+  | { kind: 'cell'; graph: string; cell: string }
+  | { kind: 'rule'; graph: string; rule: string; cell: string }
+  | { kind: 'interjection'; graph: string; cell: string }
+  | { kind: 'shared'; graph: string; cell: string }
+  | { kind: 'out'; graph: string; cell: string; to: string }
+  | { kind: 'in'; graph: string; cell: string; from: string };
 
 export type FlowChartHandle = {
-  /// Brings a cell into view: keeping the zoom when it is already in sight, or zooming in to read it.
-  focus: (cell: string, keep?: boolean) => void;
+  /// Brings a cell into view, of the graph named or the first that has it: keeping the zoom when it is already in
+  /// sight, or zooming in to read it.
+  focus: (cell: string, keep?: boolean, graph?: string) => void;
 };
 
 /// The least zoom the chart opens at when it opens on no cell.
@@ -32,10 +37,12 @@ const READABLE = 0.62;
 const PAD = 24;
 
 export type FlowChartProps = {
-  g: CompiledGraph;
-  view: GraphView;
-  marks: Marks;
-  /// The cell the chart opens on; with none, the top of the flow.
+  /// The graphs, left to right; the caller keeps the list the same object while its graphs are the same, since each
+  /// new list is laid out again.
+  graphs: Graph[];
+  /// What is marked on each graph, in the same order.
+  marks: Marks[];
+  /// The cell the chart opens on; with none, the top of the first graph.
   start: string | null;
   onPick: (p: Pick) => void;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
@@ -67,23 +74,26 @@ function BadgeSwatch({ k, text }: { k: string; text: string }) {
 
 /// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the rules and the
 /// interjection, the circles, and the marks of a work or of a comparison; then how the chart moves.
-function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legend'] }) {
+function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChartProps['legend'] }) {
+  const cells = graphs.flatMap((g) => g.cells);
   const styles: string[] = [];
-  for (const c of g.cells) {
+  for (const c of cells) {
     const s = styleOf(c);
     if (!styles.includes(s)) styles.push(s);
   }
   const order = (s: string) => (s.startsWith('line-') ? 0 : s === 'fresh' ? 1 : 2);
   styles.sort((a, b) => order(a) - order(b));
-  const lines = new Map(g.cells.filter((c) => c.kind === 'agent' && c.line).map((c) => [styleOf(c), c.line ?? '']));
+  const lines = new Map(cells.filter((c) => c.kind === 'agent' && c.line).map((c) => [styleOf(c), c.line ?? '']));
   const label = (s: string) => {
     if (s === 'fresh') return t('legend_fresh');
     if (s.startsWith('line-')) return t('legend_line', { line: s === 'line-other' ? t('legend_other_line') : (lines.get(s) ?? '') });
     return s === 'kind-engine' ? t('legend_engine') : s === 'kind-tool' ? t('legend_tool') : t('legend_owner');
   };
-  const rules = g.cells.some((c) => (c.rules ?? []).length > 0);
-  const flags = g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject));
-  const shared = [...new Set(g.cells.flatMap((c) => (c.kind === 'agent' ? c.rows.filter((r) => r.common) : [])).map((r) => r.name))];
+  const rules = cells.some((c) => (c.rules ?? []).length > 0);
+  const flags = graphs.some(
+    (g) => g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject)),
+  );
+  const shared = [...new Set(cells.flatMap((c) => (c.kind === 'agent' ? c.rows.filter((r) => r.common) : [])).map((r) => r.name))];
   const work = legend === 'work';
   return (
     <details className="legend">
@@ -257,25 +267,29 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { g, view, marks, start, onPick, legend, ref } = props;
+  const { graphs, marks, start, onPick, legend, ref } = props;
   const numbered = legend !== 'work';
-  const model = useMemo(() => build(g, view), [g, view]);
-  const measured = useMemo(() => sizes(g, model), [g, model]);
-  const [laid, setLaid] = useState<{ model: typeof model; laid: Laid } | null>(null);
+  const models = useMemo(() => graphs.map(({ g, view }) => build(g, view)), [graphs]);
+  const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
+  const [laid, setLaid] = useState<{ models: Chart[]; laid: Laid[] } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    const edges = new Map(model.edges.map((e) => [e.id, e]));
-    layoutChart(
-      model,
-      (id) => measured.size.get(id) ?? { width: 40, height: 40 },
-      (id) => {
-        const e = edges.get(id);
-        return e ? labelSize(e, numbered) : null;
-      },
+    Promise.all(
+      models.map((model, i) => {
+        const edges = new Map(model.edges.map((e) => [e.id, e]));
+        return layoutChart(
+          model,
+          (id) => measured[i].size.get(id) ?? { width: 40, height: 40 },
+          (id) => {
+            const e = edges.get(id);
+            return e ? labelSize(e, numbered) : null;
+          },
+        );
+      }),
     ).then(
       (l) => {
-        if (live) setLaid({ model, laid: l });
+        if (live) setLaid({ models, laid: l });
       },
       (e: unknown) => {
         if (live) setFailed(e instanceof Error ? e.message : String(e));
@@ -284,85 +298,133 @@ export function FlowChart(props: FlowChartProps) {
     return () => {
       live = false;
     };
-  }, [model, measured, numbered]);
-  const current = laid !== null && laid.model === model ? laid.laid : null;
+  }, [models, measured, numbered]);
+  const current = laid !== null && laid.models === models ? laid.laid : null;
+  // Each graph at the size its drawing takes, side by side.
+  const placed = useMemo(
+    () =>
+      current === null
+        ? null
+        : besides(current.map((l) => ({ width: l.bounds.width + 2 * PAD, height: l.bounds.height + 2 * PAD }))),
+    [current],
+  );
   const viewer = useRef<ViewerHandle>(null);
-  // Chart pixels: the drawing starts PAD before the layout's bounds.
-  const rect = (id: string): Rect | null => {
-    const b = current?.nodes.get(id);
-    if (!b || !current) return null;
-    return { x: b.x - current.bounds.x + PAD, y: b.y - current.bounds.y + PAD, width: b.width, height: b.height };
+  // Chart pixels: each drawing starts PAD before its layout's bounds, at its place among the graphs. A node is found
+  // in the graph named, or else in the first graph that has it.
+  const rect = (id: string, graph?: string): Rect | null => {
+    if (current === null || placed === null) return null;
+    const named = graph !== undefined ? graphs.findIndex((x) => x.g.name === graph) : -1;
+    const i = named >= 0 ? named : current.findIndex((l) => l.nodes.has(id));
+    const l = current[i];
+    const b = l?.nodes.get(id);
+    if (!l || !b) return null;
+    return {
+      x: placed.x[i] + b.x - l.bounds.x + PAD,
+      y: placed.top + b.y - l.bounds.y + PAD,
+      width: b.width,
+      height: b.height,
+    };
   };
   const rectRef = useRef(rect);
   rectRef.current = rect;
   useImperativeHandle(
     ref,
     () => ({
-      focus: (cell, keep = false) => {
-        const r = rectRef.current(`c:${cell}`);
+      focus: (cell, keep = false, graph) => {
+        const r = rectRef.current(`c:${cell}`, graph);
         if (r) viewer.current?.focus(r, keep);
       },
     }),
     [],
   );
-  // Once laid out, open at full size centred on the cell asked for, or on the top of the main part at a zoom one can
-  // read.
-  const opened = useRef<Laid | null>(null);
+  // Once laid out, open at full size centred on the cell asked for, or on the top of the first graph's main part at a
+  // zoom one can read, its name above it in sight.
+  const opened = useRef<Laid[] | null>(null);
   useEffect(() => {
-    if (current === null || opened.current === current || !viewer.current) return;
+    if (current === null || placed === null || opened.current === current || !viewer.current) return;
     opened.current = current;
     const at = start !== null ? rectRef.current(`c:${start}`) : null;
     if (at) {
       viewer.current.place(at, 1);
       return;
     }
-    const main = current.parts.get(MAIN);
-    const around = main
-      ? { x: main.x - current.bounds.x + PAD, y: main.y - current.bounds.y + PAD, width: main.width, height: main.height }
-      : null;
+    const first = current[0];
+    const main = first?.parts.get(MAIN);
+    const around =
+      first && main
+        ? {
+            x: main.x - first.bounds.x + PAD,
+            y: main.y - first.bounds.y + PAD,
+            width: main.width,
+            height: main.height,
+          }
+        : null;
     viewer.current.start(READABLE, around);
-  }, [current, start]);
-  const nodes = useMemo(() => new Map(model.nodes.map((n) => [n.id, n])), [model]);
+  }, [current, placed, start]);
+  const nodes = useMemo(() => models.map((m) => new Map(m.nodes.map((n) => [n.id, n]))), [models]);
   const pick = (target: Element) => {
+    const i = Number(target.closest('[data-sheet]')?.getAttribute('data-sheet') ?? -1);
     const id = target.closest('[data-node]')?.getAttribute('data-node');
-    const n = id ? nodes.get(id) : undefined;
-    if (!n) return;
+    const n = id ? nodes[i]?.get(id) : undefined;
+    const graph = graphs[i]?.g.name;
+    if (!n || graph === undefined) return;
     switch (n.kind) {
       case 'cell':
-        onPick({ kind: 'cell', cell: n.cell });
+        onPick({ kind: 'cell', graph, cell: n.cell });
         break;
       case 'rule':
-        onPick({ kind: 'rule', rule: n.other ?? '', cell: n.cell });
+        onPick({ kind: 'rule', graph, rule: n.other ?? '', cell: n.cell });
         break;
       case 'interjection':
-        onPick({ kind: 'interjection', cell: n.cell });
+        onPick({ kind: 'interjection', graph, cell: n.cell });
         break;
       case 'shared':
-        onPick({ kind: 'shared', cell: n.cell });
+        onPick({ kind: 'shared', graph, cell: n.cell });
         break;
       case 'out':
-        onPick({ kind: 'out', cell: n.cell, to: n.other ?? '' });
+        onPick({ kind: 'out', graph, cell: n.cell, to: n.other ?? '' });
         break;
       case 'in':
-        onPick({ kind: 'in', cell: n.cell, from: n.other ?? '' });
+        onPick({ kind: 'in', graph, cell: n.cell, from: n.other ?? '' });
         break;
     }
   };
+  const several = graphs.length > 1;
   return (
     <div className="flowchart">
       {failed !== null ? <div className="error flowchart-note">{t('chart_layout_failed', { error: failed })}</div> : null}
       {current === null && failed === null ? <div className="muted flowchart-note">{t('chart_laying_out')}</div> : null}
-      {current !== null ? (
-        <Viewer
-          ref={viewer}
-          width={current.bounds.width + 2 * PAD}
-          height={current.bounds.height + 2 * PAD}
-          onPick={pick}
-        >
-          <FlowSvg g={g} chart={model} laid={current} lines={measured.lines} marks={marks} numbered={numbered} />
+      {current !== null && placed !== null ? (
+        <Viewer ref={viewer} width={placed.width} height={placed.height} onPick={pick}>
+          <div className="fc-sheets" style={{ width: placed.width, height: placed.height }}>
+            {current.map((l, i) => {
+              const { g } = graphs[i];
+              return (
+                <div key={g.name} className="fc-sheet" data-sheet={i} style={{ left: placed.x[i] }}>
+                  {several ? (
+                    <div className="fc-sheet-name" style={{ height: placed.top }}>
+                      {t('chart_graph', { graph: g.name })}
+                    </div>
+                  ) : null}
+                  <FlowSvg
+                    g={g}
+                    chart={models[i]}
+                    laid={l}
+                    lines={measured[i].lines}
+                    marks={marks[i] ?? NO_MARKS}
+                    numbered={numbered}
+                    defs={i === 0}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </Viewer>
       ) : null}
-      <Legend g={g} legend={legend} />
+      <Legend graphs={graphs.map((x) => x.g)} legend={legend} />
     </div>
   );
 }
+
+/// What a graph shows when nothing marks it.
+const NO_MARKS: Marks = { selected: null, overlays: null, taken: null, added: new Set(), changed: new Set() };

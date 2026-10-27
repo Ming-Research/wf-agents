@@ -56,4 +56,9 @@ after showing what it will be. `npm run dev` in `client/` serves the page from i
 interface's requests to a running `wf-agents run`.
 
 The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
-with git and compiled, nothing written), and compares two of them, so that a change to the flow is reviewed there.
+with git and compiled, nothing written), its graphs side by side, and compares two of them, so that a change to the
+flow is reviewed there.
+
+The Architect view shows the architect's wakes on its graph, its asks of the owner with their forms, its queue, its
+decisions, the policy and the plan, and where things stand as it understands them; its line holds the architect's
+Pause, Continue and Step, and what the owner says to it.

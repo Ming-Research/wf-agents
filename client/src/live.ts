@@ -59,6 +59,8 @@ export function named(e: Event): string[] {
       return e.item === null ? ['items', 'item:*', 'works'] : ['items', `item:${e.item}`, 'works'];
     case 'flow':
       return ['flows'];
+    case 'architect':
+      return ['architect'];
     default:
       return [];
   }

@@ -1,6 +1,7 @@
-// The bar on every view: the views (the messages to the owner with how many are unread), and how the engine stands:
-// running, paused, pausing while the last round finishes, or waiting for what stops every work, with the switch that
-// pauses every work or starts them all, and the slots in use. The engine starts with every work paused.
+// The bar on every view: the views (the works, the architect, the items, the flow, and the messages to the owner with
+// how many are unread), and how the engine stands: running, paused, pausing while the last round finishes, or waiting
+// for what stops every work, with the switch that pauses every work or starts them all, and the slots in use. The
+// engine starts with every work paused.
 
 import { useState } from 'react';
 
@@ -123,6 +124,9 @@ export function TopBar({ route }: { route: Route }) {
       <span className="brand">wf-agents</span>
       <Link to="/works" className={on(['works', 'work'])}>
         {t('nav_works')}
+      </Link>
+      <Link to="/architect" className={on(['architect'])}>
+        {t('nav_architect')}
       </Link>
       <Link to="/items" className={on(['items', 'item'])}>
         {t('nav_items')}

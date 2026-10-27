@@ -8,20 +8,22 @@
 // agents and the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought
 // into view.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   Compiled,
   CompiledGraph,
   DesignCard,
   FlowView,
+  GraphView,
   NextRound,
   OwnerAsk,
   OwnerMessage,
   RoundSummary,
   WorkDetail,
+  WorkSummary,
 } from '../api';
-import { controls, course, Loaded, OutcomeBadge } from '../components';
+import { controls, type Course, course, Loaded, OutcomeBadge } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
@@ -76,7 +78,7 @@ function SpentBar({ r }: { r: RoundSummary }) {
 /// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
 /// course: sent back, failed, cut off, running), what an agent's round cost, where its cost went and how long it took.
 /// The round chosen, however it was chosen, is scrolled into view.
-function Timeline(props: {
+export function Timeline(props: {
   work: number;
   rounds: RoundSummary[];
   g: CompiledGraph;
@@ -213,12 +215,14 @@ function Going({ d, onCard, onAsk }: {
 
 /// The work's next round while it does not go on by itself and waits for nothing: what it will be, and the Step that
 /// runs exactly that round; when the round ends, it opens, in the work that took this one over when it was on an older
-/// flow version. A work on an older flow version has no next round of its own: Step takes it over.
-function Next({ d, onRound, onCard, onAsk }: {
+/// flow version. A work on an older flow version has no next round of its own: Step takes it over. The architect's
+/// wake is stepped by the architect's own Step.
+export function Next({ d, onRound, onCard, onAsk, stepPath }: {
   d: WorkDetail;
   onRound: (r: number) => void;
   onCard: (id: number) => void;
   onAsk: (id: number) => void;
+  stepPath?: string;
 }) {
   const status = useStatus();
   const w = d.work;
@@ -247,7 +251,7 @@ function Next({ d, onRound, onCard, onAsk }: {
     setError(null);
     setPressed(Date.now());
     asked.current = true;
-    postJson(`/api/v1/works/${w.id}/step`, {}).catch((e: unknown) => {
+    postJson(stepPath ?? `/api/v1/works/${w.id}/step`, {}).catch((e: unknown) => {
       asked.current = false;
       setPressed(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -584,28 +588,41 @@ function WorkPanel({ d, g, r, go }: {
   );
 }
 
+/// What a work's chart marks: what it did at each cell (the cell it is at, whether a round runs there and why it is
+/// held back), how many times it took each arrow, and the arrows the round chosen came in by and left by.
+export function workMarks(
+  g: CompiledGraph,
+  v: GraphView,
+  w: WorkSummary,
+  rounds: RoundSummary[],
+  c: Course,
+  round: number | null = null,
+) {
+  const model = chart(g, v);
+  return {
+    overlays: overlays(rounds, w.at, { running: c.running !== null, held: held(c, w) }),
+    taken: taken(model, g, rounds),
+    lit: round !== null ? roundArrows(model, g, rounds, round) : undefined,
+    added: new Set<string>(),
+    changed: new Set<string>(),
+  };
+}
+
 function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
   const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
+  const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
   if (!g || !v) return <p className="muted page">{t('none')}</p>;
   const roundCell = r.round !== null ? (d.rounds.find((x) => x.n === r.round)?.cell ?? null) : null;
   const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
-  const model = chart(g, v);
   const c = course(d.work, status);
   return (
     <FlowScreen
       compiled={compiled}
-      g={g}
-      view={v}
+      graphs={graphs}
       legend="work"
-      marks={{
-        overlays: overlays(d.rounds, d.work.at, { running: c.running !== null, held: held(c, d.work) }),
-        taken: taken(model, g, d.rounds),
-        lit: r.round !== null ? roundArrows(model, g, d.rounds, r.round) : undefined,
-        added: new Set(),
-        changed: new Set(),
-      }}
+      marks={[workMarks(g, v, d.work, d.rounds, c, r.round)]}
       cell={r.cell}
       onCell={(c) => go({ round: null, cell: c })}
       start={roundCell ?? d.work.at}
