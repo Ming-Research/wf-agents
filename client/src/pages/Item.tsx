@@ -1,5 +1,6 @@
-// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
-// and asks of the owner.
+// An item in full, what matters most first: what it is, as its creator wrote it; what its works found and decided,
+// round by round; what done means (its locked acceptance); what it depends on and what depends on it; its works;
+// what an import recorded; its design cards and asks of the owner.
 
 import type { ItemDetail, JsonValue, LinkedItem } from '../api';
 import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
@@ -120,6 +121,10 @@ function Detail({ d }: { d: ItemDetail }) {
           <pre className="j-text">{d.approach}</pre>
         </Section>
       ) : null}
+      <Section title={t('item_shown')}>
+        <p className="muted">{t('item_shown_note')}</p>
+        <Shown d={d} />
+      </Section>
       <Section title={t('acceptance')}>
         {d.acceptance !== null ? <Acceptance value={d.acceptance} /> : <p className="muted">{t('not_locked')}</p>}
       </Section>
@@ -172,10 +177,6 @@ function Detail({ d }: { d: ItemDetail }) {
           />
         </Section>
       ) : null}
-      <Section title={t('item_shown')}>
-        <p className="muted">{t('item_shown_note')}</p>
-        <Shown d={d} />
-      </Section>
       {d.design_cards.length > 0 ? (
         <Section title={t('design_cards')}>
           {d.design_cards.map((c) => (

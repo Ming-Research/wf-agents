@@ -1828,3 +1828,33 @@ summary.works-label {
   padding-left: 18px;
   font-size: 12.5px;
 }
+
+.page-wide {
+  max-width: none;
+}
+
+/* A round: what happened, its inputs and what it was given, what it handed back. */
+
+.round-what p {
+  margin: 0 0 4px;
+}
+
+.round-inputs {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.addr {
+  display: inline-block;
+  margin: 2px 6px 0 0;
+}
+
+.addr-held code {
+  color: var(--muted);
+}
+
+.given summary {
+  cursor: pointer;
+}

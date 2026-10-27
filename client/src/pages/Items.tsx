@@ -1,4 +1,5 @@
-// Every item, by project and state, and the graph of their dependencies.
+// The backlog: the graph of what depends on what, then every item by project, what moves first at the top: those
+// being worked on, then those queued in the order they start, then the rest.
 
 import type { Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { ItemBadge, Loaded } from '../components';
@@ -18,6 +19,7 @@ function Table({ items }: { items: ItemSummary[] }) {
           <th>{t('col_item')}</th>
           <th>{t('col_title')}</th>
           <th>{t('col_state')}</th>
+          <th className="num">{t('col_queued')}</th>
           <th>{t('col_work')}</th>
           <th>{t('col_level')}</th>
           <th>{t('col_deliver')}</th>
@@ -35,6 +37,7 @@ function Table({ items }: { items: ItemSummary[] }) {
               <ItemBadge state={i.state} />
               {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
             </td>
+            <td className="num">{i.queued !== null ? i.queued : ''}</td>
             <td>
               {i.work !== null ? (
                 <span>
@@ -59,10 +62,13 @@ function Lists({ data }: { data: ItemsData }) {
       {projects.map((p) => {
         const items = data.items
           .filter((i) => i.project === p)
-          .sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.id - b.id);
+          .sort(
+            (a, b) =>
+              ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || (a.queued ?? 0) - (b.queued ?? 0) || a.id - b.id,
+          );
         return (
           <section key={p}>
-            <h2>{p}</h2>
+            <div className="works-label">{p}</div>
             <Table items={items} />
           </section>
         );
@@ -74,16 +80,16 @@ function Lists({ data }: { data: ItemsData }) {
 export function Items() {
   const items = useResource<ItemsData>('items', '/api/v1/items');
   return (
-    <div className="page">
-      <h1>{t('items_title')}</h1>
+    <div className="page page-wide">
       <Loaded r={items}>
         {(data) =>
           data.items.length === 0 ? (
             <p className="muted">{t('no_items')}</p>
           ) : (
             <>
-              <h2>{t('items_graph')}</h2>
-              <p className="muted">{t('items_graph_hint')}</p>
+              <div className="works-label">
+                {t('items_graph')} <span className="muted">· {t('items_graph_hint')}</span>
+              </div>
               <div className="dag">
                 <ItemGraph items={data} onSelect={(id) => navigate(`/items/${id}`)} />
               </div>

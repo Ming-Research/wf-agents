@@ -295,7 +295,7 @@ function Body({ id, d, compiled, view, round, cell }: {
         rounds={d.rounds}
         round={round}
         onRound={(r) => go(r, null)}
-        renderRound={(r) => <RoundView id={r} />}
+        renderRound={(r) => <RoundView id={r} rounds={d.rounds} />}
       />
     </>
   );
