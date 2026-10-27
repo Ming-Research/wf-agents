@@ -2449,8 +2449,9 @@ summary.works-label {
   background: var(--accent-soft);
 }
 
-/* Both lists of works have the same columns at the same widths; the item takes what is left, at least about 280px:
-   the other columns take 1336px, and a narrower window scrolls the lists sideways. */
+/* Both lists of works have the same columns at the same widths, which the owner drags at the right edge of each
+   header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
+   lists sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
 
 .works-scroll {
   overflow-x: auto;
@@ -2458,53 +2459,37 @@ summary.works-label {
 
 .works-table {
   table-layout: fixed;
-  min-width: 1616px;
 }
 
-.works-table .w-id {
-  width: 56px;
+.works-table th,
+.works-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.works-table .w-state {
-  width: 360px;
-}
-
-.works-table .w-control {
-  width: 130px;
+.works-table th {
+  position: relative;
 }
 
 .works-table td.control-cell {
-  white-space: nowrap;
-  overflow: hidden;
   cursor: default;
 }
 
-.works-table .w-at {
-  width: 190px;
+/* The right edge of a column's header, which drags the column's width. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
 }
 
-.works-table .w-stage {
-  width: 120px;
-}
-
-.works-table .w-rounds {
-  width: 90px;
-}
-
-.works-table .w-time {
-  width: 130px;
-}
-
-.works-table td.nowrap {
-  white-space: nowrap;
-}
-
-.works-table .w-cost {
-  width: 80px;
-}
-
-.works-table .w-pr {
-  width: 50px;
+.col-grip:hover {
+  background: var(--accent-soft);
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 
 .row-link {
@@ -2780,20 +2765,13 @@ tr.acc-removed td {
   margin-top: 2px;
 }
 
-/* A work's state on one line: the badge, how long it has run, what waits for the owner as small chips; the reason it
-   paused or ended cut to the line, in full on hovering. */
+/* A work's state on one line: the badge, how long it has run, what waits for the owner as small chips; the reason the
+   engine stopped it or it ended after them, the whole on hovering. */
 
-.works-table td.state-cell {
+.works-table td .why {
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.works-table td.state-cell .why {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: none;
+  margin-left: 6px;
 }
 
 .chip {

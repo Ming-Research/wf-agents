@@ -36,6 +36,7 @@ const messages = {
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   request_failed: 'The request failed: {error}',
   works_drag: 'Drag to change the height of the list',
+  works_column_grip: 'Drag to set the width of the column; double-click for its own width',
   works_active: 'Running and waiting',
   works_ended: 'Ended',
   works_pick: 'Pick a work to see its chart and rounds here.',

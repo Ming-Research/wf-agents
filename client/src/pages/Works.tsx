@@ -45,13 +45,13 @@ function useNow(ticking: boolean): number {
 
 /// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
 /// waits for, linked to where the owner gives it, and its design cards and asks waiting for the owner as small chips;
-/// under it, why the engine stopped it or why it ended, cut to the line.
+/// then why the engine stopped it or why it ended.
 function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   if (c.over) {
     return (
       <>
         <WorkBadge state={w.state} />
-        {w.ended ? <div className="why">{w.ended}</div> : null}
+        {w.ended ? <span className="why">{w.ended}</span> : null}
       </>
     );
   }
@@ -130,21 +130,25 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   return (
     <>
       {parts}
-      {c.held === 'engine' && w.paused ? <div className="why">{w.paused}</div> : null}
+      {c.held === 'engine' && w.paused ? <span className="why">{w.paused}</span> : null}
     </>
   );
 }
 
-/// A work's row; its item opens from it, and its controls act without opening it.
+/// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
+/// its controls act without opening it.
 function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab: WorkTab; now: number }) {
   const status = useStatus();
   const a = useActions(w, status, true);
+  const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : w.graph;
+  const at = `${w.at} ${w.at_title ?? ''}`;
+  const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
     <tr className={`clickable${selected ? ' selected' : ''}`} onClick={() => navigate(workHref(w.id, { tab }))}>
-      <td>#{w.id}</td>
-      <td>
+      <td title={`#${w.id}`}>#{w.id}</td>
+      <td title={item}>
         {w.item !== null ? (
-          <Link to={`/items/${w.item}`} className="row-link" title={t('open_item')}>
+          <Link to={`/items/${w.item}`} className="row-link" title={`${item}\n${t('open_item')}`}>
             <span className="muted">#{w.item} </span>
             {w.title}
             {w.project ? <span className="muted"> · {w.project}</span> : null}
@@ -159,21 +163,22 @@ function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
         <Controls a={a} w={w} status={status} onStep={() => a.step()} />
         {a.error !== null ? (
-          <div className="bad why" title={a.error}>
+          <span className="bad why" title={a.error}>
             {t('request_failed', { error: a.error })}
-          </div>
+          </span>
         ) : null}
       </td>
-      <td>
-        <span className="cell-id">{w.at}</span> {w.at_title}
+      <td title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
+        <span className="cell-id">{w.at}</span>
         {a.c.outdated ? (
           <span className="chip warn" title={takeoverWords(w, status)}>
             {t('course_outdated', { version: w.flow_version })}
           </span>
-        ) : null}
+        ) : null}{' '}
+        {w.at_title}
       </td>
-      <td>{w.stage !== null ? w.stage.replaceAll('_', ' ') : ''}</td>
-      <td className="num">
+      <td title={stage}>{stage}</td>
+      <td className="num" title={String(w.rounds)}>
         {w.rounds}
         {w.sent_back > 0 ? (
           <>
@@ -200,48 +205,155 @@ function Row({ w, selected, tab, now }: { w: WorkSummary; selected: boolean; tab
           </>
         ) : null}
       </td>
-      <td className="nowrap">{time(w.started_at)}</td>
-      <td className="nowrap">{time(w.last_at)}</td>
-      <td className="num">{cost(w.cost_usd)}</td>
-      <td>{w.pr !== null ? `#${w.pr}` : ''}</td>
+      <td title={time(w.started_at)}>{time(w.started_at)}</td>
+      <td title={time(w.last_at)}>{time(w.last_at)}</td>
+      <td className="num" title={cost(w.cost_usd)}>
+        {cost(w.cost_usd)}
+      </td>
+      <td title={w.pr !== null ? `#${w.pr}` : undefined}>{w.pr !== null ? `#${w.pr}` : ''}</td>
     </tr>
+  );
+}
+
+/// The columns of both lists, in order, with their headers and their own widths; the item takes what the others leave.
+const COLUMNS = [
+  { key: 'id', head: 'col_work', width: 56, num: false },
+  { key: 'item', head: 'col_item', width: null, num: false },
+  { key: 'state', head: 'col_state', width: 360, num: false },
+  { key: 'control', head: null, width: 130, num: false },
+  { key: 'at', head: 'col_at', width: 190, num: false },
+  { key: 'stage', head: 'col_stage', width: 120, num: false },
+  { key: 'rounds', head: 'col_rounds', width: 90, num: true },
+  { key: 'started', head: 'col_started', width: 130, num: false },
+  { key: 'last', head: 'col_last', width: 130, num: false },
+  { key: 'cost', head: 'col_cost', width: 80, num: true },
+  { key: 'pr', head: 'col_pr', width: 50, num: false },
+] as const;
+
+type Column = (typeof COLUMNS)[number]['key'];
+
+/// The widths the owner dragged columns to, by column; a column not in it has its own width.
+type Widths = Partial<Record<Column, number>>;
+
+const WIDTHS_KEY = 'wf-agents.works-columns';
+
+/// The narrowest a column drags to, and the narrowest the item is left before the lists scroll sideways.
+const COLUMN_MIN = 36;
+const ITEM_MIN = 240;
+
+/// The widths kept in this browser, where it lets the page keep them.
+function savedWidths(): Widths {
+  try {
+    const kept: unknown = JSON.parse(window.localStorage.getItem(WIDTHS_KEY) ?? '{}');
+    const out: Widths = {};
+    if (typeof kept !== 'object' || kept === null) return out;
+    for (const c of COLUMNS) {
+      const v = (kept as Record<string, unknown>)[c.key];
+      if (typeof v === 'number' && Number.isFinite(v) && v >= COLUMN_MIN) out[c.key] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function keepWidths(w: Widths) {
+  try {
+    window.localStorage.setItem(WIDTHS_KEY, JSON.stringify(w));
+  } catch {
+    // The widths are kept only where the browser lets them be.
+  }
+}
+
+function widthOf(widths: Widths, key: Column): number {
+  return widths[key] ?? COLUMNS.find((c) => c.key === key)?.width ?? COLUMN_MIN;
+}
+
+/// The right edge of a column's header, which drags the column's width; the edge after the item, which takes what is
+/// left, drags the state's from its left. A double click gives the column its own width again.
+function ColumnGrip({ column, widths, onWidths }: {
+  column: Column;
+  widths: Widths;
+  onWidths: (w: Widths) => void;
+}) {
+  const target: Column = column === 'item' ? 'state' : column;
+  const sign = column === 'item' ? -1 : 1;
+  const press = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
+    const w0 = widthOf(widths, target);
+    let last = widths;
+    const move = (ev: PointerEvent) => {
+      const next: Widths = { ...widths };
+      next[target] = Math.max(COLUMN_MIN, Math.round(w0 + sign * (ev.clientX - x0)));
+      last = next;
+      onWidths(next);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      keepWidths(last);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  const reset = () => {
+    const next = { ...widths };
+    delete next[target];
+    onWidths(next);
+    keepWidths(next);
+  };
+  return (
+    <div
+      className="col-grip"
+      role="separator"
+      aria-orientation="vertical"
+      title={t('works_column_grip')}
+      onPointerDown={press}
+      onDoubleClick={reset}
+    />
   );
 }
 
 /// The works as rows. A row opens its work with the tab the open work shows, so that going from work to work (to rule on
 /// their design cards, say) keeps to what the owner is doing; what waits for the owner and the rounds that went wrong
 /// open that tab, or only those rounds.
-function Table({ works, selected, tab }: { works: WorkSummary[]; selected: number | null; tab: WorkTab }) {
+function Table({ works, selected, tab, widths, onWidths }: {
+  works: WorkSummary[];
+  selected: number | null;
+  tab: WorkTab;
+  widths: Widths;
+  onWidths: (w: Widths) => void;
+}) {
   const status = useStatus();
   const now = useNow(works.some((w) => status !== null && status.running === w.id));
+  const fixed = COLUMNS.filter((c) => c.width !== null).reduce((sum, c) => sum + widthOf(widths, c.key), 0);
   return (
-    <table className="list works-table">
+    <table className="list works-table" style={{ minWidth: fixed + ITEM_MIN }}>
       <colgroup>
-        <col className="w-id" />
-        <col />
-        <col className="w-state" />
-        <col className="w-control" />
-        <col className="w-at" />
-        <col className="w-stage" />
-        <col className="w-rounds" />
-        <col className="w-time" />
-        <col className="w-time" />
-        <col className="w-cost" />
-        <col className="w-pr" />
+        {COLUMNS.map((c) => (
+          <col key={c.key} style={c.width !== null ? { width: widthOf(widths, c.key) } : undefined} />
+        ))}
       </colgroup>
       <thead>
         <tr>
-          <th>{t('col_work')}</th>
-          <th>{t('col_item')}</th>
-          <th>{t('col_state')}</th>
-          <th aria-label={t('col_control')} />
-          <th>{t('col_at')}</th>
-          <th>{t('col_stage')}</th>
-          <th className="num">{t('col_rounds')}</th>
-          <th>{t('col_started')}</th>
-          <th>{t('col_last')}</th>
-          <th className="num">{t('col_cost')}</th>
-          <th>{t('col_pr')}</th>
+          {COLUMNS.map((c) => (
+            <th
+              key={c.key}
+              className={c.num ? 'num' : undefined}
+              aria-label={c.head === null ? t('col_control') : undefined}
+              title={c.head !== null ? t(c.head) : undefined}
+            >
+              {c.head !== null ? t(c.head) : null}
+              <ColumnGrip column={c.key} widths={widths} onWidths={onWidths} />
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -254,11 +366,13 @@ function Table({ works, selected, tab }: { works: WorkSummary[]; selected: numbe
 }
 
 /// A list in an area of its own that scrolls, with a grip under it that drags its height.
-function Scroll({ name, works, selected, tab }: {
+function Scroll({ name, works, selected, tab, widths, onWidths }: {
   name: string;
   works: WorkSummary[];
   selected: number | null;
   tab: WorkTab;
+  widths: Widths;
+  onWidths: (w: Widths) => void;
 }) {
   const [height, setHeight] = useState(() => savedHeight(name));
   const from = useRef<{ y: number; h: number } | null>(null);
@@ -284,7 +398,7 @@ function Scroll({ name, works, selected, tab }: {
   return (
     <>
       <div className="works-scroll" style={{ height }}>
-        <Table works={works} selected={selected} tab={tab} />
+        <Table works={works} selected={selected} tab={tab} widths={widths} onWidths={onWidths} />
       </div>
       <div
         className="works-grip"
@@ -304,6 +418,8 @@ export function Works({ work }: { work: WorkRoute | null }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   const selected = work?.id ?? null;
   const tab = work?.tab ?? 'rounds';
+  // Both lists have the same columns at the same widths.
+  const [widths, setWidths] = useState<Widths>(savedWidths);
   return (
     <div className="works-screen">
       <div className="works-lists">
@@ -318,12 +434,12 @@ export function Works({ work }: { work: WorkRoute | null }) {
                 <div className="works-label">
                   {t('works_active')} ({active.length})
                 </div>
-                <Scroll name="active" works={active} selected={selected} tab={tab} />
+                <Scroll name="active" works={active} selected={selected} tab={tab} widths={widths} onWidths={setWidths} />
                 <details className="works-ended">
                   <summary className="works-label">
                     {t('works_ended')} ({ended.length})
                   </summary>
-                  <Scroll name="ended" works={ended} selected={selected} tab={tab} />
+                  <Scroll name="ended" works={ended} selected={selected} tab={tab} widths={widths} onWidths={setWidths} />
                 </details>
               </>
             );
