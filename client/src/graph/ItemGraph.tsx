@@ -1,5 +1,5 @@
 // The items' dependency graph: an arrow goes from an item to the item that depends on it, so what is needed comes
-// first. elkjs places the items, React Flow draws them.
+// first. elkjs places the items and routes the arrows, React Flow draws them.
 
 import {
   Background,
@@ -9,8 +9,8 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
-  type Edge,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -19,7 +19,8 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { Items, ItemSummary } from '../api';
 import { ItemBadge } from '../components';
-import { layout, type Place } from './layout';
+import { layout, type Laid } from './layout';
+import { RoutedEdge, type Routed } from './RoutedEdge';
 
 const WIDTH = 220;
 const HEIGHT = 64;
@@ -48,43 +49,46 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
 }
 
 const nodeTypes = { item: ItemNode };
+const edgeTypes = { routed: RoutedEdge };
 
 function Fit({ shape }: { shape: string | null }) {
   const rf = useReactFlow();
+  const measured = useNodesInitialized();
   useEffect(() => {
-    if (shape === null) return;
-    const timer = setTimeout(() => void rf.fitView({ padding: 0.1, duration: 200 }), 60);
-    return () => clearTimeout(timer);
-  }, [shape, rf]);
+    if (shape === null || !measured) return;
+    void rf.fitView({ padding: 0.1, duration: 200, maxZoom: 1 });
+  }, [shape, measured, rf]);
   return null;
 }
 
 type Props = { items: Items; selected?: number | null; onSelect: (item: number) => void };
+
+const linkId = (needed: number, needing: number) => `${needed}->${needing}`;
 
 function Graph({ items, selected, onSelect }: Props) {
   const shape = useMemo(
     () =>
       items.items.map((i) => i.id).join(' ') +
       '|' +
-      items.links.map((l) => `${l.depends_on}->${l.item}`).join(' '),
+      items.links.map((l) => linkId(l.depends_on, l.item)).join(' '),
     [items],
   );
-  const [placed, setPlaced] = useState<{ shape: string; places: Map<string, Place> } | null>(null);
+  const [laid, setLaid] = useState<{ shape: string; laid: Laid } | null>(null);
   useEffect(() => {
     let live = true;
     layout(
       items.items.map((i) => ({ id: String(i.id), width: WIDTH, height: HEIGHT })),
       items.links.map((l) => ({
-        id: `${l.depends_on}->${l.item}`,
+        id: linkId(l.depends_on, l.item),
         source: String(l.depends_on),
         target: String(l.item),
       })),
     ).then(
-      (places) => {
-        if (live) setPlaced({ shape, places });
+      (l) => {
+        if (live) setLaid({ shape, laid: l });
       },
       () => {
-        if (live) setPlaced({ shape, places: new Map() });
+        if (live) setLaid({ shape, laid: { places: new Map(), routes: new Map() } });
       },
     );
     return () => {
@@ -93,32 +97,41 @@ function Graph({ items, selected, onSelect }: Props) {
     // The items change with every work's step; the layout only when the shape does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
-  const places = placed?.places;
+  const current = laid !== null && laid.shape === shape ? laid.laid : null;
   const nodes: ItemFlowNode[] = useMemo(
     () =>
       items.items.map((item, i) => ({
         id: String(item.id),
         type: 'item' as const,
-        position: places?.get(String(item.id)) ?? { x: (i % 4) * (WIDTH + 30), y: Math.floor(i / 4) * (HEIGHT + 40) },
+        position: current?.places.get(String(item.id)) ?? {
+          x: (i % 4) * (WIDTH + 30),
+          y: Math.floor(i / 4) * (HEIGHT + 40),
+        },
+        width: WIDTH,
+        height: HEIGHT,
         data: { item, selected: item.id === selected },
         draggable: false,
         connectable: false,
       })),
-    [items, places, selected],
+    [items, current, selected],
   );
-  const edges: Edge[] = useMemo(
+  const edges: Routed[] = useMemo(
     () =>
-      items.links.map((l) => ({
-        id: `${l.depends_on}->${l.item}`,
-        source: String(l.depends_on),
-        target: String(l.item),
-        type: 'smoothstep',
-        label: l.needs,
-        className: 'flow-edge edge-main',
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-        focusable: false,
-      })),
-    [items],
+      items.links.map((l) => {
+        const id = linkId(l.depends_on, l.item);
+        return {
+          id,
+          source: String(l.depends_on),
+          target: String(l.item),
+          type: 'routed' as const,
+          data: { points: current?.routes.get(id) ?? [] },
+          label: l.needs,
+          className: 'flow-edge edge-main',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+          focusable: false,
+        };
+      }),
+    [items, current],
   );
   return (
     <div className="chart">
@@ -126,15 +139,15 @@ function Graph({ items, selected, onSelect }: Props) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={(_, node) => onSelect(Number(node.id))}
         nodesDraggable={false}
         nodesConnectable={false}
         minZoom={0.1}
-        fitView
       >
         <Background />
         <Controls showInteractive={false} />
-        <Fit shape={placed?.shape ?? null} />
+        <Fit shape={current !== null ? shape : null} />
       </ReactFlow>
     </div>
   );

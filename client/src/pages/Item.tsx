@@ -1,11 +1,37 @@
 // An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works and cards.
 
-import type { ItemDetail, LinkedItem } from '../api';
+import type { ItemDetail, JsonValue, LinkedItem } from '../api';
 import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
 import { cost, time } from '../format';
 import { useResource } from '../live';
 import { Link } from '../route';
 import { useT } from '../text';
+
+type Row = { [key in string]: JsonValue };
+
+const isRow = (v: JsonValue): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/// The acceptance as a table of its rows (id, how it is checked, the condition), or as it is kept when it is not.
+function Acceptance({ value }: { value: JsonValue }) {
+  if (!Array.isArray(value) || !value.every((r) => isRow(r) && typeof r.condition === 'string')) {
+    return <Json value={value} />;
+  }
+  return (
+    <table className="list defs">
+      <tbody>
+        {value.filter(isRow).map((r, i) => (
+          <tr key={i}>
+            <td>
+              <code>{String(r.id ?? i + 1)}</code>
+            </td>
+            <td className="muted">{String(r.by ?? '')}</td>
+            <td>{String(r.condition)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 function Linked({ list }: { list: LinkedItem[] }) {
   const t = useT();
@@ -64,7 +90,7 @@ function Detail({ d }: { d: ItemDetail }) {
         </Section>
       ) : null}
       <Section title={t('acceptance')}>
-        {d.acceptance !== null ? <Json value={d.acceptance} /> : <p className="muted">{t('not_locked')}</p>}
+        {d.acceptance !== null ? <Acceptance value={d.acceptance} /> : <p className="muted">{t('not_locked')}</p>}
       </Section>
       <div className="two">
         <Section title={t('depends_on')}>

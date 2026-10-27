@@ -1,7 +1,7 @@
 // A round in full, for diagnosis: each input with where it came from, the prompt exactly as sent, the return, the
 // row it took or why it was sent back, the tools it ran with the files they kept, and what it cost.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { RoundDetail, ToolRun } from '../api';
 import { Facts, Json, Loaded, OutcomeBadge, Section } from '../components';
@@ -65,8 +65,13 @@ function Tool({ run }: { run: ToolRun }) {
 function Detail({ d, onClose }: { d: RoundDetail; onClose: () => void }) {
   const t = useT();
   const r = d.round;
+  const top = useRef<HTMLDivElement>(null);
+  // A round picked further down the timeline is shown above it: bring it into view.
+  useEffect(() => {
+    top.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [r.id]);
   return (
-    <div className="round">
+    <div className="round" ref={top}>
       <div className="round-head">
         <h2>
           {t('round_title', { id: r.id })} <span className="cell-id">{r.cell ?? '–'}</span>{' '}

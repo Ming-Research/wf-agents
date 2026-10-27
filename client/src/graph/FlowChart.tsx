@@ -1,17 +1,17 @@
-// A flow's state machine: elkjs places the cells, React Flow draws them. On a work's page each cell carries what the
-// work did there: the current cell, its round count, its rounds sent back or failed, and the ways the work went.
+// A flow's state machine: elkjs places the cells and routes the rows between them, React Flow draws them. On a
+// work's page each cell carries what the work did there: the current cell, its round count, its rounds sent back or
+// failed, and the ways the work went.
 
 import {
   Background,
   Controls,
   Handle,
   MarkerType,
-  MiniMap,
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
-  type Edge,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -22,7 +22,8 @@ import type { CompiledCell, CompiledGraph, RoundSummary } from '../api';
 import type { Key } from '../i18n';
 import { useT } from '../text';
 import { build, type Overlay } from './flowGraph';
-import { layout, type Place } from './layout';
+import { layout, type Laid } from './layout';
+import { RoutedEdge, type Routed } from './RoutedEdge';
 
 const WIDTH = 230;
 const HEIGHT = 72;
@@ -73,19 +74,17 @@ function CellNode({ data }: NodeProps<CellFlowNode>) {
 }
 
 const nodeTypes = { cell: CellNode };
+const edgeTypes = { routed: RoutedEdge };
 
-/// Fits the view to the whole graph once it is laid out, or moves it to the cell `focus` names.
+/// Once the cells are laid out and measured: shows the cell `focus` names, or else the whole graph.
 function Fit({ focus, shape }: { focus: string | null; shape: string | null }) {
   const rf = useReactFlow();
+  const measured = useNodesInitialized();
   useEffect(() => {
-    if (shape === null) return;
-    // After React Flow has measured the cells it was just given.
-    const timer = setTimeout(() => {
-      if (focus === null) void rf.fitView({ padding: 0.08, duration: 200 });
-      else void rf.fitView({ nodes: [{ id: focus }], duration: 400, maxZoom: 1.1, padding: 0.6 });
-    }, 60);
-    return () => clearTimeout(timer);
-  }, [focus, shape, rf]);
+    if (shape === null || !measured) return;
+    if (focus === null) void rf.fitView({ padding: 0.06, duration: 200, minZoom: 0.3 });
+    else void rf.fitView({ nodes: [{ id: focus }], duration: 300, minZoom: 0.9, maxZoom: 0.9 });
+  }, [focus, shape, measured, rf]);
   return null;
 }
 
@@ -95,7 +94,7 @@ export type FlowChartProps = {
   rounds?: RoundSummary[];
   at?: string | null;
   selected: string | null;
-  /// A cell to move the view to.
+  /// The cell to show; with none, the whole graph is shown.
   focus?: string | null;
   onSelect: (cell: string) => void;
 };
@@ -109,19 +108,19 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
     () => built.edges.map((e) => e.id).join(' ') + '|' + built.nodes.map((n) => n.id).join(' '),
     [built],
   );
-  const [placed, setPlaced] = useState<{ shape: string; places: Map<string, Place> } | null>(null);
+  const [laid, setLaid] = useState<{ shape: string; laid: Laid } | null>(null);
   useEffect(() => {
     let live = true;
     layout(
       built.nodes.map((n) => ({ id: n.id, width: WIDTH, height: HEIGHT })),
       built.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
     ).then(
-      (places) => {
-        if (live) setPlaced({ shape, places });
+      (l) => {
+        if (live) setLaid({ shape, laid: l });
       },
       () => {
-        // A layout that fails leaves the cells in a column.
-        if (live) setPlaced({ shape, places: new Map() });
+        // A layout that fails leaves the cells in a column, joined by straight lines.
+        if (live) setLaid({ shape, laid: { places: new Map(), routes: new Map() } });
       },
     );
     return () => {
@@ -130,20 +129,23 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
     // `built` changes with every round; the layout only when the shape does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
-  const places = placed?.places;
+  // A layout of an earlier shape is not used: its routes do not fit.
+  const current = laid !== null && laid.shape === shape ? laid.laid : null;
   const nodes: CellFlowNode[] = useMemo(
     () =>
       built.nodes.map((n, i) => ({
         id: n.id,
         type: 'cell' as const,
-        position: places?.get(n.id) ?? { x: 0, y: i * (HEIGHT + 30) },
+        position: current?.places.get(n.id) ?? { x: 0, y: i * (HEIGHT + 30) },
+        width: WIDTH,
+        height: HEIGHT,
         data: { cell: n.cell, overlay: n.overlay, selected: n.id === selected },
         draggable: false,
         connectable: false,
       })),
-    [built, places, selected],
+    [built, current, selected],
   );
-  const edges: Edge[] = useMemo(
+  const edges: Routed[] = useMemo(
     () =>
       built.edges.map((e) => {
         const classes = ['flow-edge'];
@@ -157,15 +159,15 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
           id: e.id,
           source: e.source,
           target: e.target,
-          type: 'smoothstep',
+          type: 'routed' as const,
+          data: { points: current?.routes.get(e.id) ?? [] },
           className: classes.join(' '),
           label,
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          animated: e.taken > 0 && e.target === at,
           focusable: false,
         };
       }),
-    [built, selected, at],
+    [built, current, selected],
   );
   return (
     <div className="chart">
@@ -177,16 +179,15 @@ function Chart({ graph, rounds, at, selected, focus, onSelect }: FlowChartProps)
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={(_, node) => onSelect(node.id)}
         nodesDraggable={false}
         nodesConnectable={false}
         minZoom={0.1}
-        fitView
       >
         <Background />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable />
-        <Fit focus={focus ?? null} shape={placed?.shape ?? null} />
+        <Fit focus={focus ?? null} shape={current !== null ? shape : null} />
       </ReactFlow>
     </div>
   );

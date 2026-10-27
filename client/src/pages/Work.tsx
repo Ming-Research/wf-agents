@@ -106,7 +106,7 @@ function Body({ id, d, graph, round, cell }: {
             rounds={d.rounds}
             at={d.work.at}
             selected={selectedCell}
-            focus={roundCell}
+            focus={roundCell ?? d.work.at}
             onSelect={(c) => go(null, c)}
           />
         ) : null}

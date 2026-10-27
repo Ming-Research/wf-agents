@@ -47,7 +47,9 @@ function Table({ works }: { works: WorkSummary[] }) {
             </td>
             <td>
               <WorkBadge state={w.state} />
-              {w.running ? <span className="muted"> {t('running_for', { time: duration(now - w.running.started_at) })}</span> : null}
+              {w.state === 'running' && w.running ? (
+                <span className="muted"> {t('running_for', { time: duration(now - w.running.started_at) })}</span>
+              ) : null}
               {w.paused ? <div className="why">{t('paused_why', { why: w.paused })}</div> : null}
               {w.ended ? <div className="why">{t('ended_why', { why: w.ended })}</div> : null}
             </td>
