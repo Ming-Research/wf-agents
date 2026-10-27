@@ -589,6 +589,11 @@ pre.prompt,
   padding: 16px;
 }
 
+.items-tree > .muted,
+.items-tree > .error {
+  padding: 0 12px;
+}
+
 .tree-project + .tree-project {
   margin-top: 12px;
 }

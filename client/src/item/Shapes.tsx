@@ -39,7 +39,7 @@ export function Grounds({ value }: { value: JsonValue }) {
       {value.filter(isObj).map((g, i) => (
         <li key={i}>
           <span className={`badge ground-${str(g.kind)}`}>{words(str(g.kind))}</span> <MarkdownInline text={str(g.claim)} />
-          {str(g.where) !== '' ? <Field label={t('ground_where')} value={g.where} /> : null}
+          <Field label={t('ground_where')} value={g.where} />
           <Field label={t('ground_from')} value={g.from} />
           <Field label={t('ground_confirm')} value={g.confirm} />
         </li>
