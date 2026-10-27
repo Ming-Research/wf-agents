@@ -297,18 +297,23 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
     )
     .unwrap();
     commit_all(&off_flow);
-    for dir in [&plain, &uncommitted, &broken, &off_flow] {
+    for dir in [&plain, &uncommitted, &broken] {
         let before = entries(dir);
         let out = wf(dir, "init");
         assert!(failed(&out), "init in {}: {:?}", dir.display(), out.status);
         assert_eq!(entries(dir), before, "{}", dir.display());
     }
+    // The one place `init` refuses by the flow check, which costs a compile of the flow: run once, and read both the
+    // refusal and what it says from that run.
+    let before = entries(&off_flow);
     let out = wf(&off_flow, "init");
+    assert!(failed(&out), "init in {}: {:?}", off_flow.display(), out.status);
     assert!(
         stderr(&out).contains("the flow has no counter nonsense"),
         "{}",
         stderr(&out)
     );
+    assert_eq!(entries(&off_flow), before);
     let out = wf(&absent, "init");
     assert!(failed(&out), "init in {}: {:?}", absent.display(), out.status);
     assert!(!absent.exists());
