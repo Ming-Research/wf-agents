@@ -133,6 +133,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/messages", get(messages))
         .route("/api/v1/messages/read", post(mark_read))
+        .route("/api/v1/asks/{id}/answer", post(answer))
+        .route("/api/v1/design-cards/{id}/rule", post(rule))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -387,7 +389,42 @@ async fn messages(State(app): State<App>, Query(q): Query<Which>) -> Result<Json
     read(&app, move |c, _| api::messages(c, q.all)).await.map(Json)
 }
 
-/// Marks messages to the owner read: the one write the interface makes to the database itself, as the owner.
+/// Answers an ask of the owner, as the owner, as the command line does; the engine is woken to go on.
+async fn answer(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(a): Json<api::Answer>,
+) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::answer(db, id, &a)).await
+}
+
+/// Rules on a design card, as the owner, as the command line does; the engine is woken to go on.
+async fn rule(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(r): Json<api::Ruling>,
+) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::rule(db, id, &r)).await
+}
+
+/// Writes what the owner decided, then wakes the engine's loop.
+async fn decide(
+    app: &App,
+    f: impl FnOnce(&mut db::Db) -> Result<String, String> + Send + 'static,
+) -> Result<Json<api::Done>, Fail> {
+    let path = Arc::clone(&app.db);
+    let done = tokio::task::spawn_blocking(move || {
+        let mut conn = db::Db::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        f(&mut conn)
+    })
+    .await
+    .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    app.control.wake();
+    Ok(Json(api::Done { done }))
+}
+
+/// Marks messages to the owner read, as the owner.
 async fn mark_read(State(app): State<App>, Json(m): Json<api::MarkRead>) -> Result<Json<api::Marked>, Fail> {
     let db = Arc::clone(&app.db);
     tokio::task::spawn_blocking(move || api::mark_read(&db, &m))

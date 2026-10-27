@@ -269,20 +269,140 @@ fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) ->
     .map_err(sql)
 }
 
+/// A test binary in a cargo test log: what it is, the tests it ran and how long it took as a whole.
+struct Binary {
+    name: String,
+    tests: Vec<String>,
+    finished: Option<String>,
+}
+
+/// The test binaries a cargo test log shows, in the order they ran.
+fn binaries(log: &str) -> Vec<Binary> {
+    let mut out: Vec<Binary> = Vec::new();
+    for line in log.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("Running ") {
+            let (source, deps) = rest.split_once(" (").unwrap_or((rest, ""));
+            let file = deps.trim_end_matches(')').rsplit('/').next().unwrap_or_default();
+            let krate = match file.rsplit_once('-') {
+                Some((k, hash)) if hash.chars().all(|c| c.is_ascii_hexdigit()) => k,
+                _ => file,
+            };
+            let name = if krate.is_empty() {
+                source.to_string()
+            } else {
+                format!("{krate} ({source})")
+            };
+            out.push(Binary {
+                name,
+                tests: Vec::new(),
+                finished: None,
+            });
+        } else if let Some(krate) = l.strip_prefix("Doc-tests ") {
+            out.push(Binary {
+                name: format!("the doc tests of {krate}"),
+                tests: Vec::new(),
+                finished: None,
+            });
+        } else if let Some(rest) = l.strip_prefix("test result: ") {
+            if let (Some(b), Some((_, time))) = (out.last_mut(), rest.split_once("finished in ")) {
+                b.finished = Some(time.trim().to_string());
+            }
+        } else if let Some(rest) = l.strip_prefix("test ")
+            && let Some((name, _)) = rest.split_once(" ... ")
+            && let Some(b) = out.last_mut()
+        {
+            b.tests.push(name.trim().to_string());
+        }
+    }
+    out
+}
+
+/// How long each named test took, as far as the logs of the fast CI tell: stable `cargo test` times no test on its
+/// own, so each named test is given the time of the whole test binary that holds it, said as that.
+fn test_times(tests: &[String], logs: &[String]) -> Vec<Value> {
+    let found: Vec<Binary> = logs.iter().flat_map(|l| binaries(l)).collect();
+    let holds = |full: &str, named: &str| {
+        full == named || full.ends_with(&format!("::{named}")) || named.ends_with(&format!("::{full}"))
+    };
+    tests
+        .iter()
+        .map(|named| {
+            let time = found
+                .iter()
+                .find(|b| b.tests.iter().any(|t| holds(t, named)))
+                .map(|b| match &b.finished {
+                    Some(t) => format!(
+                        "{t} for the whole test binary {}, which holds it with {} tests run; cargo test does not time each test on its own",
+                        b.name,
+                        b.tests.len()
+                    ),
+                    None => format!("the test binary {} that holds it reported no time", b.name),
+                })
+                .unwrap_or_else(|| "not found in the logs of the fast CI".to_string());
+            json!({ "test": named, "time": time })
+        })
+        .collect()
+}
+
 // Cell 13.
 
-/// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
-/// and merges in what ran before.
-pub fn run_tools(e: &mut Engine, w: &Work, item: &Item, round: i64, gathered: &[Gathered]) -> Result<Value, String> {
-    let project = e.project_of(w)?;
-    let asked: Vec<Value> = gathered
+/// The tools a round asked for, as the tool cell takes them from its input.
+pub fn asked(gathered: &[Gathered]) -> Vec<Value> {
+    gathered
         .first()
         .and_then(|x| x.value.clone())
         .map(|v| match v {
             Value::Array(xs) => xs,
             o => vec![o],
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// What running one tool asked for will do, in a line, for the owner to see before it runs.
+pub fn describe(req: &Value) -> String {
+    let text = |k: &str| req[k].as_str().unwrap_or_default().to_string();
+    let short = |h: String| h.chars().take(7).collect::<String>();
+    let list = |k: &str| {
+        req[k]
+            .as_array()
+            .map(|xs| xs.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+            .unwrap_or_default()
+    };
+    match req["tool"].as_str().unwrap_or_default() {
+        "ci" => {
+            let pr = if req.get("pr").is_some() {
+                "; sets the PR's title and description"
+            } else {
+                ""
+            };
+            format!(
+                "ci: pushes {} and runs the fast CI (tests: {}){pr}",
+                short(text("head")),
+                list("tests")
+            )
+        }
+        "ci_before" => format!(
+            "ci_before: runs the fast CI on {} with these files from it on main: {}",
+            short(text("head")),
+            list("files")
+        ),
+        "gh" => format!("gh {}", text("command").trim_start_matches("gh ")),
+        "query" => {
+            let sql: String = text("sql").split_whitespace().collect::<Vec<_>>().join(" ");
+            let cut: String = sql.chars().take(160).collect();
+            format!("query: {cut}{}", if cut.len() < sql.len() { "…" } else { "" })
+        }
+        "measure" => "measure: does not run in this version of the engine".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
+/// and merges in what ran before.
+pub fn run_tools(e: &mut Engine, w: &Work, item: &Item, round: i64, gathered: &[Gathered]) -> Result<Value, String> {
+    let project = e.project_of(w)?;
+    let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
     let mut only: Option<Vec<String>> = None;
     if w.pos.from.as_deref() == Some("15") {
@@ -402,6 +522,10 @@ fn ci(
         )
     });
     let fallback = (item.title.clone(), format!("{}\n\nWhy: {}", item.problem, item.why));
+    let tests: Vec<String> = req["tests"]
+        .as_array()
+        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
     let got = attempts(e, round, "ci", req, || {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         let tb = title_body
@@ -416,8 +540,14 @@ fn ci(
         )?;
         pr.set(Some(n));
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
+        let logs: Vec<String> = checks
+            .iter()
+            .filter_map(|c| e.github.job_log(&repo(project), c).ok())
+            .map(|l| hub::clean_log(&l))
+            .collect();
+        let times = test_times(&tests, &logs);
         Ok(
-            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "times": [] }, "pr": n }),
+            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "times": times }, "pr": n }),
         )
     })?;
     *pushed = Some(sha.clone());
@@ -733,6 +863,43 @@ mod tests {
         );
         assert_eq!(words(r#"a "" b\ c"#).unwrap(), ["a", "", "b c"]);
         assert!(words("pr view 'x").is_err());
+    }
+
+    #[test]
+    fn a_named_test_is_given_the_time_of_the_test_binary_that_holds_it() {
+        let log = "     Running unittests src/lib.rs (target/debug/deps/engine-0a1b2c3d4e5f6789)
+running 2 tests
+test tools::tests::a_command_line_is_split_as_a_shell_would ... ok
+test tools::tests::only_allowed_gh_commands_run_and_api_only_reads ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/e2e.rs (target/debug/deps/e2e-99aa88bb77cc66dd)
+running 1 test
+test a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 68.41s
+";
+        let named = vec![
+            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
+            "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
+            "missing".to_string(),
+        ];
+        let times = test_times(&named, &[log.to_string()]);
+        assert_eq!(
+            times[0]["time"],
+            "68.41s for the whole test binary e2e (tests/e2e.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
+        );
+        assert!(
+            times[1]["time"]
+                .as_str()
+                .unwrap()
+                .starts_with("0.01s for the whole test binary engine (unittests src/lib.rs)")
+        );
+        assert_eq!(
+            times[2],
+            json!({ "test": "missing", "time": "not found in the logs of the fast CI" })
+        );
     }
 
     #[test]

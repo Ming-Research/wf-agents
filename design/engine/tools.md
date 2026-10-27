@@ -1,0 +1,7 @@
+Decision: A query's rows reach the agent, and the round's record, as an array of JSON objects; rows too long to give inline are saved one object per line and given by the path, instead of one string of JSON lines inside the result, because a string inside JSON escapes every quote of every row, which the agent then reads through.
+
+Decision: A red check's log tail is given without what gh puts before every line (the job, the step and the time) and without the escapes that colour the text, because those take most of each line and say nothing about why the check is red.
+
+Decision: The ci tool gives, for each test the agent named, the time of the whole test binary that holds it, read from the fast CI's logs and said as the binary's time with how many tests it ran, or that the test was not found there, instead of no times at all, because stable `cargo test` times no test on its own, and without a time the agent fetched the whole job log to find one; the flow still says each test's own time, since changing its words changes the flow's digest, and the engine's words in each time say what the time is.
+
+Decision: Before a tool cell runs, the next round's preview lists what each tool asked for will do (which head ci pushes and which tests it names, the gh command, the query), because the owner presses "Run next round" to run exactly that, and a note about an agent's round on the owner's account says nothing about it.

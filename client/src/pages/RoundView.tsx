@@ -7,13 +7,15 @@
 
 import { useContext, useState } from 'react';
 
-import type { RoundDetail, RoundSummary, ToolRun } from '../api';
+import type { CompiledInput, RoundDetail, RoundSummary, ToolRun } from '../api';
 import { Json, Loaded, Section } from '../components';
 import { FlowContext, type Flow } from '../flow/context';
+import { targetWords } from '../flow/words';
 import { cost, duration, time } from '../format';
 import { getText } from '../http';
 import { useResource } from '../live';
 import { srcText, t } from '../text';
+import { AskView, DesignCardView, words } from './Decide';
 
 /// A file a tool kept, read when asked for.
 function KeptFile({ file, path }: { file: string; path: string }) {
@@ -131,6 +133,27 @@ function cellName(f: Flow | null, id: string | null): string {
   return c ? `${id} (${c.title})` : id;
 }
 
+/// Where a round that took a row went: the cell of the round after it, or else where the row goes.
+function wentTo(f: Flow | null, cell: string | null, row: string | null, after: RoundSummary | undefined): string | null {
+  if (after !== undefined && after.cell !== null) return cellName(f, after.cell);
+  const to = cell !== null && row !== null ? f?.cell(cell)?.rows.find((x) => x.name === row)?.to : undefined;
+  if (to === undefined) return null;
+  return targetWords(to) ?? cellName(f, to);
+}
+
+/// An input by a short name: its own, or that of where it comes from.
+function shortName(x: CompiledInput): string {
+  if (x.id !== null) return words(x.id);
+  const s = x.from[0];
+  if (s === undefined) return '';
+  if (Array.isArray(s)) return words(s[1].split('.').pop() ?? s[1]);
+  if (s === 'self') return 'self';
+  if ('config' in s) return words(s.config);
+  if ('db' in s) return words(s.db);
+  if ('engine' in s) return words(s.engine);
+  return words(s.recorded);
+}
+
 /// What happened in the round, in a sentence or two.
 function Happened({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
   const r = d.round;
@@ -160,10 +183,11 @@ function Happened({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f:
         : cell?.kind === 'owner'
           ? t('happened_owner')
           : t('happened_engine', { step: cell?.step ?? '' });
+  const went = r.outcome === 'took' ? wentTo(f, r.cell, r.transition, after) : null;
   const outcome =
     r.outcome === 'took'
-      ? after !== undefined
-        ? t('happened_went', { cell: cellName(f, after.cell), row: r.transition ?? '' })
+      ? went !== null
+        ? t('happened_went', { cell: went, row: r.transition ?? '' })
         : t('happened_took', { row: r.transition ?? '' })
       : r.outcome === 'sent_back'
         ? t('happened_sent_back', { why: r.why ?? '' })
@@ -215,17 +239,22 @@ function AgentInputs({ d, f }: { d: RoundDetail; f: Flow | null }) {
   );
   const given = d.conditional.filter((c) => c.given);
   const notGiven = d.conditional.filter((c) => !c.given);
+  // The inputs it had this round, by their numbers in the message; those it had nothing of, by their short names.
+  const nothing = numbered.filter((_, i) => !byNumber.has(i + 1)).map(shortName);
   return (
     <>
       <Section title={t('round_inputs')}>
         <ol className="round-inputs">
-          {numbered.map((x, i) => (
-            <li key={i}>
-              <span>{x.what}</span>
-              <div>{byNumber.has(i + 1) ? byNumber.get(i + 1)?.map(chip) : <span className="muted">{t('round_input_empty')}</span>}</div>
-            </li>
-          ))}
+          {numbered.map((x, i) =>
+            byNumber.has(i + 1) ? (
+              <li key={i} value={i + 1}>
+                <span>{x.what}</span>
+                <div>{byNumber.get(i + 1)?.map(chip)}</div>
+              </li>
+            ) : null,
+          )}
         </ol>
+        {nothing.length > 0 ? <p className="muted">{t('round_nothing', { names: nothing.join(', ') })}</p> : null}
         {others.map((o) => (
           <div key={o} className="muted">
             {o}
@@ -300,14 +329,13 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
         </Section>
       ) : null}
       {d.design_cards.map((c) => (
-        <Section key={`d${c.id}`} title={t('round_design_card', { id: c.id, status: c.status })} open={false}>
-          <Json value={c.body} />
+        <Section key={`d${c.id}`} title={t('round_design_card', { id: c.id, status: c.status })} open={c.status === 'open'}>
+          <DesignCardView c={c} />
         </Section>
       ))}
       {d.asks.map((a) => (
         <Section key={`a${a.id}`} title={t('round_ask', { id: a.id })} open={a.answer === null}>
-          <Json value={a.body} />
-          {a.answer !== null ? <Json value={a.answer} /> : <p className="muted">{t('ask_waits')}</p>}
+          <AskView a={a} />
         </Section>
       ))}
       {ran ? (

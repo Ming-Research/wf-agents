@@ -29,6 +29,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0005.sql"),
     include_str!("../../../db/migrations/0006.sql"),
     include_str!("../../../db/migrations/0007.sql"),
+    include_str!("../../../db/migrations/0008.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -39,6 +40,10 @@ const UNTRACKED: [&str; 5] = ["rounds", "tool_runs", "changes", "outbox", "conte
 
 /// The line a table's description has when agents may not read it.
 const HIDDEN: &str = "Hidden from agents.";
+
+/// The text a ruling on a design card is interjected with; a disagreement says so after it. The owner's ruling writes
+/// it and the engine's checks read it.
+pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
 
 #[derive(Debug)]
 pub enum Error {

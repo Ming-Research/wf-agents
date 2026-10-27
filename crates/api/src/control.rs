@@ -16,6 +16,9 @@ pub struct Asked {
     pub step: Option<i64>,
     /// How many times the owner asked what a work's next round would be: each ask wakes the loop.
     pub previews: u64,
+    /// How many times the owner decided something the engine reads, such as an answer or a ruling: each wakes the
+    /// loop, so that a running engine goes on at once.
+    pub woken: u64,
 }
 
 /// What the loop does next.
@@ -59,6 +62,7 @@ impl Control {
                 mode,
                 step: None,
                 previews: 0,
+                woken: 0,
             }),
             changed: Condvar::new(),
             previews: Mutex::new(Vec::new()),
@@ -109,6 +113,12 @@ impl Control {
         lock(&self.asked).previews += 1;
         self.changed.notify_all();
         rx
+    }
+
+    /// Wakes the loop: the owner decided something the engine reads.
+    pub fn wake(&self) {
+        lock(&self.asked).woken += 1;
+        self.changed.notify_all();
     }
 
     /// The asks of what a work's next round would be that wait for an answer.
@@ -169,5 +179,11 @@ mod tests {
         assert_eq!(asks.len(), 1);
         asks[0].1.send(Err("none".into())).unwrap();
         assert_eq!(rx.recv().unwrap(), Err("none".into()));
+        // So does what the owner decided.
+        let seen = c.asked();
+        c.wake();
+        let started = std::time::Instant::now();
+        c.wait(seen, Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

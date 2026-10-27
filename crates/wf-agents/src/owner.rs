@@ -8,7 +8,7 @@ use db::Actor;
 use db::rusqlite::{OptionalExtension, params};
 use engine::database::open;
 use engine::query_json;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -172,42 +172,15 @@ pub struct Answer {
     pub reply: Option<Value>,
 }
 
+/// Answers an ask of the owner, as the page does.
 pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
     let mut db = open(data)?;
-    let asked: Option<(String, Option<String>)> = db
-        .conn()
-        .query_row("SELECT body, answer FROM owner_asks WHERE id = ?1", [a.ask], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .optional()
-        .map_err(sql)?;
-    let Some((body, answered)) = asked else {
-        return Err(format!("no ask {}", a.ask));
+    let given = api::Answer {
+        text: a.text,
+        why: a.why,
+        reply: a.reply,
     };
-    if answered.is_some() {
-        return Err(format!("ask {} is answered already", a.ask));
-    }
-    let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
-    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-    if body["to"] == "architect" {
-        let mut reply = a.reply.clone().unwrap_or_else(|| json!({}));
-        reply["text"] = json!(a.text);
-        reply["why"] = json!(
-            a.why
-                .clone()
-                .unwrap_or_else(|| "The owner answered for the architect.".into())
-        );
-        answer["reply"] = reply;
-    }
-    db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
-            params![a.ask, answer.to_string()],
-        )?;
-        Ok(())
-    })
-    .map_err(sql)?;
-    Ok(format!("ask {} answered", a.ask))
+    api::answer(&mut db, a.ask, &given)
 }
 
 /// How the owner rules on a design card.
@@ -220,56 +193,15 @@ pub struct Ruling {
     pub option: Option<String>,
 }
 
+/// Rules on a design card, as the page does.
 pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
     let mut db = open(data)?;
-    let found: Option<(String, i64)> = db
-        .conn()
-        .query_row(
-            "SELECT c.status, r.work FROM design_cards c JOIN rounds r ON r.id = c.round WHERE c.id = ?1",
-            [r.design_card],
-            |x| Ok((x.get(0)?, x.get(1)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    let Some((status, work)) = found else {
-        return Err(format!("no design card {}", r.design_card));
+    let given = api::Ruling {
+        verdict: r.verdict,
+        text: r.text,
+        option: r.option,
     };
-    if status == "replaced" {
-        return Err(format!(
-            "design card {} is replaced: it can no longer be ruled",
-            r.design_card
-        ));
-    }
-    if !matches!(r.verdict.as_str(), "confirm" | "disagree") {
-        return Err("the verdict on a design card is confirm or disagree".into());
-    }
-    let mut ruling = json!({ "by": "owner", "at": db::now(), "text": r.text, "verdict": r.verdict });
-    if let Some(o) = &r.option {
-        ruling["option"] = json!(o);
-    }
-    let disagree = r.verdict == "disagree";
-    db.write(Actor::Owner, |tx| {
-        let rulings: String = tx.query_row("SELECT rulings FROM design_cards WHERE id = ?1", [r.design_card], |x| {
-            x.get(0)
-        })?;
-        let mut list: Vec<Value> = serde_json::from_str(&rulings).unwrap_or_default();
-        list.push(ruling.clone());
-        tx.execute(
-            "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
-            params![r.design_card, Value::Array(list).to_string()],
-        )?;
-        // A disagreement with the design card reaches the engineer as an interjection; a confirmation needs none.
-        if disagree {
-            let text = format!("{} {}: disagree. {}", engine::DESIGN_CARD_RULING, r.design_card, r.text);
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-                params![work, text],
-            )?;
-        }
-        Ok(())
-    })
-    .map_err(sql)?;
-    Ok(format!("design card {} ruled", r.design_card))
+    api::rule(&mut db, r.design_card, &given)
 }
 
 pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {

@@ -134,6 +134,7 @@ function round(id: number, cellId: string | null, outcome: RoundSummary['outcome
     compactions: 0,
     tool_runs: 0,
     progress: null,
+    not_asked: null,
   };
 }
 

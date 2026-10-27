@@ -364,6 +364,8 @@ pub struct NextRound {
     /// For an agent's cell whose need the project does not answer: why no agent is asked, the engine answering the
     /// cell itself as its round would.
     pub not_asked: Option<String>,
+    /// For a tool cell: what each tool asked for will do.
+    pub tools: Vec<String>,
 }
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
@@ -386,7 +388,15 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     }
     let agent = cell.kind == "agent" && not_asked.is_none();
     let message = if agent { Some(next_message(e, work)?.text) } else { None };
+    let tools = if cell.kind == "tool" {
+        let item = e.item_of(&w)?;
+        let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
+        tools::asked(&gathered).iter().map(tools::describe).collect()
+    } else {
+        Vec::new()
+    };
     Ok(NextRound {
+        tools,
         title: cell.title.clone(),
         kind: cell.kind.clone(),
         line: cell
