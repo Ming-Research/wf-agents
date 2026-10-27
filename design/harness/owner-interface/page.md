@@ -1,0 +1,5 @@
+Decision: The page is built with React and Vite, and the graphs it draws (a flow's state machine, the items' dependency graph) are laid out by elkjs and drawn by React Flow, instead of mermaid, because each node is then a component that can carry overlays and badges, such as a work's current cell and its round counts, while mermaid renders a fixed picture.
+
+Decision: A work is drawn on the state machine of the flow version it is pinned to, with its rounds placed on their cells (the current cell highlighted, each visited cell with its round count, rounds sent back or failed marked, the transitions taken emphasised), so that a round leads to its cell and a cell to its rounds, instead of on the current flow, because a work runs on its pinned version to the end and the current flow may no longer have its cells.
+
+Decision: Every text of the page comes from a message catalog in English and Chinese, and the page uses the language the configuration's `owner.language` names, because everything the owner reads is written in the owner's language.
