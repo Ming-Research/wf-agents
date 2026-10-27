@@ -1595,7 +1595,7 @@
       "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "An urgent side report starts a round of the architect at once.",
-      "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work."
+      "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries."
     },
     "checks": {
       "cited_places_exist": "The places and runs that the verified grounds cite exist: the files and lines in the worktree, the runs among the engine's records.",
@@ -2378,6 +2378,10 @@
           },
           {
             "at": "answers",
+            "do": "deliver_answers"
+          },
+          {
+            "at": "redirect.answers",
             "do": "deliver_answers"
           }
         ],

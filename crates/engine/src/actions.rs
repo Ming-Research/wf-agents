@@ -388,7 +388,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "deliver_answers" => {
             let line = ctx.cell.line.clone().unwrap_or_else(|| "engineer".into());
-            for a in ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default() {
+            // A return's answers, or those a redirect carries to the speakers it does not redirect for.
+            let mut all = ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default();
+            all.extend(
+                ctx.unwrapped["redirect"]["answers"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            for a in all {
                 notify(
                     tx,
                     Some(w),
