@@ -1,9 +1,9 @@
 //! The engine: takes each work through the compiled flow, one cell at a time. At an agent's cell it runs a round of
-//! the agent, whose message ([`message`]) gives the instruction every time and each material once per session; at its
-//! own cells and the tool cells it does the step itself; at the owner's it waits for the owner's answer. Each return
-//! is checked against the cell's schema and checks, takes exactly one row, and the round, the work's new position and
-//! what the row does in the database are written in one transaction. What must happen outside the database is put in
-//! the outbox in that transaction and carried out after it, so a crash loses none. A round that ends in no return the
+//! the agent, whose message gives the instruction every time and each material once per session; at its own cells and
+//! the tool cells it does the step itself; at the owner's it waits for the owner's answer. Each return is checked
+//! against the cell's schema and checks, takes exactly one row, and the round, the work's new position and what the
+//! row does in the database are written in one transaction. What must happen outside the database is put in the
+//! outbox in that transaction and carried out after it, so a crash loses none. A round that ends in no return the
 //! cell takes is handled as the flow's rounds section says.
 //!
 //! In this version the engine and the session manager are one process on one machine, the owner answers for the
@@ -12,12 +12,12 @@
 pub mod agent;
 pub mod git;
 pub mod hub;
-pub mod message;
 
 mod actions;
 mod checks;
 mod failed;
 mod inputs;
+mod message;
 mod steps;
 mod tools;
 mod values;
