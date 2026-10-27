@@ -22,7 +22,7 @@ const str = (v: JsonValue | undefined): string =>
   typeof v === 'string' ? v : v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
 
 /// A name as words: `to_check` is "to check".
-export const words = (s: string) => s.replaceAll('_', ' ');
+export const words = (s: string | null | undefined) => (s ?? '').replaceAll('_', ' ');
 
 /// What the owner decided has been written: everything it shows is read again.
 function decided() {

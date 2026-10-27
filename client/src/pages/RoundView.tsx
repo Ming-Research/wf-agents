@@ -143,7 +143,8 @@ function wentTo(f: Flow | null, cell: string | null, row: string | null, after: 
 
 /// An input by a short name: its own, or that of where it comes from.
 function shortName(x: CompiledInput): string {
-  if (x.id !== null) return words(x.id);
+  // An input written without an id has none in the compiled flow either.
+  if (x.id) return words(x.id);
   const s = x.from[0];
   if (s === undefined) return '';
   if (Array.isArray(s)) return words(s[1].split('.').pop() ?? s[1]);
