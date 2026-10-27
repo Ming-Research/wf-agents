@@ -20,7 +20,7 @@ fn serve(name: &str) -> Server {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("db")).unwrap();
     let path = dir.join("db/wf-agents.sqlite");
-    db::Db::open(&path).unwrap();
+    db::Db::create(&path).unwrap();
     let bus = Arc::new(Bus::new(5));
     let control = Arc::new(Control::default());
     let port = web::start(web::Options {

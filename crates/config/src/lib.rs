@@ -7,7 +7,7 @@
 //!   from, merged in order: a later table merges into an earlier one key by key, and any other value, a list
 //!   included, replaces the earlier one whole;
 //! - `rules/<name>.md`: the rules agents are given, by the names projects list them under;
-//! - `db/`: the database, kept out of git;
+//! - `db/`: the database, kept out of git; `wf-agents init` makes it;
 //! - `agents/<cli>/`: the configuration directory each CLI runs agents with, unless the CLI names another, kept out
 //!   of git; the owner logs in to the CLI there once.
 //!

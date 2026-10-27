@@ -29,6 +29,9 @@ enum Command {
     /// The configuration in the data directory.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Makes the database in the data directory, once. It is the only command that makes one: every command that
+    /// works on the database, the engine included, opens the one that is there, and fails when there is none.
+    Init,
     /// Checks the design tree of the repository here: its nodes, depth and decisions at HEAD, and how many more than
     /// at the fork point given. A project names it as its design_check.
     TreeCheck {
@@ -282,19 +285,9 @@ fn data(dir: Option<&Path>) -> Result<&Path, String> {
     dir.ok_or_else(|| "no data directory: pass --data or set WF_AGENTS_DATA".to_string())
 }
 
-/// The flow this command runs, compiled against the database it creates.
-fn compiled() -> Result<flow::Compiled, String> {
-    let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
-    let tables = db::index_of(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
-    flow::compile(flow::FLOW, &flow::Context { relations, tables }).map_err(|e| e.to_string())
-}
-
 fn config_check(dir: &Path) -> Result<(), String> {
     let c = config::working(dir).map_err(|e| e.to_string())?;
-    let problems = c.check(&compiled()?);
-    if !problems.is_empty() {
-        return Err(problems.join("\n"));
-    }
+    engine::compile_for(&c)?;
     println!(
         "{}: {} projects ({}), {} rules",
         dir.display(),
@@ -313,6 +306,7 @@ fn print(r: Result<String, String>) -> Result<(), String> {
 fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) | Command::TreeCheck { .. } => Ok(()),
+        Command::Init => init(d),
         Command::Run { once, port } => run(d, once, port),
         Command::Item(ItemCommand::Add(add)) => {
             let AddItem {
@@ -415,6 +409,19 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Anomalies => print(owner::anomalies(d)),
         Command::Cost { work } => print(owner::cost(d, work)),
     }
+}
+
+/// Makes the database of a data directory that passes the check the engine makes when it starts: a git repository
+/// with a commit, whose committed configuration is valid. A place that is not one gets nothing made in it.
+fn init(d: &Path) -> Result<(), String> {
+    let committed = config::committed(d).map_err(|e| e.to_string())?;
+    // The compile of the flow is the slow part of the check, and where `create` refuses anyway it is left out.
+    if !engine::database::exists(d) {
+        engine::compile_for(&committed.config)?;
+    }
+    let path = engine::database::create(d)?;
+    println!("created {}", path.display());
+    Ok(())
 }
 
 /// How the engine stands, for the page; what the owner asked and the work whose round runs are the control's, which

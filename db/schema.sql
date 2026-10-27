@@ -1,8 +1,8 @@
 -- The wf-agents database.
 --
--- This file is the only definition of the database's tables and views. The engine creates the database from it, and
--- a change to the database is a change to this file, made in a pull request together with the step that migrates an
--- existing database.
+-- This file is the only definition of the database's tables and views. `wf-agents init` creates the database from it,
+-- and a change to the database is a change to this file, made in a pull request together with the step that migrates
+-- an existing database.
 --
 -- Inside each CREATE statement, the first comment says what the table holds, why it exists and who reads it; the
 -- comment above each column does the same for the column. SQLite keeps these comments in the database. The engine

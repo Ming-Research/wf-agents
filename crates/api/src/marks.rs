@@ -50,7 +50,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("db.sqlite");
-        let mut db = Db::open(&path).unwrap();
+        let mut db = Db::create(&path).unwrap();
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
