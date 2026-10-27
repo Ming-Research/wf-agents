@@ -2,6 +2,8 @@
 // as it stands now; what done means (its locked acceptance); what it depends on and what depends on it, when there is
 // any; its works; what an import recorded; its design cards and asks of the owner.
 
+import { useEffect } from 'react';
+
 import type { ItemDetail, JsonValue, LinkedItem, Shown as ShownValue } from '../api';
 import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
 import { cost, time } from '../format';
@@ -152,6 +154,11 @@ function Shown({ d }: { d: ItemDetail }) {
 
 function Detail({ d }: { d: ItemDetail }) {
   const i = d.item;
+  // A link to a design card or an ask on this page brings it into view once the page is there.
+  useEffect(() => {
+    const at = window.location.hash.slice(1);
+    if (at !== '') document.getElementById(at)?.scrollIntoView({ block: 'start' });
+  }, []);
   return (
     <>
       <header className="work-head">
@@ -245,7 +252,7 @@ function Detail({ d }: { d: ItemDetail }) {
       {d.design_cards.length > 0 ? (
         <Section title={t('design_cards')}>
           {d.design_cards.map((c) => (
-            <div key={c.id} className="boxed">
+            <div key={c.id} id={`design-card-${c.id}`} className="boxed">
               <div className="muted">
                 {t('design_card_head', { id: c.id, status: c.status })} ·{' '}
                 <Link to={`/works/${c.work}?round=${c.round}`}>{t('shown_from_round', { work: c.work, round: c.round })}</Link>

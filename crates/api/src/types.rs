@@ -47,6 +47,10 @@ pub struct NextRound {
     pub not_asked: Option<String>,
     /// For a tool cell: what each tool the last round asked for will do, one line each.
     pub tools: Vec<String>,
+    /// For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
+    pub waits: Option<String>,
+    /// The design card it waits for the owner's ruling on, when it does.
+    pub design_card: Option<i64>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.

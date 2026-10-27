@@ -471,10 +471,12 @@ fn status(
 }
 
 /// Prints the message the work's next agent round would be sent.
+/// Prints the message a work's next round would be sent, with nothing run or recorded: the engine is made only to
+/// read, so no flow version is recorded, no work stopped and none started, beside an engine that may be running.
 fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
-    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
+    let mut e = engine::Engine::reading(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
     let m = engine::next_message(&mut e, work)?;
     if json {
         let v = serde_json::json!({ "message": m.text, "conditional": m.record() });
@@ -548,6 +550,8 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
                 step: n.step,
                 not_asked: n.not_asked,
                 tools: n.tools,
+                waits: n.waits,
+                design_card: n.design_card,
             });
             let _ = answer.send(next);
         }

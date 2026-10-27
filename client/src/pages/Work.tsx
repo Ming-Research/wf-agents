@@ -13,7 +13,7 @@ import { cost, duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { reread, useActivity, useResource, useStatus } from '../live';
-import { href, navigate } from '../route';
+import { href, Link, navigate } from '../route';
 import { t } from '../text';
 import { AskView, DesignCardView, words } from './Decide';
 import { RoundView } from './RoundView';
@@ -90,7 +90,8 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
     status.mode === 'hold' &&
     status.halt === null &&
     status.stepping === null &&
-    liveState(w, status) === 'ready';
+    // A work that waits is asked too: its next round says what it waits for, or, once that came, is offered.
+    (liveState(w, status) === 'ready' || w.state === 'waiting');
   const next = useResource<NextRound>(`work:${w.id}`, can ? `/api/v1/works/${w.id}/next` : null);
   useEffect(() => {
     if (!stepping) return;
@@ -158,6 +159,25 @@ function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
             : n.kind === 'owner'
               ? t('next_owner_note')
               : t('next_engine_note');
+  // A judgment that waits offers no round: what it waits for, and where the owner gives it.
+  if (n !== undefined && n.waits !== null) {
+    return (
+      <section className="next">
+        <div className="next-head">
+          <strong>{t('next_title')}</strong>
+          <span>
+            <span className="cell-id">{n.cell}</span> {n.title}
+          </span>
+        </div>
+        <p className="prose">{t('next_waits', { what: n.waits })}</p>
+        {n.design_card !== null && w.item !== null ? (
+          <Link to={`/items/${w.item}#design-card-${n.design_card}`}>
+            {t('next_rule_card', { id: n.design_card })}
+          </Link>
+        ) : null}
+      </section>
+    );
+  }
   return (
     <section className="next">
       <div className="next-head">

@@ -148,6 +148,54 @@ impl Engine {
         Ok(e)
     }
 
+    /// The engine made only to read, for a dry run such as building a work's next message beside an engine that may be
+    /// running: the database is opened read-only and as it is, nothing is recorded (not even the built-in flow's
+    /// version), no work is stopped or started, and no command line is asked its version. Steps on it fail.
+    pub fn reading(
+        data: &Path,
+        config: config::Committed,
+        agents: Box<dyn Agents>,
+        github: Box<dyn GitHub>,
+    ) -> Result<Engine, String> {
+        let path = config::database(data);
+        let db = Db::open_read_only(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let relations = db::relations(db::SCHEMA).map_err(|e| e.to_string())?;
+        let tables = db::index_of(db::SCHEMA).map_err(|e| e.to_string())?;
+        let compiled = flow::compile(flow::FLOW, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
+        let problems = config.config.check(&compiled);
+        if !problems.is_empty() {
+            return Err(problems.join("\n"));
+        }
+        // The built-in flow's version, if the database has it; a work reads its own version from the database.
+        let flow_now: i64 = db
+            .conn()
+            .query_row(
+                "SELECT id FROM flow_versions WHERE digest = ?1",
+                [compiled.digest()],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let mut flows = BTreeMap::new();
+        if flow_now != 0 {
+            flows.insert(flow_now, compiled);
+        }
+        Ok(Engine {
+            db,
+            data: data.to_path_buf(),
+            config,
+            agents,
+            github,
+            flows,
+            flow_now,
+            say: Box::new(|s| eprintln!("{s}")),
+            activity: Box::new(|_, _, _| {}),
+            halt: None,
+            told: None,
+            retry_wait: Duration::from_secs(10),
+            cli_versions: BTreeMap::new(),
+        })
+    }
+
     /// Every work still running on an older flow version stops, saying why: the round it was in is cut off, its design
     /// cards are replaced, and its asks of the owner need no answer. Each of their items gets a new work on this
     /// version, before any item from the queue: its cell 0 takes over the stopped work's branch, worktree and pull

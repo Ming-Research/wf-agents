@@ -372,6 +372,11 @@ pub struct NextRound {
     pub not_asked: Option<String>,
     /// For a tool cell: what each tool asked for will do.
     pub tools: Vec<String>,
+    /// For a cell whose judgment now takes a row that waits, such as the merge gate waiting for the owner's ruling
+    /// on a design card: what it waits for. No round is offered until that comes.
+    pub waits: Option<String>,
+    /// The design card it waits for a ruling on, when it does.
+    pub design_card: Option<i64>,
 }
 
 pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
@@ -394,6 +399,24 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
     }
     let agent = cell.kind == "agent" && not_asked.is_none();
     let message = if agent { Some(next_message(e, work)?.text) } else { None };
+    // A judgment that would take a row that waits records nothing new: the work waits for what the row says.
+    let mut waits = None;
+    let mut design_card = None;
+    if cell.kind == "engine" && cell.step.is_none() && !cell.rows.is_empty() {
+        let item = e.item_of(&w)?;
+        let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
+        let given = values::given(e, &w, &g, &cell, &item, &gathered)?;
+        if let Ok(row) = g.take(&cell.id, &json!({}), &given)
+            && row.waits
+        {
+            let what = values::gates_waiting_for(e, &w, &item)?;
+            design_card = what
+                .as_deref()
+                .filter(|x| x.starts_with("the owner's ruling on design card"))
+                .and(values::design_card(e, &w)?.map(|c| c.id));
+            waits = Some(what.unwrap_or_else(|| row.note.clone().unwrap_or_else(|| row.name.clone())));
+        }
+    }
     let tools = if cell.kind == "tool" {
         let item = e.item_of(&w)?;
         let gathered = inputs::gather(e, &w, &g, &cell, &item)?;
@@ -402,6 +425,8 @@ pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
         Vec::new()
     };
     Ok(NextRound {
+        waits,
+        design_card,
         tools,
         title: cell.title.clone(),
         kind: cell.kind.clone(),

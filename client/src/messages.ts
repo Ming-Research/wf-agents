@@ -82,6 +82,8 @@ const messages = {
   next_run: 'Run next round',
   next_real: 'This runs one real round on your account.',
   next_starting: 'Starting…',
+  next_waits: 'The work waits for {what}. No round runs until it comes; then the engine judges again.',
+  next_rule_card: 'Rule on design card {id}',
   paused_title: 'Paused',
   resume: 'Let it go on',
   resume_note: 'Cell {cell} runs again.',

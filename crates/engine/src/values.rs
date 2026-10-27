@@ -70,7 +70,11 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -
                 "unchanged"
             })
         }
-        "gates" => s(if gates_clear(e, w, item)? { "clear" } else { "waiting" }),
+        "gates" => s(if gates_waiting_for(e, w, item)?.is_none() {
+            "clear"
+        } else {
+            "waiting"
+        }),
         "interjection" => {
             let waiting: i64 = e
                 .db
@@ -179,6 +183,7 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 /// A design card of a work, with the head of the round that handed it in, when the design paths matched it.
 #[derive(Debug, Clone)]
 pub struct DesignCard {
+    pub id: i64,
     pub status: String,
     pub rulings: Value,
     pub head: Option<String>,
@@ -187,12 +192,13 @@ pub struct DesignCard {
 /// The work's latest design card that was not replaced, if any.
 pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
     let r = e.db.conn().query_row(
-        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after')
+        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id
          FROM design_cards c JOIN rounds r ON r.id = c.round
          WHERE r.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
         [w.id],
         |r| {
             Ok(DesignCard {
+                id: r.get(3)?,
                 status: r.get(0)?,
                 rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
                 head: r.get(2)?,
@@ -217,26 +223,23 @@ fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
 
 /// Whether the work may enter the merge queue: every item it depends on is merged, and the design paths did not
 /// change on the branch, or the owner confirmed its design card and they have not changed since.
-fn gates_clear(e: &Engine, w: &Work, item: &Item) -> Result<bool, String> {
+/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the design tree
+/// unchanged on the branch, or changed only as the design card the owner confirmed says.
+pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
-            return Ok(false);
+            return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
         }
     }
     let project = e.project_of(w)?;
-    let Some(wt) = &w.worktree else { return Ok(true) };
+    let Some(wt) = &w.worktree else { return Ok(None) };
     let fork = git::fork_point(wt, &project.main)?;
     let changed = git::changed(wt, &fork, "HEAD")?;
-    let tree: Vec<String> = changed
-        .iter()
-        .filter(|f| git::under(f, &project.design_paths))
-        .cloned()
-        .collect();
-    if tree.is_empty() {
-        return Ok(true);
+    if !changed.iter().any(|f| git::under(f, &project.design_paths)) {
+        return Ok(None);
     }
     let Some(card) = design_card(e, w)? else {
-        return Ok(false);
+        return Ok(Some("a design card for the change to the design tree".to_string()));
     };
     let confirmed = card.status == "ruled"
         && card
@@ -244,9 +247,19 @@ fn gates_clear(e: &Engine, w: &Work, item: &Item) -> Result<bool, String> {
             .as_array()
             .and_then(|rs| rs.last())
             .is_some_and(|r| r["by"] == "owner" && r["verdict"] == "confirm");
-    let Some(head) = card.head else { return Ok(false) };
+    if !confirmed {
+        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
+    }
+    let Some(head) = card.head else {
+        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
+    };
     let since = git::changed(wt, &head, "HEAD")?;
-    Ok(confirmed && !since.iter().any(|f| git::under(f, &project.design_paths)))
+    Ok(since.iter().any(|f| git::under(f, &project.design_paths)).then(|| {
+        format!(
+            "a new design card: the design tree changed after the owner confirmed design card {}",
+            card.id
+        )
+    }))
 }
 
 /// The head the last review started from; none before the first review.

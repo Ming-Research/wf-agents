@@ -46,7 +46,15 @@ not_asked: string | null,
 /**
  * For a tool cell: what each tool the last round asked for will do, one line each.
  */
-tools: Array<string>, };
+tools: Array<string>, 
+/**
+ * For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
+ */
+waits: string | null, 
+/**
+ * The design card it waits for the owner's ruling on, when it does.
+ */
+design_card: number | null, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.

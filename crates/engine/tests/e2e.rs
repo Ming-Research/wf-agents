@@ -562,6 +562,105 @@ fn an_item_goes_from_the_queue_to_main() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Building a work's next message is a dry run beside an engine that may be running: with the built-in flow newer than
+// the work's, it records no flow version, stops no work, starts none, and writes nothing at all.
+#[test]
+fn building_a_message_writes_nothing() {
+    let s = setup("dry");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    // The work runs on a flow version the engine no longer has built in.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
+            [],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(e);
+    let path = config::database(&s.data);
+    let state_of = || -> Vec<i64> {
+        let c = db::open_read(&path).unwrap();
+        let n = |q: &str| -> i64 { c.query_row(q, [], |r| r.get(0)).unwrap() };
+        vec![
+            n("SELECT count(*) FROM flow_versions"),
+            n("SELECT count(*) FROM works"),
+            n("SELECT count(*) FROM works WHERE ended IS NOT NULL"),
+            n("SELECT count(*) FROM rounds"),
+            n("SELECT count(*) FROM changes"),
+            n("SELECT count(*) FROM engine_notices"),
+            n("SELECT count(*) FROM outbox"),
+        ]
+    };
+    let before = state_of();
+    let agents = Scripted {
+        scripts: scripts(),
+        rounds: RefCell::new(BTreeMap::new()),
+    };
+    let hub = FakeHub {
+        origin: s.origin.clone(),
+        scratch: s.root.clone(),
+        prs: RefCell::new(BTreeMap::new()),
+    };
+    let committed = config::committed(&s.data).unwrap();
+    let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
+    let m = engine::next_message(&mut r, work).unwrap();
+    assert!(m.text.contains("cell 1a"), "{}", m.text);
+    drop(r);
+    assert_eq!(state_of(), before);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While the merge gate waits for the owner's ruling on the design card, the next round offers no round: it says what
+// the work waits for, and which design card.
+#[test]
+fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
+    let s = setup("gate-wait");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt: String =
+        e.db.conn()
+            .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    let wt = PathBuf::from(wt);
+    write(&wt, "design/engine.md", "Decision: a new one.\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "A decision"]);
+    let card =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(id) FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
+            tx.execute(
+                "INSERT INTO design_cards (round, body, status) VALUES (?1, '[]', 'open')",
+                [round],
+            )?;
+            let card = tx.last_insert_rowid();
+            tx.execute("UPDATE works SET at = '19' WHERE id = ?1", [work])?;
+            Ok(card)
+        })
+        .unwrap();
+    let next = engine::next_round(&mut e, work).unwrap();
+    assert_eq!(next.cell, "19", "{log}");
+    assert_eq!(
+        next.waits.as_deref(),
+        Some(format!("the owner's ruling on design card {card}").as_str()),
+        "{log}"
+    );
+    assert_eq!(next.design_card, Some(card));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A value of one branch is the cell as its newest return left it: a conflict the full CI reported is in the fix
 // table only while the newest run of that cell still reports it.
 #[test]

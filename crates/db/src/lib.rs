@@ -51,6 +51,8 @@ pub enum Error {
     Sql(rusqlite::Error),
     /// The database was made by a newer wf-agents: its version.
     Newer(i64),
+    /// The database is older than this wf-agents and was opened only to read, so it was not migrated: its version.
+    Older(i64),
     /// The file holds tables but is not a wf-agents database.
     Foreign,
     /// The dependency would close a cycle.
@@ -75,6 +77,10 @@ impl fmt::Display for Error {
             Error::Newer(v) => write!(
                 f,
                 "the database is at version {v}, newer than this wf-agents ({VERSION})"
+            ),
+            Error::Older(v) => write!(
+                f,
+                "the database is at version {v}, older than this wf-agents ({VERSION}): run the engine once to migrate it"
             ),
             Error::Foreign => write!(f, "the file holds tables but is not a wf-agents database"),
             Error::Cycle { item, depends_on } => {
@@ -162,6 +168,32 @@ impl Db {
         let db = Db::set_up(Connection::open(path)?)?;
         db.conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(db)
+    }
+
+    /// Opens the database at `path` only to read it, as it is: nothing is created or migrated, and a write on it
+    /// fails. A database not at this wf-agents' version is refused, since its shape is not the one read.
+    pub fn open_read_only(path: &Path) -> Result<Db> {
+        let conn =
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.busy_timeout(Duration::from_secs(10))?;
+        conn.pragma_update(None, "query_only", true)?;
+        let at: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if at > VERSION {
+            return Err(Error::Newer(at));
+        }
+        if at < VERSION {
+            return Err(Error::Older(at));
+        }
+        let writer: Current = Arc::new(Mutex::new(None));
+        register(&conn, "wf_tx", &writer, |w| w.tx)?;
+        register(&conn, "wf_at", &writer, |w| w.at)?;
+        register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
+        Ok(Db {
+            conn,
+            writer,
+            watch: Arc::default(),
+            listener: None,
+        })
     }
 
     /// A new database in memory.
