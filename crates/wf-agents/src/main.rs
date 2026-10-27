@@ -400,21 +400,22 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             choice,
             approved,
         } => {
-            let mut reply: Option<serde_json::Value> = match reply {
+            let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            // The option chosen and the changes approved go with the answer as its reply carries them.
-            if choice.is_some() || !approved.is_empty() {
-                let r = reply.get_or_insert_with(|| serde_json::json!({}));
-                if let Some(c) = choice {
-                    r["choice"] = serde_json::json!(c);
-                }
-                if !approved.is_empty() {
-                    r["approved"] = serde_json::json!(approved);
-                }
-            }
-            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
+            let approved = (!approved.is_empty()).then_some(approved);
+            print(owner::answer(
+                d,
+                owner::Answer {
+                    ask,
+                    text,
+                    why,
+                    reply,
+                    choice,
+                    approved,
+                },
+            ))
         }
         Command::Architect(ArchitectCommand::Say { text }) => print(owner::say_to_architect(d, &text)),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),

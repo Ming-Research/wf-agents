@@ -1381,6 +1381,8 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         text: "Keep the old name.".into(),
         why: None,
         reply: None,
+        choice: None,
+        approved: None,
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let first = e.step(None).unwrap();
@@ -3186,7 +3188,9 @@ fn db_write_writes_the_changes_approved_and_refuses_the_rest() {
     let approve = api::Answer {
         text: "The item is not held yet.".into(),
         why: None,
-        reply: Some(json!({ "choice": "approve_some", "approved": [1] })),
+        reply: None,
+        choice: Some("approve_some".into()),
+        approved: Some(vec![1]),
     };
     api::answer(&mut e.db, ask, &approve).unwrap();
     let again = e.step(None).unwrap();

@@ -309,7 +309,9 @@ fn waits(
     }
     let card: Option<i64> = conn
         .query_row(
-            "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' AND NOT EXISTS (
+               SELECT 1 FROM json_each(rulings) r WHERE json_extract(r.value, '$.by') = 'owner')
+             ORDER BY id DESC LIMIT 1",
             [w.id],
             |x| x.get(0),
         )
@@ -402,6 +404,19 @@ fn counts(conn: &Connection, q: &str) -> Result<HashMap<i64, i64>> {
 }
 
 /// The works a filter selects, as summaries, with their rows.
+/// A design card's status as the owner sees it: one the owner has ruled on is no longer the owner's to rule, though it
+/// stays open until the architect has looked at it too; the rulings say who ruled.
+fn owner_status(status: String, rulings: &Value) -> String {
+    let owner_ruled = rulings
+        .as_array()
+        .is_some_and(|rs| rs.iter().any(|r| r["by"] == "owner"));
+    if status == "open" && owner_ruled {
+        "ruled".to_string()
+    } else {
+        status
+    }
+}
+
 fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, WorkSummary)>> {
     let asks = counts(
         conn,
@@ -409,7 +424,8 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
     )?;
     let design_cards = counts(
         conn,
-        "SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work",
+        "SELECT work, count(*) FROM design_cards WHERE status = 'open' AND NOT EXISTS (
+           SELECT 1 FROM json_each(rulings) r WHERE json_extract(r.value, '$.by') = 'owner') GROUP BY work",
     )?;
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
@@ -566,14 +582,15 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) ->
             _ => None,
         };
         let own: (i64, String) = (r.get(17)?, r.get(18)?);
+        let rulings = json(r.get(6)?).unwrap_or(Value::Null);
         let card = DesignCard {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
-            status: r.get(4)?,
+            status: owner_status(r.get(4)?, &rulings),
             body: json(r.get(5)?).unwrap_or(Value::Null),
-            rulings: json(r.get(6)?).unwrap_or(Value::Null),
+            rulings,
             replaced_by: by,
             replaced,
             cell: r.get(15)?,

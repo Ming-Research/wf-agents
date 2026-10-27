@@ -13,26 +13,18 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// The option the owner chose, for an ask of the architect's that offers options: given with the answer, until the
-/// answer has a field of its own for it, as `reply.choice`.
+/// The option the owner chose, for an ask of the architect's that offers options.
 fn choice_of(a: &Answer) -> Option<String> {
-    a.reply
-        .as_ref()
-        .and_then(|r| r.get("choice"))
-        .and_then(Value::as_str)
-        .map(|c| c.trim().to_string())
+    a.choice
+        .as_deref()
+        .map(str::trim)
         .filter(|c| !c.is_empty())
+        .map(str::to_string)
 }
 
-/// The numbers of the changes the owner approved, for the architect's ask of its changes: given with the answer, until
-/// the answer has a field of its own for them, as `reply.approved`.
+/// The numbers of the changes the owner approved, for the architect's ask of its changes.
 fn approved_of(a: &Answer) -> Vec<i64> {
-    a.reply
-        .as_ref()
-        .and_then(|r| r.get("approved"))
-        .and_then(Value::as_array)
-        .map(|xs| xs.iter().filter_map(Value::as_i64).collect())
-        .unwrap_or_default()
+    a.approved.clone().unwrap_or_default()
 }
 
 /// Answers an ask the architect put, by its kind: the owner's view of a study or approval of a policy, with the option
@@ -396,6 +388,8 @@ mod tests {
             text: "Chosen option: B. Keep it small.".into(),
             why: None,
             reply: None,
+            choice: None,
+            approved: None,
         };
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
         let got: String = db
@@ -558,11 +552,16 @@ mod tests {
         .unwrap()
     }
 
-    fn with_reply(text: &str, reply: Value) -> Answer {
+    /// An answer with the option chosen and the changes approved that `given` names, as the page sends them.
+    fn with_reply(text: &str, given: Value) -> Answer {
         Answer {
             text: text.into(),
             why: None,
-            reply: Some(reply),
+            reply: None,
+            choice: given["choice"].as_str().map(str::to_string),
+            approved: given["approved"]
+                .as_array()
+                .map(|xs| xs.iter().filter_map(Value::as_i64).collect()),
         }
     }
 
@@ -661,6 +660,8 @@ mod tests {
             text: "Split it in two.".into(),
             why: None,
             reply: None,
+            choice: None,
+            approved: None,
         };
         answer(&mut db, ask, &plain).unwrap();
         let m = matters(&db);

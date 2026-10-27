@@ -424,6 +424,15 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub reply: Option<Value>,
+    /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
+    /// the ask lists; for its changes, approve_all, approve_some or approve_none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub choice: Option<String>,
+    /// For the architect's changes approved in part, the number of each change approved.
+    #[serde(default)]
+    #[ts(optional)]
+    pub approved: Option<Vec<i64>>,
 }
 
 /// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
