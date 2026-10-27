@@ -416,9 +416,13 @@ case!(
 );
 
 // Nothing dropped.
-case!(a_follow_up_the_item_no_longer_shows, "nobody reads end.followup", |v| {
-    node(v, "4")["shown"] = json!(["deviations"]);
-});
+case!(
+    a_withdrawn_finding_the_item_no_longer_shows,
+    "nobody reads withdrawn.reason",
+    |v| {
+        node(v, "5a")["shown"] = json!(["columns[not_applicable].reason"]);
+    }
+);
 case!(a_shown_place_the_return_does_not_have, "nope", |v| {
     node(v, "4")["shown"] = json!(["deviations", "end.followup", "nope"]);
 });
