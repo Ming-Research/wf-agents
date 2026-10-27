@@ -2798,7 +2798,8 @@ fn side_reports_wake_the_architect_an_urgent_one_at_once_and_the_rest_an_hour_on
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(due, Some(3_600_000));
+    // An hour after it came, the time it came being read a moment after the hour was counted from.
+    assert!(due.is_some_and(|d| (3_590_000..=3_600_000).contains(&d)), "{due:?}");
     let woke = e.step(work).unwrap();
     assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
     let wake = woke.work.unwrap();
