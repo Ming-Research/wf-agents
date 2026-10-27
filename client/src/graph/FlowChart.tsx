@@ -10,7 +10,7 @@ import { t } from '../text';
 import { FlowSvg, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { type Laid, layoutChart } from './flowLayout';
 import { chart as build, MAIN } from './flowModel';
-import { type Rect, Viewer, type ViewerHandle } from './Viewer';
+import { type Covered, type Rect, Viewer, type ViewerHandle } from './Viewer';
 
 /// What a click on the chart picked.
 export type Pick =
@@ -37,8 +37,8 @@ export type FlowChartProps = {
   /// The cell the chart opens on; with none, the top of the flow.
   start: string | null;
   onPick: (p: Pick) => void;
-  /// Where the panel floating over the right side begins, in page pixels; none while it is closed.
-  covered: () => number | null;
+  /// What floats over the chart: a drawer over its left side and the panel over its right side.
+  covered: () => Covered;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
   legend: 'flow' | 'work' | 'compare';
   ref?: Ref<FlowChartHandle>;

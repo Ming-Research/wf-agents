@@ -261,7 +261,10 @@ export function FlowScreen(props: FlowScreenProps) {
           marks={{ ...marks, selected: now === null ? null : picked }}
           start={start}
           onPick={onPick}
-          covered={() => panelRef.current?.getBoundingClientRect().left ?? null}
+          covered={() => ({
+            left: document.querySelector('.drawer')?.getBoundingClientRect().right ?? null,
+            right: panelRef.current?.getBoundingClientRect().left ?? null,
+          })}
           legend={legend}
         />
         {panel !== null && now !== null ? (

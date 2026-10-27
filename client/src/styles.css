@@ -1111,8 +1111,8 @@ svg.fc {
   z-index: 6;
   top: 10px;
   left: 10px;
-  width: min(440px, calc(100vw - 32px));
-  max-height: calc(100% - 140px);
+  width: min(500px, calc(100vw - 32px));
+  max-height: calc(100% - 80px);
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -1144,6 +1144,10 @@ svg.fc {
 
 .drawer table.list {
   box-shadow: none;
+}
+
+.drawer td.clip {
+  max-width: 200px;
 }
 
 table.list.mini td {
@@ -1652,4 +1656,13 @@ ol.tt li.tt-on {
   cursor: pointer;
   color: var(--accent);
   font-size: 13px;
+}
+
+.chg-long summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

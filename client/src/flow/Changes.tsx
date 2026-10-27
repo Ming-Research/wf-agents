@@ -63,6 +63,30 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   return [JSON.stringify(v, null, 1)];
 }
 
+/// One side of a change; a long one is folded, with its first line in sight.
+function Side({ lines: ls, cls, mark }: { lines: string[]; cls: string; mark: string }) {
+  if (ls.length === 0) return null;
+  const long = ls.join('\n').length > 400;
+  const body = (
+    <div className={cls}>
+      {ls.map((l, i) => (
+        <div key={i}>
+          {mark} {inline(l)}
+        </div>
+      ))}
+    </div>
+  );
+  if (!long) return body;
+  return (
+    <details className="chg-long">
+      <summary>
+        {mark} {ls[0].slice(0, 120)}…
+      </summary>
+      {body}
+    </details>
+  );
+}
+
 function ChangeLine({ c }: { c: Change }) {
   const f = useFlow();
   const known = new Set(Object.keys(f.compiled.engine.values));
@@ -80,20 +104,8 @@ function ChangeLine({ c }: { c: Change }) {
         <span className={`tag tag-${kind}`}>{t(`change_${kind}`)}</span> <strong>{t(PART[c.part])}</strong>
         {c.key !== '' ? <span> {inline(`\`${c.key}\``)}</span> : null}
       </div>
-      {shown.before.length > 0 ? (
-        <div className="chg-before">
-          {shown.before.map((l, i) => (
-            <div key={i}>− {inline(l)}</div>
-          ))}
-        </div>
-      ) : null}
-      {shown.after.length > 0 ? (
-        <div className="chg-after">
-          {shown.after.map((l, i) => (
-            <div key={i}>+ {inline(l)}</div>
-          ))}
-        </div>
-      ) : null}
+      <Side lines={shown.before} cls="chg-before" mark="−" />
+      <Side lines={shown.after} cls="chg-after" mark="+" />
     </li>
   );
 }
