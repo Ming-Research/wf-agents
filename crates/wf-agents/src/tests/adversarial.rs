@@ -1,12 +1,14 @@
 //! Tests that look for what the README check lets through: wrong texts it passes, and right ones it reports. Each case
-//! adds a few lines to the text that writes every command correctly. The cases stand in one table, with the command
-//! lines they write, so that clap, which parses those command lines, can be asked which of them are wrong.
+//! adds a few lines to the text that writes every command correctly. The cases that stand in the convention the check
+//! reads are in one table, with the command lines they write, so that clap, which parses those command lines, can be
+//! asked which of them are wrong. The forms outside the convention are in two more tables: the ones the check has to
+//! report, and the ones it has to leave alone.
 
 use clap::error::ErrorKind;
 
-use super::{leaves, problems, tree};
+use super::readme::{self, leaves, problems, tree};
 
-/// A way a README can write command lines, and what the check has to make of it.
+/// A way a README can write command lines in the convention, and what the check has to make of it.
 struct Case {
     /// The test that holds it.
     group: &'static str,
@@ -18,6 +20,14 @@ struct Case {
     runs: &'static [&'static str],
     /// The subcommand or option, without dashes, that the check has to name as not there; none when all are right.
     wrong: &'static str,
+}
+
+/// A way a README can write something outside the convention, added to the text.
+struct Form {
+    /// What it tries.
+    name: &'static str,
+    /// The Markdown that writes it.
+    text: &'static str,
 }
 
 const CASES: &[Case] = &[
@@ -99,128 +109,16 @@ const CASES: &[Case] = &[
         wrong: "",
     },
     Case {
-        group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
-        name: "unknown option",
-        text: "```\nwf-agents item add \\\n  --project P --bogus X\n```",
-        runs: &["wf-agents item add --project P --bogus X"],
-        wrong: "bogus",
-    },
-    Case {
-        group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
-        name: "unknown subcommand",
-        text: "```\nwf-agents queue \\\n  add 3\n```",
-        runs: &["wf-agents queue add 3"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
-        name: "right options",
-        text: "```\nwf-agents item add \\\n  --project P --title T\n```",
-        runs: &["wf-agents item add --project P --title T"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_line_wrapped_with_a_backslash_is_read_whole",
-        name: "right subcommand",
-        text: "```\nwf-agents queue \\\n  put 3\n```",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
-        name: "span after it",
-        text: "see `wf-agents answer 3\n--text T` and `wf-agents queue add`",
-        runs: &["wf-agents answer 3 --text T", "wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
-        name: "option on line two",
-        text: "see `wf-agents answer 3\n--bogus X` for more",
-        runs: &["wf-agents answer 3 --bogus X"],
-        wrong: "bogus",
-    },
-    Case {
-        group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
-        name: "subcommand on line two",
-        text: "see `wf-agents queue\nadd` now",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_code_span_that_wraps_does_not_hide_the_spans_after_it",
-        name: "right wrapped span",
-        text: "see `wf-agents answer 3\n--text T` and `wf-agents queue put 3`",
-        runs: &["wf-agents answer 3 --text T", "wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "after &&",
-        text: "`wf-agents status && wf-agents queue add`",
-        runs: &["wf-agents status", "wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "after a semicolon",
-        text: "`wf-agents status; wf-agents queue add`",
-        runs: &["wf-agents status", "wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "after a pipe",
-        text: "`wf-agents status | wf-agents queue add`",
-        runs: &["wf-agents status", "wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "right pair",
-        text: "`wf-agents status && wf-agents queue put 3`",
-        runs: &["wf-agents status", "wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "right pair with a semicolon",
-        text: "`wf-agents status; wf-agents queue put 3`",
-        runs: &["wf-agents status", "wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "two_commands_in_one_span_are_both_read",
-        name: "piped to another program",
-        text: "`wf-agents status | grep work`",
-        runs: &["wf-agents status"],
-        wrong: "",
-    },
-    Case {
-        group: "other_forms_of_code_are_read",
+        group: "a_block_fenced_with_tildes_is_read",
         name: "tilde fence",
         text: "~~~\nwf-agents queue add\n~~~",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "other_forms_of_code_are_read",
-        name: "double backticks",
-        text: "``wf-agents queue add``",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "other_forms_of_code_are_read",
+        group: "a_block_fenced_with_tildes_is_read",
         name: "right tilde fence",
         text: "~~~\nwf-agents queue put 3\n~~~",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "other_forms_of_code_are_read",
-        name: "right double backticks",
-        text: "``wf-agents queue put 3``",
         runs: &["wf-agents queue put 3"],
         wrong: "",
     },
@@ -233,121 +131,51 @@ const CASES: &[Case] = &[
     },
     Case {
         group: "right_wording_is_not_reported",
-        name: "dashes in a quote",
-        text: "`wf-agents say 3 \"do not use --force\"`",
-        runs: &["wf-agents say 3 \"do not use --force\""],
-        wrong: "",
-    },
-    Case {
-        group: "right_wording_is_not_reported",
-        name: "plain quoted value",
-        text: "`wf-agents answer 3 --text \"ok\"`",
-        runs: &["wf-agents answer 3 --text \"ok\""],
-        wrong: "",
-    },
-    Case {
-        group: "right_wording_is_not_reported",
         name: "a short option",
         text: "`wf-agents run -h`",
         runs: &["wf-agents run -h"],
         wrong: "",
     },
     Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
+        group: "right_wording_is_not_reported",
+        name: "the value of an option is three dots",
+        text: "`wf-agents answer 3 --text ... --why ...`",
+        runs: &["wf-agents answer 3 --text ... --why ..."],
+        wrong: "",
+    },
+    Case {
+        group: "right_wording_is_not_reported",
+        name: "the value of an option is a placeholder",
+        text: "`wf-agents config check --data DIR`",
+        runs: &["wf-agents config check --data DIR"],
+        wrong: "",
+    },
+    Case {
+        group: "a_shell_prompt_before_the_command_does_not_hide_it",
         name: "shell prompt",
         text: "```\n$ wf-agents queue add\n```",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
+        group: "a_shell_prompt_before_the_command_does_not_hide_it",
         name: "shell prompt in a span",
         text: "`$ wf-agents queue add`",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
-        name: "environment variable",
-        text: "```\nWF_AGENTS_DATA=DIR wf-agents queue add\n```",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
-        name: "environment variable, unknown option",
-        text: "`WF_AGENTS_DATA=DIR wf-agents run --twice`",
-        runs: &["wf-agents run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
+        group: "a_shell_prompt_before_the_command_does_not_hide_it",
         name: "right shell prompt",
         text: "```\n$ wf-agents queue put 3\n```",
         runs: &["wf-agents queue put 3"],
         wrong: "",
     },
     Case {
-        group: "a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it",
-        name: "right environment variable",
-        text: "`WF_AGENTS_DATA=DIR wf-agents queue put 3`",
+        group: "a_shell_prompt_before_the_command_does_not_hide_it",
+        name: "right shell prompt in a span",
+        text: "`$ wf-agents queue put 3`",
         runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_after_a_shell_keyword_is_read",
-        name: "in a loop",
-        text: "`while true; do wf-agents run --twice; done`",
-        runs: &["wf-agents run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "a_command_after_a_shell_keyword_is_read",
-        name: "in a condition",
-        text: "`if wf-agents queue add; then echo ok; fi`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_after_a_shell_keyword_is_read",
-        name: "right loop",
-        text: "`while true; do wf-agents run --once; sleep 60; done`",
-        runs: &["wf-agents run --once"],
-        wrong: "",
-    },
-    Case {
-        group: "a_program_given_by_its_path_is_read",
-        name: "relative path",
-        text: "`./target/release/wf-agents queue add`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_program_given_by_its_path_is_read",
-        name: "path in a block",
-        text: "```\ntarget/release/wf-agents run --twice\n```",
-        runs: &["wf-agents run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "a_program_given_by_its_path_is_read",
-        name: "right path",
-        text: "`./target/release/wf-agents queue put 3`",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_program_given_by_its_path_is_read",
-        name: "a path that is not the program",
-        text: "`crates/wf-agents/src/main.rs`",
-        runs: &[],
-        wrong: "",
-    },
-    Case {
-        group: "a_program_given_by_its_path_is_read",
-        name: "the package in a cargo command",
-        text: "`cargo test -p wf-agents --test readme`",
-        runs: &[],
         wrong: "",
     },
     Case {
@@ -428,200 +256,219 @@ const CASES: &[Case] = &[
         wrong: "",
     },
     Case {
-        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
-        name: "an option after the quote",
-        text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --bogus\n```",
-        runs: &["wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --bogus"],
-        wrong: "bogus",
-    },
-    Case {
-        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
-        name: "after a continued line",
-        text: "```sh\nwf-agents pause 3 \\\n  --why \"A,\nB\" --bogus\n```",
-        runs: &["wf-agents pause 3 --why \"A, B\" --bogus"],
-        wrong: "bogus",
-    },
-    Case {
-        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
-        name: "a second line that begins with the program",
-        text: "```sh\nwf-agents say 3 \"first line\nwf-agents queue add\"\n```",
-        runs: &["wf-agents say 3 \"first line wf-agents queue add\""],
-        wrong: "",
-    },
-    Case {
-        group: "a_quoted_value_that_runs_onto_the_next_line_is_one_value",
-        name: "right options after the quote",
-        text: "```sh\nwf-agents item add --project P --title T --problem \"A,\nB\" --why W --level L --queue\n```",
-        runs: &["wf-agents item add --project P --title T --problem \"A, B\" --why W --level L --queue"],
-        wrong: "",
-    },
-    Case {
-        group: "a_code_span_does_not_run_over_into_the_next_block",
-        name: "an unclosed span in a list item",
+        group: "a_backtick_that_is_not_closed_does_not_hide_the_next_line",
+        name: "an unclosed backtick in a list item",
         text: "- not closed `wf-agents status\n- run `wf-agents queue add`",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_code_span_does_not_run_over_into_the_next_block",
-        name: "an unclosed span in a heading",
+        group: "a_backtick_that_is_not_closed_does_not_hide_the_next_line",
+        name: "an unclosed backtick in a heading",
         text: "## Not closed `here\n`wf-agents queue add`",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_code_span_does_not_run_over_into_the_next_block",
-        name: "a span that wraps inside a list item",
-        text: "- run `wf-agents queue\n  put 3` now",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_after_a_utility_that_runs_it_is_read",
-        name: "nohup",
-        text: "`nohup wf-agents run --twice &`",
-        runs: &["wf-agents run --twice"],
-        wrong: "twice",
-    },
-    Case {
-        group: "a_command_after_a_utility_that_runs_it_is_read",
-        name: "exec",
-        text: "`exec wf-agents queue add`",
+        group: "a_span_on_one_line_is_read_wherever_it_stands",
+        name: "in a block quote",
+        text: "> run `wf-agents queue add` now",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_command_after_a_utility_that_runs_it_is_read",
-        name: "env with a variable",
-        text: "`env WF_AGENTS_DATA=DIR wf-agents queue add`",
+        group: "a_span_on_one_line_is_read_wherever_it_stands",
+        name: "in a list item",
+        text: "- run `wf-agents queue add` now",
         runs: &["wf-agents queue add"],
         wrong: "add",
     },
     Case {
-        group: "a_command_after_a_utility_that_runs_it_is_read",
-        name: "right nohup",
-        text: "`nohup wf-agents run --once &`",
-        runs: &["wf-agents run --once"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_in_a_subshell_or_a_substitution_is_read",
-        name: "a subshell",
-        text: "`(cd DIR && wf-agents status)`",
-        runs: &["wf-agents status"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_in_a_subshell_or_a_substitution_is_read",
-        name: "a subshell, a right option",
-        text: "`(cd DIR && wf-agents run --once)`",
-        runs: &["wf-agents run --once"],
-        wrong: "",
-    },
-    Case {
-        group: "a_command_in_a_subshell_or_a_substitution_is_read",
-        name: "a subshell, a wrong subcommand",
-        text: "`(cd DIR && wf-agents queue add)`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_in_a_subshell_or_a_substitution_is_read",
-        name: "a command substitution",
-        text: "`wf-agents say 3 $(wf-agents queue add)`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_in_a_subshell_or_a_substitution_is_read",
-        name: "a right command substitution",
-        text: "`wf-agents say 3 $(wf-agents status)`",
-        runs: &["wf-agents status"],
-        wrong: "",
-    },
-    Case {
-        group: "a_block_quote_is_read_without_its_marker",
-        name: "a fence in a block quote",
-        text: "> ```sh\n> wf-agents queue add\n> ```",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_block_quote_is_read_without_its_marker",
-        name: "a right fence in a block quote",
-        text: "> ```sh\n> wf-agents status\n> ```",
-        runs: &["wf-agents status"],
-        wrong: "",
-    },
-    Case {
-        group: "a_block_quote_is_read_without_its_marker",
-        name: "a span that wraps in a block quote",
-        text: "> run `wf-agents queue\n> add 3` now",
-        runs: &["wf-agents queue add 3"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_block_quote_is_read_without_its_marker",
-        name: "a right span that wraps in a block quote",
-        text: "> run `wf-agents queue\n> put 3` now",
-        runs: &["wf-agents queue put 3"],
-        wrong: "",
-    },
-    Case {
-        group: "a_block_quote_is_read_without_its_marker",
-        name: "a right span on one line of a block quote",
+        group: "a_span_on_one_line_is_read_wherever_it_stands",
+        name: "a right one in a block quote",
         text: "> run `wf-agents queue put 3` now",
         runs: &["wf-agents queue put 3"],
         wrong: "",
     },
     Case {
-        group: "a_command_in_an_indented_code_block_is_read",
-        name: "four spaces after a blank line",
-        text: "Run it:\n\n    wf-agents queue add",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_in_an_indented_code_block_is_read",
-        name: "a tab after a blank line",
-        text: "Run it:\n\n\twf-agents queue add",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
-    },
-    Case {
-        group: "a_command_in_an_indented_code_block_is_read",
-        name: "a right line in an indented block",
-        text: "Run it:\n\n    wf-agents queue put 3",
+        group: "a_span_on_one_line_is_read_wherever_it_stands",
+        name: "a right one in a list item",
+        text: "- run `wf-agents queue put 3` now",
         runs: &["wf-agents queue put 3"],
         wrong: "",
     },
-    Case {
-        group: "a_command_in_an_indented_code_block_is_read",
-        name: "an indented line that goes on with a paragraph",
-        text: "Prose that goes on\n    wf-agents belongs to no project",
-        runs: &[],
-        wrong: "",
+];
+
+/// Forms the check does not read, in which `wf-agents` starts a command: it has to report each, whether the command in
+/// it is right or wrong, because a wrong one would otherwise pass without a word.
+const OUTSIDE: &[Form] = &[
+    Form {
+        name: "after another word",
+        text: "`nohup wf-agents run --twice`",
     },
-    Case {
-        group: "a_command_in_an_indented_code_block_is_read",
-        name: "a second paragraph of a list item",
-        text: "\n1. Do it first.\n\n    wf-agents runs the flow by steps.",
-        runs: &[],
-        wrong: "",
+    Form {
+        name: "after a utility and a variable",
+        text: "`env WF_AGENTS_DATA=DIR wf-agents queue add`",
     },
-    Case {
-        group: "an_escaped_backtick_does_not_open_a_code_span",
+    Form {
+        name: "after a variable",
+        text: "`WF_AGENTS_DATA=DIR wf-agents run --twice`",
+    },
+    Form {
+        name: "after a variable, a right command",
+        text: "`WF_AGENTS_DATA=DIR wf-agents queue put 3`",
+    },
+    Form {
+        name: "in a loop",
+        text: "`while true; do wf-agents run --twice; done`",
+    },
+    Form {
+        name: "in a loop, a right command",
+        text: "`while true; do wf-agents run --once; sleep 60; done`",
+    },
+    Form {
+        name: "after sudo in a fenced block",
+        text: "```\nsudo wf-agents run\n```",
+    },
+    Form {
+        name: "after &&",
+        text: "`wf-agents status && wf-agents queue add`",
+    },
+    Form {
+        name: "after a semicolon",
+        text: "`wf-agents status; wf-agents queue add`",
+    },
+    Form {
+        name: "after a pipe",
+        text: "`wf-agents status | wf-agents queue add`",
+    },
+    Form {
+        name: "piped to another program",
+        text: "`wf-agents status | grep work`",
+    },
+    Form {
+        name: "in a subshell",
+        text: "`(cd DIR && wf-agents status)`",
+    },
+    Form {
+        name: "in a command substitution",
+        text: "`wf-agents say 3 $(wf-agents queue add)`",
+    },
+    Form {
+        name: "in a right command substitution",
+        text: "`wf-agents say 3 $(wf-agents status)`",
+    },
+    Form {
+        name: "a quoted value",
+        text: "`wf-agents answer 3 --text \"ok\"`",
+    },
+    Form {
+        name: "dashes in a quote",
+        text: "`wf-agents say 3 \"do not use --force\"`",
+    },
+    Form {
+        name: "a quoted value that runs onto the next line",
+        text: "```sh\nwf-agents say 3 \"first line\nsecond line\"\n```",
+    },
+    Form {
+        name: "a backslash at the end of a line",
+        text: "```\nwf-agents item add \\\n  --project P --bogus X\n```",
+    },
+    Form {
+        name: "a right command wrapped with a backslash",
+        text: "```\nwf-agents queue \\\n  put 3\n```",
+    },
+    Form {
+        name: "indented by four spaces",
+        text: "Run it:\n\n    wf-agents queue add",
+    },
+    Form {
+        name: "indented by a tab",
+        text: "Run it:\n\n\twf-agents queue add",
+    },
+    Form {
+        name: "in a block quote",
+        text: "> wf-agents queue add",
+    },
+    Form {
+        name: "a right command in a block quote",
+        text: "> wf-agents status",
+    },
+    Form {
+        name: "a fence in a block quote",
+        text: "> ```sh\n> wf-agents queue add\n> ```",
+    },
+    Form {
+        name: "in HTML",
+        text: "<code>wf-agents queue add</code>",
+    },
+    Form {
+        name: "a span that wraps",
+        text: "see `wf-agents queue\nadd` now",
+    },
+    Form {
+        name: "a right span that wraps",
+        text: "see `wf-agents answer 3\n--text T` and `wf-agents queue put 3`",
+    },
+    Form {
+        name: "a span that wraps in a list item",
+        text: "- run `wf-agents queue\n  put 3` now",
+    },
+    Form {
+        name: "double backticks",
+        text: "``wf-agents queue add``",
+    },
+    Form {
+        name: "right double backticks",
+        text: "``wf-agents queue put 3``",
+    },
+    Form {
         name: "an escaped backtick before a span",
         text: "type \\` to quote it, then run `wf-agents queue add`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
     },
-    Case {
-        group: "an_escaped_backtick_does_not_open_a_code_span",
+    Form {
         name: "a backslash before the closing backtick of a span",
         text: "`wf-agents status \\` `wf-agents queue add`",
-        runs: &["wf-agents queue add"],
-        wrong: "add",
+    },
+    Form {
+        name: "an option in prose",
+        text: "Start it with wf-agents --version",
+    },
+];
+
+/// Places where `wf-agents` is not the start of a command: the check has to leave each alone.
+const QUIET: &[Form] = &[
+    Form {
+        name: "the package in a cargo command",
+        text: "`cargo build -p wf-agents`",
+    },
+    Form {
+        name: "a path that has the name among its directories",
+        text: "`crates/wf-agents/src/main.rs`",
+    },
+    Form {
+        name: "a file name",
+        text: "`wf-agents.sqlite`",
+    },
+    Form {
+        name: "a word of prose",
+        text: "wf-agents runs coding agents through a defined flow.",
+    },
+    Form {
+        name: "a heading that is the name",
+        text: "# wf-agents",
+    },
+    Form {
+        name: "the name alone in a span",
+        text: "`wf-agents`",
+    },
+    Form {
+        name: "an indented line that goes on with a paragraph",
+        text: "Prose that goes on\n    wf-agents belongs to no project",
+    },
+    Form {
+        name: "a second paragraph of a list item",
+        text: "\n1. Do it first.\n\n    wf-agents runs the flow by steps.",
     },
 ];
 
@@ -650,6 +497,11 @@ fn reason(problem: &str) -> &str {
     problem.rsplit_once(": ").map_or(problem, |(_, reason)| reason)
 }
 
+/// Whether a problem says that a place was not read, and gives the convention.
+fn is_unread(problem: &str) -> bool {
+    problem.contains(readme::UNREAD) && problem.contains(readme::CONVENTION)
+}
+
 /// Runs the cases of one group through the check: it has to name what is wrong with a wrong one, and report nothing
 /// for a right one.
 fn check_group(group: &str) {
@@ -672,16 +524,7 @@ fn check_group(group: &str) {
 /// What clap, which parses the command, says to a command line that names a subcommand or an option that does not
 /// exist. None when it takes the line, or stops only for what the line leaves out, or for `--help` or `--version`.
 fn clap_turns_down(line: &str) -> Option<String> {
-    // A word in double quotes is one argument, as a shell reads it.
-    let mut words: Vec<String> = Vec::new();
-    for (i, part) in line.split('"').enumerate() {
-        if i % 2 == 1 {
-            words.push(part.to_string());
-        } else {
-            words.extend(part.split_whitespace().map(str::to_string));
-        }
-    }
-    let err = tree().try_get_matches_from(words).err()?;
+    let err = tree().try_get_matches_from(line.split_whitespace()).err()?;
     match err.kind() {
         ErrorKind::MissingRequiredArgument
         | ErrorKind::MissingSubcommand
@@ -723,59 +566,23 @@ fn options_before_the_subcommand_do_not_end_the_reading() {
     check_group("options_before_the_subcommand_do_not_end_the_reading");
 }
 
-// A command line wrapped with a backslash is one command line: the words on its next line are read too.
+// A block fenced with tildes is a block of code like one fenced with backticks (CommonMark 0.31, fenced code blocks).
 #[test]
-fn a_command_line_wrapped_with_a_backslash_is_read_whole() {
-    check_group("a_command_line_wrapped_with_a_backslash_is_read_whole");
+fn a_block_fenced_with_tildes_is_read() {
+    check_group("a_block_fenced_with_tildes_is_read");
 }
 
-// A code span that wraps onto the next line is one span: what stands on its second line is read, and the spans after
-// it on that line are still found.
-#[test]
-fn a_code_span_that_wraps_does_not_hide_the_spans_after_it() {
-    check_group("a_code_span_that_wraps_does_not_hide_the_spans_after_it");
-}
-
-// Two commands in one code span are both read: the one after `&&`, `;` or `|` is a command line of its own.
-#[test]
-fn two_commands_in_one_span_are_both_read() {
-    check_group("two_commands_in_one_span_are_both_read");
-}
-
-// Command lines in the other forms Markdown has for code are read: a block fenced with tildes, and a span in double
-// backticks.
-#[test]
-fn other_forms_of_code_are_read() {
-    check_group("other_forms_of_code_are_read");
-}
-
-// Right wording is not reported: the end of the options, a quoted value that holds a word with dashes, and a short
-// option.
+// Right wording is not reported: the end of the options, a short option, and the values the README writes in place of
+// a real one.
 #[test]
 fn right_wording_is_not_reported() {
     check_group("right_wording_is_not_reported");
 }
 
-// A shell prompt or an environment variable before the command does not hide it: the README gives the data directory
-// in `WF_AGENTS_DATA`, and a shell session shows the command after its prompt.
+// A shell prompt before the command does not hide it: a shell session shows the command after its prompt.
 #[test]
-fn a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it() {
-    check_group("a_prompt_or_an_environment_variable_before_the_command_does_not_hide_it");
-}
-
-// A command after a shell keyword is a command line of its own: `do`, `then` and `if` stand before a command in a loop
-// or a condition, as a prompt or a variable does (POSIX shell, reserved words and compound commands).
-#[test]
-fn a_command_after_a_shell_keyword_is_read() {
-    check_group("a_command_after_a_shell_keyword_is_read");
-}
-
-// A program given by its path is the program: `./target/release/wf-agents queue add` runs the same command as
-// `wf-agents queue add`, and the README builds the command with cargo, so a path to it is likely. A path that only
-// has `wf-agents` among its directories, or a cargo package of that name, is not the program.
-#[test]
-fn a_program_given_by_its_path_is_read() {
-    check_group("a_program_given_by_its_path_is_read");
+fn a_shell_prompt_before_the_command_does_not_hide_it() {
+    check_group("a_shell_prompt_before_the_command_does_not_hide_it");
 }
 
 // A line that begins with three backticks and has a backtick after them is a code span, not the start of a fenced
@@ -786,67 +593,51 @@ fn a_code_span_of_three_backticks_is_not_a_fence() {
     check_group("a_code_span_of_three_backticks_is_not_a_fence");
 }
 
-// A quoted value that runs onto the next line is one value, as a shell reads it: the words on the next line are part
-// of the quoted text, and what follows the closing quote is again the command's options (POSIX shell command language,
-// quoting: a quotation goes on, newlines in it kept, until the closing quote). `wf-agents item add` with a long
-// `--problem` is the command a README is most likely to write over several lines.
-#[test]
-fn a_quoted_value_that_runs_onto_the_next_line_is_one_value() {
-    check_group("a_quoted_value_that_runs_onto_the_next_line_is_one_value");
-}
-
-// A code span does not run over into the next block: a backtick with no match in its own block is text, and the span
-// in the next list item or after a heading is still read (CommonMark 0.31, section 3.1: block structure takes
-// precedence over inline structure). One missing backtick must not hide the command after it.
-#[test]
-fn a_code_span_does_not_run_over_into_the_next_block() {
-    check_group("a_code_span_does_not_run_over_into_the_next_block");
-}
-
-// A command after a utility that runs it is a command line of its own: `nohup`, `exec` and `env` take a utility and
-// its arguments (POSIX utilities and special built-ins), and a README that starts a long-running engine is likely to
-// use one. A word that only has `wf-agents` after a program that does not run it, such as the cargo package, is not
-// the program (see a_program_given_by_its_path_is_read).
-#[test]
-fn a_command_after_a_utility_that_runs_it_is_read() {
-    check_group("a_command_after_a_utility_that_runs_it_is_read");
-}
-
-// A command in a subshell or a command substitution is a command line of its own, and `)` ends a word: POSIX shell
-// command language, token recognition (`(` and `)` are operators), command substitution and grouping commands.
-// `(cd DIR && wf-agents status)` is right, and must not be reported for `status)`.
-#[test]
-fn a_command_in_a_subshell_or_a_substitution_is_read() {
-    check_group("a_command_in_a_subshell_or_a_substitution_is_read");
-}
-
-// A block quote is read without its marker: the `>` that begins each line is not part of a fence's code or of a code
-// span that wraps (CommonMark 0.31, section 5.1: block quotes). A fence in a quote, as in a GitHub alert, is code.
-#[test]
-fn a_block_quote_is_read_without_its_marker() {
-    check_group("a_block_quote_is_read_without_its_marker");
-}
-
-// A line indented by four spaces or a tab, after a blank line, is a code block of its own (CommonMark 0.31, section
-// 4.4: indented code blocks), and the check reads it as code; one that goes on with a paragraph, or that is the second
-// paragraph of a list item with less than four spaces beyond the item's text, is not code.
-#[test]
-fn a_command_in_an_indented_code_block_is_read() {
-    check_group("a_command_in_an_indented_code_block_is_read");
-}
-
-// A backslash before a backtick makes it a backtick in the text, not the start of a code span (CommonMark 0.31,
-// section 2.4: backslash escapes), and a backslash does not escape in a code span (section 6.1), so one before the
-// closing backtick of a span does not hide what comes after it.
-#[test]
-fn an_escaped_backtick_does_not_open_a_code_span() {
-    check_group("an_escaped_backtick_does_not_open_a_code_span");
-}
-
 // Placeholders and the options every command has are not reported, whatever the check does with the words after them.
 #[test]
 fn placeholders_and_the_options_every_command_has_are_not_reported() {
     check_group("placeholders_and_the_options_every_command_has_are_not_reported");
+}
+
+// A backtick with no partner on its line opens no code span, so one missing backtick does not hide the command on the
+// next line: spans are paired line by line.
+#[test]
+fn a_backtick_that_is_not_closed_does_not_hide_the_next_line() {
+    check_group("a_backtick_that_is_not_closed_does_not_hide_the_next_line");
+}
+
+// A code span on one line is read wherever it stands: in a block quote, in a list item.
+#[test]
+fn a_span_on_one_line_is_read_wherever_it_stands() {
+    check_group("a_span_on_one_line_is_read_wherever_it_stands");
+}
+
+// A form outside the convention is reported, whether the command in it is right or wrong: the report says that the
+// place was not read and gives the convention.
+#[test]
+fn a_form_outside_the_convention_is_reported() {
+    let mut failures = Vec::new();
+    for form in OUTSIDE {
+        let got = found(form.text);
+        if !got.iter().any(|problem| is_unread(problem)) {
+            failures.push(format!("{}: not reported as unread; found {got:?}", form.name));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A place where `wf-agents` is a package, a path, a file name, a heading or a word of prose is not a command and is
+// not reported.
+#[test]
+fn a_place_where_the_name_is_not_a_command_is_not_reported() {
+    let mut failures = Vec::new();
+    for form in QUIET {
+        let got = found(form.text);
+        if !got.is_empty() {
+            failures.push(format!("{}: reported though it is no command: {got:?}", form.name));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 // At every depth: a command left out is reported, a name or an option that does not exist is reported, and every
