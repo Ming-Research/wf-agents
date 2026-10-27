@@ -30,6 +30,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0006.sql"),
     include_str!("../../../db/migrations/0007.sql"),
     include_str!("../../../db/migrations/0008.sql"),
+    include_str!("../../../db/migrations/0009.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1135,5 +1136,58 @@ mod tests {
         wrong.migrate(&["ALTER TABLE things ADD COLUMN size INTEGER;"]).unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
+    }
+
+    // A design card an earlier engine left open beside a newer card of its work is replaced by the next one; the
+    // newest stays, and so does a card of another work.
+    #[test]
+    fn a_design_card_left_open_beside_a_newer_one_is_replaced() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for w in [1, 2] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '4')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, '2a', '{}', 'c', 1)",
+                    [w],
+                )?;
+            }
+            // Work 1: cards 1 and 2 left open beside card 3. Work 2: card 4 alone.
+            for (round, status) in [(1, "open"), (1, "ruled"), (1, "open"), (2, "open")] {
+                tx.execute(
+                    "INSERT INTO design_cards (round, body, status) VALUES (?1, '[]', ?2)",
+                    params![round, status],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        // The database as it was at version 8, before the repair; the schema adds nothing since.
+        db.conn.pragma_update(None, "user_version", 8).unwrap();
+        db.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        let mut st = db
+            .conn()
+            .prepare("SELECT status, replaced_by FROM design_cards ORDER BY id")
+            .unwrap();
+        let cards: Vec<(String, Option<i64>)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let want = [
+            ("replaced", Some(2)),
+            ("replaced", Some(3)),
+            ("open", None),
+            ("open", None),
+        ];
+        let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
+        assert_eq!(cards, want);
     }
 }

@@ -409,7 +409,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         )),
         Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),
         Command::Pause { work, why } => owner::pause(d, work, Some(&why)),
-        Command::Resume { work } => owner::pause(d, work, None),
+        Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
         Command::Message { work, json } => message(d, work, json),

@@ -290,6 +290,17 @@ fn the_owner_answers_and_rules_on_the_page() {
         .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
         .unwrap();
     assert_eq!(said, "Ruling on design card 1: disagree. Keep the old name.");
+    // A paused work goes on; one that is not paused is refused.
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET paused = 'cell 13: no' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let (status, done) = post(s.port, "/api/v1/works/1/resume", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(done.ends_with(r#"{"done":"work 1 goes on"}"#), "{done}");
+    let (status, again) = post(s.port, "/api/v1/works/1/resume", "{}", "application/json");
+    assert_eq!(status, 422, "{again}");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

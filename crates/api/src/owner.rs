@@ -1,5 +1,5 @@
-//! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, and a ruling
-//! on a design card. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it
+//! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
+//! design card, and letting a paused work go on. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it
 //! goes on.
 
 use db::rusqlite::{OptionalExtension, params};
@@ -108,6 +108,26 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
     Ok(format!("design card {design_card} ruled"))
 }
 
+/// Lets a paused work go on: its cell runs again. The engine closes a round the pause left open, with the reason.
+pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
+    let paused: Option<Option<String>> = db
+        .conn()
+        .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    match paused {
+        None => return Err(format!("no work {work}")),
+        Some(None) => return Err(format!("work {work} is not paused")),
+        Some(Some(_)) => {}
+    }
+    db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(format!("work {work} goes on"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +151,25 @@ mod tests {
         })
         .unwrap();
         db
+    }
+
+    // The owner lets a paused work go on; one that is not paused is refused.
+    #[test]
+    fn the_owner_lets_a_paused_work_go_on() {
+        let mut db = setup();
+        assert!(resume(&mut db, 1).is_err());
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET paused = 'cell 13: no' WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(resume(&mut db, 1).unwrap(), "work 1 goes on");
+        let paused: Option<String> = db
+            .conn()
+            .query_row("SELECT paused FROM works WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(paused, None);
+        assert!(resume(&mut db, 9).is_err());
     }
 
     // The owner answers an ask once; a second answer is refused.

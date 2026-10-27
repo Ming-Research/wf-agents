@@ -415,10 +415,32 @@ impl Engine {
         }
     }
 
+    /// Pauses a work whose step cannot be taken: the round the step left open is closed with the reason, so it shows
+    /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open.
     pub fn pause(&mut self, id: i64, why: &str) -> Result<(), String> {
+        let w = self.work(id)?;
+        let g = self.graph_of(&w)?;
+        let open = work::open_round(self.db.conn(), id)?.filter(|r| {
+            !r.cell
+                .as_deref()
+                .and_then(|c| g.cell(c))
+                .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
+        });
+        let text = match self.item_of(&w) {
+            Ok(item) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
+            Err(_) => format!("Work {id} is paused: {why}"),
+        };
         self.db
             .write(Actor::Engine, |tx| {
+                if let Some(r) = &open {
+                    let ended = work::Ended {
+                        rejected: Some(serde_json::json!({ "error": why })),
+                        ..work::Ended::default()
+                    };
+                    work::finish_round(tx, r.id, &ended).map_err(db::Error::Abort)?;
+                }
                 tx.execute("UPDATE works SET paused = ?2 WHERE id = ?1", params![id, why])?;
+                actions::notify(tx, Some(id), &text).map_err(db::Error::Abort)?;
                 Ok(())
             })
             .map_err(|e| e.to_string())

@@ -754,6 +754,120 @@ fn a_new_flow_version_stops_a_work_and_its_item_starts_again_from_what_exists() 
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A work the engine pauses because a step cannot be taken closes the round the step left open, with the reason, and
+// tells the owner once. A round an earlier engine left open when it paused is closed with the pause once the owner
+// lets the work go on, and the cell runs again.
+#[test]
+fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
+    let s = setup("paused");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let (work, at, _) = state(&e, item).unwrap();
+    let open_round = |e: &mut Engine| -> i64 {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, cell, input, config_commit, started_at) VALUES (?1, ?2, '{}', 'c', 1)",
+                params![work, at],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap()
+    };
+    let rejected = |e: &Engine, round: i64| -> (Option<i64>, Value) {
+        let (ended, rejected): (Option<i64>, Option<String>) =
+            e.db.conn()
+                .query_row("SELECT ended_at, rejected FROM rounds WHERE id = ?1", [round], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+        (
+            ended,
+            rejected
+                .map(|x| serde_json::from_str(&x).unwrap())
+                .unwrap_or(Value::Null),
+        )
+    };
+    let left = open_round(&mut e);
+    e.pause(work, "cell 1: the return does not fit").unwrap();
+    let (ended, why) = rejected(&e, left);
+    assert!(ended.is_some());
+    assert_eq!(why, json!({ "error": "cell 1: the return does not fit" }));
+    let told: String =
+        e.db.conn()
+            .query_row("SELECT text FROM engine_notices WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert!(told.ends_with("is paused: cell 1: the return does not fit"), "{told}");
+    // An earlier engine paused without closing the round; the owner lets the work go on.
+    let earlier = open_round(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET paused = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let (ended, why) = rejected(&e, earlier);
+    assert!(ended.is_some(), "{log}");
+    assert_eq!(
+        why,
+        json!({ "error": "the work was paused: cell 1: the return does not fit" }),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A query an agent asks for runs in the tool cell, and the tool cell's return, the rows included, fits the schema the
+// compiled flow gives cell 13: the engine checks its own tool cell's return against it and pauses the work when it
+// does not, so a result the flow does not describe fails here.
+#[test]
+fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
+    let s = setup("query");
+    let mut agents = scripts();
+    let implement = agents.remove("4").unwrap();
+    agents.insert(
+        "4",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id, title FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            implement(r, n - 1)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let ran = |e: &Engine| -> Option<String> {
+        e.db.conn()
+            .query_row(
+                "SELECT r.output FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 AND r.cell = '13' AND r.transition IS NOT NULL ORDER BY r.id LIMIT 1",
+                [item],
+                |r| r.get(0),
+            )
+            .ok()
+    };
+    for _ in 0..60 {
+        if ran(&e).is_some() || state(&e, item).is_some_and(|(_, _, paused)| paused.is_some()) {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    let output: Value = serde_json::from_str(&ran(&e).expect(&log)).unwrap();
+    let result = &output["results"][0];
+    assert_eq!(result["tool"], "query", "{output}");
+    let rows = result["ran"]["rows"].as_str().unwrap_or_default();
+    assert!(rows.lines().any(|l| l.contains("Add the feature")), "{output}");
+    let w = e.work(work).unwrap();
+    let g = e.graph_of(&w).unwrap();
+    let schema = g.cell("13").and_then(|c| c.schema.clone()).unwrap();
+    assert!(flow::valid(&schema, &output), "{output}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The next round of a work at a gate whose need the project does not answer is the engine's own answer, as the round
 // then is: the preview says why no agent is asked, and builds no message.
 #[test]

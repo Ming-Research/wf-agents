@@ -1,4 +1,4 @@
-Decision: A query's rows reach the agent, and the round's record, as an array of JSON objects; rows too long to give inline are saved one object per line and given by the path, instead of one string of JSON lines inside the result, because a string inside JSON escapes every quote of every row, which the agent then reads through.
+Decision: A query's rows reach the agent, and the round's record, as one text with one JSON object per line, and rows too long to give inline are saved and given by the path, instead of an array of JSON objects, because the compiled flow's schema for the tool cell's return says a text and the engine checks its own tool cell's return against it: an array paused a work. Rows as objects wait for a change of the flow.
 
 Decision: A red check's log tail is given without what gh puts before every line (the job, the step and the time) and without the escapes that colour the text, because those take most of each line and say nothing about why the check is red.
 
