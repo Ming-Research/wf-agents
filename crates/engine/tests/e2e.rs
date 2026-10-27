@@ -149,7 +149,7 @@ struct Scripted {
 }
 
 impl Agents for Scripted {
-    fn run(&self, r: &Request) -> Reply {
+    fn run(&self, r: &Request, _activity: &dyn Fn(&str)) -> Reply {
         let n = {
             let mut rounds = self.rounds.borrow_mut();
             let n = rounds.entry(r.cell.clone()).or_default();

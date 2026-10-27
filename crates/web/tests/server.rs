@@ -110,28 +110,51 @@ fn it_serves_its_own_address_and_refuses_other_sites() {
 }
 
 #[test]
-fn the_owner_switches_the_mode_and_asks_for_a_step() {
+fn the_owner_switches_between_running_and_holding_and_runs_one_work_s_next_round() {
     let s = serve("mode");
-    assert_eq!(post(s.port, "/api/v1/engine/step", "{}", "application/json").0, 409);
     assert_eq!(
         post(
             s.port,
             "/api/v1/engine/mode",
-            "mode=step",
+            "mode=run",
             "application/x-www-form-urlencoded"
         )
         .0,
         415
     );
     assert_eq!(s.control.asked().mode, Mode::Hold);
+    // While the engine holds, the owner runs the next round of one work, once at a time.
+    assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 202);
+    assert_eq!(s.control.asked().step, Some(3));
+    assert_eq!(post(s.port, "/api/v1/works/4/step", "{}", "application/json").0, 409);
+    s.control.stepped();
     assert_eq!(
-        post(s.port, "/api/v1/engine/mode", r#"{"mode":"step"}"#, "application/json").0,
+        post(s.port, "/api/v1/engine/mode", r#"{"mode":"run"}"#, "application/json").0,
         204
     );
-    assert_eq!(s.control.asked().mode, Mode::Step);
-    assert_eq!(post(s.port, "/api/v1/engine/step", "{}", "application/json").0, 202);
-    assert!(s.control.asked().step);
-    assert_eq!(post(s.port, "/api/v1/engine/step", "{}", "application/json").0, 409);
+    assert_eq!(s.control.asked().mode, Mode::Run);
+    assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 409);
+    // Single step is no mode.
+    assert_eq!(
+        post(s.port, "/api/v1/engine/mode", r#"{"mode":"step"}"#, "application/json").0,
+        422
+    );
+    // What a work's next round would be is answered by the engine's loop, which this test plays.
+    let control = std::sync::Arc::clone(&s.control);
+    let loop_ = std::thread::spawn(move || {
+        for _ in 0..100 {
+            if let Some((work, answer)) = control.take_previews().pop() {
+                let _ = answer.send(Err(format!("work {work} has no next round")));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, body) = get(s.port, "/api/v1/works/9/next", &here, "");
+    loop_.join().unwrap();
+    assert_eq!(status, 422, "{body}");
+    assert!(body.contains("work 9 has no next round"), "{body}");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

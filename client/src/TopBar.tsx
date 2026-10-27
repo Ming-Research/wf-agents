@@ -1,8 +1,8 @@
-// The bar on every view: the views (the messages to the owner with how many are unread), how the engine stands (and
-// what stops every work, when something does), and what the owner asks of it (its mode, and in single-step mode the
-// next step).
+// The bar on every view: the views (the messages to the owner with how many are unread), and how the engine stands:
+// running, holding, or waiting for what stops every work, with the slots in use. The bar holds no control: the
+// engine's state opens a panel where the owner switches between running and holding.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Mode, OwnerMessage, Status } from './api';
 import { time } from './format';
@@ -11,31 +11,57 @@ import { useOnline, useResource, useStatus } from './live';
 import { Link, type Route } from './route';
 import { t } from './text';
 
-const MODES: Mode[] = ['run', 'step', 'hold'];
+const MODES: Mode[] = ['run', 'hold'];
 
-function LastStep({ status }: { status: Status }) {
-  const s = status.last_step;
-  if (!s) return null;
-  const what =
-    s.work === null
-      ? t('step_none')
-      : s.started_item !== null
-        ? t('step_started', { work: s.work, item: s.started_item })
-        : t('step_took', { work: s.work });
-  const last = s.rounds.length > 0 ? s.rounds[s.rounds.length - 1] : null;
+/// What the engine is doing, in a few words.
+function stateWords(s: Status): string {
+  if (s.halt !== null) return t('engine_halt', { kind: s.halt.kind, until: time(s.halt.until) });
+  return t(s.mode === 'run' ? 'engine_running' : 'engine_holding');
+}
+
+/// The panel the engine's state opens: running or holding, and what each means.
+function EnginePanel({ status, onClose }: { status: Status; onClose: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const switchTo = (mode: Mode) => {
+    if (mode === status.mode) return;
+    if (mode === 'run' && !window.confirm(t('confirm_run'))) return;
+    setError(null);
+    postJson('/api/v1/engine/mode', { mode }).then(onClose, (e: unknown) =>
+      setError(e instanceof Error ? e.message : String(e)),
+    );
+  };
   return (
-    <span className="last-step" title={t('step_rounds', { rounds: s.rounds.join(', ') })}>
-      {t('last_step')}:{' '}
-      {s.work !== null && last !== null ? <Link to={`/works/${s.work}?round=${last}`}>{what}</Link> : what}
-      {s.cell ? <span className="cell-id"> {s.cell}</span> : null}
-    </span>
+    <div className="engine-panel" role="dialog">
+      {MODES.map((m) => (
+        <button
+          key={m}
+          type="button"
+          className={m === status.mode ? 'engine-mode engine-mode-on' : 'engine-mode'}
+          onClick={() => switchTo(m)}
+        >
+          <strong>{t(`mode_${m}`)}</strong>
+          <span className="muted">{t(`mode_${m}_hint`)}</span>
+        </button>
+      ))}
+      {status.halt !== null ? <p className="bad">{status.halt.why}</p> : null}
+      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+    </div>
   );
 }
 
 function Engine() {
   const online = useOnline();
   const status = useStatus();
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
   if (!online || !status) {
     return (
       <div className="engine">
@@ -44,43 +70,15 @@ function Engine() {
       </div>
     );
   }
-  const ask = (path: string, body: unknown) => {
-    setError(null);
-    postJson(path, body).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  };
-  const switchTo = (mode: Mode) => {
-    if (mode === status.mode) return;
-    if (mode === 'run' && !window.confirm(t('confirm_run'))) return;
-    ask('/api/v1/engine/mode', { mode });
-  };
+  const dot = status.halt !== null ? 'dot-halt' : `dot-${status.mode}`;
   return (
-    <div className="engine">
-      <span className={`dot dot-${status.mode}`} />
-      <div className="modes" role="group">
-        {MODES.map((m) => (
-          <button
-            key={m}
-            className={m === status.mode ? 'mode mode-on' : 'mode'}
-            title={t(`mode_${m}_hint`)}
-            onClick={() => switchTo(m)}
-          >
-            {t(`mode_${m}`)}
-          </button>
-        ))}
-      </div>
-      {status.mode === 'step' ? (
-        <button className="step" disabled={status.stepping} onClick={() => ask('/api/v1/engine/step', {})}>
-          {status.stepping ? t('stepping') : t('next_step')}
-        </button>
-      ) : null}
-      <LastStep status={status} />
-      {status.halt !== null ? (
-        <span className="bad" title={status.halt.why}>
-          {t('halt', { kind: status.halt.kind, until: time(status.halt.until) })}
-        </span>
-      ) : null}
+    <div className="engine" ref={ref}>
+      <button type="button" className="engine-state" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className={`dot ${dot}`} />
+        <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
+      </button>
       <span className="muted">{t('slots', { used: status.slots_used, total: status.slots })}</span>
-      {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+      {open ? <EnginePanel status={status} onClose={() => setOpen(false)} /> : null}
     </div>
   );
 }

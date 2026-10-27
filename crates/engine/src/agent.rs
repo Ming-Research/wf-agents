@@ -49,7 +49,8 @@ pub struct Reply {
 }
 
 pub trait Agents {
-    fn run(&self, r: &Request) -> Reply;
+    /// Runs a round; `activity` is told what the agent is doing while it runs, as the CLI reports it.
+    fn run(&self, r: &Request, activity: &dyn Fn(&str)) -> Reply;
 
     /// The CLI's own version, as it reports it.
     fn version(&self, _cli: &config::Cli, _config_dir: Option<&std::path::Path>) -> String {
@@ -137,8 +138,8 @@ impl Claude {
 }
 
 impl Agents for Claude {
-    fn run(&self, r: &Request) -> Reply {
-        let reply = Claude::once(r);
+    fn run(&self, r: &Request, activity: &dyn Fn(&str)) -> Reply {
+        let reply = Claude::once(r, activity);
         // A session whose first round was cut off exists, though no round of it ever ended: resume it.
         let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
         if r.resume.is_none() && reply.output.is_none() && in_use {
@@ -146,7 +147,7 @@ impl Agents for Claude {
                 resume: Some(r.new_session.clone()),
                 ..r.clone()
             };
-            let mut reply = Claude::once(&again);
+            let mut reply = Claude::once(&again, activity);
             reply.command = command_line(&again);
             return reply;
         }
@@ -168,7 +169,9 @@ impl Agents for Claude {
 }
 
 impl Claude {
-    fn once(r: &Request) -> Reply {
+    /// One run of the CLI: the message on its standard input, its stream read line by line as it comes, each line
+    /// that says what the agent does told to `activity`.
+    fn once(r: &Request, activity: &dyn Fn(&str)) -> Reply {
         let mut reply = Reply {
             session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
             ..Reply::default()
@@ -185,29 +188,84 @@ impl Claude {
                 return reply;
             }
         };
+        // The standard input is closed once the message is written, so the CLI knows it has all of it.
         if let Some(mut stdin) = child.stdin.take()
             && let Err(e) = stdin.write_all(r.prompt.as_bytes())
         {
             reply.error = Some(format!("giving the prompt: {e}"));
         }
-        let out = match child.wait_with_output() {
-            Ok(o) => o,
-            Err(e) => {
-                reply.error = Some(format!("{}: {e}", r.cli.command));
-                return reply;
+        // The standard error is read beside, so that neither pipe fills while the other is read.
+        let stderr = child.stderr.take().map(|mut e| {
+            std::thread::spawn(move || {
+                let mut s = String::new();
+                let _ = std::io::Read::read_to_string(&mut e, &mut s);
+                s
+            })
+        });
+        let mut stream = String::new();
+        if let Some(out) = child.stdout.take() {
+            for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+                if let Some(what) = activity_of(&line) {
+                    activity(&what);
+                }
+                stream.push_str(&line);
+                stream.push('\n');
             }
-        };
-        read_stream(&String::from_utf8_lossy(&out.stdout), &mut reply);
+        }
+        let status = child.wait();
+        let err = stderr.and_then(|t| t.join().ok()).unwrap_or_default();
+        read_stream(&stream, &mut reply);
         if reply.output.is_none() && reply.error.is_none() {
-            let err = String::from_utf8_lossy(&out.stderr);
+            let status = status.map_or_else(|e| e.to_string(), |s| s.to_string());
             reply.error = Some(format!(
-                "{} exited with {} and no result: {}",
+                "{} exited with {status} and no result: {}",
                 r.cli.command,
-                out.status,
                 err.trim()
             ));
         }
         reply
+    }
+}
+
+/// What a line of the CLI's stream says the agent is doing: a tool it uses with what it uses it on, the start of
+/// what it says, or a compaction; none for anything else.
+pub fn activity_of(line: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    let cut = |s: &str| -> String {
+        let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if one.chars().count() > 160 {
+            format!("{}…", one.chars().take(160).collect::<String>())
+        } else {
+            one
+        }
+    };
+    match v["type"].as_str()? {
+        "assistant" => {
+            let said: Vec<String> = v["message"]["content"]
+                .as_array()?
+                .iter()
+                .filter_map(|c| match c["type"].as_str()? {
+                    "tool_use" => {
+                        let name = c["name"].as_str().unwrap_or("a tool");
+                        let on = ["command", "file_path", "path", "pattern", "description", "url", "query"]
+                            .iter()
+                            .find_map(|k| c["input"][*k].as_str());
+                        Some(match on {
+                            Some(o) => format!("{name}: {}", cut(o)),
+                            None => name.to_string(),
+                        })
+                    }
+                    "text" => c["text"]
+                        .as_str()
+                        .filter(|t| !t.trim().is_empty())
+                        .map(|t| format!("says: {}", cut(t))),
+                    _ => None,
+                })
+                .collect();
+            (!said.is_empty()).then(|| said.join("; "))
+        }
+        "system" if v["subtype"] == "compact_boundary" => Some("compacting the session".to_string()),
+        _ => None,
     }
 }
 
@@ -526,6 +584,31 @@ mod tests {
             r.error.as_deref(),
             Some("error_during_execution: the CLI gave no reason")
         );
+    }
+
+    // What the agent does is told from the stream as it comes: a tool with what it is used on, the start of what it
+    // says, a compaction; anything else says nothing.
+    #[test]
+    fn what_the_agent_does_is_read_from_the_stream() {
+        let tool = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git diff --stat"}}]}}"#;
+        assert_eq!(activity_of(tool).as_deref(), Some("Bash: git diff --stat"));
+        let read = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/w/src/lib.rs"}}]}}"#;
+        assert_eq!(activity_of(read).as_deref(), Some("Read: /w/src/lib.rs"));
+        let said = format!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"{}"}}]}}}}"#,
+            "a ".repeat(200)
+        );
+        let s = activity_of(&said).unwrap();
+        assert!(
+            s.starts_with("says: a a") && s.ends_with('…') && s.chars().count() < 200,
+            "{s}"
+        );
+        assert_eq!(
+            activity_of(r#"{"type":"system","subtype":"compact_boundary"}"#).as_deref(),
+            Some("compacting the session")
+        );
+        assert_eq!(activity_of(r#"{"type":"user","message":{"content":[]}}"#), None);
+        assert_eq!(activity_of("not json"), None);
     }
 
     #[test]

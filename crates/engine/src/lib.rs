@@ -34,7 +34,7 @@ use serde_json::Value;
 
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
-pub use steps::next_message;
+pub use steps::{NextRound, next_message, next_round};
 pub use work::{Item, Round, Work, json_col, query_json};
 
 use agent::Agents;
@@ -57,6 +57,9 @@ pub enum Advance {
     Stopped,
 }
 
+/// Where the engine tells what the agent of a running round is doing: the work, the round and what it does.
+pub type Activity = dyn Fn(i64, i64, &str);
+
 pub struct Engine {
     pub db: Db,
     /// The data directory: the configuration, the database and the worktrees.
@@ -67,6 +70,8 @@ pub struct Engine {
     flows: BTreeMap<i64, Compiled>,
     /// The flow version new works start on: the one built into this engine.
     pub flow_now: i64,
+    /// What the agent of a running round is doing, by its work and round, as its command line reports it.
+    pub activity: Box<Activity>,
     /// Where the engine says what it does and what went wrong.
     pub say: Box<dyn Fn(&str)>,
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
@@ -129,6 +134,7 @@ impl Engine {
             flows,
             flow_now,
             say: Box::new(|s| eprintln!("{s}")),
+            activity: Box::new(|_, _, _| {}),
             halt: None,
             told: None,
             retry_wait: Duration::from_secs(10),
@@ -488,8 +494,9 @@ impl Engine {
         Ok(moved)
     }
 
-    /// Takes exactly one step, as single-step mode does: one round of one work, which is an agent's round, a step
-    /// of the engine's own, a run of a tool cell, or starting a work. It first carries out the outbox; then, when a
+    /// Takes exactly one step of the engine as a whole, the smallest pass, with which the tests drive works round by
+    /// round: one round of one work, which is an agent's round, a step of the engine's own, a run of a tool cell, or
+    /// starting a work. It first carries out the outbox; then, when a
     /// slot is free and an item is ready, it starts a work on that item and takes the work's first step; otherwise
     /// it takes the next step of the first active work that has one, in the order of the works' ids, beginning
     /// after `after` and going round to the lowest, so that every work gets its turn as in a pass. The outbox the
@@ -534,6 +541,26 @@ impl Engine {
             }
         }
         Ok(Stepped::default())
+    }
+
+    /// The next round of one work, which the owner asked for while the engine holds: the outbox first, then that
+    /// work one step, then the outbox that step filled.
+    pub fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
+        self.reload_config();
+        actions::run_outbox(self)?;
+        if self.halted() {
+            return Ok(Stepped::default());
+        }
+        let mark = self.rounds_mark()?;
+        self.advance(work)?;
+        actions::run_outbox(self)?;
+        let (rounds, cell) = self.rounds_since(&mark)?;
+        Ok(Stepped {
+            work: Some(work),
+            started_item: None,
+            rounds,
+            cell,
+        })
     }
 
     /// The newest round, and the rounds not ended.

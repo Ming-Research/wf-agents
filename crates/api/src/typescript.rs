@@ -23,6 +23,7 @@ pub fn typescript() -> String {
         // The interface.
         decl::<Mode>(&cfg),
         decl::<StepTaken>(&cfg),
+        decl::<NextRound>(&cfg),
         decl::<Status>(&cfg),
         decl::<Halt>(&cfg),
         decl::<Event>(&cfg),

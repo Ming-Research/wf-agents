@@ -131,7 +131,7 @@ main {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  position: relative;
 }
 
 .dot {
@@ -141,7 +141,8 @@ main {
   display: inline-block;
 }
 
-.dot-off {
+.dot-off,
+.dot-halt {
   background: var(--bad);
 }
 
@@ -149,19 +150,8 @@ main {
   background: var(--good);
 }
 
-.dot-step {
-  background: var(--warn);
-}
-
 .dot-hold {
   background: var(--muted);
-}
-
-.modes {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  overflow: hidden;
 }
 
 button {
@@ -169,39 +159,49 @@ button {
   color: inherit;
 }
 
-.mode {
+.engine-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
-  border: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
   padding: 3px 10px;
   cursor: pointer;
 }
 
-.mode + .mode {
-  border-left: 1px solid var(--line);
+.engine-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
 }
 
-.mode-on {
-  background: var(--accent);
-  color: #fff;
+.engine-panel p {
+  margin: 0;
 }
 
-.step {
-  background: var(--warn);
-  color: #fff;
-  border: 0;
-  border-radius: 7px;
-  padding: 4px 12px;
+.engine-mode {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
   cursor: pointer;
-  font-weight: 600;
 }
 
-.step:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.last-step {
-  color: var(--muted);
+.engine-mode-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 button.link {
@@ -1695,4 +1695,136 @@ ol.tt li.tt-on {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The works: the lists at the top, each in an area that scrolls and whose height is dragged, and the work picked
+   below, filling the rest of the window. */
+
+.works-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.works-lists {
+  flex: none;
+  padding: 6px 16px 4px;
+  display: grid;
+  gap: 2px;
+}
+
+.works-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: default;
+}
+
+summary.works-label {
+  cursor: pointer;
+}
+
+.works-scroll {
+  overflow-y: auto;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+}
+
+.works-scroll table.list {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.works-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.works-table tr.selected td {
+  background: var(--accent-soft);
+}
+
+.works-grip {
+  height: 8px;
+  cursor: ns-resize;
+  touch-action: none;
+  position: relative;
+}
+
+.works-grip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.works-grip:hover::after {
+  background: var(--accent);
+}
+
+.works-none {
+  margin: 2px 0 6px;
+}
+
+.works-screen > .screen {
+  border-top: 1px solid var(--line);
+}
+
+/* A work's next round, at the top of its rounds. */
+
+.next {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.next-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.next-run {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.next-button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.next-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.next-message {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.next-activity {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
 }

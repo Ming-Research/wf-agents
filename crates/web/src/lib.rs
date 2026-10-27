@@ -117,10 +117,11 @@ fn router(app: App) -> Router {
     Router::new()
         .route("/api/v1/status", get(status))
         .route("/api/v1/engine/mode", post(set_mode))
-        .route("/api/v1/engine/step", post(step))
         .route("/api/v1/events", get(events))
         .route("/api/v1/works", get(works))
         .route("/api/v1/works/{id}", get(work))
+        .route("/api/v1/works/{id}/next", get(next_round))
+        .route("/api/v1/works/{id}/step", post(step))
         .route("/api/v1/rounds/{id}", get(round))
         .route("/api/v1/flows", get(flows))
         .route("/api/v1/flows/sources", get(flow_sources))
@@ -225,11 +226,28 @@ async fn set_mode(State(app): State<App>, Json(m): Json<SetMode>) -> StatusCode 
     StatusCode::NO_CONTENT
 }
 
-async fn step(State(app): State<App>) -> Result<StatusCode, Fail> {
+/// Runs the next round of one work while the engine holds: one real round.
+async fn step(State(app): State<App>, Path(id): Path<i64>) -> Result<StatusCode, Fail> {
     app.control
-        .ask_step()
+        .ask_step(id)
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
+}
+
+/// What a work's next round would be: the engine's loop builds it between its steps, running and recording nothing.
+async fn next_round(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::NextRound>, Fail> {
+    let rx = app.control.ask_preview(id);
+    tokio::task::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(20)))
+        .await
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|_| {
+            Fail::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the engine is busy with a round; ask again later",
+            )
+        })?
+        .map(Json)
+        .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))
 }
 
 async fn works(State(app): State<App>) -> Result<Json<Vec<api::WorkSummary>>, Fail> {

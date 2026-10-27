@@ -1,5 +1,8 @@
 // The items' dependency graph: an arrow goes from an item to the item that depends on it, so what is needed comes
-// first. elkjs places the items and routes the arrows, React Flow draws them.
+// first. elkjs places the items and routes the arrows, React Flow draws them. It moves and zooms as every chart does:
+// two fingers on a trackpad, or the wheel, move it; Shift with two fingers, or a pinch, zooms at the pointer;
+// dragging moves it; Space shows the whole graph and remembers the zoom, and Space again goes back to that zoom with
+// the point under the pointer in the middle.
 
 import {
   Background,
@@ -14,7 +17,7 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Items, ItemSummary } from '../api';
 import { ItemBadge } from '../components';
@@ -117,6 +120,78 @@ function Graph({ items, selected, onSelect }: Props) {
       })),
     [items, current, selected],
   );
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    let saved: number | null = null;
+    let hovered = false;
+    let pointer = { x: 0, y: 0 };
+    const clamp = (d: number) => Math.max(-50, Math.min(50, d));
+    const zoomAt = (f: number, cx: number, cy: number) => {
+      const v = rf.getViewport();
+      const z = Math.max(0.1, Math.min(4, v.zoom * f));
+      void rf.setViewport({ zoom: z, x: cx - (cx - v.x) * (z / v.zoom), y: cy - (cy - v.y) * (z / v.zoom) });
+    };
+    // A trackpad's pinch comes as the wheel with Ctrl. Shift turns a vertical scroll into a horizontal one in some
+    // browsers, so either way zooms.
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+      const dx = e.deltaX * k;
+      const dy = e.deltaY * k;
+      const r = el.getBoundingClientRect();
+      const [cx, cy] = [e.clientX - r.left, e.clientY - r.top];
+      if (e.ctrlKey || e.metaKey) {
+        zoomAt(Math.exp(-clamp(dy) * 0.01), cx, cy);
+      } else if (e.shiftKey) {
+        zoomAt(Math.exp(-clamp(Math.abs(dy) >= Math.abs(dx) ? dy : dx) * 0.004), cx, cy);
+      } else {
+        const v = rf.getViewport();
+        void rf.setViewport({ ...v, x: v.x - dx, y: v.y - dy });
+      }
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || !hovered) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      e.preventDefault();
+      // A button keeps focus after a click, and Space would press it again.
+      if (target && target.tagName === 'BUTTON') target.blur();
+      if (e.repeat) return;
+      if (saved === null) {
+        saved = rf.getViewport().zoom;
+        void rf.fitView({ padding: 0.1, duration: 200 });
+        return;
+      }
+      const z = saved;
+      saved = null;
+      const p = rf.screenToFlowPosition(pointer);
+      const r = el.getBoundingClientRect();
+      void rf.setViewport({ zoom: z, x: r.width / 2 - p.x * z, y: r.height / 2 - p.y * z }, { duration: 200 });
+    };
+    const move = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+    };
+    const enter = () => {
+      hovered = true;
+    };
+    const leave = () => {
+      hovered = false;
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerenter', enter);
+    el.addEventListener('pointerleave', leave);
+    document.addEventListener('keydown', key);
+    return () => {
+      el.removeEventListener('wheel', wheel);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerenter', enter);
+      el.removeEventListener('pointerleave', leave);
+      document.removeEventListener('keydown', key);
+    };
+  }, [rf]);
   const edges: Routed[] = useMemo(
     () =>
       items.links.map((l) => {
@@ -136,7 +211,7 @@ function Graph({ items, selected, onSelect }: Props) {
     [items, current],
   );
   return (
-    <div className="chart">
+    <div className="chart" ref={box}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -146,6 +221,10 @@ function Graph({ items, selected, onSelect }: Props) {
         nodesDraggable={false}
         nodesConnectable={false}
         minZoom={0.1}
+        maxZoom={4}
+        zoomOnScroll={false}
+        zoomOnPinch={false}
+        panOnScroll={false}
       >
         <Background />
         <Controls showInteractive={false} />

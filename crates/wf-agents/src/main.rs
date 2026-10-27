@@ -135,9 +135,8 @@ enum Command {
 enum RunMode {
     /// Takes every work as far as it can, pass after pass.
     Run,
-    /// Takes one step, one round of one work, each time the owner asks for one on the page.
-    Step,
-    /// Starts nothing: no round, no tool, no outbox action; the page stays up.
+    /// Starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
+    /// asks for on the work's page; the page stays up.
     Hold,
 }
 
@@ -145,7 +144,6 @@ impl From<RunMode> for api::Mode {
     fn from(m: RunMode) -> api::Mode {
         match m {
             RunMode::Run => api::Mode::Run,
-            RunMode::Step => api::Mode::Step,
             RunMode::Hold => api::Mode::Hold,
         }
     }
@@ -496,6 +494,16 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     }))
     .map_err(|x| x.to_string())?;
     let control = Arc::new(api::Control::new(mode));
+    // What a running agent is doing goes to the page as it happens.
+    let told = Arc::clone(&bus);
+    e.activity = Box::new(move |work, round, what| {
+        told.publish(api::Event::Activity {
+            work,
+            round,
+            what: what.to_string(),
+            at: db::now(),
+        });
+    });
     let first = status(&mut e, control.asked(), None, started_at)?;
     bus.publish(api::Event::Status {
         status: Box::new(first),
@@ -516,9 +524,20 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
     let _ = std::fs::remove_file(&stop);
     let idle = Duration::from_secs(10);
     let mut last: Option<api::StepTaken> = None;
-    // The work the last single step took; the next goes on from it, so every work gets its turn.
-    let mut after: Option<i64> = None;
     while !stop.exists() {
+        // What a work's next round would be, for the page that asked: built between steps, nothing run.
+        for (work, answer) in control.take_previews() {
+            let next = engine::next_round(&mut e, work).map(|n| api::NextRound {
+                work,
+                cell: n.cell,
+                title: n.title,
+                kind: n.kind,
+                line: n.line,
+                message: n.message,
+                step: n.step,
+            });
+            let _ = answer.send(next);
+        }
         let asked = control.asked();
         e.reload_config();
         let now = status(&mut e, asked, last.as_ref(), started_at)?;
@@ -529,19 +548,15 @@ fn run(d: &Path, once: bool, mode: api::Mode, port: u16) -> Result<(), String> {
                     control.wait(asked, idle);
                 }
             }
-            api::Next::Step => {
-                let s = e.step(after)?;
-                after = s.work.or(after);
-                let what = match (s.work, s.started_item) {
-                    (Some(w), Some(i)) => format!("started work {w} on item {i}"),
-                    (Some(w), None) => format!("took a step of work {w}"),
-                    (None, _) => "found no work with a step to take".to_string(),
-                };
-                (e.say)(&format!("single step: {what}; rounds {:?}", s.rounds));
+            api::Next::Step(work) => {
+                let s = e.step_work(work)?;
+                (e.say)(&format!(
+                    "the next round of work {work}, as the owner asked: rounds {:?}",
+                    s.rounds
+                ));
                 last = Some(api::StepTaken {
                     at: db::now(),
-                    work: s.work,
-                    started_item: s.started_item,
+                    work,
                     rounds: s.rounds,
                     cell: s.cell,
                 });

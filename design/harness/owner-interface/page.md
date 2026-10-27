@@ -7,3 +7,11 @@ Decision: A work is drawn on the state machine of the flow version it is pinned 
 Decision: The flow page compares two flows: two stored versions, or a stored version and the flow as `flow/flow.json` is at a git ref of a project's checkout, which the interface reads with git and compiles with the flow's compiler without writing anything; the chart of the newer is drawn with the cells added and changed marked, and a panel lists what changed in each cell, because a proposed change to the flow is reviewed against the flow it changes, on the page the flow is read on.
 
 Decision: Every text of the page is in English, from one message catalog, because the owner reads the interface in English, and one catalog keeps the names of the flow's parts the same wherever the page shows them.
+
+Decision: The works are one view: those running or waiting at the top, in an area four rows high that scrolls and whose height can be dragged, those ended folded under them in a list that scrolls the same way, and the work picked from either shown below with its chart and rounds, the list staying; the view has no heading of its own and its tables fill the width, instead of a list that a picked work replaced, because the owner goes from work to work, and a heading repeating the tab, or a table narrower than the window, spends room the works need.
+
+Decision: The bar holds the views and the engine's state (running, holding, or waiting for what stops every work, until when), the slots in use and the unread messages, and no control: the state opens a panel that switches between running and holding, instead of the controls in the bar of every view, because a control pressed from a view about something else did what the owner could not see.
+
+Decision: Every chart moves and zooms alike: two fingers or the wheel move it, Shift with two fingers or a pinch zooms at the pointer, dragging moves it, and Space shows the whole and goes back, because one chart that behaves differently from the others makes every gesture a guess.
+
+Decision: The page shows the owner only what the owner uses: a block of values the engine keeps for itself, such as a work's machine, worktree, pushed head or recorded values, is not shown, because what is drawn is there for the owner to read, and what the owner cannot use crowds out what the owner needs.

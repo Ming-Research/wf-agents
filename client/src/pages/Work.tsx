@@ -3,15 +3,16 @@
 // back or failed, the arrows it took standing out. The bar holds the work's facts; its rounds are listed on the left,
 // and a round opens in the panel with its cell brought into view, a cell with its rounds.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { Compiled, FlowView, RoundSummary, WorkDetail } from '../api';
+import type { Compiled, FlowView, NextRound, RoundSummary, WorkDetail } from '../api';
 import { InBar } from '../bar';
-import { Facts, Json, Loaded, OutcomeBadge, Section, WorkBadge } from '../components';
+import { Json, Loaded, OutcomeBadge, Section, WorkBadge } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration, time } from '../format';
+import { cost, duration } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
-import { useResource } from '../live';
+import { postJson } from '../http';
+import { useActivity, useResource, useStatus } from '../live';
 import { href, Link, navigate } from '../route';
 import { t } from '../text';
 import { RoundView } from './RoundView';
@@ -91,6 +92,95 @@ function Bar({ d }: { d: WorkDetail }) {
   );
 }
 
+/// The work's next round while the engine holds: what it will be, the button that runs it, and while it runs, how long
+/// it has run and what the agent is doing; when it ends, its round opens.
+function Next({ d, onRound }: { d: WorkDetail; onRound: (r: number) => void }) {
+  const status = useStatus();
+  const w = d.work;
+  const activity = useActivity(w.id);
+  const asked = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const stepping = status?.stepping === w.id;
+  const can = status !== null && status.mode === 'hold' && status.halt === null && status.stepping === null && w.state === 'ready';
+  const next = useResource<NextRound>(`work:${w.id}`, can ? `/api/v1/works/${w.id}/next` : null);
+  useEffect(() => {
+    if (!stepping) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [stepping]);
+  // The round asked for has ended: open it.
+  const last = status?.last_step;
+  useEffect(() => {
+    if (!asked.current || stepping || !last || last.work !== w.id) return;
+    asked.current = false;
+    const r = last.rounds[last.rounds.length - 1];
+    if (r !== undefined) onRound(r);
+  }, [stepping, last, w.id, onRound]);
+  if (stepping) {
+    const since = w.running?.started_at ?? null;
+    return (
+      <section className="next">
+        <div className="next-head">
+          <strong>{t('next_running')}</strong>
+          {since !== null ? <span className="muted">{duration(now - since)}</span> : null}
+        </div>
+        <ol className="next-activity">
+          {activity.map((a, i) => (
+            <li key={i}>{a.what}</li>
+          ))}
+        </ol>
+      </section>
+    );
+  }
+  if (!can) return null;
+  const n = next.data;
+  const kind =
+    n === undefined
+      ? ''
+      : n.kind === 'agent'
+        ? t('next_kind_agent', { line: n.line ?? '' })
+        : n.kind === 'engine'
+          ? t('next_kind_engine', { step: n.step ?? '' })
+          : n.kind === 'tool'
+            ? t('next_kind_tool')
+            : t('next_kind_owner');
+  const run = () => {
+    setError(null);
+    asked.current = true;
+    postJson(`/api/v1/works/${w.id}/step`, {}).catch((e: unknown) => {
+      asked.current = false;
+      setError(e instanceof Error ? e.message : String(e));
+    });
+  };
+  return (
+    <section className="next">
+      <div className="next-head">
+        <strong>{t('next_title')}</strong>
+        {n !== undefined ? (
+          <span>
+            <span className="cell-id">{n.cell}</span> {n.title} · <span className="muted">{kind}</span>
+          </span>
+        ) : null}
+      </div>
+      {next.error !== null ? <p className="bad">{next.error}</p> : null}
+      {n?.message ? (
+        <details>
+          <summary>{t('next_message')}</summary>
+          <pre className="j-text next-message">{n.message}</pre>
+        </details>
+      ) : null}
+      <div className="next-run">
+        <button type="button" className="next-button" onClick={run} disabled={n === undefined}>
+          {t('next_run')}
+        </button>
+        <span className="muted">{t('next_real')}</span>
+      </div>
+      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+    </section>
+  );
+}
+
 /// The work's rounds and records, in a drawer over the left of the chart.
 function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; onRound: (r: number) => void }) {
   const [open, setOpen] = useState(true);
@@ -101,6 +191,7 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
       </button>
       {open ? (
         <div className="drawer-body">
+          <Next d={d} onRound={onRound} />
           <Timeline rounds={d.rounds} selected={round} onRound={(r) => onRound(r.id)} />
           {d.messages.length > 0 ? (
             <Section title={t('work_messages')} open={false}>
@@ -164,20 +255,6 @@ function Drawer({ d, round, onRound }: { d: WorkDetail; round: number | null; on
               ))}
             </Section>
           ) : null}
-          <Section title={t('recorded')} open={false}>
-            <Facts
-              rows={[
-                [t('machine'), d.machine],
-                [t('worktree'), d.worktree],
-                [t('branch'), d.work.branch],
-                [t('pushed_head'), d.pushed_head],
-                [t('resume_at'), d.resume_at],
-                [t('waiting_cells'), <Json key="w" value={d.waiting} />],
-                [t('recorded'), <Json key="r" value={d.recorded} />],
-                [t('col_started'), time(d.work.started_at)],
-              ]}
-            />
-          </Section>
         </div>
       ) : null}
     </div>

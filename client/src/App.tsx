@@ -8,7 +8,6 @@ import { Flow } from './pages/Flow';
 import { Item } from './pages/Item';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
-import { Work } from './pages/Work';
 import { Works } from './pages/Works';
 import { Link, useRoute } from './route';
 import { t } from './text';
@@ -20,11 +19,11 @@ export function App() {
   useEffect(() => connect(), []);
   return (
     <BarSlot.Provider value={slot}>
-      <div className={route.page === 'flow' || route.page === 'work' ? 'app app-screen' : 'app'}>
+      <div className={route.page === 'flow' || route.page === 'work' || route.page === 'works' ? 'app app-screen' : 'app'}>
         <TopBar route={route} slot={setSlot} />
         <main>
-          {route.page === 'works' ? <Works /> : null}
-          {route.page === 'work' ? <Work id={route.id} round={route.round} cell={route.cell} /> : null}
+          {route.page === 'works' ? <Works selected={null} round={null} cell={null} /> : null}
+          {route.page === 'work' ? <Works selected={route.id} round={route.round} cell={route.cell} /> : null}
           {route.page === 'items' ? <Items /> : null}
           {route.page === 'item' ? <Item id={route.id} /> : null}
           {route.page === 'messages' ? <Messages /> : null}

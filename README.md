@@ -47,9 +47,10 @@ Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude c
 ## The owner's page
 
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). `--mode` sets how the
-engine starts dispatching, and the page switches it while `run` runs: `run` takes every work as far as it can, `step`
-takes one round each time the owner asks for one on the page, and `hold` starts nothing, which is how the page is
-looked at against a copy of the data. `npm run dev` in `client/` serves the page from its sources and passes the
+engine starts dispatching, and the engine's state in the page's bar switches it while `run` runs: `run` takes every
+work as far as it can, and `hold` starts nothing by itself, which is how the page is looked at against a copy of the
+data. While it holds, a work's page runs that work's next round when the owner asks, after showing what it will
+be. `npm run dev` in `client/` serves the page from its sources and passes the
 interface's requests to a running `wf-agents run`.
 
 The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read

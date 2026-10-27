@@ -183,7 +183,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     (e.say)(&format!("work {} cell {}: round {round} of the {line}", w.id, cell.id));
-    let reply = e.agents.run(&req);
+    let reply = e.agents.run(&req, &|what: &str| (e.activity)(w.id, round, what));
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
         e.db.write(Actor::Engine, |tx| {
@@ -348,6 +348,46 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         columns,
         number,
         msg,
+    })
+}
+
+/// What a work's next round would be, as the engine would take it now, with nothing run or recorded: its cell, and
+/// for an agent's round the message the agent would be sent.
+pub struct NextRound {
+    pub cell: String,
+    pub title: String,
+    /// agent, engine, tool or owner.
+    pub kind: String,
+    pub line: Option<String>,
+    pub message: Option<String>,
+    pub step: Option<String>,
+}
+
+pub fn next_round(e: &mut Engine, work: i64) -> Result<NextRound, String> {
+    let w = e.work(work)?;
+    if w.ended.is_some() || w.paused.is_some() || e.done(&w)? {
+        return Err(format!("work {work} has no next round: it is ended, paused or done"));
+    }
+    let g = e.graph_of(&w)?;
+    let cell = g
+        .cell(&w.pos.at)
+        .cloned()
+        .ok_or_else(|| format!("work {work} is at no such cell: {}", w.pos.at))?;
+    let message = if cell.kind == "agent" {
+        Some(next_message(e, work)?.text)
+    } else {
+        None
+    };
+    Ok(NextRound {
+        title: cell.title.clone(),
+        kind: cell.kind.clone(),
+        line: cell
+            .line
+            .clone()
+            .or_else(|| (cell.kind == "agent").then(|| "engineer".to_string())),
+        step: cell.step.clone(),
+        message,
+        cell: cell.id,
     })
 }
 

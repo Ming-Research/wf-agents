@@ -1,18 +1,36 @@
-// Every work: those running or waiting first, then those that have ended.
+// Every work, and below the list the one picked: those running or waiting at the top, in an area four rows high
+// that scrolls and whose height can be dragged; those that have ended folded under them, opening to a list that
+// scrolls the same way. A work picked from either opens its chart and rounds below, and the list stays.
+
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { WorkSummary } from '../api';
 import { Loaded, WorkBadge } from '../components';
 import { cost, duration, time } from '../format';
 import { useResource } from '../live';
-import { Link, navigate } from '../route';
+import { navigate } from '../route';
 import { t } from '../text';
+import { Work } from './Work';
 
 const ENDED = new Set(['done', 'ended']);
 
-function Table({ works }: { works: WorkSummary[] }) {
+/// The height of a list's area: a header and four rows.
+const FOUR_ROWS = 4 * 33 + 30;
+
+/// A list's height as the owner dragged it, kept in this browser where it lets the page keep it.
+function savedHeight(key: string): number {
+  try {
+    const v = Number(window.localStorage.getItem(`wf-agents.works-height.${key}`));
+    return Number.isFinite(v) && v >= 60 ? v : FOUR_ROWS;
+  } catch {
+    return FOUR_ROWS;
+  }
+}
+
+function Table({ works, selected }: { works: WorkSummary[]; selected: number | null }) {
   const now = Date.now();
   return (
-    <table className="list">
+    <table className="list works-table">
       <thead>
         <tr>
           <th>{t('col_work')}</th>
@@ -29,10 +47,12 @@ function Table({ works }: { works: WorkSummary[] }) {
       </thead>
       <tbody>
         {works.map((w) => (
-          <tr key={w.id} className="clickable" onClick={() => navigate(`/works/${w.id}`)}>
-            <td>
-              <Link to={`/works/${w.id}`}>#{w.id}</Link>
-            </td>
+          <tr
+            key={w.id}
+            className={`clickable${w.id === selected ? ' selected' : ''}`}
+            onClick={() => navigate(`/works/${w.id}`)}
+          >
+            <td>#{w.id}</td>
             <td>
               {w.item !== null ? (
                 <span>
@@ -72,28 +92,77 @@ function Table({ works }: { works: WorkSummary[] }) {
   );
 }
 
-export function Works() {
+/// A list in an area of its own that scrolls, with a grip under it that drags its height.
+function Scroll({ name, works, selected }: { name: string; works: WorkSummary[]; selected: number | null }) {
+  const [height, setHeight] = useState(() => savedHeight(name));
+  const from = useRef<{ y: number; h: number } | null>(null);
+  const grip = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    from.current = { y: e.clientY, h: height };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (from.current === null) return;
+    setHeight(Math.max(60, from.current.h + e.clientY - from.current.y));
+  };
+  const up = () => {
+    if (from.current === null) return;
+    from.current = null;
+    try {
+      window.localStorage.setItem(`wf-agents.works-height.${name}`, String(height));
+    } catch {
+      // The height is kept only where the browser lets it be.
+    }
+  };
+  if (works.length === 0) return <p className="muted works-none">{t('none')}</p>;
+  return (
+    <>
+      <div className="works-scroll" style={{ height }}>
+        <Table works={works} selected={selected} />
+      </div>
+      <div
+        className="works-grip"
+        role="separator"
+        aria-orientation="horizontal"
+        title={t('works_drag')}
+        onPointerDown={grip}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+      />
+    </>
+  );
+}
+
+export function Works({ selected, round, cell }: { selected: number | null; round: number | null; cell: string | null }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   return (
-    <div className="page">
-      <h1>{t('works_title')}</h1>
-      <Loaded r={works}>
-        {(all) => {
-          if (all.length === 0) return <p className="muted">{t('no_works')}</p>;
-          const active = all.filter((w) => !ENDED.has(w.state)).sort((a, b) => b.id - a.id);
-          const ended = all
-            .filter((w) => ENDED.has(w.state))
-            .sort((a, b) => (b.last_at ?? 0) - (a.last_at ?? 0));
-          return (
-            <>
-              <h2>{t('works_active')}</h2>
-              {active.length > 0 ? <Table works={active} /> : <p className="muted">{t('none')}</p>}
-              <h2>{t('works_ended')}</h2>
-              {ended.length > 0 ? <Table works={ended} /> : <p className="muted">{t('none')}</p>}
-            </>
-          );
-        }}
-      </Loaded>
+    <div className="works-screen">
+      <div className="works-lists">
+        <Loaded r={works}>
+          {(all) => {
+            const active = all.filter((w) => !ENDED.has(w.state)).sort((a, b) => b.id - a.id);
+            const ended = all
+              .filter((w) => ENDED.has(w.state))
+              .sort((a, b) => (b.last_at ?? 0) - (a.last_at ?? 0));
+            return (
+              <>
+                <div className="works-label">
+                  {t('works_active')} ({active.length})
+                </div>
+                <Scroll name="active" works={active} selected={selected} />
+                <details className="works-ended">
+                  <summary className="works-label">
+                    {t('works_ended')} ({ended.length})
+                  </summary>
+                  <Scroll name="ended" works={ended} selected={selected} />
+                </details>
+              </>
+            );
+          }}
+        </Loaded>
+      </div>
+      {selected !== null ? <Work id={selected} round={round} cell={cell} /> : null}
     </div>
   );
 }

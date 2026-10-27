@@ -6,39 +6,49 @@ export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in
 /**
  * How the engine dispatches: what it starts, and when.
  */
-export type Mode = "run" | "step" | "hold";
+export type Mode = "run" | "hold";
 
 /**
- * One step the engine took in step mode, and what it came to.
+ * The next round of a work the owner asked for while the engine held, and what it came to.
  */
 export type StepTaken = { 
 /**
- * When the step ended.
+ * When the round ended.
  */
-at: number, 
+at: number, work: number, 
 /**
- * The work it took a step of; none when no work had a step to take.
- */
-work: number | null, 
-/**
- * The item the step started that work on, when the step started it.
- */
-started_item: number | null, 
-/**
- * The rounds the step started or ended, and the cell of the last of them.
+ * The rounds it started or ended, and the cell of the last of them.
  */
 rounds: Array<number>, cell: string | null, };
+
+/**
+ * What a work's next round would be, as the engine would take it now, with nothing run or recorded.
+ */
+export type NextRound = { work: number, cell: string, title: string, 
+/**
+ * agent, engine, tool or owner: an agent's round, a step of the engine's own, a run of tools, or an ask of the
+ * owner.
+ */
+kind: string, 
+/**
+ * For an agent's round: the line it runs on, and the message the agent would be sent.
+ */
+line: string | null, message: string | null, 
+/**
+ * For a step of the engine's own: which.
+ */
+step: string | null, };
 
 /**
  * The engine as it runs now, and what the page needs of the installation.
  */
 export type Status = { mode: Mode, 
 /**
- * In step mode: whether the step the owner asked for is under way.
+ * While the engine holds: the work whose next round the owner asked for, while it is under way.
  */
-stepping: boolean, 
+stepping: number | null, 
 /**
- * The last step taken in step mode since the engine started.
+ * The last round the owner asked for since the engine started.
  */
 last_step: StepTaken | null, 
 /**
@@ -90,7 +100,7 @@ why: string, };
  * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
  * reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "activity", work: number, round: number, what: string, at: number, };
 
 /**
  * Where a work stands.

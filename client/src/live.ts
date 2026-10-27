@@ -7,16 +7,24 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { Event, Status } from './api';
 import { getJson } from './http';
 
+/// What a running agent did, as its command line reported it.
+export type Activity = { round: number; what: string; at: number };
+
 type State = {
   online: boolean;
   status: Status | null;
+  /// The last things each work's running agent did, newest last, by work.
+  activity: Map<number, Activity[]>;
   /// How many times each thing read was named by an event; a key `kind:*` stands for every `kind:<id>`.
   versions: Map<string, number>;
   /// Bumped when everything is to be read again.
   epoch: number;
 };
 
-let state: State = { online: false, status: null, versions: new Map(), epoch: 0 };
+let state: State = { online: false, status: null, activity: new Map(), versions: new Map(), epoch: 0 };
+
+/// How many of a work's latest activities are kept.
+const ACTIVITIES = 8;
 const listeners = new Set<() => void>();
 
 function set(next: Partial<State>) {
@@ -86,6 +94,11 @@ export function connect(): void {
     }
     if (e.kind === 'status') {
       set({ status: e.status, online: true });
+    } else if (e.kind === 'activity') {
+      const activity = new Map(state.activity);
+      const was = (activity.get(e.work) ?? []).filter((a) => a.round === e.round);
+      activity.set(e.work, [...was, { round: e.round, what: e.what, at: e.at }].slice(-ACTIVITIES));
+      set({ activity });
     } else if (e.kind === 'resync' || (e.kind === 'ready' && ready)) {
       // What was read may be out of date: read everything again.
       set({ epoch: state.epoch + 1 });
@@ -103,6 +116,13 @@ export function connect(): void {
 export function reread(...keys: string[]): void {
   bump(...keys);
 }
+
+/// What a work's running agent did last, newest last; empty when nothing was reported since the page opened.
+export function useActivity(work: number): Activity[] {
+  return useSyncExternalStore(subscribe, () => state.activity.get(work) ?? NONE);
+}
+
+const NONE: Activity[] = [];
 
 export function useOnline(): boolean {
   return useSyncExternalStore(subscribe, () => state.online);

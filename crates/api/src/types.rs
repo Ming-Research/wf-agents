@@ -12,33 +12,45 @@ use ts_rs::TS;
 pub enum Mode {
     /// It takes every work as far as it can, pass after pass.
     Run,
-    /// It takes one step when the owner asks for one, and then waits for the next ask.
-    Step,
-    /// It starts nothing: no round, no tool, no outbox action.
+    /// It starts nothing by itself: no round, no tool, no outbox action, except the next round of a work the owner
+    /// asks for on the work's page.
     Hold,
 }
 
-/// One step the engine took in step mode, and what it came to.
+/// The next round of a work the owner asked for while the engine held, and what it came to.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StepTaken {
-    /// When the step ended.
+    /// When the round ended.
     pub at: i64,
-    /// The work it took a step of; none when no work had a step to take.
-    pub work: Option<i64>,
-    /// The item the step started that work on, when the step started it.
-    pub started_item: Option<i64>,
-    /// The rounds the step started or ended, and the cell of the last of them.
+    pub work: i64,
+    /// The rounds it started or ended, and the cell of the last of them.
     pub rounds: Vec<i64>,
     pub cell: Option<String>,
+}
+
+/// What a work's next round would be, as the engine would take it now, with nothing run or recorded.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NextRound {
+    pub work: i64,
+    pub cell: String,
+    pub title: String,
+    /// agent, engine, tool or owner: an agent's round, a step of the engine's own, a run of tools, or an ask of the
+    /// owner.
+    pub kind: String,
+    /// For an agent's round: the line it runs on, and the message the agent would be sent.
+    pub line: Option<String>,
+    pub message: Option<String>,
+    /// For a step of the engine's own: which.
+    pub step: Option<String>,
 }
 
 /// The engine as it runs now, and what the page needs of the installation.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Status {
     pub mode: Mode,
-    /// In step mode: whether the step the owner asked for is under way.
-    pub stepping: bool,
-    /// The last step taken in step mode since the engine started.
+    /// While the engine holds: the work whose next round the owner asked for, while it is under way.
+    pub stepping: Option<i64>,
+    /// The last round the owner asked for since the engine started.
     pub last_step: Option<StepTaken>,
     /// The slots of every machine together, and how many of them works hold.
     pub slots: i64,
@@ -95,6 +107,14 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
+    /// What the agent of a running round is doing now, as its command line reports it: a tool it uses, or what it
+    /// says.
+    Activity {
+        work: i64,
+        round: i64,
+        what: String,
+        at: i64,
+    },
 }
 
 /// Where a work stands.
