@@ -1,0 +1,137 @@
+// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works and cards.
+
+import type { ItemDetail, LinkedItem } from '../api';
+import { Facts, ItemBadge, Json, Loaded, Section, WorkBadge } from '../components';
+import { cost, time } from '../format';
+import { useResource } from '../live';
+import { Link } from '../route';
+import { useT } from '../text';
+
+function Linked({ list }: { list: LinkedItem[] }) {
+  const t = useT();
+  if (list.length === 0) return <p className="muted">{t('none')}</p>;
+  return (
+    <ul className="linked">
+      {list.map((l) => (
+        <li key={l.item.id}>
+          <Link to={`/items/${l.item.id}`}>
+            #{l.item.id} {l.item.title}
+          </Link>{' '}
+          <ItemBadge state={l.item.state} />
+          <div className="muted">{l.needs}</div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Detail({ d }: { d: ItemDetail }) {
+  const t = useT();
+  const i = d.item;
+  return (
+    <>
+      <header className="work-head">
+        <h1>
+          {t('item_title', { id: i.id })} <span className="head-item">{i.title}</span>
+          <ItemBadge state={i.state} />
+        </h1>
+        <div className="head-facts">
+          <span>{i.project}</span>
+          <span>
+            {t('col_level')} {i.level}
+          </span>
+          <span>
+            {t('col_deliver')} {i.deliver}
+          </span>
+          {i.queued !== null ? (
+            <span>
+              {t('col_queued')} {i.queued}
+            </span>
+          ) : null}
+          {i.pr !== null ? <span>PR #{i.pr}</span> : null}
+        </div>
+        {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
+      </header>
+      <Section title={t('problem')}>
+        <pre className="j-text">{d.problem}</pre>
+      </Section>
+      <Section title={t('why')}>
+        <pre className="j-text">{d.why}</pre>
+      </Section>
+      {d.approach !== null ? (
+        <Section title={t('approach')}>
+          <pre className="j-text">{d.approach}</pre>
+        </Section>
+      ) : null}
+      <Section title={t('acceptance')}>
+        {d.acceptance !== null ? <Json value={d.acceptance} /> : <p className="muted">{t('not_locked')}</p>}
+      </Section>
+      <div className="two">
+        <Section title={t('depends_on')}>
+          <Linked list={d.depends_on} />
+        </Section>
+        <Section title={t('depended_on_by')}>
+          <Linked list={d.depended_on_by} />
+        </Section>
+      </div>
+      <Section title={t('works')}>
+        {d.works.length === 0 ? (
+          <p className="muted">{t('none')}</p>
+        ) : (
+          <table className="list">
+            <tbody>
+              {d.works.map((w) => (
+                <tr key={w.id}>
+                  <td>
+                    <Link to={`/works/${w.id}`}>#{w.id}</Link>
+                  </td>
+                  <td>
+                    <WorkBadge state={w.state} />
+                  </td>
+                  <td>
+                    <span className="cell-id">{w.at}</span> {w.at_title}
+                  </td>
+                  <td>{time(w.started_at)}</td>
+                  <td className="num">{w.rounds}</td>
+                  <td className="num">{cost(w.cost_usd)}</td>
+                  <td>{w.pr !== null ? `PR #${w.pr}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+      {d.cards.length > 0 ? (
+        <Section title={t('cards')}>
+          {d.cards.map((c) => (
+            <div key={c.id} className="card-box">
+              <Facts
+                rows={[
+                  ['#', c.id],
+                  [t('col_state'), `${c.kind} · ${c.status}`],
+                  [
+                    t('round_title', { id: c.round }),
+                    <Link key="r" to={`/works/${c.work}?round=${c.round}`}>
+                      {t('work_title', { id: c.work })}
+                    </Link>,
+                  ],
+                ]}
+              />
+              <Json value={c.body} />
+              <Json value={c.rulings} />
+            </div>
+          ))}
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+export function Item({ id }: { id: number }) {
+  const item = useResource<ItemDetail>(`item:${id}`, `/api/v1/items/${id}`);
+  return (
+    <div className="page">
+      <Loaded r={item}>{(d) => <Detail d={d} />}</Loaded>
+    </div>
+  );
+}
