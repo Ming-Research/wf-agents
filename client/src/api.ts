@@ -356,7 +356,7 @@ reply?: JsonValue, };
  * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
  * decisions, all sent at once.
  */
-export type Ruling = {
+export type Ruling = { 
 /**
  * One for each decision of the design card.
  */
@@ -365,19 +365,19 @@ decisions: Array<DecisionRuling>, };
 /**
  * The ruling on one decision of a design card.
  */
-export type DecisionRuling = {
+export type DecisionRuling = { 
 /**
  * The decision's number on the design card, from 1.
  */
-decision: number,
+decision: number, 
 /**
  * confirm or disagree.
  */
-verdict: string,
+verdict: string, 
 /**
  * Why, for a disagreement; it may be left out when another approach is chosen.
  */
-text?: string,
+text?: string, 
 /**
  * For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
  */
@@ -935,12 +935,12 @@ within: string,
 /**
  * The cells of the asking part, and the one that receives answers to the cells of its line.
  */
-asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null,
+asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
 /**
  * The kinds of question that only a project meeting a need can meet: an agent working on a project that does
  * not meet it is not told of the kind.
  */
-ask_needs?: Array<AskNeed>,
+ask_needs?: Array<AskNeed>, 
 /**
  * How every agent's return is written, which the forms every return shares say once.
  */
@@ -969,11 +969,11 @@ export type CompiledInterject = { name: string, desc: string, text: Array<string
 /**
  * A kind of question only a project meeting a need can meet.
  */
-export type AskNeed = { kind: string,
+export type AskNeed = { kind: string, 
 /**
  * One of `engine.needs`.
  */
-need: string,
+need: string, 
 /**
  * The kind with what it means, as a return format's description of the field that names a kind says it: what
  * is taken out of that description when the kind is left out.
@@ -1041,12 +1041,12 @@ shown?: Array<string>,
  */
 read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
 
-export type CompiledInput = { id: string | null,
+export type CompiledInput = { id: string | null, 
 /**
  * For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
  * the forms every return shares say what it is.
  */
-name?: string | null,
+name?: string | null, 
 /**
  * For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
  */
