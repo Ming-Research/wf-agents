@@ -29,6 +29,13 @@ Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as er
 compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it).
 
+## The agents' own configuration
+
+The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for
+`claude`), so the owner's own settings, memory, plugins and tool servers never reach an agent. It is `agents/<cli>` in
+the data directory unless the CLI's `config_dir` in `install.toml` names another, and the engine keeps it out of git.
+Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude claude`, then `/login`.
+
 ## The owner's page
 
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). `--mode` sets how the
