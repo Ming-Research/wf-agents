@@ -1,11 +1,12 @@
 // A work's page, under its line above the chart, which holds its facts and the owner's controls: the state machine of
 // the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
 // on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
-// it took standing out, the cell a round runs at breathing and the cell a work held back stands at marked. The column
-// holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by itself,
-// its next round with the Step that runs it; its design cards, the one waiting for the owner's ruling first with its
-// controls; and its messages, the asks waiting for the owner's answer first with their forms, then what its agents and
-// the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought into view.
+// it took standing out, the cell a round runs at in a moving halo and the cell a work held back stands at marked. The
+// column holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by
+// itself, its next round with the Step that runs it; its design cards, the one waiting for the owner's ruling first
+// with its controls; and its messages, the asks waiting for the owner's answer first with their forms, then what its
+// agents and the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought
+// into view.
 
 import { useEffect, useRef, useState } from 'react';
 

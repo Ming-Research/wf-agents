@@ -1218,29 +1218,123 @@ svg.fc {
   stroke-width: 2.5;
 }
 
-/* The ring of the cell a round runs at breathes, calmly, so that the eye finds it; still for who asks for less
-   motion. */
 .fc-ring-running {
   stroke: var(--good);
-  animation: fc-breathe 2.4s ease-in-out infinite;
 }
 
-@keyframes fc-breathe {
+/* The cell a round runs at wears a wide halo, so that the eye finds it at once, at the zoom a work's chart opens at
+   and over the whole chart: a blurred glow whose colour changes, three arcs of colour running round the cell, and a
+   ring spreading outwards from it. For who asks for less motion, the same glow and arcs, still. Only the running cell
+   has it. */
+.fc-halo {
+  pointer-events: none;
+}
+
+.fc-halo rect {
+  fill: none;
+}
+
+.fc-halo-glow {
+  stroke: #ff2d95;
+  stroke-width: 26;
+  stroke-opacity: 0.7;
+  animation: fc-halo-hue 3s linear infinite;
+}
+
+.fc-halo-pulse {
+  stroke: #ff2d95;
+  stroke-width: 6;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    fc-halo-pulse 1.6s ease-out infinite,
+    fc-halo-hue 3s linear infinite;
+}
+
+.fc-halo-arc {
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 20 80;
+  animation: fc-halo-run 2.4s linear infinite;
+}
+
+.fc-halo-a {
+  stroke: #ff2d95;
+}
+
+.fc-halo-b {
+  stroke: #ffb300;
+  stroke-dashoffset: -33.3;
+  animation-delay: -0.8s;
+}
+
+.fc-halo-c {
+  stroke: #00c2ff;
+  stroke-dashoffset: -66.7;
+  animation-delay: -1.6s;
+}
+
+.fc-halo-small .fc-halo-glow {
+  stroke-width: 4;
+}
+
+.fc-halo-small .fc-halo-pulse {
+  stroke-width: 1.5;
+}
+
+.fc-halo-small .fc-halo-arc {
+  stroke-width: 2;
+}
+
+@keyframes fc-halo-hue {
   0%,
   100% {
-    stroke-opacity: 1;
-    stroke-width: 2.5;
+    stroke: #ff2d95;
+  }
+
+  25% {
+    stroke: #ffb300;
   }
 
   50% {
-    stroke-opacity: 0.35;
-    stroke-width: 5;
+    stroke: #00c2ff;
+  }
+
+  75% {
+    stroke: #8a5cff;
+  }
+}
+
+@keyframes fc-halo-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes fc-halo-run {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -100;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fc-ring-running {
+  .fc-halo-glow,
+  .fc-halo-arc {
     animation: none;
+  }
+
+  .fc-halo-pulse {
+    display: none;
   }
 }
 

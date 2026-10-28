@@ -5,7 +5,7 @@
 // in it. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its
 // target.
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph } from '../api';
 import { t } from '../text';
@@ -200,6 +200,7 @@ function CellShape({ n, cell, box, lines, marks }: {
   return (
     <g className={cls} data-node={n.id}>
       <title>{marks.overlays && !o ? `${name}: ${t('chart_unvisited')}` : name}</title>
+      {o?.current && o.running ? <Halo box={box} round={round} /> : null}
       {o?.current ? (
         <rect
           className={o.running ? 'fc-ring fc-ring-running' : 'fc-ring'}
@@ -228,6 +229,33 @@ function CellShape({ n, cell, box, lines, marks }: {
       ) : null}
       {o?.current && o.held !== null ? <HeldMark x={box.x - RING - 4} y={box.y - 10} why={o.held} /> : null}
       {badges}
+    </g>
+  );
+}
+
+/// The halo round the cell a round runs at, so that the eye finds it at any zoom: a wide blurred glow whose colour
+/// changes, three arcs of colour running round the cell and a ring spreading outwards from it; still, in the same
+/// colours, for a browser that asks for less motion (the styles say how it moves). `small` draws it for the legend.
+export function Halo({ box, round, small = false }: { box: Box; round: boolean; small?: boolean }) {
+  const blur = `fc-halo-blur-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const unit = small ? 1 : 4;
+  const at = (pad: number) => ({
+    x: box.x - pad,
+    y: box.y - pad,
+    width: box.width + 2 * pad,
+    height: box.height + 2 * pad,
+    rx: round ? (box.height + 2 * pad) / 2 : 6 + pad / 2,
+  });
+  return (
+    <g className={small ? 'fc-halo fc-halo-small' : 'fc-halo'} aria-hidden="true">
+      <filter id={blur} x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation={small ? 1.5 : 8} />
+      </filter>
+      <rect className="fc-halo-glow" filter={`url(#${blur})`} {...at(3 * unit)} />
+      <rect className="fc-halo-pulse" {...at(RING)} />
+      <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at(small ? 2 : RING + 4)} />
+      <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at(small ? 2 : RING + 4)} />
+      <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at(small ? 2 : RING + 4)} />
     </g>
   );
 }
