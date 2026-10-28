@@ -302,7 +302,17 @@ status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null,
 /**
  * For a design card a newer one replaced: that one, as the engine knows it.
  */
-replaced: Replacement | null, };
+replaced: Replacement | null,
+/**
+ * The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
+ * ended.
+ */
+cell: string | null, title: string | null, at: number | null,
+/**
+ * The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
+ * its agent's.
+ */
+replaces: number | null, changed: string | null, };
 
 /**
  * The design card that replaced another: the round that handed it in, at which cell and when.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, JsonValue, RoundSummary, Status, WorkSummary } from './api';
+import type { CompiledCell, CompiledGraph, CompiledRow, DesignCard, GraphView, JsonValue, RoundSummary, Status, WorkSummary } from './api';
 import { controls, course } from './components';
 import { held } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
@@ -11,7 +11,7 @@ import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './g
 import { ASKING, chart, MAIN, overlays, partsOf, related, roundArrows, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
-import { firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
+import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
@@ -811,6 +811,28 @@ describe('a ruling on a design card', () => {
     expect(verdictLine(2, 'disagree', 'B', 'One table is enough.')).toBe('Decision 2: disagree, choosing B: One table is enough.');
     expect(verdictLine(3, 'disagree', '', 'No.')).toBe('Decision 3: disagree: No.');
     expect(verdictLine(4, null, '', '')).toBe('Decision 4: not ruled yet');
+  });
+
+  it('opens the current card, the one waiting for a ruling or else the newest not replaced, and folds the others', () => {
+    const card = (id: number, status: string): DesignCard => ({
+      id,
+      round: id,
+      work: 9,
+      item: 4,
+      status,
+      body: [],
+      rulings: [],
+      replaced_by: null,
+      replaced: null,
+      cell: null,
+      title: null,
+      at: null,
+      replaces: null,
+      changed: null,
+    });
+    expect(currentCard([card(6, 'replaced'), card(7, 'ruled')])).toBe(7);
+    expect(currentCard([card(6, 'ruled'), card(7, 'open')])).toBe(7);
+    expect(currentCard([card(6, 'replaced')])).toBeNull();
   });
 
   it('titles each decision with its first sentence', () => {

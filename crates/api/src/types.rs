@@ -310,6 +310,15 @@ pub struct DesignCard {
     pub replaced_by: Option<i64>,
     /// For a design card a newer one replaced: that one, as the engine knows it.
     pub replaced: Option<Replacement>,
+    /// The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
+    /// ended.
+    pub cell: Option<String>,
+    pub title: Option<String>,
+    pub at: Option<i64>,
+    /// The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
+    /// its agent's.
+    pub replaces: Option<i64>,
+    pub changed: Option<String>,
 }
 
 /// The design card that replaced another: the round that handed it in, at which cell and when.

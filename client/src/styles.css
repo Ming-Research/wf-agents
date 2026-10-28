@@ -687,10 +687,6 @@ td.clip {
   border-left: 2px solid var(--line);
 }
 
-.box-head {
-  margin-bottom: 4px;
-}
-
 .shape {
   display: grid;
   gap: 6px;
@@ -1842,19 +1838,8 @@ svg.fc {
   flex-wrap: wrap;
 }
 
-.work-item-head {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-
 details.work-old > summary {
   cursor: pointer;
-}
-
-summary > .work-item-head {
-  display: inline-flex;
 }
 
 .rounds-mark:hover {
@@ -3114,74 +3099,226 @@ p.rp-note {
   overflow-wrap: anywhere;
 }
 
-/* A design card and an ask of the owner, as the owner reads them and decides. */
+/* The card every card the page shows the owner shares, a design card and an ask of the owner alike, wherever it is
+   shown: a frame; its head (its name, its status as a chip, the round it came from); a band of where it stands with
+   the owner; and boxes that hold what the agent wrote, word for word, under the page's labels and notes. A folded
+   card is its head on one line. */
 
-.card-view {
-  display: grid;
-  gap: 8px;
+.dc-lead {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
-.card-head p {
-  margin: 2px 0 0;
+.dc {
+  min-width: 0;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
-/* A decision of a design card: a numbered fold under its one-line title. */
-
-.decision {
-  border-left: 3px solid var(--line);
-  padding: 2px 0 2px 10px;
-}
-
-.decision-head {
+.dc-head {
   display: flex;
-  gap: 6px;
-  align-items: baseline;
   flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.dc-head > b {
+  font-size: 15px;
+}
+
+details.dc > summary,
+.dc-dec > summary {
   cursor: pointer;
+  list-style: none;
 }
 
-.decision-n {
-  font-weight: 600;
+details.dc > summary::-webkit-details-marker,
+.dc-dec > summary::-webkit-details-marker {
+  display: none;
 }
 
-.decision-title {
-  font-weight: 600;
-  flex: 1 1 16em;
+details.dc > summary::before,
+.dc-dec > summary::before {
+  content: '▸';
+  color: var(--muted);
 }
 
-.decision-body {
-  display: grid;
-  gap: 6px;
-  padding-top: 6px;
+details.dc[open] > summary::before,
+.dc-dec[open] > summary::before {
+  content: '▾';
 }
 
-.decision-more > summary {
-  cursor: pointer;
+.dc-body {
+  min-width: 0;
 }
 
-.decision-more-body {
-  display: grid;
-  gap: 6px;
-  padding-top: 6px;
+.dc-note {
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
-/* How firm the agent holds a decision: its own view, not a ruling, so in words and no badge. */
-
-.decision-kind {
-  font-size: 12.5px;
-  font-style: italic;
+.dc-st {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
 }
 
-.decision-settled {
+.dc-st-ok,
+.dc-band-ok {
+  background: color-mix(in srgb, var(--good) 15%, transparent);
   color: var(--good);
 }
 
-.decision-provisional {
+.dc-st-wait,
+.dc-band-wait {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
   color: var(--warn);
 }
 
-.decision-to_check {
+.dc-st-old {
+  background: var(--code);
+  color: var(--muted);
+}
+
+.dc-st-no,
+.dc-band-no {
+  background: color-mix(in srgb, var(--bad) 15%, transparent);
   color: var(--bad);
+}
+
+.dc-band {
+  margin: 8px 0 2px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.dc-f {
+  min-width: 0;
+  margin: 8px 0;
+}
+
+.dc-fl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: center;
+}
+
+.dc-fl > b {
+  font-size: 12.5px;
+}
+
+.dc-val {
+  min-width: 0;
+  margin-top: 3px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
+  overflow-wrap: anywhere;
+}
+
+.dc-val > :first-child {
+  margin-top: 0;
+}
+
+.dc-val > :last-child {
+  margin-bottom: 0;
+}
+
+.dc-val-chg {
+  border-color: var(--accent);
+}
+
+.dc-val-was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.dc-val-warn {
+  border-color: var(--warn);
+}
+
+/* A decision of a design card: a numbered fold, its first sentence its title only while folded. */
+.dc-dec {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.dc-dec > summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.dc-dn {
+  font-weight: 700;
+}
+
+.dc-chip {
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dc-chip-settled {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.dc-chip-provisional,
+.dc-chip-to_check {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.dc-node {
+  margin-left: auto;
+}
+
+.dc-dt {
+  flex-basis: 100%;
+  margin-left: 16px;
+  color: var(--muted);
+}
+
+.dc-dec[open] .dc-dt {
+  display: none;
+}
+
+.dc-db {
+  min-width: 0;
+  margin-left: 16px;
+}
+
+.dc-pips {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.dc-pip {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--good);
+  border-radius: 50%;
+}
+
+.dc-pip.on {
+  background: var(--good);
+}
+
+.dc-point {
+  margin: 8px 0;
 }
 
 .decision-label {
@@ -3204,6 +3341,7 @@ p.rp-note {
   padding: 6px 10px;
   display: grid;
   gap: 4px;
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
 }
 
 .option-head {
@@ -3248,14 +3386,6 @@ p.rp-note {
 .pick-hint {
   margin: 0;
   font-size: 12.5px;
-}
-
-.card-replaced {
-  margin: 0;
-}
-
-.card-was > summary {
-  cursor: pointer;
 }
 
 .card-was[open] > summary {
@@ -3310,16 +3440,6 @@ p.rp-note {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-}
-
-.rulings {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.ask-question {
-  font-weight: 600;
-  margin: 0;
 }
 
 .decide {
@@ -3397,6 +3517,3 @@ p.rp-note {
   overflow-x: auto;
 }
 
-.ask-tried {
-  margin-top: 4px;
-}

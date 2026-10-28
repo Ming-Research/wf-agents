@@ -16,7 +16,7 @@ import { useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { Link, workHref } from '../route';
 import { t } from '../text';
-import { AskView, bringIntoView, DesignCardView } from './Decide';
+import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
 
 /// Where a value shown on the item came from: the round and the cell, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
@@ -79,26 +79,14 @@ function Block(props: { title: ReactNode; from?: Shown; open?: boolean; children
   );
 }
 
-function Card({ c }: { c: DesignCard }) {
-  return (
-    <div id={`design-card-${c.id}`} className="boxed">
-      <div className="box-head">
-        <strong>{t('design_card_head', { id: c.id, status: c.status })}</strong> <From x={c} />
-      </div>
-      <DesignCardView c={c} />
-    </div>
-  );
+/// A design card, in the card every card shares, linked to the round that handed it in; folded to its one line unless
+/// it is the item's current card.
+function Card({ c, current }: { c: DesignCard; current: number | null }) {
+  return <DesignCardView c={c} round={<From x={c} />} folded={c.id !== current} />;
 }
 
 function Ask({ a }: { a: OwnerAsk }) {
-  return (
-    <div id={`ask-${a.id}`} className="boxed">
-      <div className="box-head">
-        <strong>{t('ask_head', { id: a.id })}</strong> <From x={a} />
-      </div>
-      <AskView a={a} />
-    </div>
-  );
+  return <AskView a={a} round={<From x={a} />} />;
 }
 
 /// The problem: the engineer's understanding once research has run, the item as its creator wrote it folded under it;
@@ -328,14 +316,16 @@ function Works({ d }: { d: ItemDetail }) {
 /// What the item went through, folded: earlier and replaced design cards, earlier asks, its works, what an import
 /// recorded; nothing when it has none of these.
 function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks: OwnerAsk[] }) {
+  const current = currentCard(d.design_cards);
   const imported = d.imported_from !== null || d.imported_branch !== null;
   if (cards.length === 0 && asks.length === 0 && d.works.length === 0 && !imported) return null;
   return (
     <Section title={t('history')} open={false}>
       {cards.length > 0 ? (
         <Fold title={t('history_cards', { n: cards.length })} open>
+          <p className="dc-lead">{t('dc_lead')}</p>
           {cards.map((c) => (
-            <Card key={c.id} c={c} />
+            <Card key={c.id} c={c} current={current} />
           ))}
         </Fold>
       ) : null}
@@ -406,7 +396,7 @@ function Detail({ d }: { d: ItemDetail }) {
             <Ask key={a.id} a={a} />
           ))}
           {cards.map((c) => (
-            <Card key={c.id} c={c} />
+            <Card key={c.id} c={c} current={c.id} />
           ))}
         </Section>
       ) : null}

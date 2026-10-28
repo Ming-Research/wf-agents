@@ -131,8 +131,8 @@ export function Approaches({ value, chosen }: { value: JsonValue; chosen: string
 /// with `onPick`, a click on a box picks it and a second click clears it.
 export function OptionBoxes(props: {
   options: Obj[];
-  /// The fields under each option's name, each with its label.
-  fields: Array<[string, string]>;
+  /// The fields under each option's name, each with its label, and with another for the option recommended.
+  fields: Array<[string, string] | [string, string, string]>;
   recommended: string;
   /// What the recommended option is called here.
   mark: string;
@@ -175,8 +175,8 @@ export function OptionBoxes(props: {
               {recommended ? <span className="option-recommended">{props.mark}</span> : null}
               {mine ? <span className="option-picked">{t('option_yours')}</span> : null}
             </div>
-            {props.fields.map(([k, label]) => (
-              <Field key={k} label={label} value={o[k]} />
+            {props.fields.map(([k, label, ifRecommended]) => (
+              <Field key={k} label={recommended && ifRecommended !== undefined ? ifRecommended : label} value={o[k]} />
             ))}
           </div>
         );

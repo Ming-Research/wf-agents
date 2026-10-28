@@ -488,8 +488,11 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
 
 /// A design card, with the one that replaced it: the round that handed that one in, and that round's work.
 const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
-       n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph, n.changed
+       n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph, n.changed,
+       cr.cell, coalesce(cr.ended_at, cr.started_at), w.flow_version, w.graph,
+       (SELECT p.id FROM design_cards p WHERE p.replaced_by = c.id ORDER BY p.id DESC LIMIT 1), c.changed
 FROM design_cards c JOIN works w ON w.id = c.work
+LEFT JOIN rounds cr ON cr.work = c.work AND cr.n = c.round
 LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
 LEFT JOIN works nw ON nw.id = n.work";
 
@@ -513,6 +516,7 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) ->
             (Some(version), Some(graph)) => Some((version, graph)),
             _ => None,
         };
+        let own: (i64, String) = (r.get(17)?, r.get(18)?);
         let card = DesignCard {
             id: r.get(0)?,
             round: r.get(1)?,
@@ -523,19 +527,26 @@ fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) ->
             rulings: json(r.get(6)?).unwrap_or(Value::Null),
             replaced_by: by,
             replaced,
+            cell: r.get(15)?,
+            title: None,
+            at: r.get(16)?,
+            replaces: r.get(19)?,
+            changed: r.get(20)?,
         };
-        Ok((card, pinned))
+        Ok((card, pinned, own))
     })?;
+    // The title of a cell in a flow version's graph, when it has the cell.
+    let title = |version: i64, graph: &str, cell: Option<String>| -> Option<String> {
+        let c = flows.get(conn, version).ok()?;
+        Some(c.graph(graph)?.cell(&cell?)?.title.clone())
+    };
     let mut out = Vec::new();
     for row in rows {
-        let (mut card, pinned) = row?;
+        let (mut card, pinned, (version, graph)) = row?;
         if let (Some(x), Some((version, graph))) = (card.replaced.as_mut(), pinned) {
-            let cell = x.cell.clone();
-            x.title = cell.and_then(|cell| {
-                let c = flows.get(conn, version).ok()?;
-                Some(c.graph(&graph)?.cell(&cell)?.title.clone())
-            });
+            x.title = title(version, &graph, x.cell.clone());
         }
+        card.title = title(version, &graph, card.cell.clone());
         out.push(card);
     }
     Ok(out)

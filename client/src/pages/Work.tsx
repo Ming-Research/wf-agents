@@ -31,7 +31,7 @@ import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
 import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
-import { AskView, bringIntoView, DesignCardView, words } from './Decide';
+import { AskView, bringIntoView, currentCard, DesignCardView, words } from './Decide';
 import { markRead } from './Messages';
 import { RoundView } from './RoundView';
 
@@ -370,33 +370,25 @@ function RoundLink({ work, round, onRound }: { work: number; round: number; onRo
   );
 }
 
-/// The work's design cards: the one waiting for the owner's ruling first, with its controls; then the others, newest
-/// first: a replaced one as what replaced it, a ruled one folded to its one line.
+/// The work's design cards, in the card every card shares: the one waiting for the owner's ruling first, then the
+/// others, newest first; the current one (the one waiting, else the newest not replaced) open, every other folded to
+/// its one line.
 function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) => void }) {
   if (cards.length === 0) return <p className="muted">{t('work_no_design_cards')}</p>;
+  const current = currentCard(cards);
   const open = cards.filter((c) => c.status === 'open');
   const rest = cards.filter((c) => c.status !== 'open').reverse();
-  const head = (c: DesignCard) => (
-    <span className="work-item-head">
-      <strong>{t('design_card_head', { id: c.id, status: words(c.status) })}</strong>
-      <RoundLink work={c.work} round={c.round} onRound={onRound} />
-    </span>
-  );
   return (
     <>
-      {[...open, ...rest].map((c) =>
-        c.status === 'open' || c.status === 'replaced' ? (
-          <div key={c.id} id={`design-card-${c.id}`} className="boxed">
-            {head(c)}
-            <DesignCardView c={c} />
-          </div>
-        ) : (
-          <details key={c.id} id={`design-card-${c.id}`} className="boxed work-old">
-            <summary>{head(c)}</summary>
-            <DesignCardView c={c} />
-          </details>
-        ),
-      )}
+      <p className="dc-lead">{t('dc_lead')}</p>
+      {[...open, ...rest].map((c) => (
+        <DesignCardView
+          key={c.id}
+          c={c}
+          round={<RoundLink work={c.work} round={c.round} onRound={onRound} />}
+          folded={c.id !== current}
+        />
+      ))}
     </>
   );
 }
@@ -450,20 +442,11 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
   }
   const waiting = d.asks.filter((a) => a.answer === null);
   const answered = d.asks.filter((a) => a.answer !== null).reverse();
-  const head = (a: OwnerAsk) => (
-    <span className="work-item-head">
-      <strong>{t('ask_head', { id: a.id })}</strong>
-      <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
-      <RoundLink work={a.work} round={a.round} onRound={onRound} />
-    </span>
-  );
+  const round = (a: OwnerAsk) => <RoundLink work={a.work} round={a.round} onRound={onRound} />;
   return (
     <>
       {waiting.map((a) => (
-        <div key={a.id} id={`ask-${a.id}`} className="boxed">
-          {head(a)}
-          <AskView a={a} />
-        </div>
+        <AskView key={a.id} a={a} round={round(a)} />
       ))}
       {[...d.messages].reverse().map((m) => (
         <Told key={`${m.engine ? 'e' : 'a'}${m.id}`} m={m} onRound={onRound} onAsk={onAsk} />
@@ -472,10 +455,7 @@ function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) =
         <details className="boxed work-old">
           <summary>{t('work_answered_asks', { n: answered.length })}</summary>
           {answered.map((a) => (
-            <div key={a.id} id={`ask-${a.id}`} className="boxed">
-              {head(a)}
-              <AskView a={a} />
-            </div>
+            <AskView key={a.id} a={a} round={round(a)} />
           ))}
         </details>
       ) : null}

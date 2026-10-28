@@ -1,25 +1,26 @@
-// What the owner decides on the page. A design card says first how many decisions it holds, the node they share, and
-// that it asks nothing now but is confirmed before the merge; then each decision is a numbered fold under a one-line
-// title, with its kind in words that say it is the agent's view and how sure the agent is: open, the decision and why;
-// folded, the approaches compared and what would overturn it. While it waits for a ruling, the owner rules on each
-// decision (confirm, disagree with a reason, or click another of its approaches to choose it) and sends the verdicts on
-// all of them at once, after a summary of what is sent. A replaced design card says only what replaced it, when, in
-// which round and at which cell, and what changed, its full text folded. An ask of the owner is laid out as what it
-// asks about, each point under its kind coloured by the kind's group, and for a decision the options with the one
-// recommended; while it waits, the owner clicks an option and says what more there is to say. Options and approaches
-// are boxes one under another, each its name over what it does and why. Both write what the command line writes, and
-// the engine goes on at once.
+// What the owner decides on the page: design cards and asks of the owner, which share one card wherever the page
+// shows them (a work's tabs, an item's page, the round panel): a frame whose head says which card it is, its status as
+// a chip and the round it came from; a band that says where it stands with the owner; and boxes that hold what the
+// agent wrote, word for word, each under a label of the page's, with option boxes for approaches and options alike.
+// A design card holds each decision as a numbered fold: its change and kind as chips and its node; then the decision
+// (or what it was and what it becomes, or what it removes), why, what is provisional or to check, the approaches
+// compared with the chosen one first, how sure and what would overturn it. While it waits for a ruling, the owner rules
+// on each decision (confirm, disagree with a reason, or click another of its approaches to choose it) and sends the
+// verdicts on all of them at once, after a summary of what is sent. A replacing card says first what it changed from
+// the one it replaced. An ask of the owner holds what it asks about, each point under its kind coloured by the kind's
+// group, and for a decision the options with the one recommended; while it waits, the owner clicks an option and says
+// what more there is to say. Both write what the command line writes, and the engine goes on at once.
 
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
-import { roundName, time } from '../format';
+import { time } from '../format';
 import { postJson } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Link, navigate, workHref } from '../route';
+import { navigate } from '../route';
 import { t } from '../text';
 
 export { words };
@@ -40,14 +41,73 @@ export function bringIntoView(id: string): boolean {
   return true;
 }
 
-function Text({ label, value }: { label: string; value: JsonValue | undefined }) {
-  const s = str(value);
-  if (s === '') return null;
+/// A card the page shows the owner: open, its head over its body; folded, its head as the one line that opens it.
+export function CardFrame({ id, head, folded = false, children }: {
+  id: string;
+  head: ReactNode;
+  folded?: boolean;
+  children: ReactNode;
+}) {
+  if (folded) {
+    return (
+      <details className="dc dc-folded" id={id}>
+        <summary className="dc-head">{head}</summary>
+        <div className="dc-body">{children}</div>
+      </details>
+    );
+  }
   return (
-    <div className="decision-fact">
-      <span className="decision-label">{label}</span>
-      <Markdown text={s} />
+    <div className="dc" id={id}>
+      <div className="dc-head">{head}</div>
+      <div className="dc-body">{children}</div>
     </div>
+  );
+}
+
+/// How a card stands, as a chip: done with the owner, waiting for the owner, replaced, or disagreed with.
+type Tone = 'ok' | 'wait' | 'old' | 'no';
+
+function StatusChip({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <span className={`dc-st dc-st-${tone}`}>{children}</span>;
+}
+
+/// Where a card stands with the owner, in a band under its head.
+function Band({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <div className={`dc-band dc-band-${tone}`}>{children}</div>;
+}
+
+/// What an agent wrote, word for word, in a box under a label of the page's and its note; `was` strikes it through,
+/// `chg` marks what changes, `warn` what is provisional or to check, and `bare` holds boxes of their own.
+function Box({ label, note = null, tone = null, bare = false, children }: {
+  label: ReactNode;
+  note?: ReactNode;
+  tone?: 'was' | 'chg' | 'warn' | null;
+  bare?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="dc-f">
+      <div className="dc-fl">
+        <b>{label}</b>
+        {note !== null ? <span className="dc-note">{note}</span> : null}
+      </div>
+      {bare ? children : <div className={`dc-val${tone !== null ? ` dc-val-${tone}` : ''}`}>{children}</div>}
+    </div>
+  );
+}
+
+/// A text the agent wrote, in a box, when it wrote one.
+function TextBox({ label, note = null, tone = null, value }: {
+  label: ReactNode;
+  note?: ReactNode;
+  tone?: 'was' | 'chg' | 'warn' | null;
+  value: JsonValue | undefined;
+}) {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) return null;
+  return (
+    <Box label={label} note={note} tone={tone}>
+      {typeof value === 'string' ? <Markdown text={value} /> : <Labelled value={value} />}
+    </Box>
   );
 }
 
@@ -59,19 +119,6 @@ export function firstSentence(text: string): string {
   const m = /^(.+?(?:[.!?](?=\s|$)|[。！？]))/.exec(line);
   const one = m !== null ? m[1] : line;
   return one.length > 120 ? `${one.slice(0, 119)}…` : one;
-}
-
-/// How firm the agent holds a decision, in words that say it is the agent's view and not a ruling.
-function kindWords(d: Obj): string {
-  switch (str(d.settled)) {
-    case 'settled':
-      return t('kind_settled');
-    case 'provisional':
-      return t('kind_provisional', { what: firstSentence(str(d.uncertain)) });
-    case 'to_check':
-      return t('kind_to_check', { what: firstSentence(str(d.assume)) });
-  }
-  return words(str(d.settled));
 }
 
 /// What the owner set for one decision before sending: a verdict, and for a disagreement why and any approach chosen
@@ -146,99 +193,144 @@ function RuleDecision({ v, set }: { v: Verdict; set: (v: Verdict) => void }) {
   );
 }
 
-/// One decision of a design card, a numbered fold under a one-line title, with whether it is new, how firm the agent
-/// holds it and how sure it is: open, the decision and why (and what it was, when it changes one); folded, the
-/// approaches compared, which the owner may click to choose one for this decision, how sure and what would overturn it.
-function Decision(props: { d: Obj; n: number; showNode: boolean; v: Verdict | null; set: ((v: Verdict) => void) | null }) {
+/// How sure the agent is, as five pips with the number filled.
+function Pips({ n }: { n: number }) {
+  return (
+    <span className="dc-pips" aria-label={`${n}/5`}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <span key={i} className={i <= n ? 'dc-pip on' : 'dc-pip'} />
+      ))}
+    </span>
+  );
+}
+
+/// The approaches compared, the chosen one first.
+function chosenFirst(options: Obj[], chosen: string): Obj[] {
+  return [...options.filter((o) => str(o.name) === chosen), ...options.filter((o) => str(o.name) !== chosen)];
+}
+
+/// One decision of a design card, a numbered fold: its change and kind as chips and its node, its first sentence as
+/// its title while folded; open, in boxes, the decision (what it was and what it becomes for a change, what it removes
+/// for a removal), why, what is provisional or to check, the approaches compared with the chosen one first (which the
+/// owner may click to choose one for this decision), how sure and what would overturn it.
+function Decision(props: { d: Obj; n: number; v: Verdict | null; set: ((v: Verdict) => void) | null }) {
   const { d, n, v, set } = props;
   const change = str(d.change);
-  const options = Array.isArray(d.options) ? d.options.filter(isObj) : [];
+  const settled = str(d.settled);
   const chosen = str(d.chosen);
-  const sure = str(d.sure);
+  const options = chosenFirst(Array.isArray(d.options) ? d.options.filter(isObj) : [], chosen);
+  const sure = Number(str(d.sure));
   const decision = change === 'remove' ? d.before : d.after;
   const pick = set !== null && v !== null ? (name: string) => set(pickApproach(v, name, chosen)) : null;
+  const warn = settled === 'provisional' || settled === 'to_check' ? 'warn' : null;
   return (
-    <details className="decision" open>
-      <summary className="decision-head">
-        <span className="decision-n">{n}.</span>
-        <span className="decision-title">
+    <details className="dc-dec" open>
+      <summary>
+        <span className="dc-dn">{n}</span>
+        {change !== '' ? (
+          <span className="dc-chip">{change === 'add' ? t('dc_new') : change === 'remove' ? t('dc_removed') : t('dc_changed')}</span>
+        ) : null}
+        {settled !== '' ? (
+          <span className={`dc-chip dc-chip-${settled}`}>
+            {settled === 'settled' ? t('dc_settled') : settled === 'provisional' ? t('dc_provisional') : words(settled)}
+          </span>
+        ) : null}
+        {str(d.node) !== '' ? <code className="dc-node">{str(d.node)}</code> : null}
+        <span className="dc-dt">
           <MarkdownInline text={firstSentence(str(decision))} />
         </span>
-        {change === 'add' ? <span className="badge">{t('decision_new')}</span> : null}
-        {change === 'remove' ? <span className="badge">{t('decision_remove')}</span> : null}
-        <span className={`decision-kind decision-${str(d.settled)}`}>{kindWords(d)}</span>
-        {sure !== '' ? <span className="muted">{t('decision_sure_short', { sure })}</span> : null}
       </summary>
-      <div className="decision-body">
-        {props.showNode ? <code>{str(d.node)}</code> : null}
-        <Text label={t('decision_is')} value={decision} />
-        {change === 'change' ? <Text label={t('decision_before')} value={d.before} /> : null}
-        <Text label={t('decision_why')} value={d.why} />
-        <details className="decision-more">
-          <summary className="muted">{t('decision_more', { n: options.length })}</summary>
-          <div className="decision-more-body">
-            {options.length > 0 ? (
-              <OptionBoxes
-                options={options}
-                fields={[
-                  ['does', t('option_does')],
-                  ['verdict', t('option_verdict')],
-                ]}
-                recommended={chosen}
-                mark={t('decision_chosen')}
-                picked={v?.option ?? ''}
-                onPick={pick}
-              />
-            ) : null}
-            {sure !== '' ? (
-              <Text label={t('decision_sure', { sure })} value={`${t(`sure_${sure}` as 'sure_1')}. ${str(d.sure_why)}`} />
-            ) : null}
-            <Text label={t('decision_overturn')} value={d.overturn} />
-            <Text label={t('decision_uncertain')} value={d.uncertain} />
-            <Text label={t('decision_reopen')} value={d.reopen} />
-            <Text label={t('decision_assume')} value={d.assume} />
-            <Text label={t('decision_check')} value={d.check} />
-            <Text label={t('decision_carried_by')} value={d.carried_by} />
-            <Text label={t('decision_from_parent')} value={d.from_parent} />
-          </div>
-        </details>
+      <div className="dc-db">
+        {change === 'change' ? (
+          <>
+            <TextBox label={t('dc_before')} tone="was" value={d.before} />
+            <TextBox label={t('dc_after')} note={t('dc_decision_note')} tone="chg" value={d.after} />
+          </>
+        ) : change === 'remove' ? (
+          <TextBox label={t('dc_remove')} tone="was" value={d.before} />
+        ) : (
+          <TextBox label={t('dc_decision')} note={t('dc_decision_note')} value={d.after} />
+        )}
+        <TextBox label={t('dc_why')} note={t('dc_why_note')} value={d.why} />
+        <TextBox label={t('decision_uncertain')} tone={warn} value={d.uncertain} />
+        <TextBox label={t('decision_reopen')} tone={warn} value={d.reopen} />
+        <TextBox label={t('decision_assume')} tone={warn} value={d.assume} />
+        <TextBox label={t('decision_check')} tone={warn} value={d.check} />
+        <TextBox label={t('decision_carried_by')} value={d.carried_by} />
+        <TextBox label={t('decision_from_parent')} value={d.from_parent} />
+        {options.length > 0 ? (
+          <Box label={t('dc_approaches')} note={t('dc_approaches_note', { n: options.length })} bare>
+            <OptionBoxes
+              options={options}
+              fields={[
+                ['does', t('option_does')],
+                ['verdict', t('dc_why_not'), t('dc_why_chosen')],
+              ]}
+              recommended={chosen}
+              mark={t('dc_chosen')}
+              picked={v?.option ?? ''}
+              onPick={pick}
+            />
+          </Box>
+        ) : null}
+        {sure >= 1 && sure <= 5 ? (
+          <Box
+            label={t('dc_sure')}
+            note={
+              <>
+                <Pips n={sure} /> {sure}/5 · {t(`sure_${sure}` as 'sure_1')}
+              </>
+            }
+          >
+            <Markdown text={str(d.sure_why)} />
+          </Box>
+        ) : null}
+        <TextBox label={t('decision_overturn')} value={d.overturn} />
         {set !== null && v !== null ? <RuleDecision v={v} set={set} /> : null}
       </div>
     </details>
   );
 }
 
-/// The rulings given, in order: a verdict on each decision, or for one made before rulings were per decision, one on
-/// the card.
-function Rulings({ rulings }: { rulings: JsonValue }) {
-  const list = Array.isArray(rulings) ? rulings.filter(isObj) : [];
-  if (list.length === 0) return null;
+/// The verdicts of a ruling, each decision's, or for one made before rulings were per decision, the card's.
+function verdictsOf(r: Obj): string[] {
+  const each = Array.isArray(r.decisions) ? r.decisions.filter(isObj) : null;
+  if (each === null) return [str(r.verdict)];
+  return each.map((d) => str(d.verdict));
+}
+
+/// How a design card stands: waiting for a ruling, replaced, disagreed with in its latest ruling, or confirmed.
+function cardTone(c: DesignCard): Tone {
+  if (c.status === 'open') return 'wait';
+  if (c.status === 'replaced') return 'old';
+  const list = Array.isArray(c.rulings) ? c.rulings.filter(isObj) : [];
+  const last = list[list.length - 1];
+  return last !== undefined && verdictsOf(last).some((x) => x === 'disagree') ? 'no' : 'ok';
+}
+
+/// The rulings given, each on a line of the band: who ruled and when, and the verdict on each decision.
+function RulingBand({ c }: { c: DesignCard }) {
+  const list = Array.isArray(c.rulings) ? c.rulings.filter(isObj) : [];
+  if (list.length === 0) {
+    return c.status === 'open' ? <Band tone="wait">{t('dc_band_wait')}</Band> : null;
+  }
+  const last = list[list.length - 1];
   return (
-    <ul className="rulings">
+    <Band tone={last !== undefined && verdictsOf(last).includes('disagree') ? 'no' : 'ok'}>
       {list.map((r, i) => {
         const each = Array.isArray(r.decisions) ? r.decisions.filter(isObj) : null;
+        const lines =
+          each !== null
+            ? each.map((d) => verdictLine(Number(d.decision), str(d.verdict), str(d.option), str(d.text)))
+            : [`${str(r.verdict)}${r.option ? ` · ${t('ruling_option', { option: str(r.option) })}` : ''}${str(r.text) !== '' ? `: ${str(r.text)}` : ''}`];
+        const who = str(r.by) === 'owner' ? t('dc_you') : str(r.by);
         return (
-          <li key={i}>
-            <strong>
-              {each !== null ? t('ruling_of', { by: str(r.by) }) : t('ruling_by', { by: str(r.by), verdict: str(r.verdict) })}
-            </strong>
-            {each === null && r.option ? <span> · {t('ruling_option', { option: str(r.option) })}</span> : null}
-            {typeof r.at === 'number' ? <span className="muted"> · {time(r.at)}</span> : null}
-            {each !== null ? (
-              <ul>
-                {each.map((d, j) => (
-                  <li key={j}>
-                    {verdictLine(Number(d.decision), str(d.verdict), str(d.option), str(d.text))}
-                  </li>
-                ))}
-              </ul>
-            ) : str(r.text) !== '' ? (
-              <Markdown text={str(r.text)} />
-            ) : null}
-          </li>
+          <div key={i}>
+            {typeof r.at === 'number' ? t('dc_ruled_at', { who, at: time(r.at) }) : t('dc_ruled', { who })} — {lines.join('; ')}
+          </div>
         );
       })}
-    </ul>
+    </Band>
   );
 }
 
@@ -288,53 +380,6 @@ function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
   );
 }
 
-/// A design card: how many decisions, the node they share, that it asks nothing now and is confirmed before the merge;
-/// each decision; the rulings given; and while it waits, the owner's verdict on each decision and what is sent.
-function CardBody({ c }: { c: DesignCard }) {
-  const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const open = c.status === 'open';
-  const [set, setSet] = useState<Verdict[]>([]);
-  const verdicts = decisions.map((_, i) => set[i] ?? UNSET);
-  const setOne = (i: number) => (v: Verdict) =>
-    setSet(() => verdicts.map((x, j) => (j === i ? v : x)));
-  const nodes = [...new Set(decisions.map((d) => str(d.node)))];
-  const shared = nodes.length === 1 && nodes[0] !== '' ? nodes[0] : null;
-  if (decisions.length === 0) {
-    return (
-      <div className="card-view">
-        <Labelled value={c.body} />
-        <Rulings rulings={c.rulings} />
-      </div>
-    );
-  }
-  return (
-    <div className="card-view">
-      <div className="card-head">
-        <strong>{decisions.length === 1 ? t('card_one_decision') : t('card_decisions', { n: decisions.length })}</strong>
-        {shared !== null ? (
-          <>
-            {' '}
-            <code>{shared}</code>
-          </>
-        ) : null}
-        <p className="muted">{t('card_asks_nothing')}</p>
-      </div>
-      {decisions.map((d, i) => (
-        <Decision
-          key={i}
-          d={d}
-          n={i + 1}
-          showNode={shared === null}
-          v={open ? verdicts[i] : null}
-          set={open ? setOne(i) : null}
-        />
-      ))}
-      <Rulings rulings={c.rulings} />
-      {open ? <RuleForm c={c} verdicts={verdicts} /> : null}
-    </div>
-  );
-}
-
 /// A link to a design card: brought into view where the page shows it, else on its item's page.
 function CardLink({ id, item }: { id: number; item: number | null }) {
   const to = item !== null ? `/items/${item}#design-card-${id}` : null;
@@ -351,36 +396,82 @@ function CardLink({ id, item }: { id: number; item: number | null }) {
   );
 }
 
-/// A replaced design card: what replaced it, when, in which round and at which cell, and what the newer one changed
-/// and why when its agent said; the card as it was, folded.
-function Replaced({ c }: { c: DesignCard }) {
+/// A cell, with its title when known.
+const cellText = (cell: string | null, title: string | null) => (cell === null ? '' : title !== null ? `${cell} ${title}` : cell);
+
+/// A design card as the owner reads and rules on it, in the card every card shares: its head (its number, how it
+/// stands, the round that handed it in, at which cell and when, the card it replaced, and for a replaced one the card
+/// that replaced it); the band of its rulings; what it changed from the card it replaced; each decision; and while it
+/// waits, what the owner sends. `round` is the link to the round that handed it in; a folded card is one line.
+export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
+  const tone = cardTone(c);
+  const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
+  const open = c.status === 'open';
+  const [set, setSet] = useState<Verdict[]>([]);
+  const given = decisions.map((_, i) => set[i] ?? UNSET);
+  const setOne = (i: number) => (v: Verdict) => setSet(() => given.map((x, j) => (j === i ? v : x)));
   const r = c.replaced;
-  const cell = r === null || r.cell === null ? '' : r.title !== null ? `${r.cell} (${r.title})` : r.cell;
+  const where = [
+    c.cell !== null ? t('dc_at', { cell: cellText(c.cell, c.title) }) : null,
+    c.at !== null ? time(c.at) : null,
+  ].filter((x) => x !== null);
+  const head = (
+    <>
+      <b>{t('dc_name', { id: c.id })}</b>
+      <StatusChip tone={tone}>
+        {tone === 'wait' ? t('dc_waits') : tone === 'old' ? t('dc_replaced') : tone === 'no' ? t('dc_disagreed') : t('dc_confirmed')}
+      </StatusChip>
+      {round}
+      <span className="dc-note">
+        {where.join(' · ')}
+        {c.replaces !== null ? (
+          <>
+            {' · '}
+            {t('dc_replaces')} <CardLink id={c.replaces} item={c.item} />
+          </>
+        ) : null}
+        {c.status === 'replaced' ? (
+          r !== null ? (
+            <>
+              {' · '}
+              {t('dc_replaced_by')} <CardLink id={r.design_card} item={c.item} />{' '}
+              {t('dc_replaced_at', { round: `R${r.work}-${r.round}` })}
+              {r.at !== null ? ` · ${time(r.at)}` : ''}
+            </>
+          ) : (
+            <> · {t('card_replaced_none')}</>
+          )
+        ) : null}
+      </span>
+    </>
+  );
   return (
-    <div className="card-view">
-      {r === null ? (
-        <p className="card-replaced muted">{t('card_replaced_none')}</p>
-      ) : (
-        <p className="card-replaced">
-          {t('card_replaced_by')} <CardLink id={r.design_card} item={c.item} />
-          {r.at !== null ? <span className="muted"> · {time(r.at)}</span> : null} ·{' '}
-          <Link to={workHref(r.work, { round: r.round })}>
-            {t('card_replaced_in', { round: roundName(r.work, r.round), cell })}
-          </Link>
-        </p>
-      )}
-      {r?.changed ? <Markdown text={r.changed} /> : null}
-      <details className="card-was">
-        <summary className="muted">{t('card_as_it_was')}</summary>
-        <CardBody c={c} />
-      </details>
-    </div>
+    <CardFrame id={`design-card-${c.id}`} head={head} folded={folded}>
+      <RulingBand c={c} />
+      {c.replaces !== null && c.changed !== null && c.changed.trim() !== '' ? (
+        <TextBox
+          label={t('dc_changed_from', { id: c.replaces })}
+          note={t('dc_changed_note')}
+          tone="chg"
+          value={c.changed}
+        />
+      ) : null}
+      {decisions.length === 0 ? <Labelled value={c.body} /> : null}
+      {decisions.map((d, i) => (
+        <Decision key={i} d={d} n={i + 1} v={open ? given[i] : null} set={open ? setOne(i) : null} />
+      ))}
+      {open && decisions.length > 0 ? <RuleForm c={c} verdicts={given} /> : null}
+    </CardFrame>
   );
 }
 
-/// A design card as the owner reads and rules on it.
-export function DesignCardView({ c }: { c: DesignCard }) {
-  return c.status === 'replaced' ? <Replaced c={c} /> : <CardBody c={c} />;
+/// Which of a list of design cards is open at first: the one waiting for a ruling, else the newest that was not
+/// replaced; every other is folded to its one line.
+export function currentCard(cards: DesignCard[]): number | null {
+  const open = cards.find((c) => c.status === 'open');
+  if (open !== undefined) return open.id;
+  const live = cards.filter((c) => c.status !== 'replaced');
+  return live.length > 0 ? Math.max(...live.map((c) => c.id)) : null;
 }
 
 /// The kind of a point an ask is about, as a chip coloured by the kind's group, so that the sort of question shows at
@@ -452,10 +543,12 @@ function parts(body: Obj): Obj[] {
   return asked.length > 0 ? asked : [body];
 }
 
-/// An ask of the owner as the owner reads and answers it: for each point, its kind as a chip, what it says (its code
-/// kept as code) and what was tried; the choice, when there is one, with the option recommended, which the owner
-/// answers by clicking an option; then the answer, or the form to give it.
-export function AskView({ a }: { a: OwnerAsk }) {
+/// An ask of the owner as the owner reads and answers it, in the card every card shares: its head (its number, whether
+/// it waits, the round that asked); a band saying who answered and when, or that it waits; for each point, its kind as
+/// a chip, what it says and what was tried, in boxes; the choice, when there is one, its question and its options in
+/// option boxes with the one recommended, which the owner answers by clicking an option; then the answer, or the form
+/// to give it. `round` is the link to the round that asked.
+export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; round?: ReactNode; folded?: boolean }) {
   const [picked, setPicked] = useState('');
   const body = isObj(a.body) ? a.body : {};
   const held = parts(body);
@@ -465,54 +558,60 @@ export function AskView({ a }: { a: OwnerAsk }) {
   const answer = a.answer !== null && isObj(a.answer) ? a.answer : null;
   const kind = (k: string): AskKind => a.kinds.find((x) => x.kind === k) ?? { kind: k, group: null };
   const waits = answer === null;
+  const head = (
+    <>
+      <b>{t('ask_head', { id: a.id })}</b>
+      <StatusChip tone={waits ? 'wait' : 'ok'}>{waits ? t('dc_waits') : t('ask_answered')}</StatusChip>
+      {round}
+      {body.to === 'architect' ? <span className="dc-note">{t('ask_for_architect')}</span> : null}
+    </>
+  );
+  const by = answer !== null ? (str(answer.by) === 'owner' ? t('dc_you') : str(answer.by)) : '';
   return (
-    <div className="card-view">
-      {body.to === 'architect' ? <p className="muted">{t('ask_for_architect')}</p> : null}
+    <CardFrame id={`ask-${a.id}`} head={head} folded={folded}>
+      {answer !== null ? (
+        <Band tone="ok">
+          {typeof answer.at === 'number' ? t('dc_answered_at', { who: by, at: time(answer.at) }) : t('dc_answered', { who: by })}
+        </Band>
+      ) : (
+        <Band tone="wait">{t('dc_band_ask_wait')}</Band>
+      )}
       {points.map((p, i) => (
-        <div key={i} className="decision-fact">
-          <div>
-            <KindChip k={kind(str(p.kind))} />
-          </div>
-          <Markdown text={str(p.what)} />
-          {str(p.tried) !== '' ? (
-            <div className="ask-tried">
-              <span className="decision-label">{t('ask_tried_label')}</span>
-              <Markdown text={str(p.tried)} />
-            </div>
-          ) : null}
+        <div key={i} className="dc-point">
+          <KindChip k={kind(str(p.kind))} />
+          <TextBox label={t('dc_what')} value={p.what} />
+          <TextBox label={t('ask_tried_label')} value={p.tried} />
         </div>
       ))}
       {choice !== null ? (
         <>
-          <p className="ask-question">{str(choice.question)}</p>
-          <OptionBoxes
-            options={options}
-            fields={[
-              ['does', t('option_does')],
-              ['cost_risk', t('option_cost')],
-            ]}
-            recommended={str(choice.recommended)}
-            mark={t('ask_recommended')}
-            picked={waits ? picked : ''}
-            onPick={waits ? (name) => setPicked((p) => (p === name ? '' : name)) : null}
-          />
+          <TextBox label={t('dc_question')} value={choice.question} />
+          {options.length > 0 ? (
+            <Box label={t('dc_options')} note={t('dc_options_note', { n: options.length })} bare>
+              <OptionBoxes
+                options={options}
+                fields={[
+                  ['does', t('option_does')],
+                  ['cost_risk', t('option_cost')],
+                ]}
+                recommended={str(choice.recommended)}
+                mark={t('ask_recommended')}
+                picked={waits ? picked : ''}
+                onPick={waits ? (name) => setPicked((p) => (p === name ? '' : name)) : null}
+              />
+            </Box>
+          ) : null}
           {choice.confidence !== undefined ? (
-            <Text label={t('ask_confidence', { n: str(choice.confidence) })} value={choice.confidence_why} />
+            <TextBox label={t('ask_confidence', { n: str(choice.confidence) })} value={choice.confidence_why} />
           ) : null}
         </>
       ) : null}
       {points.length === 0 && choice === null ? <Labelled value={a.body} /> : null}
       {answer !== null ? (
-        <div className="decision-fact">
-          <span className="decision-label">
-            {t('ask_answer_by', { by: str(answer.by) })}
-            {typeof answer.at === 'number' ? ` · ${time(answer.at)}` : ''}
-          </span>
-          <Markdown text={str(answer.text)} />
-        </div>
+        <TextBox label={t('dc_answer')} value={answer.text} />
       ) : (
         <AnswerForm a={a} picked={picked} options={options.length > 0} />
       )}
-    </div>
+    </CardFrame>
   );
 }
