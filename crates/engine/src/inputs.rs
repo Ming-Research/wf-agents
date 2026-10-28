@@ -199,6 +199,39 @@ pub fn gather(
     for x in &cell.inputs {
         let mut parts: Vec<Part> = Vec::new();
         for s in &x.from {
+            // The state of things: the wake's own understanding as its return, with what came since; or the view.
+            if matches!(s, Src::Engine(n) if n == crate::architect::STATE) {
+                let view = Src::Db {
+                    relation: "architect_state".into(),
+                    by: Some("project".into()),
+                };
+                let whole = source(e, w, g, cell, item, &view)?;
+                if answered(e, w, g, "U1")?.is_empty() {
+                    parts.extend(whole);
+                    continue;
+                }
+                for path in ["state", "direction"] {
+                    parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), path.into()))?);
+                }
+                if let Some(p) = whole {
+                    let has = |v: &Value| v.as_array().is_some_and(|xs| xs.iter().any(|x| !x.is_null()));
+                    let since: Vec<Value> = p
+                        .value
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|r| has(&r["learned"]) || has(&r["notes"]))
+                        .map(|r| json!({ "learned": r["learned"], "notes": r["notes"] }))
+                        .collect();
+                    if !since.is_empty() {
+                        parts.push(Part {
+                            origin: p.origin,
+                            value: Value::Array(since),
+                        });
+                    }
+                }
+                continue;
+            }
             // The study of a new policy and the owner's answer to it, when that answer said the policy stays.
             if matches!(s, Src::Engine(n) if n == crate::architect::STAYS) {
                 if crate::architect::policy_stays(e, w, g)? {

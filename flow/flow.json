@@ -2762,6 +2762,7 @@
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
+      "state_of_things": "The state of things as the architect last wrote it, with what it learned and noted since: when the wake's understanding wrote it, as that round handed it in.",
       "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the wake said the policy in force stays.",
       "draft_text": "The text of the policy being set, as the round that last wrote or corrected it handed it in.",
       "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
@@ -12675,8 +12676,7 @@
               "what": "Your state of things as it stands, with what you learned and noted since",
               "from": [
                 {
-                  "db": "architect_state",
-                  "by": "project"
+                  "engine": "state_of_things"
                 }
               ],
               "maybe": true

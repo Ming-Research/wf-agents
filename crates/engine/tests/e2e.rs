@@ -2740,7 +2740,8 @@ fn say(e: &mut Engine, text: &str) {
 // The owner's words wake project p's architect, whose wake goes once through the whole graph: it wakes, finds its new
 // session has not understood the project, understands it, judges the policy and what runs, takes the lone matter on
 // its path, whose item change is collected; the batch is done, its review finds the change sound, and the engine makes
-// it as the architect; the rethink goes on, nothing is left, and the wake wraps up and ends.
+// it as the architect; the rethink goes on, nothing is left, and the wake wraps up and ends, referred to the state of
+// things its session wrote.
 #[test]
 fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     let s = setup("wake");
@@ -2833,6 +2834,9 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
             )
             .unwrap();
     assert!(review.1.is_some(), "{review:?}");
+    // The wrap-up is referred to the state of things its session wrote at the understanding, not given it again.
+    let wrap_up = &inputs_at(&e, wake, "E1")[0];
+    assert_eq!(given_ending(wrap_up, "·U1·state"), Some(false), "{wrap_up}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

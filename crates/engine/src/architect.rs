@@ -61,6 +61,11 @@ pub const INPUTS: [&str; 21] = [
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
 
+/// The input that gives the state of things as the architect last wrote it: when the wake's understanding (U1) wrote
+/// it, as the places of that round's return, which the wake's session holds, with what was learned and noted since read
+/// from `architect_state`; otherwise that view whole.
+pub const STATE: &str = "state_of_things";
+
 /// The input that gives the study of a new policy and the owner's answer to it, as places of the returns of P1 and P2,
 /// when the owner's latest answer to a study in the wake said the policy in force stays; none otherwise.
 pub const STAYS: &str = "policy_stays";
