@@ -837,7 +837,7 @@ answers: number | null, };
 
 /**
  * What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
- * `policy`, while a new policy is set; and since when.
+ * `policy`, while a new policy is set; since when; and for the architect's own hold, why, as it said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
