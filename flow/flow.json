@@ -2574,7 +2574,7 @@
     },
     {
       "name": "query",
-      "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, plans, design cards, rulings and the like. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
+      "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, design cards, rulings and the like. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition",
       "tables": "The tables and views it reads, each with the first line of what it holds. To read one in full, with its columns and what each holds, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
@@ -13005,12 +13005,23 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "what": "Your study before, which the owner read; none the first time",
+              "from": [
+                [
+                  "P1",
+                  "study"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
             "This round studies the new policy: every other matter of this project waits until the policy is set. The policy is the guiding thought for now that the owner derives from the constitution and the state of things; it affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
             "First find out what the owner wants and what for; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works concerned on the board. Answer: how the things concerned stand now, with numbers where there are numbers; which items and projects the new policy touches, and how each is affected, which works stop, change or are wasted; at least three ways, with what follows from each, which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
-            "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions."
+            "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions.",
+            "Questions for the owner go in the study's questions, which the owner answers as it reads the study; hand in ask only for what the study cannot go on without."
           ],
           "out": [
             {
@@ -13249,6 +13260,15 @@
               ]
             },
             {
+              "what": "The project's constitution: its lasting values, from which every decision in it comes; none when the project has none",
+              "from": [
+                {
+                  "engine": "constitution"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "what": "The probes: the questions only, without their answers",
               "from": [
                 {
@@ -13372,7 +13392,7 @@
             }
           ],
           "prompt": [
-            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks."
+            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks. A question the constitution or the architect's rules answer, or that the policy rightly leaves to the architect's judgment, is no gap."
           ],
           "out": [
             {
