@@ -3734,6 +3734,7 @@ details.dc[open] > summary::before,
 .us-chart {
   position: relative;
   width: 100%;
+  margin: 16px 0 20px;
 }
 
 .us-chart svg {
