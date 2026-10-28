@@ -3027,7 +3027,8 @@ fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_ow
 }
 
 // The architect stops a work with engine_op: the engine pauses it, with a reason that says the architect stopped it and
-// why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on.
+// why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
+// release of it: the architect is told in the owner's words.
 #[test]
 fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
@@ -3065,8 +3066,33 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let log = said.borrow().join("\n");
     assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
     assert_eq!((rounds_count(&e), state(&e, item).unwrap().2), (n, Some(why)), "{log}");
-    api::resume(&mut e.db, work).unwrap();
-    assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
+    assert_eq!(
+        api::resume(&mut e.db, work).unwrap(),
+        format!("work {work} goes on; the architect, which had stopped it, is told")
+    );
+    let told: String =
+        e.db.conn()
+            .query_row(
+                "SELECT body ->> 'text' FROM architect_matters WHERE kind = 'owner_words' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(
+        told,
+        format!("I started work {work}, which you had stopped (It waits for the parser): it goes on.")
+    );
+    let rounds_of = |e: &mut Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    let before = rounds_of(&mut e);
+    assert!(
+        steps_until(&mut e, 10, |e| rounds_of(e) > before),
+        "{}",
+        said.borrow().join("\n")
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

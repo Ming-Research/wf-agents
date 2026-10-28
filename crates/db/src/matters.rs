@@ -64,7 +64,7 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     let Some(why) = stopped else {
         return Ok(false);
     };
-    let why = why.trim_start_matches(':').trim();
+    let why = why.trim_start_matches(':').trim().trim_end_matches('.');
     let text = format!("I started work {work}, which you had stopped ({why}): it goes on.");
     let m = Matter {
         kind: "owner_words".into(),
