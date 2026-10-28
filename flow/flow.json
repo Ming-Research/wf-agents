@@ -1796,7 +1796,7 @@
             "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
             "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
             "Subagents only do chores within this round, such as reading documents or searching code: at most `agents.subagents.most` of them, each on a model no larger than your own. They never stand in for an engineer, a reviewer or another cell's agent.",
-            "Read what the question needs, no more: everything you read stays in your session and is read again at each later step. Find the place first (grep, `git diff --stat`, `git log`), then read that range; read a whole file or a whole diff only when all of it is needed. Do not read again what you already read in this session, unless it changed since or the session was compacted since."
+            "Read only what the question needs: find the place first (grep, `git diff --stat`), then read that range, not the whole file or diff. Do not reread what this session already read, unless it changed or the session was compacted since."
           ]
         },
         {
