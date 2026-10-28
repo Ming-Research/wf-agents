@@ -124,7 +124,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}", get(work))
         .route("/api/v1/works/{id}/next", get(next_round))
         .route("/api/v1/works/{id}/step", post(step))
-        .route("/api/v1/works/{id}/start", post(start))
+        .route("/api/v1/works/{id}/start", post(start_work))
         .route("/api/v1/works/{id}/pause", post(pause))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
@@ -287,7 +287,7 @@ async fn step(State(app): State<App>, Path(id): Path<i64>, Json(r): Json<api::Ru
 /// Starts a work, as the owner: it goes on whatever the global state, its own pause lifted by the engine once it may
 /// hold a slot (a work the architect stopped is the owner's release of it, which the architect is told), and its next
 /// round resumes its line's session or starts a new one as the owner chose.
-async fn start(
+async fn start_work(
     State(app): State<App>,
     Path(id): Path<i64>,
     Json(r): Json<api::RunAsk>,
