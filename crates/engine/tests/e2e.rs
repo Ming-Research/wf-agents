@@ -3480,6 +3480,9 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// What a keep-warm ping was given: the command line it ran, and its message.
+type Replayed = (Vec<String>, String);
+
 /// The sessions of a work's line, oldest first: why each started, whether it ended, and the cells of its rounds.
 fn line_sessions(e: &Engine, work: i64, line: &str) -> Vec<(String, bool, String)> {
     let mut st =
@@ -3674,7 +3677,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         "2",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(3.0, 10_000))])),
     );
-    let seen: Rc<RefCell<Vec<(Vec<String>, String)>>> = Rc::default();
+    let seen: Rc<RefCell<Vec<Replayed>>> = Rc::default();
     let pinged = seen.clone();
     scripts.insert(
         "@ping",
