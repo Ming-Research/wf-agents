@@ -259,6 +259,9 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
                 }
+                if let Err(why) = cfg.item_level(text(c, "level")) {
+                    bad(why);
+                }
                 if texts(c, "acceptance").iter().all(|a| a.trim().is_empty()) {
                     bad("it has no acceptance".into());
                 }
@@ -385,6 +388,9 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 item("item", &s, &mut bad);
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
+                }
+                if let Err(why) = cfg.item_level(text(c, "level")) {
+                    bad(why);
                 }
             }
             "add_segment" => {

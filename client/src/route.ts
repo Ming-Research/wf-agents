@@ -43,6 +43,7 @@ export type Route =
   | { page: 'items' }
   | { page: 'item'; id: number }
   | { page: 'messages' }
+  | { page: 'spend' }
   | {
       page: 'flow';
       /// The stored version shown; with none, the one new works start on.
@@ -100,6 +101,7 @@ export function parse(pathname: string, search: string): Route {
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'messages' && parts.length === 1) return { page: 'messages' };
+  if (first === 'spend' && parts.length === 1) return { page: 'spend' };
   if (first === 'items' && parts.length === 2) {
     const id = num(second);
     if (id !== null) return { page: 'item', id };
@@ -150,6 +152,8 @@ export function href(r: Route): string {
       return `/items/${r.id}`;
     case 'messages':
       return '/messages';
+    case 'spend':
+      return '/spend';
     case 'flow':
       return `/flow${r.version === null ? '' : `/${r.version}`}${query([
         ['project', r.project],

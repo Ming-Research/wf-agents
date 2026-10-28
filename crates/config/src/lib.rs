@@ -65,6 +65,10 @@ pub struct Owner {
 pub struct Items {
     /// The longest an item's title may be, spaces not counted.
     pub title_max: u32,
+    /// The highest level an item may be at, by its name among the levels: an item above it is refused when it is
+    /// made and when a work starts on it, while the advisor may still run one level above; none, any level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highest_level: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -654,6 +658,11 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.architect names no level: {a}"));
         }
+        if let Some(h) = &self.install.items.highest_level
+            && !self.install.agents.levels.contains_key(h)
+        {
+            problems.push(format!("install.toml: items.highest_level names no level: {h}"));
+        }
         for (name, p) in &self.projects {
             for r in &p.rules {
                 if !self.rules.contains_key(r) {
@@ -717,6 +726,21 @@ impl Config {
         match names.iter().position(|n| *n == name) {
             Some(i) => names.get(i + 1).unwrap_or(&names[i]).to_string(),
             None => name.to_string(),
+        }
+    }
+
+    /// Whether an item may be at a level: none above the configuration's highest level for items.
+    pub fn item_level(&self, name: &str) -> Result<(), String> {
+        let Some(highest) = &self.install.items.highest_level else {
+            return Ok(());
+        };
+        let names = self.levels_in_order();
+        let at = |n: &str| names.iter().position(|x| x.as_str() == n);
+        match (at(name), at(highest)) {
+            (Some(i), Some(h)) if i > h => Err(format!(
+                "level {name} is above {highest}, the highest an item may be at (items.highest_level)"
+            )),
+            _ => Ok(()),
         }
     }
 
@@ -1080,6 +1104,15 @@ asks = 9
         assert_eq!(c.architect_level(), "10");
         c.install.agents.architect = Some("2".into());
         assert_eq!(c.architect_level(), "2");
+        // An item may be at any level unless the installation names the highest; its advisor may still run above it.
+        assert_eq!(c.item_level("10"), Ok(()));
+        c.install.items.highest_level = Some("2".into());
+        assert_eq!(c.item_level("2"), Ok(()));
+        assert_eq!(
+            c.item_level("10"),
+            Err("level 10 is above 2, the highest an item may be at (items.highest_level)".into())
+        );
+        assert_eq!(c.level_of_line("2", "advisor"), "10");
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

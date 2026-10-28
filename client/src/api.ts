@@ -971,6 +971,20 @@ export type PlanGate = { name: string, basis: string, what: string, segments: Js
 export type PlanBudget = { name: string, basis: string, measure: string, line: string, split: JsonValue, };
 
 /**
+ * What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings
+ * of their sessions, by the model each ran on and the line of its session.
+ */
+export type Spend = { 
+/**
+ * The day, in UTC, as YYYY-MM-DD.
+ */
+day: string, model: string, line: string, rounds: number, pings: number, 
+/**
+ * What they cost, as the command lines reported it, in US dollars.
+ */
+cost_usd: number, };
+
+/**
  * Why a request failed.
  */
 export type ApiError = { error: string, };

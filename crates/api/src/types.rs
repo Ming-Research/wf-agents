@@ -991,6 +991,20 @@ pub struct PlanBudget {
     pub split: Value,
 }
 
+/// What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings
+/// of their sessions, by the model each ran on and the line of its session.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Spend {
+    /// The day, in UTC, as YYYY-MM-DD.
+    pub day: String,
+    pub model: String,
+    pub line: String,
+    pub rounds: i64,
+    pub pings: i64,
+    /// What they cost, as the command lines reported it, in US dollars.
+    pub cost_usd: f64,
+}
+
 /// Why a request failed.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ApiError {

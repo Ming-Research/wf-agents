@@ -138,6 +138,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/architect", get(architect))
         .route("/api/v1/messages", get(messages))
+        .route("/api/v1/spend", get(spend))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
@@ -449,6 +450,11 @@ struct Which {
 
 async fn messages(State(app): State<App>, Query(q): Query<Which>) -> Result<Json<Vec<api::OwnerMessage>>, Fail> {
     read(&app, move |c, _| api::messages(c, q.all)).await.map(Json)
+}
+
+/// What the agents spent, by day, model and line, across every work.
+async fn spend(State(app): State<App>) -> Result<Json<Vec<api::Spend>>, Fail> {
+    read(&app, |c, _| api::spend(c)).await.map(Json)
 }
 
 /// Answers an ask of the owner, as the owner, as the command line does; the engine is woken to go on.

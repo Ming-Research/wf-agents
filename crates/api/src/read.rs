@@ -19,7 +19,7 @@ use crate::{
     ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk, OwnerMessage,
     PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
     Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Said, Session, Shown, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Said, Session, Shown, Spend, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -815,6 +815,33 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         sessions: work_sessions(conn, id)?,
         pings: pings(conn, id)?,
     })
+}
+
+/// What the agents spent, by day, model and line, across every work, oldest day first: each agent's round and each
+/// keep-warm ping, by the model it ran on and the line of its session.
+pub fn spend(conn: &Connection) -> Result<Vec<Spend>> {
+    let mut st = conn.prepare(
+        "SELECT day, model, line, sum(rounds), sum(pings), sum(cost) FROM (
+           SELECT date(r.started_at / 1000, 'unixepoch') AS day, coalesce(r.model, '') AS model, s.line AS line,
+                  1 AS rounds, 0 AS pings, coalesce(json_extract(r.usage, '$.cost_usd'), 0) AS cost
+           FROM rounds r JOIN sessions s ON s.id = r.session
+           UNION ALL
+           SELECT date(p.started_at / 1000, 'unixepoch'), coalesce(p.model, ''), s.line, 0, 1,
+                  coalesce(json_extract(p.usage, '$.cost_usd'), 0)
+           FROM pings p JOIN sessions s ON s.id = p.session)
+         GROUP BY day, model, line ORDER BY day, model, line",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok(Spend {
+            day: r.get(0)?,
+            model: r.get(1)?,
+            line: r.get(2)?,
+            rounds: r.get(3)?,
+            pings: r.get(4)?,
+            cost_usd: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// The sessions a work's lines ran in, oldest first.
@@ -2167,6 +2194,18 @@ mod tests {
             ("engineer", "1", "pause", "to look")
         );
         assert_eq!((p.cost_usd, p.read, p.written), (Some(0.25), 9000, 20));
+        // What the agents spent, by day, model and line, counts the rounds and the pings of every work; a round or a ping
+        // that recorded no model is apart.
+        let spent = spend(s.db.conn()).unwrap();
+        let row = |model: &str, rounds: i64, pings: i64, cost_usd: f64| Spend {
+            day: "1970-01-01".into(),
+            model: model.into(),
+            line: "engineer".into(),
+            rounds,
+            pings,
+            cost_usd,
+        };
+        assert_eq!(spent, [row("", 1, 1, 0.25), row("m", 1, 0, 0.5)]);
         // What its agents and the engine told the owner of it, oldest first; a notice of no work is not its.
         let told: Vec<(bool, &str)> = d.messages.iter().map(|m| (m.engine, m.text.as_str())).collect();
         assert_eq!(told, [(false, "told"), (true, "Work 1 waits.")]);

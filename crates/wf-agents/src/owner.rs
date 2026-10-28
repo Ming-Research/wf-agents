@@ -48,6 +48,7 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
     if c.level(&x.level).is_none() {
         return Err(format!("no level {} in the configuration", x.level));
     }
+    c.item_level(&x.level)?;
     let max = c.install.items.title_max as usize;
     let len = x.title.chars().filter(|c| !c.is_whitespace()).count();
     if len > max {

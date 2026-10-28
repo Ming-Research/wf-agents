@@ -136,6 +136,9 @@ export function TopBar({ route }: { route: Route }) {
       <Link to="/flow" className={on(['flow'])}>
         {t('nav_flow')}
       </Link>
+      <Link to="/spend" className={on(['spend'])}>
+        {t('nav_spend')}
+      </Link>
       <Unread className={on(['messages'])} />
       <span className="bar-gap" />
       <Engine />

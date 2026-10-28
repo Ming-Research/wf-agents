@@ -28,6 +28,7 @@ import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, foldLabel, messageParts, placeSchema, preview, shape, spent, tokens, valueMeanings } from './round';
+import { spendTable } from './spend';
 import { usageOf } from './usage';
 
 describe('the message catalog', () => {
@@ -917,6 +918,29 @@ describe("a work's usage", () => {
     expect([u.pings.length, u.pings[0].nth]).toEqual([1, 1]);
     expect(u.pingCost).toBeCloseTo(0.05);
     expect(u.cost).toBeCloseTo(3.55);
+  });
+});
+
+describe('what the agents spent across every work', () => {
+  it('sums it by line and model and by day, with the advisor apart', () => {
+    const row = (day: string, model: string, line: string, cost_usd: number) => ({ day, model, line, rounds: 1, pings: 0, cost_usd });
+    const s = spendTable([
+      row('2026-10-26', 'claude-opus-5-5', 'engineer', 4),
+      row('2026-10-26', 'claude-fable-5-5', 'advisor', 3),
+      row('2026-10-27', 'claude-opus-5-5', 'review', 2),
+      row('2026-10-27', 'claude-fable-5-5', 'advisor', 0.5),
+    ]);
+    expect(s.models).toEqual(['claude-opus-5-5', 'claude-fable-5-5']);
+    expect(s.lines.map((l) => [l.key, l.total])).toEqual([
+      ['engineer', 4],
+      ['advisor', 3.5],
+      ['review', 2],
+    ]);
+    expect(s.days.map((d) => [d.key, d.total, d.advisor['claude-fable-5-5']])).toEqual([
+      ['2026-10-27', 2.5, 0.5],
+      ['2026-10-26', 7, 3],
+    ]);
+    expect(s.total).toBe(9.5);
   });
 });
 

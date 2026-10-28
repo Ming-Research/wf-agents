@@ -908,6 +908,11 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
 /// Cell 0: the session manager sets up where the work runs, on a machine with a free slot, and the id the engineer's
 /// session will have.
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
+    // An item above the highest level an item may be at is refused: the work pauses, saying why.
+    e.config
+        .config
+        .item_level(&item.level)
+        .map_err(|why| format!("item {}: {why}", item.id))?;
     let project = e.project_of(w)?;
     let free = e.slots_by_machine()?;
     let at = sessions::worktree::ItemPlace {
