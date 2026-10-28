@@ -1212,33 +1212,15 @@ svg.fc {
   stroke: var(--good);
 }
 
-/* The cell a round runs at wears a wide halo, so that the eye finds it at once, at the zoom a work's chart opens at
-   and over the whole chart: a blurred glow whose colour changes, three arcs of colour running round the cell, and a
-   ring spreading outwards from it. For who asks for less motion, the same glow and arcs, still. Only the running cell
-   has it. */
+/* The cell a round runs at wears a halo, so that the eye finds it at once, at the zoom a work's chart opens at and over
+   the whole chart: three arcs of colour running round the cell. For who asks for less motion, the same arcs, still.
+   Only the running cell has it. */
 .fc-halo {
   pointer-events: none;
 }
 
 .fc-halo rect {
   fill: none;
-}
-
-.fc-halo-glow {
-  stroke: #ff2d95;
-  stroke-width: 26;
-  stroke-opacity: 0.7;
-  animation: fc-halo-hue 3s linear infinite;
-}
-
-.fc-halo-pulse {
-  stroke: #ff2d95;
-  stroke-width: 6;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation:
-    fc-halo-pulse 1.6s ease-out infinite,
-    fc-halo-hue 3s linear infinite;
 }
 
 .fc-halo-arc {
@@ -1264,47 +1246,8 @@ svg.fc {
   animation-delay: -1.6s;
 }
 
-.fc-halo-small .fc-halo-glow {
-  stroke-width: 4;
-}
-
-.fc-halo-small .fc-halo-pulse {
-  stroke-width: 1.5;
-}
-
 .fc-halo-small .fc-halo-arc {
   stroke-width: 2;
-}
-
-@keyframes fc-halo-hue {
-  0%,
-  100% {
-    stroke: #ff2d95;
-  }
-
-  25% {
-    stroke: #ffb300;
-  }
-
-  50% {
-    stroke: #00c2ff;
-  }
-
-  75% {
-    stroke: #8a5cff;
-  }
-}
-
-@keyframes fc-halo-pulse {
-  0% {
-    transform: scale(1);
-    opacity: 0.9;
-  }
-
-  100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
 }
 
 @keyframes fc-halo-run {
@@ -1318,13 +1261,8 @@ svg.fc {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fc-halo-glow,
   .fc-halo-arc {
     animation: none;
-  }
-
-  .fc-halo-pulse {
-    display: none;
   }
 }
 

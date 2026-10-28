@@ -5,7 +5,7 @@
 // in it. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its
 // target.
 
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph } from '../api';
 import { t } from '../text';
@@ -237,28 +237,24 @@ function CellShape({ n, cell, box, lines, marks }: {
   );
 }
 
-/// The halo round the cell a round runs at, so that the eye finds it at any zoom: a wide blurred glow whose colour
-/// changes, three arcs of colour running round the cell and a ring spreading outwards from it; still, in the same
-/// colours, for a browser that asks for less motion (the styles say how it moves). `small` draws it for the legend.
+/// The halo round the cell a round runs at, so that the eye finds it at any zoom: three arcs of colour running round
+/// the cell; still, in the same colours, for a browser that asks for less motion (the styles say how it moves).
+/// `small` draws it for the legend.
 export function Halo({ box, round, small = false }: { box: Box; round: boolean; small?: boolean }) {
-  const blur = `fc-halo-blur-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
-  // How far out each part stands from the cell: the glow, the ring that spreads, the arcs (the legend draws it small).
-  const [glow, pulse, arcs] = small ? [5, 2, 4] : [12, RING, RING + 4];
-  const at = (pad: number) => ({
+  // How far out the arcs stand from the cell (the legend draws them small).
+  const pad = small ? 4 : RING + 4;
+  const at = {
     x: box.x - pad,
     y: box.y - pad,
     width: box.width + 2 * pad,
     height: box.height + 2 * pad,
     rx: round ? (box.height + 2 * pad) / 2 : 6 + pad / 2,
-  });
+  };
   return (
     <g className={small ? 'fc-halo fc-halo-small' : 'fc-halo'} aria-hidden="true">
-      <filter id={blur} x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation={small ? 1.5 : 8} />
-      </filter>
-      <rect className="fc-halo-glow" filter={`url(#${blur})`} {...at(glow)} />
-      <rect className="fc-halo-pulse" {...at(pulse)} />
-      <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at(arcs)} />
+      <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at} />
+      <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at} />
+      <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at} />
       <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at(arcs)} />
       <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at(arcs)} />
     </g>

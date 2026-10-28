@@ -623,7 +623,7 @@ const messages = {
   legend_main: 'a row on the main path',
   legend_number: "a row's number in its cell's transition table",
   legend_current: 'the cell the work is at',
-  legend_running: 'a round runs at the cell now: a wide halo of colours runs round it and pulses outwards',
+  legend_running: 'a round runs at the cell now: three arcs of colour run round it',
   legend_held: 'the work is held back at the cell it goes on from: paused by you, or stopped by the engine or the architect; hover for why',
   legend_rounds: 'how many rounds the work had at the cell',
   legend_sent_back: 'how many of those returns were sent back',
