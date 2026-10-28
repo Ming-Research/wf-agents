@@ -5214,6 +5214,109 @@ fn a_side_report_handed_in_again_is_queued_once() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A new session of the architect's line that would start in the middle of a wake, here at a matter's path, holds no
+// state of things: the wake goes back to understanding the project first, in the new session, and the matter picked
+// goes back to the queue, to be picked again and handled.
+#[test]
+fn a_new_session_in_the_middle_of_a_wake_understands_the_project_first() {
+    let s = setup("new-session-midway");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    say(&mut e, "Two.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| e.work(wake).unwrap().pos.at == "O1"),
+        "{}",
+        said.borrow().join("\n")
+    );
+    e.sessions.ask_new(api::Fresh::Architect("p".into()));
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, wake);
+    // The wake was at O1, the matter picked, when the new session was asked for.
+    let back = path.iter().rposition(|c| c == "W1").expect(&log);
+    assert_eq!(&path[back - 1..back + 3], ["RT", "W1", "U1", "U2"], "{path:?}\n{log}");
+    assert!(path[back..].contains(&"O1".to_string()), "{path:?}");
+    let lines = line_sessions(&e, wake, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert!(lines[1].2.starts_with("U1,"), "{lines:?}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An observation an item takes in is folded into that item, not closed: a close that says it was folded is sent back,
+// saying to fold it.
+#[test]
+fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
+    let s = setup("close-folded");
+    let mut agents = scripts();
+    agents.insert(
+        "O1",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let close = json!({ "kind": "close", "id": 1, "why": "folded", "text": "The new item takes it in.",
+                                "reason": "An item does it." });
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "observation_changes": [close] }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing is slow.', 'A report.')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Fold the slowness into an item.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'O1' AND rejected IS NOT NULL",
+        &[&wake],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(rejected[0].contains("fold_observations"), "{rejected:?}");
+    let closed: Option<String> =
+        e.db.conn()
+            .query_row("SELECT closed FROM observations WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(closed, None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
 /// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked
@@ -5519,8 +5622,8 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect's Step in a new session starts one for its wake, recorded as the owner's; the wake's next round goes
-// on in it.
+// The architect's Step in a new session starts one for its wake, recorded as the owner's; the wake's next rounds go on
+// in it, the understanding of the project first, since the session is new in the middle of the wake.
 #[test]
 fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     let s = setup("own-new-wake-session");
@@ -5537,14 +5640,17 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
     turn(&mut e, &c, None);
-    c.ask_step_architect("p", false).unwrap();
-    turn(&mut e, &c, None);
+    for _ in 0..2 {
+        c.ask_step_architect("p", false).unwrap();
+        turn(&mut e, &c, None);
+    }
     let log = said.borrow().join("\n");
+    assert_eq!(path_of(&e, wake), ["W0", "W1", "U1", "W1", "U1", "U2"], "{log}");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");
     assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
-    assert_eq!(lines[1].2.split(',').count(), 2, "{lines:?}\n{log}");
+    assert_eq!(lines[1].2, "U1,U2", "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

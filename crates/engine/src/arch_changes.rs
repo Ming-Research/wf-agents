@@ -670,4 +670,34 @@ mod tests {
             .unwrap();
         assert_eq!(links, 1);
     }
+
+    // An observation folded into an item the batch creates, named by its key, is folded into that item once it is made.
+    #[test]
+    fn an_observation_is_folded_into_an_item_the_batch_creates() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing is slow.', 'A report.')",
+                [],
+            )?;
+            let changes = [
+                json!({ "kind": "create_item", "key": "faster", "project": "p", "title": "Parse faster",
+                        "problem": "Slow.", "why": "Time.", "acceptance": ["Fast."], "level": "l",
+                        "deliver": "change", "reason": "r" }),
+                json!({ "kind": "fold_observations", "item": "faster", "observations": [1], "reason": "r" }),
+            ];
+            write_all(tx, &changes).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let folded: (Option<i64>, i64) = db
+            .conn()
+            .query_row(
+                "SELECT folded_into, (SELECT id FROM items WHERE title = 'Parse faster') FROM observations WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(folded.0, Some(folded.1));
+    }
 }

@@ -75,6 +75,10 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
+    // A new session of the architect's line in the middle of a wake understands the project first.
+    if crate::architect::understand_first(e, w, g, cell)? {
+        return crate::architect::back_to_understanding(e, w, g, cell);
+    }
     let item = e.subject(w)?;
     // A work on an item runs in its project; a wake of the architect is on no item and in no project.
     let project = match &item {

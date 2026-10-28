@@ -125,6 +125,12 @@ const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "C1";
 const REVIEW: &str = "R1";
 
+/// The architect's line, whose session goes on across its project's wakes; the cell that asks whether that session
+/// understood the project; and the stage of the cells that set a new policy.
+const LINE: &str = "architect";
+const UNDERSTOOD_YET: &str = "W1";
+const SETTING_POLICY: &str = "setting_policy";
+
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "20";
 
@@ -679,6 +685,54 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         .into(),
         _ => return Ok(None),
     }))
+}
+
+/// Whether the wake goes back to understanding the project before a round of the architect's line at a cell: the round
+/// would start a new session there (the owner asked for one, the last was past the limit, or the model changed), past
+/// the understanding and outside the setting of a policy, and a new session holds no state of things and no notes.
+pub fn understand_first(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<bool, String> {
+    if g.name != ARCHITECT
+        || cell.line.as_deref() != Some(LINE)
+        || cell.id == UNDERSTAND
+        || cell.stage.as_deref() == Some(SETTING_POLICY)
+    {
+        return Ok(false);
+    }
+    let model = crate::steps::level_of(e, g, cell, None)?.1.model;
+    let limit = e.config.config.install.agents.context_limit;
+    let plan = e
+        .sessions
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, &model)?;
+    Ok(matches!(plan, sessions::Plan::New(_)))
+}
+
+/// Sends the wake back to the cell that asks whether its session understood the project, which a new session has not,
+/// and takes that cell's step: the matter picked goes back to the queue, not handled, to be picked again once the new
+/// session understood the project.
+pub fn back_to_understanding(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+) -> Result<Advance, String> {
+    let mut back = w.clone();
+    back.pos = flow::Position {
+        at: UNDERSTOOD_YET.into(),
+        recorded: w.pos.recorded.clone(),
+        ..flow::Position::default()
+    };
+    e.db.write(Actor::Engine, |tx| back.save_position(tx).map_err(db::Error::Abort))
+        .map_err(sql)?;
+    (e.say)(&format!(
+        "work {}: a new session would start at cell {}: the wake understands the project first",
+        w.id, cell.id
+    ));
+    let back = e.work(w.id)?;
+    let at = g
+        .cell(UNDERSTOOD_YET)
+        .cloned()
+        .ok_or("the architect's graph has no cell that asks whether the session understood the project")?;
+    crate::steps::engine(e, &back, g, &at)
 }
 
 // Asks of the owner.
@@ -1680,6 +1734,13 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
                 if !open_observation(conn, project, id)? {
                     problems.push(format!(
                         "observation change {n}: {id} is no open observation of the project"
+                    ));
+                }
+                if o["why"] == "folded" {
+                    problems.push(format!(
+                        "observation change {n}: an observation an item takes in is folded into that item, by the item \
+                         change fold_observations naming the item (or the key of the item the batch creates), not \
+                         closed: it closes once that item's work merges"
                     ));
                 }
             }
@@ -3306,7 +3367,7 @@ mod tests {
     }
 
     // The review's rows sort the batch into what is made and what is dropped; a change naming an item a dropped
-    // change was to create is dropped with it.
+    // change was to create is dropped with it, a fold of observations into it among them.
     #[test]
     fn a_change_naming_a_dropped_item_is_dropped_with_it() {
         let rows = vec![
@@ -3318,14 +3379,21 @@ mod tests {
                 9,
                 json!({ "kind": "move", "item": 3, "to": { "place": "first" } }),
             ),
+            (
+                4,
+                5,
+                9,
+                json!({ "kind": "fold_observations", "item": "new", "observations": [2] }),
+            ),
         ];
         let review = vec![
             json!({ "change": 1, "verdict": "fix", "what": "w", "how": "h" }),
             json!({ "change": 2, "verdict": "ok", "why": "y" }),
             json!({ "change": 3, "verdict": "ok", "why": "y" }),
+            json!({ "change": 4, "verdict": "ok", "why": "y" }),
         ];
         let (sound, dropped) = sorted_by_review(rows, &review);
         assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
-        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
     }
 }
