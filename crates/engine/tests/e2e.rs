@@ -1215,9 +1215,14 @@ fn a_settled_row_leaves_the_fix_table() {
 fn a_single_step_runs_exactly_one_round() {
     let s = setup("step");
     let (mut e, said, item) = start(&s, scripts());
+    // The rounds of works on items: the wake `quiet` recorded before the test is not counted.
     let rounds = |e: &Engine| -> i64 {
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.graph = 'engineer'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap()
     };
     let first = e.step(None).unwrap();
