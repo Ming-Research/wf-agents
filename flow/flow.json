@@ -2271,6 +2271,27 @@
           }
         ]
       }
+    },
+    "policy_check": {
+      "type": "enum",
+      "values": [
+        [
+          "signal",
+          "A signal the policy says to report on passed its line"
+        ],
+        [
+          "constitution_conflict",
+          "A conflict with the constitution the last question found"
+        ],
+        [
+          "premise_overturned",
+          "The state of things overturns a fact the policy rests on"
+        ],
+        [
+          "not_covered",
+          "A new situation the policy does not cover and cannot be judged by"
+        ]
+      ]
     }
   },
   "tools": [
@@ -9367,6 +9388,7 @@
             "P6",
             "P7",
             "P8",
+            "P11",
             "P9",
             "P10"
           ],
@@ -9505,6 +9527,7 @@
               "P6",
               "P7",
               "P8",
+              "P11",
               "P9",
               "P10"
             ]
@@ -10223,24 +10246,7 @@
                             "name": "kind",
                             "type": "enum",
                             "desc": "Which kind",
-                            "values": [
-                              [
-                                "signal",
-                                "A signal the policy says to report on passed its line"
-                              ],
-                              [
-                                "constitution_conflict",
-                                "A conflict with the constitution the last question found"
-                              ],
-                              [
-                                "premise_overturned",
-                                "The state of things overturns a fact the policy rests on"
-                              ],
-                              [
-                                "not_covered",
-                                "A new situation the policy does not cover and cannot be judged by"
-                              ]
-                            ]
+                            "values": "policy_check"
                           },
                           {
                             "name": "seen",
@@ -12429,7 +12435,18 @@
                   "P6",
                   "verdict[gaps]"
                 ]
-              ]
+              ],
+              "maybe": true
+            },
+            {
+              "what": "What would make the draft need setting again at once",
+              "from": [
+                [
+                  "P11",
+                  "report[needs_setting_again].points"
+                ]
+              ],
+              "maybe": true
             },
             {
               "what": "This version's text and probes",
@@ -12442,7 +12459,7 @@
             }
           ],
           "prompt": [
-            "By this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe."
+            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe. Coming from P11, the draft would need setting again at once: correct the text for what it found."
           ],
           "out": [
             {
@@ -12546,7 +12563,7 @@
                   ]
                 ]
               ],
-              "to": "P9",
+              "to": "P11",
               "main": true
             },
             {
@@ -12566,6 +12583,139 @@
           ]
         },
         {
+          "id": "P11",
+          "kind": "agent",
+          "title": "Would it need setting again at once",
+          "effort": "high",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "what": "The draft's text, read in place of the policy in force",
+              "from": [
+                {
+                  "db": "policy_text",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "What the last question found: what is broken or about to be, and what no longer matches your earlier judgments",
+              "from": [
+                [
+                  "A2",
+                  "against"
+                ],
+                [
+                  "A2",
+                  "mismatches"
+                ]
+              ]
+            },
+            {
+              "what": "The state of things you gave",
+              "from": [
+                [
+                  "A1",
+                  "state"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "This round asks the third question (A3) of the draft as if it were in force: would it need setting again at once? Look for the four kinds `kind` lists, a situation queued or running included; the engine measures no signal in this version. If you see any, hand in needs_setting_again: you correct the text, and it is read afresh. Most of the time there is none: say in one sentence why it holds."
+          ],
+          "out": [
+            {
+              "name": "report",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether the draft would need setting again at once",
+              "branches": [
+                {
+                  "value": "holds",
+                  "desc": "The draft governs the state now",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why it holds"
+                    }
+                  ]
+                },
+                {
+                  "value": "needs_setting_again",
+                  "desc": "The draft would need setting again at once: correct the text",
+                  "fields": [
+                    {
+                      "name": "points",
+                      "type": "list",
+                      "desc": "What you saw, one per row",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "kind",
+                            "type": "enum",
+                            "desc": "Which kind",
+                            "values": "policy_check"
+                          },
+                          {
+                            "name": "seen",
+                            "type": "text",
+                            "desc": "What you saw: the number measured, which matter"
+                          },
+                          {
+                            "name": "why",
+                            "type": "text",
+                            "desc": "Why the draft would have to change"
+                          }
+                        ]
+                      },
+                      "min": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "holds",
+              "if": [
+                [
+                  "is",
+                  "report.verdict",
+                  [
+                    "holds"
+                  ]
+                ]
+              ],
+              "to": "P9",
+              "main": true
+            },
+            {
+              "name": "needs_setting_again",
+              "if": [
+                [
+                  "is",
+                  "report.verdict",
+                  [
+                    "needs_setting_again"
+                  ]
+                ]
+              ],
+              "to": "P7"
+            }
+          ],
+          "shown": [
+            "report"
+          ]
+        },
+        {
           "id": "P9",
           "kind": "owner",
           "title": "Owner approves",
@@ -12578,6 +12728,15 @@
                   "db": "policy_trials",
                   "by": "work"
                 }
+              ]
+            },
+            {
+              "what": "Whether it would need setting again at once, as P11 judged",
+              "from": [
+                [
+                  "P11",
+                  "report"
+                ]
               ]
             }
           ],

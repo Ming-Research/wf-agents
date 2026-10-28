@@ -4048,3 +4048,42 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     assert_eq!(model, "m-other");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// Before the owner approves a new policy, P11 asks of the draft the question A3 asks of the policy in force: one that
+// holds goes on to the owner's approval, and one that would need setting again at once goes back to correct the text.
+#[test]
+fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
+    for (verdict, then) in [("holds", "P9"), ("needs_setting_again", "P7")] {
+        let s = setup(&format!("p11-{verdict}"));
+        let mut agents = scripts();
+        agents.insert(
+            "P11",
+            Box::new(move |_: &Request, _: usize| (vec![("outcome.report", verdict)], Vec::new())),
+        );
+        let (mut e, said) = engine(&s, agents);
+        quiet(&mut e);
+        let v = e.flow_now;
+        let wake =
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, ?1, 'architect', 'P11')",
+                    [v],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap();
+        e.step_work(wake).unwrap();
+        let log = said.borrow().join("\n");
+        let (at, transition): (String, Option<String>) =
+            e.db.conn()
+                .query_row(
+                    "SELECT w.at, (SELECT r.transition FROM rounds r WHERE r.work = w.id AND r.cell = 'P11')
+                     FROM works w WHERE w.id = ?1",
+                    [wake],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+        assert_eq!((at.as_str(), transition.as_deref()), (then, Some(verdict)), "{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}

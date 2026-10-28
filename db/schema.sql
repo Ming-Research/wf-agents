@@ -976,7 +976,7 @@ CREATE VIEW policy_draft AS
                WHERE x.work = t.work AND x.cell IN ('P3', 'P7') AND x.transition IS NOT NULL);
 
 CREATE VIEW policy_text AS
-  -- The text of each wake's version of the policy being set, without its probes. Read by: cells P4 and P5.
+  -- The text of each wake's version of the policy being set, without its probes. Read by: cells P4, P5 and P11.
   SELECT work, round, policy FROM policy_draft;
 
 CREATE VIEW policy_probes_asked AS
