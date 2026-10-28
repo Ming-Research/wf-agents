@@ -80,6 +80,8 @@ pub(crate) struct Row {
     pub interject: bool,
     pub actions: Vec<Do>,
     pub main: bool,
+    /// The row goes on without answering the cells that wait for an answer.
+    pub drops: bool,
     pub note: Option<String>,
 }
 
@@ -458,9 +460,16 @@ impl<'s> Graph<'s> {
             }
         }
 
-        let has_form = |n: &Node, f: &Form| match &f.lines {
-            None => true,
-            Some(ls) => n.line.as_ref().is_some_and(|l| ls.contains(l)) && !flow.asking.nodes.contains(&n.id),
+        let has_form = |n: &Node, f: &Form| {
+            let left_out = f
+                .field
+                .as_ref()
+                .is_some_and(|x| n.without.iter().flatten().any(|w| w == x));
+            !left_out
+                && match &f.lines {
+                    None => true,
+                    Some(ls) => n.line.as_ref().is_some_and(|l| ls.contains(l)) && !flow.asking.nodes.contains(&n.id),
+                }
         };
         let say_of = |forms: &[Form]| {
             let nm = |x: &str| ret.name.replace("{name}", x);
@@ -477,6 +486,15 @@ impl<'s> Graph<'s> {
             let nid = &n.id;
             let agent = n.kind == NodeKind::Agent;
             ensure!(agent || n.asks.is_none(), "only an agent asks: {nid}");
+            ensure!(
+                agent || n.without.is_none(),
+                "only an agent's cell leaves out forms of the return: {nid}"
+            );
+            ensure!(
+                n.without.iter().flatten().all(|w| form_fields.contains(w)),
+                "a cell leaves out a form the return has not: {nid} {:?}",
+                n.without
+            );
             let names: Vec<String> = match &n.asks {
                 Some(xs) => xs.clone(),
                 None => roles
@@ -521,6 +539,7 @@ impl<'s> Graph<'s> {
                         waits: None,
                         interject: None,
                         main: None,
+                        drops: None,
                         note: None,
                     };
                     raw_rows.push((row, true));
@@ -617,6 +636,13 @@ impl<'s> Graph<'s> {
                     "a row that takes an interjection goes to the cell that receives it: {nid} {} {to}",
                     r.name
                 );
+                let drops = r.drops.unwrap_or(false);
+                ensure!(
+                    !drops || (!goto && region.contains(&idx(nid)?)),
+                    "a row that goes on without answering the cells that wait goes from the asking part to a cell: \
+                     {nid} {}",
+                    r.name
+                );
                 rows.push(Row {
                     name: r.name,
                     atoms: r.conditions,
@@ -629,6 +655,7 @@ impl<'s> Graph<'s> {
                     interject,
                     actions: r.actions.unwrap_or_default(),
                     main: r.main.unwrap_or(false),
+                    drops,
                     note: r.note,
                 });
             }
@@ -1089,7 +1116,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
     let own = n.step.is_some() || n.line.is_some() || n.tools.is_some() || n.rules.is_some() || n.prompt.is_some();
     let own = own || n.prompt_by.is_some() || n.out.is_some() || n.cases.is_some() || n.checks.is_some();
     ensure!(
-        !own && n.handoff.is_none() && n.asks.is_none(),
+        !own && n.handoff.is_none() && n.asks.is_none() && n.without.is_none(),
         "a gate takes its line, tools, prompt and output from the flow's gate: {id}"
     );
     let question = n
@@ -1117,6 +1144,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
                 waits: None,
                 interject: None,
                 main: Some(row.main),
+                drops: None,
                 note: None,
             }]
         }
@@ -1146,6 +1174,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         shown: n.shown.clone(),
         inenums: n.inenums.clone(),
         asks: None,
+        without: None,
         about: n.about.clone(),
         needs: n.needs.clone(),
         question: None,

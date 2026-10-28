@@ -62,6 +62,18 @@ impl CompiledGraph {
     pub fn step(&self, p: &Position, row: &CompiledRow) -> Result<Position, String> {
         let mut recorded = p.recorded.clone();
         recorded.extend(row.sets.iter().map(|(k, v)| (k.clone(), v.clone())));
+        // A row that goes on without answering the cells that wait leaves them, and where the work stopped, behind.
+        let dropped;
+        let p = if row.drops {
+            dropped = Position {
+                stopped: None,
+                callers: Vec::new(),
+                ..p.clone()
+            };
+            &dropped
+        } else {
+            p
+        };
         let m = p.at.as_str();
         let to = row.to.as_str();
         if to == "@self" {

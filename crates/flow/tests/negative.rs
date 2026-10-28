@@ -121,6 +121,27 @@ case!(
     }
 );
 case!(
+    a_cell_leaving_out_a_form_the_return_has_not,
+    "a cell leaves out a form the return has not",
+    |v| {
+        node(v, "1")["without"] = json!(["nothing"]);
+    }
+);
+case!(
+    an_engine_cell_leaving_out_forms,
+    "only an agent's cell leaves out forms of the return",
+    |v| {
+        node(v, "18")["without"] = json!(["ask"]);
+    }
+);
+case!(
+    a_row_outside_the_asking_part_leaving_the_callers_waiting,
+    "a row that goes on without answering the cells that wait goes from the asking part to a cell",
+    |v| {
+        row(v, "18", "adversarial")["drops"] = json!(true);
+    }
+);
+case!(
     a_branch_field_named_like_the_marker,
     "a branch has a field named like the union's marker kind",
     |v| {

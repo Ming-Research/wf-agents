@@ -8,8 +8,9 @@
 //! line of the cell that receives it, comes in there; one to another agent's cell or to an engine step goes back to
 //! that cell, which runs again. While a cell waits, the work only goes on by calls and their answers: an agent's cell
 //! that waits is not called again, since its round is still open, so a row to the agent's cell that called goes back
-//! to it; and a row that goes on otherwise leaves the cell without its answer. An engine step that waits may be
-//! called again: it keeps nothing between runs, and each answer goes back to the last call.
+//! to it; and a row that goes on otherwise leaves the cell without its answer, unless it says it drops the cells that
+//! wait, which get their answer later another way. An engine step that waits may be called again: it keeps nothing
+//! between runs, and each answer goes back to the last call.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -62,6 +63,18 @@ impl Graph<'_> {
         v.extend(r.sets.iter().map(|(k, x)| (k.clone(), x.clone())));
         let v: Recorded = v.into_iter().collect();
         let m = s.at;
+        // A row that goes on without answering the cells that wait leaves them, and where the work stopped, behind.
+        let dropped;
+        let s = if r.drops {
+            dropped = State {
+                stopped: None,
+                callers: Vec::new(),
+                ..s.clone()
+            };
+            &dropped
+        } else {
+            s
+        };
         if r.target == Target::Same {
             // A pause: the same cell goes on in the same round, with what brought the work here.
             return Step::To(State {

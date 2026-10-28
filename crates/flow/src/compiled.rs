@@ -137,6 +137,9 @@ pub struct CompiledRow {
     pub pauses: bool,
     pub interject: bool,
     pub main: bool,
+    /// The row goes on without answering the cells that wait for an answer, which get it later another way.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub drops: bool,
     /// A row every agent's cell has.
     pub common: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -775,6 +778,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     pauses: false,
                     interject: r.interject,
                     main: r.main,
+                    drops: r.drops,
                     common: r.common,
                     note: r.note.clone(),
                 })
@@ -877,6 +881,7 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
         pauses: false,
         interject: false,
         main: false,
+        drops: false,
         common: true,
         note: Some(note.to_string()),
     };

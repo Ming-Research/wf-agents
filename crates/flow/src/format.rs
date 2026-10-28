@@ -545,6 +545,9 @@ pub struct Node {
     pub inenums: Option<BTreeMap<String, Values>>,
     /// The roles an agent's cell may ask; with none, every role but its own.
     pub asks: Option<Vec<String>>,
+    /// The forms of the return every agent's cell shares that this cell does not have, by their fields: an agent's
+    /// cell of a line that may ask, run tools or search, but that is to answer by itself, says so here.
+    pub without: Option<Vec<String>>,
     /// A gate's kind of question to ask about, one of `askKinds`.
     pub about: Option<String>,
     /// What a gate needs to apply, one of `engine.needs`.
@@ -595,6 +598,9 @@ pub struct RawRow {
     pub interject: Option<bool>,
     /// The row is on the main path; a work off it is an anomaly to look at.
     pub main: Option<bool>,
+    /// The row goes on without answering the cells that wait for an answer: they get it later, another way, such as
+    /// an ask of the owner that holds only the matter it is about while the rest goes on.
+    pub drops: Option<bool>,
     pub note: Option<String>,
 }
 
