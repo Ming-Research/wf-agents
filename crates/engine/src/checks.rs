@@ -21,6 +21,7 @@ use serde_json::Value;
 use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, Work};
 use crate::{Engine, form_of, git, values};
+use sessions::worktree::Unfit;
 
 pub use db::DESIGN_CARD_RULING;
 
@@ -483,15 +484,14 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "head_pushed_and_green" => {
             let wt = c.wt()?;
             let head = v.and_then(Value::as_str).unwrap_or_default();
-            let Some(sha) = git::resolve(wt, head) else {
-                return fail(format!("there is no commit {head}"));
+            // The session manager says whether the head handed in is the clean worktree's.
+            let sha = match sessions::worktree::handed_in(wt, head) {
+                Ok(sha) => sha,
+                Err(Unfit::NoCommit) => return fail(format!("there is no commit {head}")),
+                Err(Unfit::NotHead(_)) => return fail("the head is not the worktree's HEAD"),
+                Err(Unfit::Uncommitted) => return fail("the worktree has uncommitted changes"),
+                Err(Unfit::Git(e)) => return Err(e),
             };
-            if sha != git::head(wt)? {
-                return fail("the head is not the worktree's HEAD");
-            }
-            if !git::is_clean(wt)? {
-                return fail("the worktree has uncommitted changes");
-            }
             if c.pushed_head()?.as_deref() != Some(sha.as_str()) {
                 return fail("the head was not pushed with ci");
             }

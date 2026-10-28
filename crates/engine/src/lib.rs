@@ -584,27 +584,26 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// How many more works can hold a slot: the machines' slots less the works holding one. A work holds no slot
-    /// while it waits for the owner or for other works.
+    /// How many more works can hold a slot: the machines' slots less the works holding one, as the session manager
+    /// reports them. A work holds no slot while it waits for the owner or for other works.
     pub fn free_slots(&mut self) -> Result<i64, String> {
-        let total: i64 = self
-            .config
-            .config
-            .install
-            .machines
-            .hosts
-            .values()
-            .map(|h| i64::from(h.slots))
-            .sum();
-        let mut holding = 0;
+        Ok(self.slots_by_machine()?.values().sum())
+    }
+
+    /// Each machine's free slots, as the session manager reports them from the works holding one: a wake of the
+    /// architect holds none, and a work holds none while it waits.
+    pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
+        let mut holding = Vec::new();
         for id in self.active()? {
             let w = self.work(id)?;
-            // A wake of the architect holds no slot.
             if w.graph == ENGINEER && !self.waiting(&w)? {
-                holding += 1;
+                holding.push(w.machine.clone());
             }
         }
-        Ok(total - holding)
+        Ok(sessions::worktree::free_slots(
+            &self.config.config.install.machines.hosts,
+            &holding,
+        ))
     }
 
     /// Whether the work stands waiting: at the owner's or the architect's cell with its question asked, or at a row

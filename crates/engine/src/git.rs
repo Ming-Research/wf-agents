@@ -1,29 +1,14 @@
 //! What the engine does with git in a project's clone and a work's worktree. Everything here is local; pushing and
-//! everything on GitHub go through [`crate::hub::GitHub`].
+//! everything on GitHub go through [`crate::hub::GitHub`]; setting a worktree up and removing it are the session
+//! manager's ([`sessions::worktree`]).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
-/// Runs git in `dir` and gives its output, or what it said on failure.
-pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let msg = if err.trim().is_empty() {
-            String::from_utf8_lossy(&out.stdout).into_owned()
-        } else {
-            err.into_owned()
-        };
-        return Err(format!("git {}: {}", args.join(" "), msg.trim()));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
+/// A work's worktree is the session manager's: it sets it up, removes it, and says what its head is and whether it is
+/// clean.
+pub use sessions::worktree::{create_worktree, git, head, is_clean, remove_worktree, resolve, take_over_worktree};
 
 fn lines(s: &str) -> Vec<String> {
     s.lines()
@@ -31,61 +16,6 @@ fn lines(s: &str) -> Vec<String> {
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-/// Fetches main and makes a worktree on a new branch from it; gives the commit it starts from.
-pub fn create_worktree(checkout: &Path, dir: &Path, branch: &str, main: &str) -> Result<String, String> {
-    git(checkout, &["fetch", "-q", "origin", main])?;
-    let base = format!("origin/{main}");
-    let d = dir.to_string_lossy();
-    git(checkout, &["worktree", "add", "-q", "-b", branch, &d, &base])?;
-    head(dir)
-}
-
-/// Takes over a branch: the worktree when it is there, otherwise one made afresh from the branch, the local one or else
-/// the remote one fetched; gives the commit it stands at.
-pub fn take_over_worktree(checkout: &Path, dir: &Path, branch: &str) -> Result<String, String> {
-    if dir.join(".git").exists() {
-        return head(dir);
-    }
-    // A worktree removed by hand is still registered until pruned, and its branch cannot be checked out again.
-    git(checkout, &["worktree", "prune"])?;
-    let d = dir.to_string_lossy();
-    if resolve(checkout, &format!("refs/heads/{branch}")).is_some() {
-        git(checkout, &["worktree", "add", "-q", &d, branch])?;
-    } else {
-        let remote = format!("refs/remotes/origin/{branch}");
-        git(
-            checkout,
-            &["fetch", "-q", "origin", &format!("refs/heads/{branch}:{remote}")],
-        )?;
-        git(checkout, &["worktree", "add", "-q", "-b", branch, &d, &remote])?;
-    }
-    head(dir)
-}
-
-/// Removes a work's worktree; its branch stays.
-pub fn remove_worktree(checkout: &Path, dir: &Path) -> Result<(), String> {
-    if dir.exists() {
-        git(checkout, &["worktree", "remove", "--force", &dir.to_string_lossy()])?;
-    }
-    Ok(())
-}
-
-pub fn head(dir: &Path) -> Result<String, String> {
-    Ok(git(dir, &["rev-parse", "HEAD"])?.trim().to_string())
-}
-
-/// The full id of a commit, or none when there is no such commit.
-pub fn resolve(dir: &Path, rev: &str) -> Option<String> {
-    git(dir, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])
-        .ok()
-        .map(|s| s.trim().to_string())
-}
-
-/// Whether the worktree has nothing uncommitted, untracked files included.
-pub fn is_clean(dir: &Path) -> Result<bool, String> {
-    Ok(git(dir, &["status", "--porcelain"])?.trim().is_empty())
 }
 
 /// Whether `a` is `b` or an ancestor of it.

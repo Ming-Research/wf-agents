@@ -208,12 +208,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )
             .map_err(sql)?;
             if let (Some(cli), Some(s)) = (&ctx.cli, p["session"].as_str()) {
-                tx.execute(
-                    "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', ?2, ?3)
-                     ON CONFLICT (work, line) WHERE ended IS NULL DO NOTHING",
-                    params![w, cli, s],
-                )
-                .map_err(sql)?;
+                sessions::choose::begin(tx, w, crate::ENGINEER, cli, s)?;
             }
         }
         "record_tool_runs" => {

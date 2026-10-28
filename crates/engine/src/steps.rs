@@ -238,16 +238,14 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
         e.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE sessions SET cli_session = ?2 WHERE id = ?1", params![sid, s])?;
-            Ok(())
+            sessions::choose::rename(tx, sid, &s).map_err(db::Error::Abort)
         })
         .map_err(sql)?;
     }
     // A cell on no line has a session of its own for this round only.
     if cell.line.is_none() {
         e.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE sessions SET ended = ?2 WHERE id = ?1", params![sid, db::now()])?;
-            Ok(())
+            sessions::choose::end(tx, sid).map_err(db::Error::Abort)
         })
         .map_err(sql)?;
     }
@@ -847,65 +845,38 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
 }
 
-/// Cell 0: where the work runs, and the id the engineer's session will have. An item worked on here before takes over
-/// its latest earlier work's branch, worktree (reused when it is there, made afresh from the branch otherwise) and
-/// pull request; an item imported with a branch takes that branch and the pull request imported with it; any other
-/// gets a new branch from main.
+/// Cell 0: the session manager sets up where the work runs, on a machine with a free slot, and the id the engineer's
+/// session will have.
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let hosts = &e.config.config.install.machines.hosts;
-    let machine = hosts.keys().next().ok_or("the configuration names no machine")?;
-    let fresh = config::worktrees(&e.data).join(format!("{}-{}", item.project, w.id));
-    if let Some(parent) = fresh.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    }
-    let earlier: Option<(Option<String>, String, Option<i64>)> =
-        e.db.conn()
-            .query_row(
-                "SELECT worktree, branch, pr FROM works
-                 WHERE item = ?1 AND id <> ?2 AND branch IS NOT NULL ORDER BY id DESC LIMIT 1",
-                params![item.id, w.id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .ok();
-    let (dir, branch, pr, head) = match (earlier, &item.imported_branch) {
-        (Some((worktree, branch, pr)), _) => {
-            let dir = worktree
-                .map(std::path::PathBuf::from)
-                .filter(|d| d.join(".git").exists())
-                .unwrap_or(fresh);
-            let head = git::take_over_worktree(&project.checkout, &dir, &branch)?;
-            (dir, branch, pr, head)
-        }
-        (None, Some(branch)) => {
-            let head = git::take_over_worktree(&project.checkout, &fresh, branch)?;
-            (fresh, branch.clone(), item.imported_pr, head)
-        }
-        (None, None) => {
-            let branch = format!("wf-agents/{}-{}", item.id, w.id);
-            let head = git::create_worktree(&project.checkout, &fresh, &branch, &project.main)?;
-            (fresh, branch, None, head)
-        }
+    let free = e.slots_by_machine()?;
+    let at = sessions::worktree::ItemPlace {
+        id: item.id,
+        project: &item.project,
+        imported_branch: item.imported_branch.as_deref(),
+        imported_pr: item.imported_pr,
     };
+    let p = sessions::worktree::set_up(e.db.conn(), &e.data, &project, &at, w.id, &free)?;
     let mut place = json!({
-        "machine": machine,
-        "worktree": dir.display().to_string(),
-        "branch": branch,
-        "head": head,
-        "session": agent::new_session_id(),
+        "machine": p.machine,
+        "worktree": p.worktree.display().to_string(),
+        "branch": p.branch,
+        "head": p.head,
+        "session": p.session,
     });
-    if let Some(n) = pr {
+    if let Some(n) = p.pr {
         place["pr"] = json!(n);
     }
     Ok(json!({ "place": place }))
 }
 
-/// Cell 20: the worktree is removed once the round is written; the branch stays. A work that delivered a report and
-/// handed in what to do next queues it for the architect, as a matter of its own.
+/// Cell 20: the work's sessions end, and the worktree is removed once the round is written; the branch stays. A work
+/// that delivered a report and handed in what to do next queues it for the architect, as a matter of its own.
 fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let followup = report_followup(e, w, &project)?;
     e.db.write(Actor::Engine, |tx| {
+        sessions::choose::end_work(tx, w.id).map_err(db::Error::Abort)?;
         if let Some(wt) = &w.worktree {
             let args = json!({ "checkout": project.checkout, "dir": wt });
             tx.execute(

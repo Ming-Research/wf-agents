@@ -138,6 +138,92 @@ pub fn open(conn: &Connection, work: i64, line: &str, cli: &str, cli_session: &s
     Ok(conn.last_insert_rowid())
 }
 
+/// Begins a work's line's session under the CLI's id given, as the session manager sets it up with the work, unless the
+/// line has one going on already.
+pub fn begin(conn: &Connection, work: i64, line: &str, cli: &str, cli_session: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (work, line) WHERE ended IS NULL DO NOTHING",
+        params![work, line, cli, cli_session],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// A wake of the architect goes on in the CLI session the last wake left, unless a new policy ended it: its line's
+/// session is a row of this wake's with the same CLI session, which the next round of the line resumes. The first wake,
+/// and the first after a new policy took effect, start a new one at their first round; so does a wake that comes back
+/// to its start after its new policy ended its session.
+pub fn wake(conn: &Connection, work: i64) -> Result<(), String> {
+    let had: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sessions WHERE work = ?1 AND line = 'architect'",
+            [work],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if had > 0 {
+        return Ok(());
+    }
+    let last: Option<(String, String, Option<i64>)> = conn
+        .query_row(
+            "SELECT s.cli, s.cli_session, s.ended FROM sessions s JOIN works x ON x.id = s.work
+             WHERE x.graph = 'architect' AND s.line = 'architect' AND s.work < ?1 ORDER BY s.id DESC LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some((cli, cli_session, None)) = last {
+        conn.execute(
+            "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', ?2, ?3, ?4)",
+            params![work, cli, cli_session, Start::Wake.name()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// The CLI's id for a session, when the CLI reported another than the one the session was started under.
+pub fn rename(conn: &Connection, session: i64, cli_session: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sessions SET cli_session = ?2 WHERE id = ?1",
+        params![session, cli_session],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ends a session, so that its line's next round starts a new one: a cell on no line's, once its round has.
+pub fn end(conn: &Connection, session: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sessions SET ended = ?2 WHERE id = ?1 AND ended IS NULL",
+        params![session, db::now()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ends the session a work's line has going on: a new policy ends the architect's.
+pub fn end_line(conn: &Connection, work: i64, line: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sessions SET ended = ?3 WHERE work = ?1 AND line = ?2 AND ended IS NULL",
+        params![work, line, db::now()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ends every session a work has going on, once the work has ended.
+pub fn end_work(conn: &Connection, work: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sessions SET ended = ?2 WHERE work = ?1 AND ended IS NULL",
+        params![work, db::now()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// The effort a round runs with: its level's, as the configuration gives it. A cell's own effort, once the flow gives
 /// cells one, is decided here.
 pub fn effort(level: &config::Level, _cell: &CompiledCell) -> Option<String> {

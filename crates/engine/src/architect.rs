@@ -196,34 +196,11 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 /// first after a new policy took effect, start a new one at their first round; so does a wake that comes back here
 /// after its new policy ended its session.
 pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let had = count(
-        conn,
-        "SELECT count(*) FROM sessions WHERE work = ?1 AND line = 'architect'",
-        &[&w.id],
-    )?;
-    if had > 0 {
-        return Ok(json!({}));
-    }
-    let last: Option<(String, String, Option<i64>)> = conn
-        .query_row(
-            "SELECT s.cli, s.cli_session, s.ended FROM sessions s JOIN works x ON x.id = s.work
-             WHERE x.graph = 'architect' AND s.line = 'architect' AND s.work < ?1 ORDER BY s.id DESC LIMIT 1",
-            [w.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    if let Some((cli, cli_session, None)) = last {
-        e.db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', ?2, ?3, 'wake')",
-                params![w.id, cli, cli_session],
-            )?;
-            Ok(())
-        })
-        .map_err(sql)?;
-    }
+    let id = w.id;
+    e.db.write(Actor::Engine, |tx| {
+        sessions::choose::wake(tx, id).map_err(db::Error::Abort)
+    })
+    .map_err(sql)?;
     Ok(json!({}))
 }
 
@@ -846,13 +823,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 .map_err(sql)?;
             }
         }
-        "new_architect_session" => {
-            tx.execute(
-                "UPDATE sessions SET ended = ?2 WHERE work = ?1 AND line = 'architect' AND ended IS NULL",
-                params![w, db::now()],
-            )
-            .map_err(sql)?;
-        }
+        "new_architect_session" => sessions::choose::end_line(tx, w, ARCHITECT)?,
         "queue_policy_changed" => {
             let m = Matter {
                 kind: "policy_changed".into(),

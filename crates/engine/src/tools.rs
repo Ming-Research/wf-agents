@@ -16,6 +16,7 @@ use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
 use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, git};
+use sessions::worktree::Unfit;
 
 /// How many times a tool is tried before it is given up.
 const ATTEMPTS: i64 = 3;
@@ -509,18 +510,20 @@ pub fn run_tools(
 /// Why a push is refused, or none: the head must be the worktree's HEAD with nothing uncommitted, follow the last
 /// push, and carry no other branch than main.
 fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Option<String> {
-    let Some(sha) = git::resolve(wt, head) else {
-        return Some(format!("There is no commit {head} in the worktree"));
+    // The session manager says whether the head handed in is the clean worktree's.
+    let sha = match sessions::worktree::handed_in(wt, head) {
+        Ok(sha) => sha,
+        Err(Unfit::NoCommit) => return Some(format!("There is no commit {head} in the worktree")),
+        Err(Unfit::NotHead(local)) => {
+            return Some(format!(
+                "The head is not the one handed in: the worktree's HEAD is {local}"
+            ));
+        }
+        Err(Unfit::Uncommitted) => {
+            return Some("The worktree has uncommitted changes; commit them, or they do not count".into());
+        }
+        Err(Unfit::Git(e)) => return Some(format!("Git could not read the worktree: {e}")),
     };
-    let local = git::head(wt).unwrap_or_default();
-    if sha != local {
-        return Some(format!(
-            "The head is not the one handed in: the worktree's HEAD is {local}"
-        ));
-    }
-    if !git::is_clean(wt).unwrap_or(false) {
-        return Some("The worktree has uncommitted changes; commit them, or they do not count".into());
-    }
     if let Some(p) = pushed
         && !git::is_ancestor(wt, p, &sha)
     {
