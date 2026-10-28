@@ -204,6 +204,7 @@ const messages = {
   spent_input_hint: 'input {n}',
   rp_input: 'Input',
   rp_output: 'Output',
+  rp_output_note: 'Key names and what each means are notes; the values inside the boxes are what was handed back.',
   rp_inputs_count: 'Conditional inputs: {sent} sent, {held} already held by the session (greyed, not sent)',
   rp_box_sent: 'Sent to the agent, word for word',
   rp_box_returned: 'Handed back by the agent',

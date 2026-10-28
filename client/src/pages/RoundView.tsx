@@ -664,6 +664,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
       ) : null}
       <section className="rp-sec">
         <h4 className="rp-h">{t('rp_output')}</h4>
+        {d.output !== null ? <p className="rp-note">{t('rp_output_note')}</p> : null}
         {r.outcome === 'sent_back' ? <p className="rp-note rp-bad">{t('rp_sent_back', { why: r.why ?? '' })}</p> : null}
         {r.outcome === 'failed' || r.outcome === 'interrupted' ? (
           <p className="rp-note rp-bad">{t('rp_no_return', { why: r.why ?? '' })}</p>

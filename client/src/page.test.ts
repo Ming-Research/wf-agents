@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary, Status, WorkSummary } from './api';
+import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, JsonValue, RoundSummary, Status, WorkSummary } from './api';
 import { controls, course } from './components';
 import { held } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
@@ -558,7 +558,7 @@ describe('a round', () => {
   });
 
   it('lays out an object by its schema: each key with its description, nested keys and the value of a const', () => {
-    const schema = {
+    const schema: JsonValue = {
       type: 'object',
       properties: {
         what: { type: 'string', description: 'What it is' },
@@ -580,7 +580,7 @@ describe('a round', () => {
   });
 
   it('matches a oneOf to its branch by the value its const field fixes, and the form of a return to its alternative', () => {
-    const better = {
+    const better: JsonValue = {
       description: 'Is there a better design',
       oneOf: [
         {
@@ -596,7 +596,7 @@ describe('a round', () => {
         },
       ],
     };
-    const schema = {
+    const schema: JsonValue = {
       type: 'object',
       properties: {
         outcome: {
@@ -657,7 +657,7 @@ describe('a round', () => {
   });
 
   it("gives an enum's value its meaning, lays out a list of objects item by item, and shows what the schema does not describe by its JSON type", () => {
-    const schema = {
+    const schema: JsonValue = {
       type: 'object',
       properties: {
         side_reports: {
@@ -744,7 +744,7 @@ describe('a round', () => {
   });
 
   it('finds the schema of the place an address names, through the forms of a return and a list', () => {
-    const schema = {
+    const schema: JsonValue = {
       type: 'object',
       properties: {
         outcome: {
