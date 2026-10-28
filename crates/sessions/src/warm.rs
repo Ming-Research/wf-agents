@@ -125,7 +125,7 @@ pub fn due(conn: &Connection, work: i64, cells: &[&CompiledCell], limit: u64, no
         .unwrap_or(waits_from);
     let tried_at = sent.iter().map(|p| p.ended_at.unwrap_or(p.started_at)).max();
     let since = now - read_at;
-    if since < AFTER_MS || since >= CACHE_MS || tried_at.is_some_and(|t| now - t < RETRY_MS) {
+    if !(AFTER_MS..CACHE_MS).contains(&since) || tried_at.is_some_and(|t| now - t < RETRY_MS) {
         return Ok(None);
     }
     Ok(Some(Due {

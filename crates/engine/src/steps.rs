@@ -364,7 +364,7 @@ fn compose(
     let mut plan = sessions::choose::plan(e.db.conn(), w.id, cell, e.config.config.install.agents.context_limit)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
-        Plan::Going { rounds, held, .. } => (std::mem::take(rounds), std::mem::take(held)),
+        Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
         Plan::New(_) => (Vec::new(), Held::default()),
     };
     let mut known: Vec<Round> = line_rounds.iter().filter(|r| r.id.work != w.id).cloned().collect();

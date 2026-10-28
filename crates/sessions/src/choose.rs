@@ -43,7 +43,7 @@ pub enum Plan {
         id: i64,
         cli_session: String,
         rounds: Vec<Round>,
-        held: Held,
+        held: Box<Held>,
         resume: bool,
     },
     /// In a new session, for the reason given; it holds nothing yet.
@@ -117,7 +117,7 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64) -> Re
         id,
         cli_session,
         rounds,
-        held,
+        held: Box::new(held),
         resume,
     })
 }
