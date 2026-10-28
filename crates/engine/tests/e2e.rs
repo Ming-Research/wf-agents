@@ -5070,6 +5070,50 @@ fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// U3 hands in one row for each place to set straight, with every step it means to take there, and the engine queues
+// the row as one matter, which says its steps.
+#[test]
+fn a_place_to_set_straight_is_one_matter_with_its_steps() {
+    let s = setup("straight");
+    let mut agents = scripts();
+    agents.insert(
+        "U3",
+        Box::new(|_: &Request, _: usize| {
+            let fixes = json!([{ "where": "The policy's second stage", "kind": "missing", "wrong": "No item does it.",
+                                 "steps": ["Make the items lex and parse", "Rank them before #5",
+                                           "Have #5 wait for parse"] }]);
+            (
+                vec![("outcome.fit", "some_to_change")],
+                vec![("outcome.fit.fixes", fixes)],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "U3");
+    e.step_work(wake).unwrap();
+    let matters: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT what FROM architect_matters WHERE kind = 'set_straight'",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .filter_map(|r| r["what"].as_str().map(str::to_string))
+    .collect();
+    assert_eq!(
+        matters,
+        [
+            "To set straight, The policy's second stage: Make the items lex and parse; Rank them before #5; Have #5 wait \
+          for parse"
+        ],
+        "{}",
+        said.borrow().join("\n")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // An item change may name an item an earlier change of the batch creates by its key: a new item is placed before
 // another in the order works start in, and the engine gives it its number as it makes the batch.
 #[test]

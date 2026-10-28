@@ -2230,7 +2230,7 @@
     },
     "straight_fix": {
       "type": "obj",
-      "desc": "One place to set straight",
+      "desc": "One place to set straight, with every step you take there",
       "fields": [
         {
           "name": "item",
@@ -2288,9 +2288,14 @@
           "desc": "What is wrong, and on what grounds: the facts seen; an inference said to be one"
         },
         {
-          "name": "fix",
-          "type": "text",
-          "desc": "How you mean to fix it"
+          "name": "steps",
+          "type": "list",
+          "min": 1,
+          "desc": "Every step you mean to take there, in order, one per row",
+          "item": {
+            "type": "text",
+            "desc": "One step: a change to the items, a pause, an interjection, a note; one that needs an item an earlier step makes says which"
+          }
         },
         {
           "name": "pause_now",
@@ -10388,7 +10393,7 @@
           ],
           "prompt": [
             "This round answers one thing only: by the constitution and the policy, do the works running and the items queued fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, something the policy needs that no item does, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason.",
-            "Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Each fix says where, what kind, what is wrong and on what grounds, and how you mean to fix it: the engine queues each as a matter of yours, picked before others, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
+            "Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix. The engine queues each fix as a matter of yours, picked before others, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
           ],
           "out": [
             {
@@ -10415,7 +10420,7 @@
                     {
                       "name": "fixes",
                       "type": "list",
-                      "desc": "What to change, one per row",
+                      "desc": "One per place to set straight",
                       "item": {
                         "$ref": "straight_fix"
                       },
@@ -10435,7 +10440,7 @@
                     {
                       "name": "fixes",
                       "type": "list",
-                      "desc": "What to change, one per row",
+                      "desc": "One per place to set straight",
                       "item": {
                         "$ref": "straight_fix"
                       },
@@ -10930,7 +10935,7 @@
           ],
           "inputs": [
             {
-              "what": "The place to set straight, as your queue holds it: the fix the understanding gave (where, what kind, what is wrong and on what grounds, how it meant to fix it) with its verdict on the whole; or a look you set before the flow changed, or a new policy taking effect",
+              "what": "The place to set straight, as your queue holds it: the fix the understanding gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, or a new policy taking effect",
               "from": [
                 {
                   "engine": "matter"
@@ -10973,7 +10978,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: what to do about this place. Look at it again with today's facts: the fix the understanding gave is a lead, not an order. Then do it in effects: change the items (the order, a split, dependencies, a text, a level, a hold, a cancellation), pause or resume a work, interject what an engineer must know, record or fold in observations, note what to look at again. When nothing is to be done after all, say why.",
+            "This round answers one thing only: what to do about this place. Look at it again with today's facts: the fix the understanding gave is a lead, not an order. Then take every step it needs in this round's effects, a change naming an item an earlier change makes by its key: change the items (the order, a split, dependencies, a text, a level, a hold, a cancellation), pause or resume a work, interject what an engineer must know, record or fold in observations, note what to look at again. When nothing is to be done after all, say why.",
             "An inference that decides the direction is checked first by an item that checks it; the structure is not changed on it."
           ],
           "out": [

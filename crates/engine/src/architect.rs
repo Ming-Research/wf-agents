@@ -1433,11 +1433,12 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "queue_fixes" => {
             let (_, project) = wake_of(ctx)?;
             let fit = &ctx.unwrapped["fit"];
+            // One matter for each place, with every step the understanding meant to take there.
             for fix in items(at) {
                 let what = format!(
                     "To set straight, {}: {}",
                     db::one_sentence(text(&fix["where"])),
-                    db::one_sentence(text(&fix["fix"]))
+                    db::one_sentence(&texts(&fix["steps"]).join("; "))
                 );
                 let m = Matter {
                     project: project.clone(),
@@ -3207,6 +3208,9 @@ fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     ids_of(&r["item"], &mut ids);
     ids_of(&r["body"]["fix"]["item"], &mut ids);
     named_items(text(&r["what"]), &mut ids);
+    for step in texts(&r["body"]["fix"]["steps"]) {
+        named_items(&step, &mut ids);
+    }
     let mut out = Map::new();
     for id in ids.into_iter().take(12) {
         if let Some(x) = item_in_full(e, id)? {
