@@ -268,7 +268,8 @@ mod tests {
     fn the_architect_s_standard_context_is_known_by_its_input() {
         assert_eq!(standard("R3-4·engine·board"), Some("engine·board"));
         assert_eq!(standard("R3-9·engine·queue"), Some("engine·queue"));
-        assert_eq!(standard("R3-4·engine·batch"), None);
+        assert_eq!(standard("R3-4·engine·batch"), Some("engine·batch"));
+        assert_eq!(standard("R3-4·engine·matter"), None);
         assert_eq!(standard("x·engine·board"), None);
         assert_eq!(standard("R3-4·engine·project_guide"), Some("engine·project_guide"));
         assert_eq!(standard("rule:ground"), Some("rule:ground"));
