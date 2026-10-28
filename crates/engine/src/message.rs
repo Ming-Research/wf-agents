@@ -402,7 +402,8 @@ impl Context<'_> {
             workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
-        // itself is said in full.
+        // itself is said in full. A cell's own input that has nothing says none, so that it is not taken for one
+        // missing; an input every agent's cell may have, such as tool results, is listed only when it has something.
         let mut work_from = Vec::new();
         let mut interjections = Vec::new();
         let mut first: Vec<String> = Vec::new();
@@ -415,7 +416,9 @@ impl Context<'_> {
             number += 1;
             // A numbered table is one input the engine computes from its sources, each row with its number.
             if x.input.numbered.is_some() {
-                if !self.table.is_empty() {
+                if self.table.is_empty() {
+                    work_from.push(format!("{number}. none"));
+                } else {
                     let content = Value::Array(self.table.to_vec());
                     let address = self.computed(&m, "table", &content);
                     work_from.push(format!("{number}. {}", m.add(address, content)));
@@ -442,6 +445,8 @@ impl Context<'_> {
             }
             if !addrs.is_empty() {
                 work_from.push(format!("{number}. {}", addrs.join(", ")));
+            } else if x.input.name.is_none() {
+                work_from.push(format!("{number}. none"));
             }
         }
         if !rules.is_empty() {
@@ -753,8 +758,8 @@ mod tests {
         f.graph(crate::ENGINEER).unwrap().clone()
     }
 
-    // The forms every return shares hold every tool and every role any cell has; a cell's own format names the ones
-    // it has.
+    // The forms every return shares hold every tool and every role any cell has, and show a return's shape; a cell's
+    // own format names the ones it has.
     #[test]
     fn the_common_format_holds_every_alternative_and_a_cell_says_which_it_has() {
         let g = graph();
@@ -771,6 +776,10 @@ mod tests {
             assert!(common.contains(t), "{t}");
         }
         assert!(common.contains("leaves out `progress`"), "{common}");
+        assert!(
+            common.contains(r#"`{"outcome": {…}, "side_reports": […], "tell_owner": […], "progress": "…"}`"#),
+            "{common}"
+        );
         // The kinds of ask, the same under every role asked, are written once.
         assert_eq!(
             common.matches("The existing architecture or design has a flaw").count(),

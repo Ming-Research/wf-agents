@@ -286,6 +286,16 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
             }
         }
     }
+    // A return's shape, each field a stand-in of its type: it shows where the fields every return holds sit.
+    let stand_in = |v: &Value| match v["type"].as_str() {
+        Some("array") => "[…]",
+        Some("object") => "{…}",
+        Some("string") => "\"…\"",
+        _ => "…",
+    };
+    let shape: Vec<String> = std::iter::once(format!("\"{}\": {{…}}", g.within))
+        .chain(every.iter().map(|(k, v)| format!("\"{k}\": {}", stand_in(v))))
+        .collect();
     let mut schema = Map::new();
     schema.insert(
         g.within.clone(),
@@ -307,7 +317,9 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
     let mut parts = vec![format!(
         "The forms every agent's return shares. A return is one JSON object; its field `{w}` holds exactly one form: \
          the cell's own answer (`format:<cell>`), or one of these that `format:<cell>` names: {forms}. Every return \
-         also holds {every}{leaves}.",
+         also holds {every}{leaves}. Its shape is `{{{shape}}}`: the fields every return holds sit beside `{w}`, not in \
+         it.",
+        shape = shape.join(", "),
         w = g.within,
         forms = quoted(&names),
         every = quoted(&every_names),
