@@ -27,6 +27,7 @@ import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { overlays, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
+import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
 import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
@@ -50,8 +51,30 @@ export function roundsShown(rounds: RoundSummary[], only: RoundsOnly | null): Ro
   return rounds;
 }
 
+/// Where an agent's round spent its cost, beside its cost in its row: a small bar of the shares read again from the
+/// cache, newly cached and output, and its steps; the whole of it on hovering. None for a round no agent ran.
+function SpentBar({ r }: { r: RoundSummary }) {
+  if (r.tokens === null || r.line === null || r.not_asked !== null) return null;
+  const s = spent(r.tokens, r.model);
+  const sum = s.shares !== null ? s.shares.read + s.shares.written + s.shares.output : 0;
+  const width = (x: number) => `${sum > 0 ? (100 * x) / sum : 0}%`;
+  return (
+    <span className="spent" title={s.parts.map((p) => p.whole).join(' · ')}>
+      {s.shares !== null ? (
+        <span className="spent-bar">
+          <span className="spent-read" style={{ width: width(s.shares.read) }} />
+          <span className="spent-new" style={{ width: width(s.shares.written) }} />
+          <span className="spent-output" style={{ width: width(s.shares.output) }} />
+        </span>
+      ) : null}
+      <span className="spent-steps">{s.steps}</span>
+    </span>
+  );
+}
+
 /// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
-/// course: sent back, failed, cut off, running), what an agent's round cost and how long it took.
+/// course: sent back, failed, cut off, running), what an agent's round cost, where its cost went and how long it took.
+/// The round chosen, however it was chosen, is scrolled into view.
 function Timeline(props: {
   work: number;
   rounds: RoundSummary[];
@@ -61,11 +84,16 @@ function Timeline(props: {
   selected: number | null;
   onRound: (r: RoundSummary) => void;
 }) {
+  const body = useRef<HTMLTableSectionElement>(null);
+  const { selected } = props;
+  useEffect(() => {
+    if (selected !== null) body.current?.querySelector('tr.selected')?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
   if (props.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
   const newest = [...props.rounds].reverse();
   return (
     <table className="list timeline">
-      <tbody>
+      <tbody ref={body}>
         {newest.map((r) => {
           const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
           return (
@@ -88,7 +116,10 @@ function Timeline(props: {
                 ) : null}{' '}
                 <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
               </td>
-              <td className="num muted">{r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}</td>
+              <td className="num muted nowrap">
+                <SpentBar r={r} />
+                {r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}
+              </td>
               <td className="num muted">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
             </tr>
           );

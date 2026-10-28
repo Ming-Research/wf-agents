@@ -261,8 +261,33 @@ export function FlowScreen(props: FlowScreenProps) {
         return { title: g.interject?.name ?? '', who: g.interject?.desc, body: <InterjectionPanel /> };
       case 'changes':
         return { title: t('panel_changes'), who: null, body: diff ? <DiffPanel diff={diff} graph={g.name} /> : null };
-      case 'round':
-        return { title: nameOf(now.round), who: null, body: renderRound?.(now.round) ?? null };
+      case 'round': {
+        // The round and its cell, which opens on the chart.
+        const at = rounds?.find((r) => r.n === now.round)?.cell ?? null;
+        const c = at !== null ? g.cells.find((x) => x.id === at) : undefined;
+        return {
+          title: (
+            <>
+              <strong>{nameOf(now.round)}</strong>
+              {c !== undefined ? (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="link panel-cell"
+                    title={t('rp_open_cell')}
+                    onClick={() => flow.open({ kind: 'cell', cell: c.id })}
+                  >
+                    <strong>{c.id}</strong> {c.title}
+                  </button>
+                </>
+              ) : null}
+            </>
+          ),
+          who: null,
+          body: renderRound?.(now.round) ?? null,
+        };
+      }
     }
   })();
   // A round's panel brings its cell into view.

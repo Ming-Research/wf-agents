@@ -1,29 +1,42 @@
-// A round, as the owner reads it, in the order the owner reads it. First where the work came from, who ran the round
-// (the cell, and for an agent its line, level, model, effort, whether it started or continued its line's session,
-// its time and cost) and where the work went, one under another, the cells and the rounds before and after it links
-// that open them. For an agent's round, then: its task, folded; its inputs, one row for each input of its cell by the
-// cell's own numbering, each marked sent this round or already in the session, what it holds under it drawn by its
-// shape (open when sent this round, folded and read on opening when the session held it), those with nothing this
-// round kept in their place and struck through; and what it handed back, drawn by its shape too, with the row it
-// took. For a step that is not an agent's, what it came to and what it read; for tools, what each was asked and gave.
-// It ends with the message as sent and the return as handed back, raw and folded, for the final check. Nothing else is
-// shown as a tree of JSON or as escaped JSON text.
+// A round, as its panel shows it, by one rule: what the agent got or gave is inside a box, exactly, and everything the
+// page adds is outside the boxes, in the page's own style. Under the panel's title (the round and its cell, a link to
+// the cell on the chart): one small line of run facts and, for an agent's round, one of where its tokens and cost
+// went. Then its input: the conditional inputs the message gave or referred to, one row each with its address and
+// what it is, those the session already held, and so not sent, greyed and opening to what the session held; and the
+// message as sent, word for word, in one box, every heading and line as it is, a long part folded under a label that
+// gives its size and its share of the message, its first lines showing. Then its output: the return as handed back in
+// one box, each key on its own line with what the cell's return format says it is beside it, and its value in a box
+// of its own under it, laid out by the cell's compiled return schema alone (no code for any cell): nested keys
+// indented, lists numbered, an empty list said so, nothing hidden, renamed, merged or added; the raw JSON folded at
+// the bottom. A return sent back has why above its box. A round no agent ran shows what its step read and what it came
+// to by the same rule; for the tools, what they were asked and what they returned.
 
 import { type ReactNode, useContext, useState } from 'react';
 
-import type { CompiledCell, CompiledInput, JsonValue, RoundDetail, RoundSummary, ToolRun } from '../api';
-import { Loaded, OutcomeBadge } from '../components';
+import type { CompiledCell, JsonValue, RoundDetail, RoundSummary, ToolRun } from '../api';
+import { Loaded } from '../components';
 import { numbered } from '../flow/CellPanel';
 import { type Flow, FlowContext } from '../flow/context';
-import { targetWords } from '../flow/words';
 import { cost, duration, roundName, time } from '../format';
 import { getJson, getText } from '../http';
-import { Acceptance, Approaches, Deviation, Design, Field, Fold, Grounds, Measure, Understanding } from '../item/Shapes';
-import { empty, isObj, label, Labelled, type Obj, str, words } from '../labelled';
+import { isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
-import { Markdown } from '../markdown';
-import { srcText, t } from '../text';
-import { AskView, DesignCardView } from './Decide';
+import {
+  brief,
+  chars,
+  FOLD_AT,
+  foldLabel,
+  messageParts,
+  placeSchema,
+  preview,
+  shape,
+  type ShapeOptions,
+  type Shown,
+  type ShownField,
+  spent,
+} from '../round';
+import { t } from '../text';
+import { AskView } from './Decide';
 
 /// A message, as the engine writes one: its given inputs by address, its task and its list of inputs to work from.
 type Parsed = { given: Map<string, string>; task: string | null; workFrom: string[] };
@@ -70,348 +83,10 @@ export function addressesByNumber(workFrom: string[]): Map<number, string[]> {
   return out;
 }
 
-/// What an address names, in words, for an address no input of the cell gives: a return format, a rule, the worktree.
-function addressWords(a: string): string {
-  const colon = a.indexOf(':');
-  const [kind, rest] = colon > 0 && !a.startsWith('R') ? [a.slice(0, colon), a.slice(colon + 1)] : ['', a];
-  switch (kind) {
-    case 'format':
-      return rest === 'common' ? t('addr_common_format') : t('addr_cell_format', { cell: rest });
-    case 'inputs':
-      return t('addr_cell_inputs', { cell: rest });
-    case 'rule':
-      return t('addr_rule', { name: rest });
-    case 'work':
-      return t('addr_work');
-    case 'item':
-      return t('addr_item');
-    case 'config':
-      return t('addr_setting', { name: words(rest) });
-    case 'ij':
-      return t('addr_interjection');
-    case 'design_card':
-      return t('addr_design_card', { id: rest });
-    case 'ask':
-      return t('addr_ask', { id: rest });
-  }
-  return a;
-}
-
-/// Where an input's address says its content comes from, in words: a round and its cell, the engine, the item, a
-/// setting.
-export function sourceWords(a: string, title: (cell: string) => string): string {
-  const colon = a.indexOf(':');
-  if (colon > 0 && !a.startsWith('R')) {
-    const kind = a.slice(0, colon);
-    const rest = a.slice(colon + 1);
-    switch (kind) {
-      case 'item':
-        return t('src_item_n', { id: rest });
-      case 'design_card':
-        return t('addr_design_card', { id: rest });
-      case 'ask':
-        return t('addr_ask', { id: rest });
-      case 'ij':
-        return t('src_ij_n', { id: rest });
-      case 'config':
-        return t('src_setting', { name: words(rest) });
-    }
-    return addressWords(a);
-  }
-  const [round, cell] = a.split('·');
-  if (cell === 'engine') return t('src_engine_for', { round });
-  return t('src_from_round', { round, cell: title(cell) });
-}
-
-/// An input by a short name: its own, or that of where it comes from.
-export function shortName(x: CompiledInput): string {
-  // An input written without an id has none in the compiled flow either; one every agent's cell has goes by its name.
-  if (x.name) return x.name;
-  if (x.id) return words(x.id);
-  const s = x.from[0];
-  if (s === undefined) return '';
-  if (Array.isArray(s)) return words(s[1].split('.').pop()?.replace(/\[.*\]$/, '') ?? s[1]);
-  if (s === 'self') return 'self';
-  if ('config' in s) return words(s.config);
-  if ('db' in s) return words(s.db);
-  if ('engine' in s) return words(s.engine);
-  return words(s.recorded);
-}
-
 /// A model's name as people say it: `claude-opus-5-5` is Opus 5.5; any other name as it is.
 export function modelName(model: string): string {
   const m = /^claude-([a-z]+)-(\d+)-(\d+)$/.exec(model);
   return m ? `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : model;
-}
-
-/// Rows written one JSON object to a line, as a query gives them: the objects; none for a text that is not so.
-export function jsonLines(text: string): Obj[] | null {
-  const lines = text.split('\n').filter((l) => l.trim() !== '');
-  if (lines.length === 0 || !lines.every((l) => l.trimStart().startsWith('{'))) return null;
-  const rows: Obj[] = [];
-  for (const l of lines) {
-    try {
-      const v = JSON.parse(l) as JsonValue;
-      if (!isObj(v)) return null;
-      rows.push(v);
-    } catch {
-      return null;
-    }
-  }
-  return rows;
-}
-
-/// A text that holds JSON, as the value it holds; none for a text that does not.
-function parsed(text: string): JsonValue | undefined {
-  const s = text.trim();
-  if (!/^[[{"]/.test(s)) return undefined;
-  try {
-    return JSON.parse(s) as JsonValue;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Objects of plain values, as a table with a column for each field any of them has.
-function Rows({ rows }: { rows: Obj[] }) {
-  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  return (
-    <div className="rows-scroll">
-      <table className="list rows">
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th key={c}>{words(c)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              {cols.map((c) => (
-                <td key={c}>
-                  <Content value={r[c]} />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/// A value as it reads, whatever its shape: rows as a table (a query's rows, one object to a line, too), an object as
-/// its fields, a list as a list, a text as text with its markdown drawn; a text that holds JSON as the value it holds.
-export function Content({ value }: { value: JsonValue | undefined }) {
-  if (value === undefined || value === null) return null;
-  if (typeof value === 'string') {
-    const rows = jsonLines(value);
-    if (rows !== null) return <Rows rows={rows} />;
-    const inner = parsed(value);
-    if (inner !== undefined && typeof inner !== 'string') return <Content value={inner} />;
-    return <Markdown text={value} />;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') return <span>{String(value)}</span>;
-  if (Array.isArray(value)) {
-    if (value.length > 0 && value.every(isObj)) return <Rows rows={value.filter(isObj)} />;
-    return (
-      <ul className="labelled-list">
-        {value.map((v, i) => (
-          <li key={i}>
-            <Content value={v} />
-          </li>
-        ))}
-      </ul>
-    );
-  }
-  const fields = Object.entries(value).filter(([, v]) => !empty(v));
-  return (
-    <div className="labelled">
-      {fields.map(([k, v]) => (
-        <div key={k} className="labelled-field">
-          <span className="decision-label">{label(k)}</span>
-          <Content value={v} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/// A cell, as a link that brings it into view on the chart and opens it.
-function CellLink({ f, id }: { f: Flow | null; id: string }) {
-  const c = f?.cell(id);
-  const name = c ? `${id} ${c.title}` : id;
-  if (f === null) return <span className="path-cell">{name}</span>;
-  return (
-    <button type="button" className="link path-cell" onClick={() => f.open({ kind: 'cell', cell: id })}>
-      <strong>{id}</strong> {c?.title ?? ''}
-    </button>
-  );
-}
-
-/// A round, as a link that opens it.
-function RoundLink({ f, id, children }: { f: Flow | null; id: number; children: ReactNode }) {
-  if (f === null) return <span className="muted">{children}</span>;
-  return (
-    <button type="button" className="link muted" onClick={() => f.open({ kind: 'round', round: id })}>
-      {children}
-    </button>
-  );
-}
-
-/// The row a round took, as a chip.
-function RowChip({ row }: { row: string }) {
-  return <span className="row-chip">{words(row)}</span>;
-}
-
-/// Who did the round's work, in a few words: for an agent its line, level, model, effort, whether it started or
-/// continued its line's session, its time and cost; else the engine, the tools or the owner.
-function runWords(d: RoundDetail, cell: CompiledCell | undefined): string {
-  const r = d.round;
-  if (d.message !== null) {
-    const call = isObj(d.call) ? d.call : {};
-    const session = isObj(call.session) ? call.session : {};
-    return [
-      r.line,
-      d.level !== null ? t('run_level', { level: d.level }) : null,
-      r.model !== null ? modelName(r.model) : null,
-      d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
-      'started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null,
-      r.ended_at !== null ? duration(r.ended_at - r.started_at) : null,
-      r.cost_usd !== null ? cost(r.cost_usd) : null,
-    ]
-      .filter((x) => x !== null && x !== '')
-      .join(' · ');
-  }
-  if (r.not_asked !== null) return t('run_not_asked', { need: words(r.not_asked) });
-  if (cell?.kind === 'tool') return t('happened_tools');
-  if (cell?.kind === 'owner') return t('happened_owner');
-  return t('happened_engine', { step: cell?.step ?? '' });
-}
-
-/// Where the work came from, who ran the round and where the work went, one under another so that it never wraps.
-function Path({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
-  const r = d.round;
-  const cell = r.cell !== null ? f?.cell(r.cell) : undefined;
-  const at = rounds.findIndex((x) => x.n === r.n);
-  const before = at > 0 ? rounds[at - 1] : undefined;
-  const after = at >= 0 && at + 1 < rounds.length ? rounds[at + 1] : undefined;
-  const target = r.transition !== null && cell !== undefined ? cell.rows.find((x) => x.name === r.transition)?.to : undefined;
-  const progress = d.message === null ? r.progress : null;
-  return (
-    <div className="path">
-      {before !== undefined && before.cell !== null ? (
-        <div className="path-end">
-          <span className="path-label">{t('path_from')}</span>
-          <CellLink f={f} id={before.cell} />
-          {before.transition !== null ? <RowChip row={before.transition} /> : null}
-          <RoundLink f={f} id={before.n}>
-            ← {roundName(d.work, before.n)}
-          </RoundLink>
-        </div>
-      ) : null}
-      <div className="path-run">
-        <div>{r.cell !== null ? <CellLink f={f} id={r.cell} /> : null}</div>
-        <div>{runWords(d, cell)}</div>
-        {progress ? <div className="muted">{progress}</div> : null}
-        {r.outcome !== 'took' ? (
-          <div>
-            <OutcomeBadge outcome={r.outcome} />{' '}
-            {r.outcome === 'running' ? duration(Date.now() - r.started_at) : (r.why ?? '')}
-          </div>
-        ) : null}
-      </div>
-      {r.outcome === 'took' && (after?.cell != null || target !== undefined) ? (
-        <div className="path-end">
-          <span className="path-label">{t('path_to')}</span>
-          {r.transition !== null ? <RowChip row={r.transition} /> : null}
-          {after?.cell != null ? (
-            <CellLink f={f} id={after.cell} />
-          ) : target !== undefined ? (
-            (targetWords(target) ?? <CellLink f={f} id={target} />)
-          ) : null}
-          {after !== undefined ? (
-            <RoundLink f={f} id={after.n}>
-              {roundName(d.work, after.n)} →
-            </RoundLink>
-          ) : null}
-        </div>
-      ) : r.outcome !== 'took' && after !== undefined && after.cell !== null ? (
-        <div className="path-end">
-          <span className="path-label">{t('path_next')}</span>
-          <CellLink f={f} id={after.cell} />
-          <RoundLink f={f} id={after.n}>
-            {roundName(d.work, after.n)} →
-          </RoundLink>
-        </div>
-      ) : null}
-      <div className="path-when muted">
-        {r.ended_at !== null ? t('happened_at', { time: time(r.ended_at) }) : null}
-        {r.compactions > 0 ? ` ${t('happened_compacted')}` : null}
-      </div>
-    </div>
-  );
-}
-
-/// One input of the cell, by its number, as the round had it: its short name, and each of its addresses this round as
-/// where it comes from, sent this round or already in the session; one with nothing this round in its place, struck
-/// through.
-type InputRow = { no: number; x: CompiledInput; addresses: Array<{ address: string; sent: boolean }> };
-
-/// The cell's numbered inputs as the round had them, in the cell's order.
-export function inputRows(c: CompiledCell | undefined, workFrom: string[], sent: Map<string, boolean>): InputRow[] {
-  if (c === undefined) return [];
-  const by = addressesByNumber(workFrom);
-  return numbered(c).flatMap(({ x, no }) =>
-    no === null ? [] : [{ no, x, addresses: (by.get(no) ?? []).map((address) => ({ address, sent: sent.get(address) ?? false })) }],
-  );
-}
-
-function Chip({ sent }: { sent: boolean }) {
-  return <span className={`chip ${sent ? 'sent-now' : 'in-session'}`}>{t(sent ? 'input_sent_now' : 'input_in_session')}</span>;
-}
-
-/// The counts of what a work did, as the cells' counters keep them, each in the flow's words with the project's limit
-/// beside it.
-function Counters({ rows, f, limits }: { rows: Obj[]; f: Flow | null; limits: { [key in string]: number } }) {
-  return (
-    <ul className="counters">
-      {rows.map((r, i) => {
-        const name = str(r.counter);
-        const desc = f?.g.counters.find((k) => k.name === name)?.desc ?? words(name);
-        const limit = limits[name];
-        return (
-          <li key={i}>
-            <strong>{str(r.times) === '1' ? t('counter_once') : t('counter_times', { n: str(r.times) })}</strong>
-            {limit !== undefined ? <span className="muted"> {t('counter_limit', { n: limit })}</span> : null} {desc}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/// What an input held under one address, drawn by its shape: the work's counters in words beside the project's
-/// limits, rows as a table, text as text.
-function Held({ address, value, f, limits }: {
-  address: string;
-  value: JsonValue;
-  f: Flow | null;
-  limits: RoundDetail['limits'];
-}) {
-  const v = typeof value === 'string' ? (parsed(value) ?? value) : value;
-  if (address.endsWith('·engine·work_counters') && Array.isArray(v) && v.every(isObj)) {
-    return <Counters rows={v.filter(isObj)} f={f} limits={limits} />;
-  }
-  return <Content value={v} />;
-}
-
-/// A return as the addresses of its values read it: the one form it holds beside the rest.
-function unwrapped(output: JsonValue | null, within: string): JsonValue | null {
-  if (!isObj(output)) return output;
-  const form = output[within];
-  return isObj(form) ? { ...output, ...form } : output;
 }
 
 /// The value at a path of a return, as an address names it (`end.test_changes[added]`): a branch keeps only what is of
@@ -421,15 +96,320 @@ export function atPath(value: JsonValue | null | undefined, path: string): JsonV
   for (const seg of path.split('.')) {
     const hit = /^([^[]+)(?:\[(.+)\])?$/.exec(seg);
     if (hit === null || v === undefined) return undefined;
-    const [, name, branch] = hit;
+    const [, name, fixed] = hit;
     const of = (x: JsonValue): JsonValue | undefined => (isObj(x) ? x[name] : undefined);
     v = Array.isArray(v) ? v.map(of).filter((x): x is JsonValue => x !== undefined) : of(v);
-    if (branch !== undefined && v !== undefined) {
-      const mine = (x: JsonValue) => isObj(x) && Object.values(x).some((y) => y === branch);
+    if (fixed !== undefined && v !== undefined) {
+      const mine = (x: JsonValue) => isObj(x) && Object.values(x).some((y) => y === fixed);
       v = Array.isArray(v) ? v.filter(mine) : mine(v) ? v : undefined;
     }
   }
   return v;
+}
+
+/// The description a schema gives, if any.
+const said = (s: Obj | null): string | null => (s !== null && typeof s.description === 'string' ? s.description : null);
+
+/// What a conditional input is, in words, by its address: for an input of the cell, its name, or the description of
+/// the place of the return it is in the return format of the cell that gave it, or what the cell says the input is;
+/// for a return format, a rule, the worktree and the like, what that is.
+export function inputWords(address: string, cell: CompiledCell | undefined, f: Flow | null, workFrom: string[]): string {
+  const colon = address.indexOf(':');
+  if (colon > 0 && !address.startsWith('R')) {
+    const kind = address.slice(0, colon);
+    const rest = address.slice(colon + 1);
+    switch (kind) {
+      case 'format':
+        return rest === 'common' ? t('addr_common_format') : rest === cell?.id ? t('addr_own_format') : t('addr_cell_format', { cell: rest });
+      case 'inputs':
+        return t('addr_cell_inputs', { cell: rest });
+      case 'rule': {
+        const rule = f?.g.rules.find((r) => r.name === rest);
+        return rule !== undefined ? brief(rule.desc) : t('addr_rule', { name: rest });
+      }
+      case 'work':
+        return t('addr_work');
+      case 'item':
+        return t('addr_item');
+      case 'config': {
+        const x = cell?.inputs.find((i) => i.from.some((s) => typeof s === 'object' && !Array.isArray(s) && 'config' in s && s.config === rest));
+        return x !== undefined ? (x.name ?? brief(x.what)) : t('addr_setting', { name: words(rest) });
+      }
+      case 'ij':
+        return t('addr_interjection');
+      case 'design_card':
+        return t('addr_design_card', { id: rest });
+      case 'ask':
+        return t('addr_ask', { id: rest });
+    }
+    return address;
+  }
+  // The cell's own input the list to work from gives this address for.
+  let no: number | null = null;
+  for (const [k, xs] of addressesByNumber(workFrom)) if (xs.includes(address)) no = k;
+  const x = cell !== undefined && no !== null ? numbered(cell).find((y) => y.no === no)?.x : undefined;
+  const [, from = '', path = ''] = address.split('·');
+  if (x?.name) return x.name;
+  if (from === 'engine') return x !== undefined ? brief(x.what) : brief(f?.compiled.engine.inputs[path] ?? words(path));
+  const place = said(placeSchema(f?.cell(from)?.schema, path));
+  if (place !== null) return brief(place);
+  return x !== undefined ? brief(x.what) : address;
+}
+
+/// The lines of a text, exactly, each a line of its own, an empty one keeping its height.
+function Lines({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('\n').map((l, i) => (
+        <div key={i} className="rp-line">
+          {l}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/// A part of the message between two headings: as it is, or, when long, folded under a label in the page's words
+/// that gives its size and its share of the message, its first lines showing.
+function MessageText({ text, total }: { text: string; total: number }) {
+  const [open, setOpen] = useState(false);
+  const n = chars(text);
+  if (n <= FOLD_AT) return <Lines text={text} />;
+  return (
+    <div className="rp-fold">
+      <button type="button" className="rp-fold-label" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} {foldLabel(n, total, open)}
+      </button>
+      {open ? (
+        <Lines text={text} />
+      ) : (
+        <div className="rp-preview">
+          <Lines text={preview(text)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// A message as sent, word for word: every heading and line as it is, in order. The task is never folded, since it is
+/// what the agent was asked.
+function Message({ text }: { text: string }) {
+  const total = chars(text);
+  const parts = messageParts(text);
+  return (
+    <div className="rp-msg">
+      {parts.map((p, i) => {
+        if ('heading' in p) {
+          return (
+            <div key={i} className="rp-line rp-mh">
+              {p.heading}
+            </div>
+          );
+        }
+        const under = parts[i - 1];
+        if (under !== undefined && 'heading' in under && under.heading === '## Task') return <Lines key={i} text={p.text} />;
+        return <MessageText key={i} text={p.text} total={total} />;
+      })}
+    </div>
+  );
+}
+
+/// What the agent, the tools or the engine's step got or gave, in a box under its label.
+function Box({ label, kind, children }: { label: string; kind: 'in' | 'out'; children: ReactNode }) {
+  return (
+    <div className={`rp-box rp-box-${kind}`}>
+      <span className="rp-box-label">{label}</span>
+      <div className="rp-box-body">{children}</div>
+    </div>
+  );
+}
+
+/// A text value as it is; one that is only a link, a link.
+function TextValue({ text }: { text: string }) {
+  if (/^https?:\/\/\S+$/.test(text)) {
+    return (
+      <a href={text} target="_blank" rel="noreferrer">
+        {text}
+      </a>
+    );
+  }
+  return <>{text}</>;
+}
+
+/// A value that is not an object, in a small box of its own: a text, a number, a boolean or null as it is, an empty
+/// list or object said so, a list as numbered rows.
+function ValueBox({ v }: { v: Shown }) {
+  switch (v.kind) {
+    case 'text':
+    case 'plain':
+      return (
+        <div className="rp-val">
+          <div className="rp-vt">
+            <TextValue text={v.text} />
+          </div>
+        </div>
+      );
+    case 'empty':
+      return (
+        <div className="rp-val">
+          <span className="rp-vt">{v.text}</span> <span className="rp-note">{t('rp_empty')}</span>
+        </div>
+      );
+    case 'fields':
+      return (
+        <div className="rp-ind">
+          <Fields fields={v.fields} />
+        </div>
+      );
+    case 'table':
+      return (
+        <div className="rp-val rp-table-wrap">
+          <table className="rp-table">
+            <thead>
+              <tr>
+                <th />
+                {v.columns.map((c) => (
+                  <th key={c}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {v.rows.map((row, i) => (
+                <tr key={i}>
+                  <td className="rp-note">{i + 1}</td>
+                  {row.map((x, j) => (
+                    <td key={j}>{x}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    case 'list':
+      if (v.items.every((x) => x.value.kind === 'fields')) {
+        return (
+          <div className="rp-ind">
+            {v.items.map((x, i) => (
+              <div key={i} className="rp-item">
+                <div className="rp-note">{t('rp_item', { n: i + 1 })}</div>
+                {x.value.kind === 'fields' ? <Fields fields={x.value.fields} /> : null}
+              </div>
+            ))}
+          </div>
+        );
+      }
+      return (
+        <div className="rp-val">
+          {v.items.map((x, i) => (
+            <div key={i} className="rp-li">
+              <span className="rp-note">{i + 1}</span>
+              <div>
+                {x.value.kind === 'text' || x.value.kind === 'plain' ? (
+                  <span className="rp-vt">
+                    <TextValue text={x.value.text} />
+                  </span>
+                ) : (
+                  <ValueBox v={x.value} />
+                )}
+                {x.note !== null ? <span className="rp-note"> {x.note}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+  }
+}
+
+/// An object's keys, each on its own line with what its schema says it is beside it, its value under it: nested keys
+/// indented, any other value in a box of its own.
+function Fields({ fields }: { fields: ShownField[] }) {
+  return (
+    <>
+      {fields.map((x) => (
+        <div key={x.key} className="rp-field">
+          <div className="rp-kh">
+            <code className="rp-key">{x.key}</code>
+            {x.note !== null ? (
+              <span className="rp-note" title={x.full ?? undefined}>
+                {x.note}
+              </span>
+            ) : null}
+          </div>
+          <ValueBox v={x.value} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/// A value laid out by its schema, the whole of what a box holds.
+function Value({ v }: { v: Shown }) {
+  return v.kind === 'fields' ? <Fields fields={v.fields} /> : <ValueBox v={v} />;
+}
+
+/// A cell, as a link that brings it into view on the chart and opens it.
+function CellLink({ f, id }: { f: Flow | null; id: string }) {
+  const c = f?.cell(id);
+  if (f === null) return <span>{c ? `${id} ${c.title}` : id}</span>;
+  return (
+    <button type="button" className="link" onClick={() => f.open({ kind: 'cell', cell: id })}>
+      <strong>{id}</strong> {c?.title ?? ''}
+    </button>
+  );
+}
+
+/// A round, as a link that opens it.
+function RoundLink({ f, work, n }: { f: Flow | null; work: number; n: number }) {
+  if (f === null) return <span>{roundName(work, n)}</span>;
+  return (
+    <button type="button" className="link" onClick={() => f.open({ kind: 'round', round: n })}>
+      {roundName(work, n)}
+    </button>
+  );
+}
+
+/// Who did the round's work and how it ran, in a few words: for an agent its line, level, model, effort, whether it
+/// started or continued its line's session, its time and cost; else the tools, the engine's step or the owner.
+function runWords(d: RoundDetail, cell: CompiledCell | undefined): string {
+  const r = d.round;
+  const took = r.ended_at !== null ? duration(r.ended_at - r.started_at) : t('rp_running_for', { time: duration(Date.now() - r.started_at) });
+  if (d.message !== null) {
+    const call = isObj(d.call) ? d.call : {};
+    const session = isObj(call.session) ? call.session : {};
+    return [
+      r.line,
+      d.level !== null ? t('run_level', { level: d.level }) : null,
+      r.model !== null ? modelName(r.model) : null,
+      d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
+      'started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null,
+      r.compactions > 0 ? t('run_compacted') : null,
+      took,
+      r.cost_usd !== null ? cost(r.cost_usd) : null,
+    ]
+      .filter((x) => x !== null && x !== '')
+      .join(' · ');
+  }
+  if (r.not_asked !== null) return t('run_not_asked', { need: words(r.not_asked) });
+  if (cell?.kind === 'tool') return [t('round_by_tools'), t('rp_tool_runs', { n: d.tool_runs.length }), took].join(' · ');
+  if (cell?.kind === 'owner') return [t('round_by_owner'), took].join(' · ');
+  return [t('round_by_engine'), cell?.step ?? null, took].filter((x) => x !== null).join(' · ');
+}
+
+/// Where an agent's round spent its tokens and its cost, one short line, each part's tokens on hovering.
+function SpentLine({ r }: { r: RoundSummary }) {
+  if (r.tokens === null) return null;
+  const s = spent(r.tokens, r.model);
+  return (
+    <p className="rp-facts rp-spent">
+      {s.parts.map((p, i) => (
+        <span key={i} title={p.title ?? undefined}>
+          {i > 0 ? ' · ' : ''}
+          {p.text}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 /// What an input already in the session held: found by the hash the round's record names it with, as the round of the
@@ -459,138 +439,112 @@ async function findHeld(
   const m = /^R(\d+)-(\d+)·([^·]+)·(.+)$/.exec(address);
   if (m !== null && m[3] !== 'engine') {
     const x = await getJson<RoundDetail>(roundUrl(Number(m[1]), Number(m[2])));
-    return atPath(unwrapped(x.output, within), m[4]) ?? null;
+    const output = x.output;
+    const form = isObj(output) ? output[within] : undefined;
+    const out = isObj(output) && isObj(form) ? { ...output, ...form } : output;
+    return atPath(out, m[4]) ?? null;
   }
   return null;
 }
 
-/// An input the session already held, folded under `summary`: what it holds is read from where the session got it
-/// when it is opened.
-function InSession({ address, d, rounds, f, summary }: {
+/// One conditional input of the message: its address and what it is; one the session already held, and so was not
+/// sent, greyed, opening to what the session held, outside the box since this round did not send it.
+function InputRow({ address, given, hash, words: what, d, rounds, f }: {
   address: string;
+  given: boolean;
+  hash: string;
+  words: string;
   d: RoundDetail;
   rounds: RoundSummary[];
   f: Flow | null;
-  summary?: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const [value, setValue] = useState<JsonValue | null | undefined>(undefined);
-  const hash = d.conditional.find((c) => c.address === address)?.hash ?? '';
-  const toggle = (open: boolean) => {
-    if (!open || value !== undefined) return;
-    findHeld(address, hash, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));
+  const row = (
+    <>
+      <code className="rp-addr">{address}</code>
+      <span>{what}</span>
+    </>
+  );
+  if (given) return <div className="rp-input">{row}</div>;
+  const toggle = () => {
+    setOpen(!open);
+    if (value === undefined) findHeld(address, hash, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));
   };
+  const [, from = '', path = ''] = address.split('·');
   return (
-    <details className="input-held" onToggle={(e) => toggle(e.currentTarget.open)}>
-      <summary className={summary === undefined ? 'muted' : undefined}>{summary ?? t('input_open')}</summary>
-      {value === undefined ? (
-        <p className="muted">{t('loading')}</p>
-      ) : value === null ? (
-        <p className="muted">{t('input_not_found')}</p>
-      ) : (
-        <Held address={address} value={value} f={f} limits={d.limits} />
-      )}
-    </details>
+    <>
+      <button type="button" className="rp-input rp-held" aria-expanded={open} onClick={toggle} title={t('rp_held_hint')}>
+        {row}
+      </button>
+      {open ? (
+        <div className="rp-held-body">
+          <div className="rp-note">{t('rp_held_label')}</div>
+          {value === undefined ? (
+            <p className="rp-note">{t('loading')}</p>
+          ) : value === null ? (
+            <p className="rp-note">{t('input_not_found')}</p>
+          ) : typeof value === 'string' ? (
+            <div className="rp-msg">
+              <Lines text={value} />
+            </div>
+          ) : (
+            <Value v={shape(value, from !== 'engine' ? placeSchema(f?.cell(from)?.schema, path) : null)} />
+          )}
+        </div>
+      ) : null}
+    </>
   );
 }
 
-/// An agent's round: its task, folded, and its inputs, one row for each input of its cell by the cell's numbering,
-/// what was sent this round open under its row and what the session already held folded there, an input with
-/// nothing this round in its place, struck through.
-function AgentInputs({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
-  const m = parseMessage(d.message ?? '');
-  const sent = new Map(d.conditional.map((c) => [c.address, c.given]));
-  const cell = d.round.cell !== null ? f?.cell(d.round.cell) : undefined;
-  const title = (id: string) => {
-    const c = f?.cell(id);
-    return c ? `${id} ${c.title}` : id;
-  };
-  const rows = inputRows(cell, m.workFrom, sent);
-  const theirs = new Set(rows.flatMap((x) => x.addresses.map((a) => a.address)));
-  const others = d.conditional.filter((c) => !theirs.has(c.address));
-  const alsoSent = others.filter((c) => c.given);
-  const alsoHeld = others.filter((c) => !c.given);
-  const itself = (cell?.inputs ?? []).filter((x) => x.from.every((s) => s === 'self'));
+/// The lines of the message's list of inputs to work from.
+function workFromOf(message: string): string[] {
+  return parseMessage(message).workFrom;
+}
+
+/// An agent's input: the conditional inputs listed above the box, then the message as sent, word for word.
+function AgentInput({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null; cell: CompiledCell | undefined }) {
+  const message = d.message ?? '';
+  const from = workFromOf(message);
+  const sent = d.conditional.filter((c) => c.given).length;
   return (
-    <>
-      {m.task !== null ? (
-        <details className="section round-part">
-          <summary>
-            <span className="section-title">{t('round_task')}</span>{' '}
-            <span className="muted">{t('round_task_same', { cell: d.round.cell ?? '' })}</span>
-          </summary>
-          <div className="section-body">
-            <Markdown text={m.task} />
-          </div>
-        </details>
-      ) : null}
-      <section className="round-part">
-        <h4 className="round-h">{t('round_inputs')}</h4>
-        <ol className="round-inputs">
-          {rows.map((x) => (
-            <li
-              key={x.no}
-              value={x.no}
-              className={x.addresses.length === 0 ? 'input-none' : undefined}
-              title={x.addresses.length === 0 ? `${x.x.what}\n${t('input_nothing')}` : x.x.what}
-            >
-              <div className="input-row">
-                <strong>{shortName(x.x)}</strong>
-                {x.addresses.length === 1 ? (
-                  <>
-                    <span className="muted">{sourceWords(x.addresses[0].address, title)}</span>
-                    <Chip sent={x.addresses[0].sent} />
-                  </>
-                ) : null}
-              </div>
-              {x.addresses.map((a) => (
-                <div key={a.address} className="input-content">
-                  {x.addresses.length > 1 ? (
-                    <div className="input-row">
-                      <span className="muted">{sourceWords(a.address, title)}</span> <Chip sent={a.sent} />
-                    </div>
-                  ) : null}
-                  {a.sent ? (
-                    <Held address={a.address} value={m.given.get(a.address) ?? ''} f={f} limits={d.limits} />
-                  ) : (
-                    <InSession address={a.address} d={d} rounds={rounds} f={f} />
-                  )}
-                </div>
-              ))}
-            </li>
-          ))}
-        </ol>
-        {itself.length > 0 ? (
-          <p className="muted">{t('round_itself', { names: itself.map(shortName).join(', ') })}</p>
-        ) : null}
-        {alsoSent.length > 0 ? (
-          <div className="also-sent">
-            <span className="muted">{t('round_also_sent')}</span>
-            {alsoSent.map((c) => (
-              <details key={c.address}>
-                <summary>{addressWords(c.address)}</summary>
-                <Markdown text={m.given.get(c.address) ?? ''} />
-              </details>
-            ))}
-          </div>
-        ) : null}
-        {alsoHeld.length > 0 ? (
-          <div className="also-sent">
-            <span className="muted">{t('round_also_held')}</span>
-            {alsoHeld.map((c) => (
-              <InSession
+    <section className="rp-sec">
+      <h4 className="rp-h">{t('rp_input')}</h4>
+      {d.conditional.length > 0 ? (
+        <>
+          <p className="rp-note">{t('rp_inputs_count', { sent, held: d.conditional.length - sent })}</p>
+          <div className="rp-inputs">
+            {d.conditional.map((c) => (
+              <InputRow
                 key={c.address}
                 address={c.address}
+                given={c.given}
+                hash={c.hash}
+                words={inputWords(c.address, cell, f, from)}
                 d={d}
                 rounds={rounds}
                 f={f}
-                summary={addressWords(c.address)}
               />
             ))}
           </div>
-        ) : null}
-      </section>
-    </>
+        </>
+      ) : null}
+      <Box label={t('rp_box_sent')} kind="in">
+        <Message text={message} />
+      </Box>
+    </section>
   );
+}
+
+/// The schema an input of a step that is not an agent's is read by: that of the place of the return it comes from,
+/// in the return format of the cell that gave it (the cell the work came from, for `@caller` and `@from`); none for
+/// what the engine, the configuration or the database gives.
+function inputSchema(x: RoundDetail['inputs'][number], before: RoundSummary | undefined, f: Flow | null): Obj | null {
+  const src = x.from[0];
+  if (!Array.isArray(src)) return null;
+  const [at, path] = src;
+  const id = at.startsWith('@') ? before?.cell : at;
+  return id != null ? placeSchema(f?.cell(id)?.schema, path) : null;
 }
 
 /// A file a tool kept, read when asked for.
@@ -608,7 +562,7 @@ function KeptFile({ file, path }: { file: string; path: string }) {
   };
   return (
     <div className="kept">
-      <button className="link" onClick={open} title={path}>
+      <button type="button" className="link" onClick={open} title={path}>
         {file}
       </button>
       {text !== null ? <pre className="j-text file-text">{text}</pre> : null}
@@ -616,338 +570,128 @@ function KeptFile({ file, path }: { file: string; path: string }) {
   );
 }
 
-/// What a tool was asked, in words: a query's SQL as code, a commit as code, anything else by its fields.
-function Asked({ args, f }: { args: JsonValue; f: Flow | null }) {
-  const a = isObj(args) ? args : {};
-  const tool = str(a.tool);
-  const rest = Object.entries(a).filter(([k, v]) => k !== 'tool' && k !== 'sql' && !empty(v));
+/// The tools a step that is not a tool cell ran, each as it was asked and what it returned.
+function StepTools({ runs }: { runs: ToolRun[] }) {
   return (
-    <div className="tool-asked">
-      <strong title={f?.compiled.tools.find((x) => x.name === tool)?.runs}>{tool}</strong>
-      {typeof a.sql === 'string' ? <pre className="code-block">{a.sql}</pre> : null}
-      {rest.map(([k, v]) => (
-        <div key={k} className="labelled-field">
-          <span className="decision-label">{label(k)}</span>
-          {typeof v === 'string' && !v.includes(' ') ? <code>{v}</code> : <Content value={v} />}
+    <Box label={t('rp_box_step_tools')} kind="out">
+      {runs.map((run) => (
+        <div key={run.id} className="rp-item">
+          <div className="rp-note">
+            {[
+              run.tool,
+              run.attempt > 1 ? t('attempt', { n: run.attempt }) : null,
+              run.ended_at !== null && run.started_at !== null ? duration(run.ended_at - run.started_at) : null,
+            ]
+              .filter((x) => x !== null)
+              .join(' · ')}
+          </div>
+          <Value v={shape({ args: run.args, result: run.result }, null)} />
         </div>
       ))}
-    </div>
+    </Box>
   );
 }
 
-/// A tool the engine ran: what it was asked, and what it gave, with the files it kept.
-function Tool({ run, f }: { run: ToolRun; f: Flow | null }) {
+/// A raw JSON for the final check, folded.
+function Raw({ title, value }: { title: string; value: JsonValue }) {
   return (
-    <div className="boxed tool-run">
-      <Asked args={run.args} f={f} />
-      <div className="muted">
-        {run.attempt > 1 ? `${t('attempt', { n: run.attempt })} · ` : ''}
-        {run.ended_at !== null && run.started_at !== null ? duration(run.ended_at - run.started_at) : ''}
-      </div>
-      {Array.isArray(run.result) && run.result.length === 2 && typeof run.result[1] === 'string' ? (
-        <>
-          <div className="muted">{t('tool_exit', { code: str(run.result[0]) })}</div>
-          <pre className="j-text file-text">{run.result[1]}</pre>
-        </>
-      ) : (
-        <Content value={run.result} />
-      )}
-      {run.files.map((x) => (
-        <KeptFile key={x.file} file={x.file} path={x.path} />
-      ))}
-    </div>
-  );
-}
-
-/// The tools a round asked for, and what they gave in the round that ran them, the next one of the work.
-function ToolsAsked({ tools, work, next, f }: {
-  tools: JsonValue[];
-  work: number;
-  next: RoundSummary | undefined;
-  f: Flow | null;
-}) {
-  const ran = next !== undefined && next.cell !== null && f?.cell(next.cell)?.kind === 'tool';
-  const detail = useResource<RoundDetail>(
-    ran ? `round:${work}-${next.n}` : null,
-    ran ? roundUrl(work, next.n) : null,
-  );
-  const runs = detail.data?.tool_runs ?? [];
-  return (
-    <div className="tools-asked">
-      {runs.length > 0
-        ? runs.map((run) => <Tool key={run.id} run={run} f={f} />)
-        : tools.map((x, i) => (
-            <div key={i} className="boxed tool-run">
-              <Asked args={x} f={f} />
-            </div>
-          ))}
-      {ran ? (
-        <p className="muted">
-          {t('tools_ran_in')}{' '}
-          <RoundLink f={f} id={next.n}>
-            {roundName(work, next.n)}
-          </RoundLink>
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/// A new acceptance, each condition marked new, changed or unchanged against the one it replaces, and the conditions
-/// it leaves out.
-function NewAcceptance({ value, before }: { value: JsonValue; before: JsonValue | null }) {
-  const old = Array.isArray(before) ? before.filter(isObj) : [];
-  const now = Array.isArray(value) ? value.filter(isObj) : [];
-  if (old.length === 0 || now.length === 0) return <Acceptance value={value} met={new Map()} />;
-  const same = (a: Obj, b: Obj) => str(a.condition) === str(b.condition) && str(a.by) === str(b.by) && str(a.criterion) === str(b.criterion);
-  const dropped = old.filter((o) => !now.some((n) => str(n.id) === str(o.id)));
-  return (
-    <table className="list acceptance">
-      <tbody>
-        {now.map((n, i) => {
-          const o = old.find((x) => str(x.id) === str(n.id));
-          const mark = o === undefined ? 'new' : same(o, n) ? 'unchanged' : 'changed';
-          return (
-            <tr key={i} className={`acc-${mark}`}>
-              <td className="nowrap">
-                <code>{str(n.id)}</code>
-              </td>
-              <td>
-                <Markdown text={str(n.condition)} />
-                {mark === 'changed' && o !== undefined ? (
-                  <details>
-                    <summary className="muted">{t('acc_was')}</summary>
-                    <Markdown text={str(o.condition)} />
-                  </details>
-                ) : null}
-              </td>
-              <td className="nowrap">
-                <span className={`chip acc-chip-${mark}`}>
-                  {t(mark === 'new' ? 'acc_new' : mark === 'changed' ? 'acc_changed' : 'acc_unchanged')}
-                </span>
-              </td>
-            </tr>
-          );
-        })}
-        {dropped.map((o, i) => (
-          <tr key={`d${i}`} className="acc-removed">
-            <td className="nowrap">
-              <code>{str(o.id)}</code>
-            </td>
-            <td>
-              <Markdown text={str(o.condition)} />
-            </td>
-            <td className="nowrap">
-              <span className="chip acc-chip-removed">{t('acc_removed')}</span>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/// A cell's own answer, each field drawn by its shape in the flow's formats where the page knows it, any other as
-/// labelled text.
-function Answer({ value, before }: { value: Obj; before: JsonValue | null }) {
-  const chosen = str(value.chosen);
-  return (
-    <div className="shape">
-      {Object.entries(value)
-        .filter(([, v]) => !empty(v))
-        .map(([k, v]) => {
-          const name = label(k);
-          switch (k) {
-            case 'understanding':
-              return <Shaped key={k} name={name} body={<Understanding value={v} />} />;
-            case 'options':
-              return <Shaped key={k} name={name} body={<Approaches value={v} chosen={chosen} />} />;
-            case 'design':
-              return <Shaped key={k} name={name} body={<Design value={v} after={null} />} />;
-            case 'measure':
-              return <Shaped key={k} name={name} body={<Measure value={v} />} />;
-            case 'grounds':
-              return <Shaped key={k} name={name} body={<Grounds value={v} />} />;
-            case 'acceptance':
-              return <Shaped key={k} name={name} body={<Acceptance value={v} met={new Map()} />} />;
-            case 'new_acceptance':
-              return <Shaped key={k} name={name} body={<NewAcceptance value={v} before={before} />} />;
-            case 'why':
-              // Why comes after what was decided, and is read on asking.
-              return (
-                <Fold key={k} title={<span className="decision-label">{name}</span>}>
-                  <Labelled value={v} />
-                </Fold>
-              );
-            case 'deviations':
-              return (
-                <Shaped
-                  key={k}
-                  name={name}
-                  body={Array.isArray(v) ? v.map((x, i) => <Deviation key={i} value={x} />) : <Labelled value={v} />}
-                />
-              );
-          }
-          if (isObj(v)) return <Shaped key={k} name={name} body={<Answer value={v} before={before} />} />;
-          return <Field key={k} label={name} value={v} />;
-        })}
-    </div>
-  );
-}
-
-function Shaped({ name, body }: { name: string; body: ReactNode }) {
-  return (
-    <div className="field">
-      <span className="decision-label">{name}</span>
-      {body}
-    </div>
-  );
-}
-
-/// What an agent's round handed back: what it said it did, then the one form its return holds (its own answer, the
-/// tools it asked for, its ask, a pause), then what it told the owner and its side reports.
-function HandedBack({ d, rounds, f }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null }) {
-  const out = isObj(d.output) ? d.output : null;
-  if (out === null) return d.output !== null ? <Content value={d.output} /> : <p className="muted">{t('none')}</p>;
-  const within = f?.g.within ?? 'outcome';
-  const form = isObj(out[within]) ? (out[within] as Obj) : null;
-  const at = rounds.findIndex((x) => x.n === d.round.n);
-  const next = at >= 0 ? rounds[at + 1] : undefined;
-  const told = Array.isArray(out.tell_owner) ? out.tell_owner.filter((x) => !empty(x)) : [];
-  const side = Array.isArray(out.side_reports) ? out.side_reports.filter((x) => !empty(x)) : [];
-  return (
-    <>
-      {typeof out.progress === 'string' && out.progress.trim() !== '' ? <Markdown text={out.progress} /> : null}
-      {form !== null && Array.isArray(form.tools) ? (
-        <ToolsAsked tools={form.tools} work={d.work} next={next} f={f} />
-      ) : form !== null && 'ask' in form ? (
-        d.asks.length > 0 ? (
-          d.asks.map((a) => <AskView key={a.id} a={a} />)
-        ) : (
-          <Content value={form.ask} />
-        )
-      ) : form !== null && ('pause' in form || 'answers' in form || 'redirect' in form) ? (
-        <Content value={form} />
-      ) : form !== null ? (
-        <Answer value={form} before={d.acceptance_before} />
-      ) : null}
-      {d.design_cards.map((c) => (
-        <div key={c.id} className="field">
-          <span className="decision-label">{t('round_design_card', { id: c.id, status: words(c.status) })}</span>
-          <DesignCardView c={c} />
-        </div>
-      ))}
-      {told.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('round_told_owner')}</span>
-          {told.map((x, i) => (
-            <Markdown key={i} text={str(x)} />
-          ))}
-        </div>
-      ) : null}
-      {side.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('round_side_reports')}</span>
-          <Content value={side} />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/// What a step that was not an agent's came to, without the progress the top already says.
-function cameTo(output: RoundDetail['output']): RoundDetail['output'] {
-  if (output === null || typeof output !== 'object' || Array.isArray(output) || typeof output.progress !== 'string') {
-    return output;
-  }
-  const rest = Object.fromEntries(Object.entries(output).filter(([k]) => k !== 'progress'));
-  return Object.keys(rest).length > 0 ? rest : null;
-}
-
-/// A raw text for the final check, folded: the message word for word, or a return exactly as handed in.
-function Raw({ title, note = null, text }: { title: string; note?: string | null; text: string }) {
-  return (
-    <details className="section round-part">
-      <summary>
-        <span className="section-title">{title}</span>
-      </summary>
-      <div className="section-body">
-        {note !== null ? <p className="muted">{note}</p> : null}
-        <pre className="j-text prompt">{text}</pre>
-      </div>
+    <details className="rp-raw">
+      <summary className="rp-note">{title}</summary>
+      <pre className="j-text file-text">{JSON.stringify(value, null, 2)}</pre>
     </details>
   );
 }
 
 function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const f = useContext(FlowContext);
-  const ran = d.message !== null;
-  // What tools came to is what each of them gave, shown with them.
-  const output = ran ? d.output : d.tool_runs.length > 0 ? null : cameTo(d.output);
-  // For the final check, what was handed back as it was handed in: the agent's return (the one sent back, for a
-  // return sent back), or what the tools gave, or what the step came to.
-  const handed = d.tool_runs.length > 0 && !ran ? d.tool_runs.map((x) => x.result) : d.output;
-  const raw = handed !== null ? JSON.stringify(handed, null, 2) : null;
+  const r = d.round;
+  const cell = r.cell !== null ? f?.cell(r.cell) : undefined;
+  const agent = d.message !== null;
+  const tool = cell?.kind === 'tool';
+  const at = rounds.findIndex((x) => x.n === r.n);
+  const before = at > 0 ? rounds[at - 1] : undefined;
+  const after = at >= 0 ? rounds[at + 1] : undefined;
+  const options: ShapeOptions = {
+    within: f?.g.within,
+    form: (i) => {
+      const form = cell?.forms?.[i];
+      if (form === undefined || cell === undefined) return null;
+      return form.own ? t('rp_form_own', { cell: cell.id }) : form.field !== null ? t('rp_form_common', { form: form.field }) : null;
+    },
+  };
+  const outLabel = agent
+    ? t('rp_box_returned')
+    : r.not_asked !== null
+      ? t('rp_box_not_asked')
+      : tool
+        ? t('rp_box_tools_returned')
+        : t('rp_box_came_to');
+  const files = d.tool_runs.flatMap((x) => x.files);
   return (
-    <div className="round">
-      <Path d={d} rounds={rounds} f={f} />
-      {ran ? <AgentInputs d={d} rounds={rounds} f={f} /> : null}
-      {!ran && d.inputs.length > 0 ? (
-        <details className="section round-part">
-          <summary>
-            <span className="section-title">{t('round_read')}</span>
-          </summary>
-          <div className="section-body">
+    <div className="rp">
+      <p className="rp-facts" title={r.ended_at !== null ? t('happened_at', { time: time(r.ended_at) }) : undefined}>
+        {runWords(d, cell)}
+      </p>
+      {agent ? <SpentLine r={r} /> : null}
+      {agent ? <AgentInput d={d} rounds={rounds} f={f} cell={cell} /> : null}
+      {!agent && d.inputs.length > 0 ? (
+        <section className="rp-sec">
+          <h4 className="rp-h">{t('rp_input')}</h4>
+          {tool && before !== undefined ? (
+            <p className="rp-note">
+              {t('rp_asked_by')} <RoundLink f={f} work={d.work} n={before.n} />
+              {before.cell !== null ? (
+                <>
+                  {' '}
+                  (<CellLink f={f} id={before.cell} />)
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          <Box label={tool ? t('rp_box_tools_given') : t('rp_box_step_read')} kind="in">
             {d.inputs.map((x, i) => (
-              <div key={i} className="field">
-                <span className="decision-label">
-                  {x.what}
-                  {x.from.length > 0 ? <span className="muted"> · {x.from.map(srcText).join('; ')}</span> : null}
-                </span>
-                <Content value={x.value} />
+              <div key={i} className="rp-field">
+                <div className="rp-kh">
+                  <span className="rp-note" title={brief(x.what) !== x.what ? x.what : undefined}>
+                    {brief(x.what)}
+                  </span>
+                </div>
+                <ValueBox v={shape(x.value, inputSchema(x, before, f))} />
               </div>
             ))}
+          </Box>
+        </section>
+      ) : null}
+      <section className="rp-sec">
+        <h4 className="rp-h">{t('rp_output')}</h4>
+        {r.outcome === 'sent_back' ? <p className="rp-note rp-bad">{t('rp_sent_back', { why: r.why ?? '' })}</p> : null}
+        {r.outcome === 'failed' || r.outcome === 'interrupted' ? (
+          <p className="rp-note rp-bad">{t('rp_no_return', { why: r.why ?? '' })}</p>
+        ) : null}
+        {d.output !== null ? (
+          <Box label={outLabel} kind="out">
+            <Value v={shape(d.output, cell?.schema, options)} />
+          </Box>
+        ) : r.outcome === 'running' ? (
+          <p className="rp-note">{t('rp_running')}</p>
+        ) : null}
+        {!tool && d.tool_runs.length > 0 ? <StepTools runs={d.tool_runs} /> : null}
+        {files.length > 0 ? (
+          <div className="rp-files">
+            <span className="rp-note">{t('rp_files')}</span>
+            {files.map((x) => (
+              <KeptFile key={x.file} file={x.file} path={x.path} />
+            ))}
           </div>
-        </details>
-      ) : null}
-      {d.tool_runs.length > 0 ? (
-        <section className="round-part">
-          <h4 className="round-h">{t('round_tools', { n: d.tool_runs.length })}</h4>
-          {d.tool_runs.map((run) => (
-            <Tool key={run.id} run={run} f={f} />
-          ))}
-        </section>
-      ) : null}
-      {ran || output !== null ? (
-        <section className="round-part">
-          <h4 className="round-h">
-            {ran ? t('round_returned') : t('round_came_to')}
-            {d.round.transition !== null ? (
-              <>
-                {' '}
-                <RowChip row={d.round.transition} />
-              </>
-            ) : null}
-          </h4>
-          {ran ? <HandedBack d={d} rounds={rounds} f={f} /> : <Content value={output} />}
-        </section>
-      ) : null}
-      {!ran
-        ? d.asks.map((a) => (
-            <section key={a.id} className="round-part">
-              <h4 className="round-h">{t('round_ask', { id: a.id })}</h4>
-              <AskView a={a} />
-            </section>
-          ))
-        : null}
-      {ran ? <Raw title={t('message')} text={d.message ?? ''} /> : null}
-      {raw !== null ? (
-        <Raw
-          title={ran ? t('round_raw_return') : d.tool_runs.length > 0 ? t('round_raw_tools') : t('round_raw_came_to')}
-          note={d.round.outcome === 'sent_back' ? t('round_raw_sent_back', { why: d.round.why ?? '' }) : null}
-          text={raw}
-        />
-      ) : null}
+        ) : null}
+        {agent && after !== undefined && after.cell !== null && f?.cell(after.cell)?.kind === 'tool' ? (
+          <p className="rp-note">
+            {t('rp_tools_ran_in')} <RoundLink f={f} work={d.work} n={after.n} />
+          </p>
+        ) : null}
+        {!agent ? d.asks.map((a) => <AskView key={a.id} a={a} />) : null}
+        {d.output !== null ? <Raw title={t('rp_raw')} value={d.output} /> : null}
+      </section>
     </div>
   );
 }

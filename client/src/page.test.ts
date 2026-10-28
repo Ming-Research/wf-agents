@@ -12,10 +12,11 @@ import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, take
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
-import { addressesByNumber, atPath, inputRows, jsonLines, modelName, sourceWords } from './pages/RoundView';
+import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
+import { chars, foldLabel, messageParts, placeSchema, preview, shape, spent, tokens, valueMeanings } from './round';
 
 describe('the message catalog', () => {
   it('has every text, none empty, all in English', () => {
@@ -227,6 +228,7 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
     tool_runs: 0,
     progress: null,
     not_asked: null,
+    tokens: null,
   };
 }
 
@@ -516,15 +518,7 @@ describe('an ask', () => {
 });
 
 describe('a round', () => {
-  it("lists the cell's inputs by their numbers as the round had them, those with nothing in their place", () => {
-    const c = cell('x', [], {
-      inputs: [
-        { id: null, what: 'what is asked', from: [['@caller', 'ask']], maybe: false },
-        { id: null, what: 'the code', from: ['self'], maybe: false },
-        { id: null, what: 'the estimate', from: [['2a', 'estimate']], maybe: true },
-        { id: null, what: 'the counters', from: [{ db: 'work_counters', by: 'work' }], maybe: false },
-      ],
-    });
+  it('reads the numbers of the list to work from, names a model as people do, and reads a value at an address', () => {
     const workFrom = ['1. R6-12·2a·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
     expect(addressesByNumber(workFrom)).toEqual(
       new Map([
@@ -532,34 +526,265 @@ describe('a round', () => {
         [3, ['R6-15·engine·work_counters']],
       ]),
     );
-    const sent = new Map([
-      ['R6-12·2a·ask', false],
-      ['R6-15·engine·work_counters', true],
-    ]);
-    expect(inputRows(c, workFrom, sent).map((r) => [r.no, r.addresses])).toEqual([
-      [1, [{ address: 'R6-12·2a·ask', sent: false }]],
-      [2, []],
-      [3, [{ address: 'R6-15·engine·work_counters', sent: true }]],
-    ]);
-  });
-
-  it('says where an input comes from, names a model as people do, and reads rows a query gave', () => {
-    const title = (id: string) => `${id} Choose`;
-    expect(sourceWords('R6-12·2a·ask', title)).toBe('from R6-12 at 2a Choose');
-    expect(sourceWords('R6-15·engine·work_counters', title)).toBe('computed by the engine for R6-15');
-    expect(sourceWords('item:3', title)).toBe('item 3');
     expect(modelName('claude-opus-5-5')).toBe('Opus 5.5');
     expect(modelName('gpt-x')).toBe('gpt-x');
-    expect(jsonLines('{"a":1}\n{"a":2,"b":"x"}')).toEqual([{ a: 1 }, { a: 2, b: 'x' }]);
-    expect(jsonLines('not rows')).toBeNull();
-  });
-
-  it('reads a value of a return by the path its address names, a branch keeping only what is of it', () => {
     const out = { design: 'd', end: { test_changes: [{ kind: 'added', name: 'a' }, { kind: 'removed', name: 'b' }] } };
     expect(atPath(out, 'design')).toBe('d');
     expect(atPath(out, 'end.test_changes[added]')).toEqual([{ kind: 'added', name: 'a' }]);
     expect(atPath(out, 'end.test_changes.name')).toEqual(['a', 'b']);
     expect(atPath(out, 'missing.path')).toBeUndefined();
+  });
+
+  it('cuts a message at its headings and keeps every character', () => {
+    const message = '# R9-12 · cell 2b\n\nCame from cell 2a.\n\n## Given\n\n### format:2b\n\nThe answer\n## Task\nThink.\n';
+    const parts = messageParts(message);
+    expect(parts.filter((p) => 'heading' in p)).toEqual([
+      { heading: '# R9-12 · cell 2b' },
+      { heading: '## Given' },
+      { heading: '### format:2b' },
+      { heading: '## Task' },
+    ]);
+    expect(parts.map((p) => ('heading' in p ? p.heading : p.text)).join('\n')).toBe(message);
+    expect(messageParts('')).toEqual([{ text: '' }]);
+  });
+
+  it('labels a folded part with its size and its share of the message, and shows its first lines', () => {
+    expect(foldLabel(14730, 17330, false)).toBe('show all 14,730 characters, 85% of this message');
+    expect(foldLabel(1200, 900000, false)).toBe('show all 1,200 characters, <1% of this message');
+    expect(foldLabel(14730, 17330, true)).toBe('fold these 14,730 characters');
+    expect(chars('一二三')).toBe(3);
+    expect(preview('\n\na\nb\nc\nd')).toBe('a\nb\nc');
+    expect(preview('x'.repeat(400)).length).toBe(300);
+  });
+
+  it('lays out an object by its schema: each key with its description, nested keys and the value of a const', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        what: { type: 'string', description: 'What it is' },
+        size: { type: 'object', description: 'How big', properties: { lines: { type: 'integer', description: 'Lines' } } },
+      },
+    };
+    expect(shape({ what: 'a tool', size: { lines: 3 } }, schema)).toEqual({
+      kind: 'fields',
+      fields: [
+        { key: 'what', note: 'What it is', full: null, value: { kind: 'text', text: 'a tool' } },
+        {
+          key: 'size',
+          note: 'How big',
+          full: null,
+          value: { kind: 'fields', fields: [{ key: 'lines', note: 'Lines', full: null, value: { kind: 'plain', text: '3' } }] },
+        },
+      ],
+    });
+  });
+
+  it('matches a oneOf to its branch by the value its const field fixes, and the form of a return to its alternative', () => {
+    const better = {
+      description: 'Is there a better design',
+      oneOf: [
+        {
+          type: 'object',
+          properties: { verdict: { const: 'yes', description: 'Yes: change it' }, what: { type: 'string', description: 'What' } },
+        },
+        {
+          type: 'object',
+          properties: {
+            verdict: { const: 'no', description: 'The present one is best' },
+            considered: { type: 'array', items: { type: 'string' }, description: 'Which approaches you considered' },
+          },
+        },
+      ],
+    };
+    const schema = {
+      type: 'object',
+      properties: {
+        outcome: {
+          description: 'What this round comes to: exactly one',
+          anyOf: [
+            { type: 'object', properties: { better }, required: ['better'], additionalProperties: false },
+            { type: 'object', properties: { pause: { type: 'object' } }, required: ['pause'], additionalProperties: false },
+          ],
+        },
+      },
+    };
+    const forms = (i: number) => (i === 0 ? 'its own answer' : 'a pause');
+    const shown = shape({ outcome: { better: { verdict: 'no', considered: ['one', 'two'] } } }, schema, {
+      within: 'outcome',
+      form: forms,
+    });
+    expect(shown).toEqual({
+      kind: 'fields',
+      fields: [
+        {
+          key: 'outcome',
+          note: 'its own answer',
+          full: 'What this round comes to: exactly one',
+          value: {
+            kind: 'fields',
+            fields: [
+              {
+                key: 'better',
+                note: 'Is there a better design',
+                full: null,
+                value: {
+                  kind: 'fields',
+                  fields: [
+                    { key: 'verdict', note: 'means: The present one is best', full: 'The present one is best', value: { kind: 'text', text: 'no' } },
+                    {
+                      key: 'considered',
+                      note: 'Which approaches you considered (2 items)',
+                      full: null,
+                      value: {
+                        kind: 'list',
+                        items: [
+                          { note: null, value: { kind: 'text', text: 'one' } },
+                          { note: null, value: { kind: 'text', text: 'two' } },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    // A pause holds an object with no fields listed: its own keys, by their JSON type.
+    const paused = shape({ outcome: { pause: { why: 'asked' } } }, schema, { within: 'outcome', form: forms });
+    expect(paused.kind === 'fields' && paused.fields[0].note).toBe('a pause');
+  });
+
+  it("gives an enum's value its meaning, lays out a list of objects item by item, and shows what the schema does not describe by its JSON type", () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        side_reports: {
+          type: 'array',
+          description: 'Things you came across that do not block this work. Go on with your work as usual; this only reports them. An empty list if none',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { enum: ['duplicate', 'other'], description: 'Which kind. Values: duplicate: It duplicates another work; other: None of the kinds above' },
+              urgent: { type: 'boolean', description: 'True when it cannot wait' },
+            },
+          },
+        },
+        tell_owner: { type: 'array', items: { type: 'string' }, description: 'Messages for the owner' },
+        progress: { type: 'string', description: 'One sentence' },
+      },
+    };
+    const shown = shape({ side_reports: [{ kind: 'other', urgent: false }], tell_owner: [], progress: { odd: [1, null] }, extra: 7 }, schema);
+    expect(shown).toEqual({
+      kind: 'fields',
+      fields: [
+        {
+          key: 'side_reports',
+          note: 'Things you came across that do not block this work (1 item)',
+          full: 'Things you came across that do not block this work. Go on with your work as usual; this only reports them. An empty list if none',
+          value: {
+            kind: 'list',
+            items: [
+              {
+                note: null,
+                value: {
+                  kind: 'fields',
+                  fields: [
+                    { key: 'kind', note: 'means: None of the kinds above', full: 'Which kind', value: { kind: 'text', text: 'other' } },
+                    { key: 'urgent', note: 'True when it cannot wait', full: null, value: { kind: 'plain', text: 'false' } },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        { key: 'tell_owner', note: 'Messages for the owner', full: null, value: { kind: 'empty', text: '[]' } },
+        {
+          key: 'progress',
+          note: 'One sentence',
+          full: null,
+          value: {
+            kind: 'fields',
+            fields: [
+              {
+                key: 'odd',
+                note: '(2 items)',
+                full: null,
+                value: {
+                  kind: 'list',
+                  items: [
+                    { note: null, value: { kind: 'plain', text: '1' } },
+                    { note: null, value: { kind: 'plain', text: 'null' } },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        { key: 'extra', note: null, full: null, value: { kind: 'plain', text: '7' } },
+      ],
+    });
+    // Objects the schema lists no fields of, of plain values only, such as a query's rows: a table.
+    expect(shape([{ n: 1, cell: 'a' }, { n: 2, note: null }], { type: 'array', items: { type: 'object' } })).toEqual({
+      kind: 'table',
+      columns: ['n', 'cell', 'note'],
+      rows: [
+        ['1', 'a', null],
+        ['2', null, 'null'],
+      ],
+    });
+    expect(valueMeanings('Pick. Values: a: one; two; b: three', ['a', 'b'])).toEqual({
+      desc: 'Pick',
+      means: new Map([
+        ['a', 'one; two'],
+        ['b', 'three'],
+      ]),
+    });
+  });
+
+  it('finds the schema of the place an address names, through the forms of a return and a list', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        outcome: {
+          anyOf: [
+            { type: 'object', properties: { design: { type: 'string', description: 'The design itself' } } },
+            { type: 'object', properties: { tools: { type: 'array', items: { type: 'object' }, description: 'Tools' } } },
+          ],
+        },
+        results: { type: 'array', items: { type: 'object', properties: { tool: { type: 'string', description: 'Which' } } } },
+      },
+    };
+    expect(placeSchema(schema, 'design')?.description).toBe('The design itself');
+    expect(placeSchema(schema, 'tools')?.description).toBe('Tools');
+    expect(placeSchema(schema, 'results.tool')?.description).toBe('Which');
+    expect(placeSchema(schema, 'missing')).toBeNull();
+  });
+
+  it('says where an agent round spent its cost, by the shares of its prices, with the tokens on hovering', () => {
+    const x = {
+      steps: 50,
+      input: 74,
+      read: 12509639,
+      written_5m: 0,
+      written_1h: 71096,
+      output: 30127,
+      thinking: 14389,
+      context_end: 373995,
+      context_before: 302901,
+    };
+    const s = spent(x, 'claude-sonnet-5-5');
+    expect(s.parts.map((p) => p.text).join(' · ')).toBe('50 steps · context 303K→374K · re-read 68% · new 15% · output 16%');
+    expect(s.parts.map((p) => p.whole).join(' · ')).toBe(
+      '50 steps · context 303K→374K · re-read 12.51M tokens, 68% · newly cached 71K (1h), 15% · output 30K, of it thinking 14K, 16%',
+    );
+    expect(s.shares !== null && Math.abs(s.shares.read + s.shares.written + s.shares.output - 1) < 0.001).toBe(true);
+    expect(spent({ ...x, context_before: null }, 'some-model').parts.map((p) => p.text).join(' · ')).toBe(
+      '50 steps · context 374K · re-read 12.51M · new 71K · output 30K',
+    );
+    expect(tokens(74)).toBe('74');
+    expect(tokens(999_700)).toBe('1.00M');
   });
 });
 

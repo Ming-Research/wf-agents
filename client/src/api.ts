@@ -246,7 +246,46 @@ progress: string | null,
 /**
  * For a gate the engine answered itself, since the project does not have what it needs: that need.
  */
-not_asked: string | null, };
+not_asked: string | null, 
+/**
+ * For an agent's round, where it spent its tokens, from its usage record.
+ */
+tokens: RoundTokens | null, };
+
+/**
+ * Where an agent's round spent its tokens, as its usage record gives them, and how large its context was, which
+ * the page divides the round's cost by.
+ */
+export type RoundTokens = { 
+/**
+ * The command line's steps in the round.
+ */
+steps: number, 
+/**
+ * Tokens of input not read from the cache.
+ */
+input: number, 
+/**
+ * Tokens read again from the cache.
+ */
+read: number, 
+/**
+ * Tokens newly written to the cache, kept five minutes and kept an hour.
+ */
+written_5m: number, written_1h: number, 
+/**
+ * Tokens of output, and of them thinking.
+ */
+output: number, thinking: number, 
+/**
+ * The context at the round's end: its last call's prompt; none when the record does not give the last call.
+ */
+context_end: number | null, 
+/**
+ * The context at the round's start: the end of the latest round before it in the same session, since the usage
+ * record keeps only the round's last call; none for a round that started its session.
+ */
+context_before: number | null, };
 
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.

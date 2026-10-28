@@ -17,8 +17,8 @@ use crate::view;
 use crate::{
     AskKind, DesignCard, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail, ItemLink, ItemState, ItemSummary,
     Items, KeptFile, LinkedItem, NamedText, OwnerAsk, OwnerMessage, PausedBy, ProjectNow, Replacement,
-    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RunningRound, Session, Shown, ToolRun,
-    Waits, WorkDetail, WorkState, WorkSummary,
+    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown,
+    ToolRun, Waits, WorkDetail, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,8 +434,34 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        (SELECT count(*) FROM tool_runs t WHERE t.work = r.work AND t.round = r.n),
        json_extract(r.output, '$.progress'),
        r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
-       json_extract(r.input, '$.engine.not_applicable')
+       json_extract(r.input, '$.engine.not_applicable'), r.session
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
+
+/// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
+/// round's calls, and the context of its last call; the context at its start is the caller's to find.
+fn round_tokens(usage: Option<&Value>) -> Option<RoundTokens> {
+    let u = usage?.get("usage")?;
+    let n = |v: &Value| v.as_i64().unwrap_or(0);
+    let written = n(&u["cache_creation_input_tokens"]);
+    // A record that does not split what was written to the cache by how long it is kept: all of it for five minutes.
+    let (written_5m, written_1h) = match u.get("cache_creation") {
+        Some(c) => (n(&c["ephemeral_5m_input_tokens"]), n(&c["ephemeral_1h_input_tokens"])),
+        None => (written, 0),
+    };
+    let last = u["iterations"].as_array().and_then(|xs| xs.last());
+    Some(RoundTokens {
+        steps: n(&usage?["turns"]),
+        input: n(&u["input_tokens"]),
+        read: n(&u["cache_read_input_tokens"]),
+        written_5m,
+        written_1h,
+        output: n(&u["output_tokens"]),
+        thinking: n(&u["output_tokens_details"]["thinking_tokens"]),
+        context_end: last
+            .map(|c| n(&c["input_tokens"]) + n(&c["cache_read_input_tokens"]) + n(&c["cache_creation_input_tokens"])),
+        context_before: None,
+    })
+}
 
 fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     let transition: Option<String> = r.get(3)?;
@@ -456,6 +482,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         tool_runs: r.get(10)?,
         progress: text(r, 11)?,
         not_asked: r.get(21)?,
+        tokens: round_tokens(json(r.get(20)?).as_ref()),
     })
 }
 
@@ -654,7 +681,21 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         .next()
         .ok_or_else(|| Error::NotFound(format!("no work {id}")))?;
     let mut st = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 ORDER BY r.n"))?;
-    let rounds = st.query_map([id], round_summary)?.collect::<rusqlite::Result<_>>()?;
+    let rows: Vec<(RoundSummary, Option<i64>)> = st
+        .query_map([id], |r| Ok((round_summary(r)?, r.get(22)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // Each round's context at its start is where the latest round before it in its session ended.
+    let mut ended: HashMap<i64, i64> = HashMap::new();
+    let mut rounds = Vec::with_capacity(rows.len());
+    for (mut round, session) in rows {
+        if let (Some(session), Some(tokens)) = (session, round.tokens.as_mut()) {
+            tokens.context_before = ended.get(&session).copied();
+            if let Some(end) = tokens.context_end {
+                ended.insert(session, end);
+            }
+        }
+        rounds.push(round);
+    }
     let mut messages = messages_where(conn, "WHERE m.work = ?1", &[id])?;
     messages.extend(notices_where(conn, "WHERE n.work = ?1", &[id])?);
     messages.sort_by_key(|m| m.at.unwrap_or(0));
@@ -778,11 +819,25 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
                 json(r.get(19)?),
                 json(r.get(20)?),
                 json(r.get(4)?),
+                r.get::<_, Option<i64>>(22)?,
             ))
         })
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no round R{work}-{n}")))?;
-    let (summary, _, flow_version, graph, session, config_commit, input, output, usage, rejected) = row;
+    let (mut summary, _, flow_version, graph, session, config_commit, input, output, usage, rejected, session_id) = row;
+    // Its context at its start is where the latest round before it in its session ended.
+    if let (Some(id), Some(tokens)) = (session_id, summary.tokens.as_mut()) {
+        let mut st = conn.prepare(
+            "SELECT usage FROM rounds WHERE work = ?1 AND session = ?2 AND n < ?3 AND usage IS NOT NULL ORDER BY n DESC",
+        )?;
+        let usages = st.query_map(rusqlite::params![work, id, n], |r| r.get::<_, Option<String>>(0))?;
+        for u in usages {
+            if let Some(end) = round_tokens(json(u?).as_ref()).and_then(|x| x.context_end) {
+                tokens.context_before = Some(end);
+                break;
+            }
+        }
+    }
     // The record as the round was given it: each text it keeps once put back.
     let input = db::put_back(conn, &input);
     let cell = summary

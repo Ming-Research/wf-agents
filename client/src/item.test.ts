@@ -162,6 +162,7 @@ function round(n: number, at: string, transition: string | null, extra: Partial<
     tool_runs: 0,
     progress: null,
     not_asked: null,
+    tokens: null,
     ...extra,
   };
 }

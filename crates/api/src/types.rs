@@ -268,6 +268,31 @@ pub struct RoundSummary {
     pub progress: Option<String>,
     /// For a gate the engine answered itself, since the project does not have what it needs: that need.
     pub not_asked: Option<String>,
+    /// For an agent's round, where it spent its tokens, from its usage record.
+    pub tokens: Option<RoundTokens>,
+}
+
+/// Where an agent's round spent its tokens, as its usage record gives them, and how large its context was, which
+/// the page divides the round's cost by.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct RoundTokens {
+    /// The command line's steps in the round.
+    pub steps: i64,
+    /// Tokens of input not read from the cache.
+    pub input: i64,
+    /// Tokens read again from the cache.
+    pub read: i64,
+    /// Tokens newly written to the cache, kept five minutes and kept an hour.
+    pub written_5m: i64,
+    pub written_1h: i64,
+    /// Tokens of output, and of them thinking.
+    pub output: i64,
+    pub thinking: i64,
+    /// The context at the round's end: its last call's prompt; none when the record does not give the last call.
+    pub context_end: Option<i64>,
+    /// The context at the round's start: the end of the latest round before it in the same session, since the usage
+    /// record keeps only the round's last call; none for a round that started its session.
+    pub context_before: Option<i64>,
 }
 
 /// A design card, as the round that handed it in wrote it, with its rulings.

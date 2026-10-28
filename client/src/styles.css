@@ -411,25 +411,6 @@ td.clip {
   overflow-wrap: anywhere;
 }
 
-.round {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-details.input {
-  border-top: 1px solid var(--line);
-  padding: 4px 0;
-}
-
-details.input > summary {
-  cursor: pointer;
-}
-
-.input-what {
-  font-weight: 500;
-}
-
 .boxed {
   border-top: 1px solid var(--line);
   padding: 6px 0;
@@ -487,15 +468,6 @@ details.input > summary {
   overflow: auto;
 }
 
-pre.prompt {
-  max-height: 70vh;
-  overflow: auto;
-}
-
-.prompt-line {
-  margin: 4px 0;
-}
-
 /* JSON */
 
 /* Text the agents and the owner wrote is prose and reads in the page's font; a message as sent, a file and what a tool
@@ -513,10 +485,8 @@ pre.prompt {
   line-height: 1.5;
 }
 
-pre.prompt,
 .file-text,
-.next-message,
-.tool-run .j-text {
+.next-message {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.45;
@@ -2721,104 +2691,298 @@ summary.works-label {
   max-width: none;
 }
 
-/* A round: where the work came from, who ran it and where it went, one under another; its task, inputs and what was
-   sent; what it handed back. */
+/* A round's panel. What the agent, the tools or the engine's step got or gave is inside a box, exactly, in the fixed
+   width it was written in; what the page adds is outside the boxes, or beside a value, small and muted in the page's
+   font. */
 
-.path {
+.rp {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rp-facts {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Where an agent's round spent its tokens: one line, cut where the panel ends and whole on hovering each part. */
+.rp-spent {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rp-note {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+p.rp-note {
+  margin: 0;
+}
+
+.rp-bad {
+  color: var(--bad);
+}
+
+.rp-sec {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rp-h {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rp-input {
+  display: grid;
+  grid-template-columns: minmax(7em, 40%) minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.rp-addr {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* An input the session already held, not sent this round: greyed, and opening to what the session held. */
+.rp-held {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rp-held-body {
   display: grid;
   gap: 4px;
+  min-width: 0;
+  margin: 2px 0 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  overflow-x: auto;
 }
 
-.path-end {
+.rp-box {
+  position: relative;
+  min-width: 0;
+  margin-top: 16px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
+}
+
+.rp-box-out {
+  border-color: var(--good);
+}
+
+.rp-box-label {
+  position: absolute;
+  top: -18px;
+  left: 8px;
+  padding: 1px 8px;
+  border-radius: 6px 6px 0 0;
+  background: var(--accent);
+  color: var(--panel);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.rp-box-out > .rp-box-label {
+  background: var(--good);
+}
+
+.rp-box-body {
+  min-width: 0;
+}
+
+.rp-msg {
+  min-width: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rp-line {
+  min-height: 1.45em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rp-mh {
+  font-weight: 700;
+}
+
+.rp-fold-label {
+  display: block;
+  margin: 2px 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The first lines of a folded part, fading out where it is cut. */
+.rp-preview {
+  max-height: 5.8em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+}
+
+.rp-field {
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.rp-kh {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 2px 8px;
   align-items: baseline;
-  padding-left: 12px;
 }
 
-.path-label {
-  color: var(--muted);
-  min-width: 2.2em;
+.rp-key {
+  font-weight: 700;
+  font-size: 12px;
 }
 
-.path-run {
+.rp-val {
+  min-width: 0;
+  margin: 3px 0 4px;
+  padding: 4px 8px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
   border-radius: 6px;
-  padding: 6px 10px;
+  background: var(--panel);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rp-vt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Rows a query found, as a table that scrolls sideways within its box. */
+.rp-table-wrap {
+  overflow-x: auto;
+}
+
+.rp-table {
+  border-collapse: collapse;
+}
+
+.rp-table th,
+.rp-table td {
+  padding: 1px 8px 1px 0;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+
+.rp-table th {
+  font-weight: 700;
+}
+
+.rp-table td {
+  border-top: 1px dashed var(--line);
+  min-width: 3em;
+  max-width: 32em;
+  overflow-wrap: anywhere;
+}
+
+.rp-li {
+  display: grid;
+  grid-template-columns: 1.8em minmax(0, 1fr);
+  padding: 2px 0;
+  border-top: 1px dashed var(--line);
+}
+
+.rp-li:first-child {
+  border-top: 0;
+}
+
+.rp-ind {
+  min-width: 0;
+  margin-left: 14px;
+}
+
+.rp-item {
+  margin-top: 6px;
+}
+
+.rp-files {
   display: grid;
   gap: 2px;
 }
 
-.path-cell {
+.rp-raw > summary {
+  cursor: pointer;
+}
+
+.panel-cell {
   text-align: left;
 }
 
-.path-when {
-  font-size: 12.5px;
-  padding-left: 12px;
-}
-
-.row-chip {
-  display: inline-block;
-  padding: 0 6px;
-  border-radius: 8px;
-  background: var(--code);
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.round-part {
-  display: grid;
-  gap: 6px;
-}
-
-.round-h {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--accent);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.round-inputs {
-  margin: 0;
-  padding-left: 24px;
-  display: grid;
+/* Where an agent's round spent its cost, beside its cost in the rounds list: the shares read again from the cache,
+   newly cached and output as a small bar, and its steps. */
+.spent {
+  display: inline-flex;
   gap: 4px;
+  align-items: center;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
-/* An input with nothing this round keeps its number's place, greyed and struck through. */
-.round-inputs li.input-none {
-  color: var(--muted);
-  text-decoration: line-through;
+.spent-bar {
+  display: inline-flex;
+  width: 40px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line);
 }
 
-.chip.sent-now {
-  color: var(--good);
+.spent-read {
+  background: var(--accent);
 }
 
-.chip.in-session {
-  color: var(--muted);
+.spent-new {
+  background: var(--warn);
+}
+
+.spent-output {
+  background: var(--good);
+}
+
+.spent-steps {
+  font-size: 11px;
 }
 
 .addr {
   display: inline-block;
   margin: 2px 6px 0 0;
-}
-
-/* What an input held, under its row: open when it was sent this round, folded when the session already held it. */
-.round-inputs > li {
-  min-width: 0;
-}
-
-.input-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 8px;
-  align-items: baseline;
 }
 
 .input-content {
@@ -2827,8 +2991,7 @@ summary.works-label {
   overflow-x: auto;
 }
 
-.input-held > summary,
-.also-sent summary {
+.input-held > summary {
   cursor: pointer;
 }
 
@@ -2842,50 +3005,6 @@ summary.works-label {
 
 .holds-project summary {
   cursor: pointer;
-}
-
-.also-sent {
-  display: grid;
-  gap: 2px;
-}
-
-.counters {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 4px;
-}
-
-.rows-scroll {
-  overflow-x: auto;
-}
-
-table.rows td {
-  vertical-align: top;
-  min-width: 6em;
-}
-
-.tool-asked {
-  display: grid;
-  gap: 4px;
-}
-
-.acc-chip-new,
-.acc-chip-changed {
-  color: var(--warn);
-}
-
-.acc-chip-unchanged {
-  color: var(--muted);
-}
-
-.acc-chip-removed {
-  color: var(--bad);
-}
-
-tr.acc-removed td {
-  color: var(--muted);
-  text-decoration: line-through;
 }
 
 /* How a line's session is kept, under a cell's title. */
