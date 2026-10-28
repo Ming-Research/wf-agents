@@ -342,9 +342,9 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
         {k !== null ? (
           <Stack
             parts={[
-              { value: k.read, colour: 'var(--us-1)', label: t('us_kind_read', { share: share(k.read, kTotal) }), tip: t('us_kind_read_tip', { n: tokens(tk.read), share: share(k.read, kTotal) }) },
-              { value: k.written, colour: 'var(--us-2)', label: t('us_kind_written', { share: share(k.written, kTotal) }), tip: t('us_kind_written_tip', { n: tokens(tk.written), share: share(k.written, kTotal) }) },
-              { value: k.output, colour: 'var(--us-3)', label: t('us_kind_output', { share: share(k.output, kTotal) }), tip: t('us_kind_output_tip', { n: tokens(tk.output), share: share(k.output, kTotal) }) },
+              { value: k.read, colour: 'var(--share-read)', label: t('us_kind_read', { share: share(k.read, kTotal) }), tip: t('us_kind_read_tip', { n: tokens(tk.read), share: share(k.read, kTotal) }) },
+              { value: k.written, colour: 'var(--share-new)', label: t('us_kind_written', { share: share(k.written, kTotal) }), tip: t('us_kind_written_tip', { n: tokens(tk.written), share: share(k.written, kTotal) }) },
+              { value: k.output, colour: 'var(--share-output)', label: t('us_kind_output', { share: share(k.output, kTotal) }), tip: t('us_kind_output_tip', { n: tokens(tk.output), share: share(k.output, kTotal) }) },
               { value: k.input, colour: 'var(--us-idle)', label: t('us_kind_input', { share: share(k.input, kTotal) }), tip: t('us_kind_input_tip', { n: tokens(tk.input), share: share(k.input, kTotal) }) },
             ]}
           />

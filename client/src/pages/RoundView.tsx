@@ -420,6 +420,7 @@ function SpentLine({ r }: { r: RoundSummary }) {
       {s.parts.map((p, i) => (
         <span key={i} title={p.title ?? undefined}>
           {i > 0 ? ' · ' : ''}
+          {p.share !== undefined ? <i className={`spent-dot spent-${p.share}`} /> : null}
           {p.text}
         </span>
       ))}

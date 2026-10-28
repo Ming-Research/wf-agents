@@ -17,6 +17,9 @@
   --us-3: #1baf7a;
   --us-4: #8a5cd6;
   --us-idle: #d8d6ce;
+  --share-read: #7db4f5;
+  --share-new: #f7b55e;
+  --share-output: #6fd4a1;
   color-scheme: light;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
   font-size: 14px;
@@ -43,6 +46,9 @@
     --us-3: #199e70;
     --us-4: #9b72e0;
     --us-idle: #4a4945;
+    --share-read: #6aa8f7;
+    --share-new: #f2a744;
+    --share-output: #4fca8d;
     color-scheme: dark;
   }
 }
@@ -2970,7 +2976,8 @@ p.rp-note {
 }
 
 /* Where an agent's round spent its cost, beside its cost in the rounds list: the shares read again from the cache,
-   newly cached and output as a small bar, and its steps. */
+   newly cached and output as a small bar, and its steps; the same three colours wherever the page shows these shares,
+   so that the key above the rounds holds everywhere. */
 .spent {
   display: inline-flex;
   gap: 4px;
@@ -2982,22 +2989,40 @@ p.rp-note {
 .spent-bar {
   display: inline-flex;
   width: 40px;
-  height: 6px;
+  height: 9px;
   overflow: hidden;
   border-radius: 3px;
   background: var(--line);
 }
 
 .spent-read {
-  background: var(--accent);
+  background: var(--share-read);
 }
 
 .spent-new {
-  background: var(--warn);
+  background: var(--share-new);
 }
 
 .spent-output {
-  background: var(--good);
+  background: var(--share-output);
+}
+
+.spent-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.spent-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 .spent-steps {

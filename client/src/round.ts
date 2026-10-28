@@ -333,7 +333,13 @@ export function tokens(n: number): string {
 
 /// A part of what a round spent, as the page says it: its words in the short line, its tokens on hovering, and its
 /// words in the whole line.
-export type SpentPart = { text: string; title: string | null; whole: string };
+export type SpentPart = {
+  text: string;
+  title: string | null;
+  whole: string;
+  /// Which of the shares the bar and the key colour it is: read again from the cache, newly cached or output.
+  share?: 'read' | 'new' | 'output';
+};
 
 /// Where an agent's round spent its tokens and its cost: its steps; its context at its start (where the round before
 /// it in its session ended) and at its end; and the share of the round's cost each kind of token took, read again from
@@ -382,7 +388,8 @@ export function spent(x: RoundTokens, model: string | null): Spent {
   const part = (key: SpentKey, n: number, c: number | null, title: string) => {
     if (n === 0) return;
     const pct = c !== null && total > 0 ? share(c, total) : null;
-    parts.push({ text: t(key, { share: pct ?? tokens(n) }), title, whole: pct !== null ? `${title}, ${pct}` : title });
+    const which = key === 'spent_read' ? 'read' : key === 'spent_new' ? 'new' : key === 'spent_output' ? 'output' : undefined;
+    parts.push({ text: t(key, { share: pct ?? tokens(n) }), title, whole: pct !== null ? `${title}, ${pct}` : title, share: which });
   };
   part('spent_read', x.read, costs?.read ?? null, t('spent_read_hint', { n: tokens(x.read) }));
   const kept = [
