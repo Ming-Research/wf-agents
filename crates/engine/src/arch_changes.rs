@@ -42,6 +42,11 @@ fn number(v: &Value) -> Option<i64> {
     }
 }
 
+/// The item a change names by its number, or by the key an earlier change of the batch created it under.
+fn known(v: &Value, s: &State) -> Option<i64> {
+    number(v).or_else(|| v.as_str().and_then(|key| s.keys.get(key.trim()).copied()))
+}
+
 /// The items, each with its project, and their dependencies, as the changes find them and as each change leaves them.
 /// An item the changes create is known by its key until it is written, here as a number below zero.
 #[derive(Debug, Default)]
@@ -134,8 +139,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
             bad("it has no reason".into());
         }
         let item = |k: &str, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
-            let id = number(&c[k]).or_else(|| c[k].as_str().and_then(|key| s.keys.get(key.trim()).copied()));
-            match id {
+            match known(&c[k], s) {
                 Some(id) if s.items.contains_key(&id) => Some(id),
                 _ => {
                     bad(format!("there is no item {}", c[k]));
@@ -181,13 +185,10 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 let id = next_new;
                 next_new -= 1;
                 let under = c.get("under").filter(|v| !v.is_null());
-                if let Some(v) = under {
-                    match number(v) {
-                        Some(parent) if s.items.contains_key(&parent) => {
-                            s.links.insert((parent, id));
-                        }
-                        _ => bad(format!("it hangs under item {v}, which there is not")),
-                    }
+                if under.is_some()
+                    && let Some(parent) = item("under", &s, &mut bad)
+                {
+                    s.links.insert((parent, id));
                 }
                 // A split gives each acceptance condition of the item split to one new item at most; the rest stay
                 // with that item.
@@ -224,7 +225,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
             "move" => {
                 if let Some(a) = own("item", &s, &mut bad) {
                     let to = &c["to"];
-                    let other = number(&to["item"]).filter(|b| s.items.contains_key(b) && *b != a);
+                    let other = known(&to["item"], &s).filter(|b| s.items.contains_key(b) && *b != a);
                     match text(to, "place") {
                         "first" | "last" => {}
                         "before" | "after" => {
@@ -251,12 +252,11 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
             }
             "merge" => {
                 if let Some(keep) = own("keep", &s, &mut bad) {
-                    let absorbed: Vec<i64> = items(c.get("absorbed")).iter().filter_map(number).collect();
-                    for a in absorbed {
-                        if a == keep || !s.items.contains_key(&a) {
-                            bad(format!("item {a} is not another item to merge into item {keep}"));
+                    for v in items(c.get("absorbed")) {
+                        let Some(a) = known(&v, &s).filter(|a| *a != keep && s.items.contains_key(a)) else {
+                            bad(format!("item {v} is not another item to merge into item {keep}"));
                             continue;
-                        }
+                        };
                         let links: Vec<(i64, i64)> = s.links.iter().copied().collect();
                         s.links.clear();
                         for (x, d) in links {
@@ -408,7 +408,8 @@ fn write_one(
             )
             .map_err(sql)?;
             let id = tx.last_insert_rowid();
-            if let Some(parent) = number(&c["under"]) {
+            if !c["under"].is_null() {
+                let parent = item_of(&c["under"], keys)?;
                 let takes = texts(c, "takes");
                 let needs = if takes.is_empty() {
                     text(c, "title").to_string()

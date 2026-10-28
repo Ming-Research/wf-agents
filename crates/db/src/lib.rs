@@ -1442,7 +1442,7 @@ mod tests {
 
     // Taken to version 14, a database gives the architect a look at each design card not replaced that the owner has
     // not confirmed, and one matter for the side reports handed in before, to look through them all, a report since
-    // version 20; a database with no side report gets no such matter.
+    // version 20, which holds each text once; a database with no side report gets no such matter.
     #[test]
     fn the_architect_is_given_the_unconfirmed_cards_and_the_side_reports_handed_in_before() {
         let mut old = at_version(13);
@@ -1455,7 +1455,8 @@ mod tests {
             )?;
             let reports = r#"{"side_reports":[{"kind":"duplicate","what":"Item 7 does the same.","urgent":true},
                 {"kind":"other","what":"It needs a machine."}]}"#;
-            for (n, output) in [(1, reports), (2, r#"{"side_reports":[]}"#), (3, "{}")] {
+            let again = r#"{"side_reports":[{"kind":"other","what":" It needs a machine.\n"}]}"#;
+            for (n, output) in [(1, reports), (2, r#"{"side_reports":[]}"#), (3, "{}"), (4, again)] {
                 tx.execute(
                     "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at)
                      VALUES (1, ?1, '4', '{}', ?2, 'c', 1)",

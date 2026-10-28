@@ -336,13 +336,14 @@ fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     )
 }
 
-/// How many matters a wake's batch handled.
+/// How many matters a wake's batch handled, those the look at the queue closed without a look left out.
 fn handled_in_batch(conn: &Connection, work: i64) -> Result<i64, String> {
     let from = batch_start(conn, work)?;
     count(
         conn,
-        "SELECT count(*) FROM architect_matters WHERE handled_work = ?1 AND handled_round > ?2",
-        &[&work, &from],
+        "SELECT count(*) FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+         WHERE m.handled_work = ?1 AND m.handled_round > ?2 AND r.cell <> ?3",
+        &[&work, &from, &LOOK],
     )
 }
 
@@ -368,6 +369,32 @@ fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
             )
         })
         .collect())
+}
+
+/// The items a change collected in a wake's open batch names, on which the engine starts no work until the batch ends:
+/// the item it changes, the item a split splits or another is moved under, and the items a merge keeps and absorbs.
+pub fn held_by_batches(conn: &Connection) -> Result<BTreeSet<i64>, String> {
+    let rows = query_json(
+        conn,
+        "SELECT c.change FROM architect_item_changes c JOIN works w ON w.id = c.work
+         WHERE c.state = 'collected' AND w.ended IS NULL",
+        &[],
+        100_000,
+    )?;
+    let mut ids = BTreeSet::new();
+    for r in rows {
+        let c = &r["change"];
+        for k in ["item", "keep", "under"] {
+            ids_of(&c[k], &mut ids);
+        }
+        if c["to"]["place"] == "under" {
+            ids_of(&c["to"]["item"], &mut ids);
+        }
+        for a in items(c.get("absorbed")) {
+            ids_of(&a, &mut ids);
+        }
+    }
+    Ok(ids)
 }
 
 /// Whether a project's new starts are held to set it straight.
@@ -399,9 +426,55 @@ fn pickable(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
     Ok(if first.is_empty() { rows } else { first })
 }
 
-/// Cell D0: what can be picked from the project's queue now; a lone matter is picked here, without a round.
+/// Closes the design card matters of a project's queue whose card needs no look any longer, confirmed by the owner or
+/// replaced by another, as handled in the wake's round that runs now; gives each, with why.
+fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<String>, String> {
+    let conn = e.db.conn();
+    let rows = query_json(
+        conn,
+        "SELECT q.matter, c.id AS card, c.status, c.rulings, max(1, coalesce(json_array_length(c.body), 1)) AS decisions
+         FROM architect_queue q JOIN architect_matters m ON m.id = q.matter
+         JOIN design_cards c ON c.id = json_extract(m.body, '$.design_card')
+         WHERE q.project = ?1 AND q.kind = 'design_card' ORDER BY q.matter",
+        &[&project],
+        ROWS,
+    )?;
+    let mut closed: Vec<(i64, String)> = Vec::new();
+    for r in rows {
+        let decisions = r["decisions"].as_u64().unwrap_or(1) as usize;
+        let confirmed = items(r.get("rulings"))
+            .last()
+            .is_some_and(|x| x["by"] == "owner" && db::ruling_confirms(x, decisions));
+        let why = match r["status"].as_str() {
+            Some("replaced") => "replaced by another",
+            Some("ruled") if confirmed => "confirmed by the owner",
+            _ => continue,
+        };
+        let m = r["matter"].as_i64().unwrap_or_default();
+        closed.push((m, format!("matter {m}, design card {} {why}", r["card"])));
+    }
+    if closed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let round = count(conn, "SELECT max(n) FROM rounds WHERE work = ?1", &[&w.id])?;
+    e.db.write(Actor::Engine, |tx| {
+        for (m, _) in &closed {
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3 WHERE id = ?1 AND handled_round IS NULL",
+                params![m, w.id, round],
+            )?;
+        }
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(closed.into_iter().map(|x| x.1).collect())
+}
+
+/// Cell D0: what can be picked from the project's queue now; a lone matter is picked here, without a round. A design
+/// card matter whose card needs no look any longer is closed first, as the round's progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let project = project_of(w)?;
+    let closed = close_settled_cards(e, w, project)?;
     let conn = e.db.conn();
     let can = pickable(conn, project)?;
     let handled = handled_in_batch(conn, w.id)?;
@@ -411,7 +484,11 @@ pub fn look_at_queue(e: &mut Engine, w: &Work) -> Result<Value, String> {
         [one] => json!({ "verdict": "one", "matter": one["matter"] }),
         many => json!({ "verdict": "many", "count": many.len() }),
     };
-    Ok(json!({ "queue": queue }))
+    let mut out = json!({ "queue": queue });
+    if !closed.is_empty() {
+        out["progress"] = json!(format!("Closed without a look: {}.", closed.join("; ")));
+    }
+    Ok(out)
 }
 
 /// The cells on a matter's path: those the router sends a matter to, which an ask of the owner holds only the matter
@@ -1209,8 +1286,9 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
         let names_gone = |c: &Value| {
             ["item", "on", "under", "keep", "fix_item"]
                 .iter()
-                .map(|k| &c[*k])
-                .chain(std::iter::once(&c["to"]["item"]))
+                .map(|k| c[*k].clone())
+                .chain(std::iter::once(c["to"]["item"].clone()))
+                .chain(items(c.get("absorbed")))
                 .any(|v| v.as_str().is_some_and(|s| gone.contains(s.trim())))
         };
         let Some(i) = sound.iter().position(|r| names_gone(&r.3)) else {
@@ -2623,26 +2701,39 @@ fn queue(e: &Engine, project: &str) -> Result<Value, String> {
         .collect();
     Ok(json!({
         "now": utc_minute(db::now()),
+        "pickable": can,
         "held_to_set_straight": held_straight(conn, project)?,
         "matters": matters,
         "held_for_owner": held,
     }))
 }
 
-/// The batch so far: the matters it handled and how each ended, by the round that handled it; the item changes it made;
-/// whether a hold to set things straight was released in it; and whether the owner asked to rethink the policy.
+/// The batch so far: the numbers of the matters it handled; each, by its number, with how it ended, by the round that
+/// handled it; those held for the owner's answer; the item changes it made; whether a hold to set things straight was
+/// released in it; and whether the owner asked to rethink the policy. Each matter is by its number, so that a session
+/// given only what changed is given the matters new to it.
 fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let from = batch_start(conn, w.id)?;
+    let by_matter = |rows: Vec<Value>| -> Map<String, Value> {
+        rows.into_iter()
+            .map(|mut r| {
+                let id = r["matter"].clone();
+                r.as_object_mut().map(|o| o.remove("matter"));
+                (format!("#{id}"), r)
+            })
+            .collect()
+    };
     let handled = query_json(
         conn,
-        "SELECT m.id AS matter, m.kind, m.what, 'R' || m.handled_work || '-' || m.handled_round AS round, r.cell,
+        "SELECT m.id AS matter, m.kind, 'R' || m.handled_work || '-' || m.handled_round AS round, r.cell,
                 json_extract(r.output, '$.progress') AS said
          FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
          WHERE m.handled_work = ?1 AND m.handled_round > ?2 ORDER BY m.handled_round",
         &[&w.id, &from],
         ROWS,
     )?;
+    let numbers: Vec<Value> = handled.iter().map(|r| r["matter"].clone()).collect();
     let asked = query_json(
         conn,
         "SELECT m.id AS matter, m.kind, m.asked AS ask, m.resume_cell FROM architect_matters m
@@ -2680,8 +2771,9 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         &[&w.id, &from],
     )? > 0;
     Ok(json!({
-        "handled": handled,
-        "held_for_owner": asked,
+        "handled_matters": numbers,
+        "handled": by_matter(handled),
+        "held_for_owner": by_matter(asked),
         "item_changes": made,
         "straight_hold_released": released,
         "owner_asked_to_rethink": rethink,
@@ -2878,7 +2970,7 @@ fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let mut ids = BTreeSet::new();
     ids_of(&r["item"], &mut ids);
     ids_of(&r["body"]["fix"]["item"], &mut ids);
-    named_items(&format!("{} {}", text(&r["what"]), r["body"]), &mut ids);
+    named_items(text(&r["what"]), &mut ids);
     let mut out = Map::new();
     for id in ids.into_iter().take(12) {
         if let Some(x) = item_in_full(e, id)? {
@@ -2920,6 +3012,7 @@ fn words(text: &str) -> BTreeSet<String> {
 
 /// The items whose title or problem is close to those at hand, and the works under way whose branches changed the
 /// same paths as the work the matter came from. At hand is the matter picked, and at the review the batch's changes.
+/// An item is close when it shares two words with them that most of its project's items do not have.
 fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let conn = e.db.conn();
     let review = w.pos.at == REVIEW && g.cell(REVIEW).is_some();
@@ -2933,24 +3026,47 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         matter_text(e, w)?
     };
     let at_hand = words(&at_hand_text);
-    let mut close: Vec<(usize, Value)> = query_json(
+    let rows: Vec<(Value, BTreeSet<String>)> = query_json(
         conn,
         "SELECT id AS item, project, title, problem FROM items WHERE cancelled IS NULL",
         &[],
         100_000,
     )?
     .into_iter()
-    .filter_map(|r| {
+    .map(|r| {
         let mine = words(&format!("{} {}", text(&r["title"]), text(&r["problem"])));
-        let shared: Vec<&String> = mine.intersection(&at_hand).collect();
-        (shared.len() >= 2).then(|| {
-            (
-                shared.len(),
-                json!({ "item": r["item"], "project": r["project"], "title": r["title"], "shared_words": shared }),
-            )
-        })
+        (r, mine)
     })
     .collect();
+    // How many of each project's items have each word, and how many items it has.
+    let mut df: BTreeMap<&str, (usize, BTreeMap<&str, usize>)> = BTreeMap::new();
+    for (r, mine) in &rows {
+        let p = df.entry(text(&r["project"])).or_default();
+        p.0 += 1;
+        for x in mine {
+            *p.1.entry(x.as_str()).or_default() += 1;
+        }
+    }
+    let common = |project: &str, word: &str| {
+        df.get(project)
+            .and_then(|(n, f)| f.get(word).map(|k| *k > 1 && k * 2 > *n))
+            .unwrap_or(false)
+    };
+    let mut close: Vec<(usize, Value)> = rows
+        .iter()
+        .filter_map(|(r, mine)| {
+            let shared: Vec<&String> = mine
+                .intersection(&at_hand)
+                .filter(|x| !common(text(&r["project"]), x))
+                .collect();
+            (shared.len() >= 2).then(|| {
+                (
+                    shared.len(),
+                    json!({ "item": r["item"], "project": r["project"], "title": r["title"], "shared_words": shared }),
+                )
+            })
+        })
+        .collect();
     close.sort_by_key(|x| std::cmp::Reverse(x.0));
     let close: Vec<Value> = close.into_iter().take(10).map(|x| x.1).collect();
     // The paths each work under way changed on its branch, against the work the matter came from.

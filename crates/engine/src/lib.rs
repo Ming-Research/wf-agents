@@ -637,10 +637,12 @@ impl Engine {
         }))
     }
 
-    /// The next item to start a work on, of the items ready whose project no hold stops: the first the owner queued,
-    /// or else the first of the next project in turn after the project of the work started last, so that projects
-    /// with items ready take the slots in turn, each in its architect's order.
+    /// The next item to start a work on, of the items ready whose project no hold stops and that no change an
+    /// architect's open batch collected names: the first the owner queued, or else the first of the next project in
+    /// turn after the project of the work started last, so that projects with items ready take the slots in turn, each
+    /// in its architect's order.
     fn next_ready(&self) -> Option<i64> {
+        let changing = architect::held_by_batches(self.db.conn()).ok()?;
         let ready: Vec<(i64, String, Option<f64>)> = {
             let mut st = self
                 .db
@@ -651,7 +653,9 @@ impl Engine {
                 )
                 .ok()?;
             let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
-            rows.filter_map(Result::ok).collect()
+            rows.filter_map(Result::ok)
+                .filter(|(item, _, _)| !changing.contains(item))
+                .collect()
         };
         if let Some((item, _, _)) = ready.iter().find(|r| r.2.is_some()) {
             return Some(*item);

@@ -107,6 +107,21 @@ CREATE TABLE architect_matters (
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
 ) STRICT;
 
+-- The side reports handed in before the architect ran, which an earlier version made one matter, hold each text once:
+-- a work handed in the same report again in later rounds, and the first is kept.
+UPDATE architect_matters_version_19 SET body = json_set(body, '$.side_reports', json((
+    SELECT json_group_array(json(v)) FROM (
+      SELECT x.value AS v FROM json_each(architect_matters_version_19.body, '$.side_reports') x
+      WHERE NOT EXISTS (
+        SELECT 1 FROM json_each(architect_matters_version_19.body, '$.side_reports') y
+        WHERE y.key < x.key AND trim(json_extract(y.value, '$.report.what'), char(32, 9, 10, 13))
+          = trim(json_extract(x.value, '$.report.what'), char(32, 9, 10, 13)))
+      ORDER BY x.key))))
+WHERE json_type(body, '$.side_reports') = 'array';
+UPDATE architect_matters_version_19
+SET what = 'Look through the ' || json_array_length(body, '$.side_reports') || ' side reports handed in before you ran'
+WHERE json_type(body, '$.side_reports') = 'array' AND what LIKE 'Look through the % side reports handed in before you ran';
+
 INSERT INTO architect_matters (id, project, kind, detail, what, body, item, work, round, at, asked, resume_cell, reply,
     handled_work, handled_round)
   WITH old AS (

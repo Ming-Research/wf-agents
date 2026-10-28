@@ -2745,7 +2745,7 @@ fn say(e: &mut Engine, text: &str) {
 fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     let s = setup("wake");
     let mut agents = scripts();
-    let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "Parse the input first",
+    let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
                          "reason": "Clearer." });
     let given = change.clone();
     agents.insert(
@@ -2980,7 +2980,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     agents.insert(
         "O1",
         Box::new(|_: &Request, _: usize| {
-            let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "parser", "reason": "r" });
+            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "parser", "reason": "r" });
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": [change] }))],
@@ -3011,7 +3011,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
                     |r| r.get(0),
                 )
                 .unwrap();
-            let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "Write the parser",
+            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
                                  "reason": "An action, as the review asked." });
             (
                 Vec::new(),
@@ -4924,6 +4924,264 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
     );
     assert_eq!(next_listed(&mut e, wake, 3), "3. none");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// An item of project p, ready to start: in no queue, held by nothing.
+fn a_ready_item(e: &mut Engine, title: &str) -> i64 {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', ?1, 'Missing.', 'Needed.', 'change', 'l')",
+            [title],
+        )?;
+        Ok(tx.last_insert_rowid())
+    })
+    .unwrap()
+}
+
+/// A matter of project p's architect's queue, as the owner's words.
+fn a_matter(tx: &db::rusqlite::Transaction<'_>, what: &str, item: Option<i64>, body: Value) -> Result<i64, db::Error> {
+    db::queue_matter(
+        tx,
+        &db::Matter {
+            project: "p".into(),
+            kind: "owner_words".into(),
+            detail: None,
+            what: what.into(),
+            body,
+            item,
+            raised: None,
+        },
+    )
+}
+
+// While a wake's batch is open, the engine starts no work on an item a change the batch collected names; once the
+// batch's changes are made, the item starts as ready_items says.
+#[test]
+fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
+    let s = setup("batch-hold");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = a_ready_item(&mut e, "Lex it");
+    let wake = wake_at(&mut e, "D0");
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = ?1",
+            [wake],
+        )?;
+        record_round(tx, wake, 1, "O1", &json!({}), "done")?;
+        let m = a_matter(tx, "Order the items.", None, json!({}))?;
+        let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "reason": "r" });
+        tx.execute(
+            "INSERT INTO architect_item_changes (work, round, matter, change, state)
+             VALUES (?1, 1, ?2, ?3, 'collected')",
+            params![wake, m, change.to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let held = e.step(None).unwrap();
+    assert_eq!(held.started_item, None, "{}", said.borrow().join("\n"));
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE architect_item_changes SET state = 'made'", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let started = e.step(None).unwrap();
+    assert_eq!(started.started_item, Some(item), "{}", said.borrow().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An item change may name an item an earlier change of the batch creates by its key: a new item is placed before
+// another in the order works start in, and the engine gives it its number as it makes the batch.
+#[test]
+fn a_change_names_an_item_the_batch_creates_by_its_key() {
+    let s = setup("keys");
+    let mut agents = scripts();
+    let changes = json!([
+        { "kind": "create_item", "key": "spend", "project": "p", "title": "Measure the spend", "problem": "Unknown.",
+          "why": "Cost.", "acceptance": ["It is measured."], "level": "l", "deliver": "change", "reason": "r" },
+        { "kind": "move", "item": "spend", "to": { "place": "before", "item": "1" }, "reason": "r" },
+    ]);
+    agents.insert(
+        "O1",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
+            )
+        }),
+    );
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let first = an_item(&mut e);
+    say(&mut e, "Measure the spend before parsing.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let order: Vec<(i64, String)> = engine::query_json(
+        e.db.conn(),
+        "SELECT id, title FROM items WHERE project = 'p' ORDER BY rank NULLS LAST, id",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| (r["id"].as_i64().unwrap(), r["title"].as_str().unwrap().to_string()))
+    .collect();
+    let log = said.borrow().join("\n");
+    assert_eq!(order.len(), 2, "{log}");
+    assert_eq!(order[0].1, "Measure the spend", "{log}");
+    assert_eq!(order[1].0, first, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design card matter whose card needs no look any longer, confirmed by the owner or replaced by another, is closed by
+// the engine as it looks at the queue, saying why, and never reaches K1.
+#[test]
+fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
+    let s = setup("settled-card");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', '4', 'stopped: by hand')",
+            params![item, v],
+        )?;
+        let work = tx.last_insert_rowid();
+        record_round(tx, work, 1, "4", &json!({}), "done")?;
+        let confirmed = json!([{ "by": "owner", "at": 1, "decisions": [{ "decision": 1, "verdict": "confirm" }] }]);
+        tx.execute(
+            "INSERT INTO design_cards (work, round, body, status, rulings) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'ruled', ?2)",
+            params![work, confirmed.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO design_cards (work, round, body, status) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'replaced')",
+            [work],
+        )?;
+        for card in [1, 2] {
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "design_card".into(),
+                    detail: None,
+                    what: format!("Design card {card} to look at"),
+                    body: json!({ "design_card": card }),
+                    item: Some(item),
+                    raised: None,
+                },
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert!(!path_of(&e, wake).contains(&"K1".to_string()), "{log}");
+    let closed: Vec<(String, String)> = engine::query_json(
+        e.db.conn(),
+        "SELECT r.cell, json_extract(r.output, '$.progress') AS said FROM architect_matters m
+         JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round WHERE m.kind = 'design_card'",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| {
+        (
+            r["cell"].as_str().unwrap().to_string(),
+            r["said"].as_str().unwrap_or_default().to_string(),
+        )
+    })
+    .collect();
+    assert_eq!(closed.len(), 2, "{log}");
+    assert!(closed.iter().all(|c| c.0 == "D0"), "{closed:?}");
+    assert!(
+        closed[0].1.contains("confirmed by the owner") && closed[0].1.contains("replaced by another"),
+        "{closed:?}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The items a matter concerns are the one it names, the one its fix names and those its words name: a number in its
+// material, such as a pull request's, brings in no item.
+#[test]
+fn a_matter_s_items_are_not_taken_from_numbers_in_its_material() {
+    let s = setup("matter-items");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let named = a_ready_item(&mut e, "Lex it");
+    let other = a_ready_item(&mut e, "Print it");
+    let wake = wake_at(&mut e, "O1");
+    e.db.write(Actor::Engine, |tx| {
+        let body = json!({ "said": format!("See PR #{other} for the parser.") });
+        let m = a_matter(tx, &format!("Look at item {named}."), None, body)?;
+        record_round(
+            tx,
+            wake,
+            1,
+            "D0",
+            &json!({ "queue": { "verdict": "one", "matter": m } }),
+            "one",
+        )
+    })
+    .unwrap();
+    let m = engine::next_message(&mut e, wake).unwrap().text;
+    let items = given_value(&m, "·engine·matter_items").expect(&m);
+    let keys: Vec<&String> = items.as_object().unwrap().keys().collect();
+    assert_eq!(keys, [&format!("#{named}")], "{items}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A side report a work handed in before, word for word, is not queued again.
+#[test]
+fn a_side_report_handed_in_again_is_queued_once() {
+    let s = setup("report-again");
+    let mut agents = scripts();
+    agents.insert(
+        "1",
+        Box::new(|_: &Request, n: usize| {
+            let r = |what: &str| json!({ "kind": "other", "what": what, "urgent": false });
+            let reports = if n == 1 {
+                json!([
+                    r("The parser is slow."),
+                    r(" The parser is slow.\n"),
+                    r("It needs a machine.")
+                ])
+            } else {
+                json!([])
+            };
+            (Vec::new(), vec![("side_reports", reports)])
+        }),
+    );
+    let (mut e, said, _) = start(&s, agents);
+    let work = e.step(None).unwrap().work;
+    e.step(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        matters(&e),
+        [("report".to_string(), true, false), ("report".to_string(), true, false)],
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -50,7 +50,7 @@ const GUIDE_INPUT: &str = "engine·project_guide";
 
 /// What the engine computes for the architect's cells that is standard context: large and much the same from round to
 /// round, so that its line's session is given it once and after that only what changed in it.
-const ARCHITECT_STANDARD: [&str; 9] = [
+const ARCHITECT_STANDARD: [&str; 10] = [
     "constitution",
     "guide",
     "policy",
@@ -60,7 +60,13 @@ const ARCHITECT_STANDARD: [&str; 9] = [
     "observations_overview",
     "observation_tags",
     "queue",
+    "batch",
 ];
+
+/// The entries of an input of the standard context that every version of it given as what changed carries whole,
+/// changed or not: the numbers of the matters the architect's queue can be picked from and of those its batch handled,
+/// so that a session given only what changed, round after round, loses track of none.
+pub const INDEXES: [&str; 2] = ["pickable", "handled_matters"];
 
 /// Which input of the standard context an address is a version of: the project guide and what the engine computes as
 /// the architect's standard context, whose versions have addresses of their own, or a return format, a list of

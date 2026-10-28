@@ -280,13 +280,21 @@ impl<'a> Giver<'a> {
                 held.round,
                 diff::lines(was, is)
             ),
-            (Value::Object(_), Value::Object(_)) => format!(
-                "What changed since {}, given in {}: each entry here takes the place of the one there, and null \
-                 removes it. {}",
-                held.address,
-                held.round,
-                diff::entries(&earlier, content)
-            ),
+            (Value::Object(_), Value::Object(is)) => {
+                let mut changed = diff::entries(&earlier, content);
+                if let Value::Object(o) = &mut changed {
+                    for k in crate::held::INDEXES {
+                        if let Some(v) = is.get(k) {
+                            o.insert(k.to_string(), v.clone());
+                        }
+                    }
+                }
+                format!(
+                    "What changed since {}, given in {}: each entry here takes the place of the one there, and null \
+                     removes it. {}",
+                    held.address, held.round, changed
+                )
+            }
             _ => return None,
         };
         Some(Value::String(what))
@@ -546,5 +554,38 @@ mod tests {
         let mut m = Giver::new(&held, &registry, &conn, &session);
         m.give("rule:ground".into(), json!(was));
         assert!(!m.list[0].given);
+    }
+
+    // The architect's queue, given as what changed, carries the numbers of the matters that can be picked whole every
+    // time, changed or not, beside what changed.
+    #[test]
+    fn a_queue_given_as_what_changed_carries_every_matter_that_can_be_picked() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE contents (hash TEXT PRIMARY KEY, text TEXT NOT NULL)")
+            .unwrap();
+        let was = json!({ "now": "10:00", "pickable": [1, 2, 6], "matters": { "#1": {}, "#2": {}, "#6": {} } });
+        let key = db::content_hash(&was.to_string());
+        conn.execute(
+            "INSERT INTO contents (hash, text) VALUES (?1, ?2)",
+            [key.as_str(), was.to_string().as_str()],
+        )
+        .unwrap();
+        let input = json!({ "conditional": [{
+            "address": "R2-1·engine·queue", "hash": hash(&was), "given": true, "text": key,
+        }] });
+        let session = [round(2, input, Some(json!({})), 0)];
+        let held = Held::of(&session);
+        let registry = HashMap::new();
+        let mut m = Giver::new(&held, &registry, &conn, &session);
+        let is = json!({ "now": "10:05", "pickable": [1, 2, 6], "matters": { "#1": {}, "#2": {}, "#6": {} } });
+        m.give("R2-3·engine·queue".into(), is);
+        let c = &m.list[0];
+        assert!(c.given && c.changes, "{c:?}");
+        let text = c.content.as_str().unwrap();
+        assert!(
+            text.contains(r#""now":"10:05""#) && text.contains(r#""pickable":[1,2,6]"#),
+            "{text}"
+        );
+        assert!(!text.contains("matters"), "{text}");
     }
 }

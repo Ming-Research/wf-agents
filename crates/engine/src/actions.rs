@@ -490,7 +490,17 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                         |x| x.get(0),
                     )
                     .map_err(sql)?;
-                if queued > 0 {
+                // A report the work handed in before, word for word, is not queued again.
+                let said = r["what"].as_str().unwrap_or_default().trim();
+                let before: i64 = tx
+                    .query_row(
+                        "SELECT count(*) FROM architect_matters WHERE work = ?1 AND kind = 'report'
+                           AND trim(json_extract(body, '$.report.what'), char(32, 9, 10, 13)) = ?2",
+                        params![ctx.round.work, said],
+                        |x| x.get(0),
+                    )
+                    .map_err(sql)?;
+                if queued > 0 || before > 0 {
                     continue;
                 }
                 let urgent = r["urgent"] == true;

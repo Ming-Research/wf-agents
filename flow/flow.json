@@ -1570,8 +1570,8 @@
             },
             {
               "name": "under",
-              "type": "int",
-              "desc": "The item it is split from, by its number, which then depends on it; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
+              "type": "text",
+              "desc": "The item it is split from: its number, or the key of an item an earlier change of this batch creates; it then depends on this one; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
               "optional": true
             },
             {
@@ -1623,13 +1623,13 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "on",
-              "type": "int",
-              "desc": "The item it waits for: its number"
+              "type": "text",
+              "desc": "The item it waits for: its number, or the key of an item an earlier change of this batch creates"
             }
           ]
         },
@@ -1639,8 +1639,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "to",
@@ -1664,8 +1664,8 @@
                   "fields": [
                     {
                       "name": "item",
-                      "type": "int",
-                      "desc": "That item: its number"
+                      "type": "text",
+                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
                     }
                   ]
                 },
@@ -1675,8 +1675,8 @@
                   "fields": [
                     {
                       "name": "item",
-                      "type": "int",
-                      "desc": "That item: its number"
+                      "type": "text",
+                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
                     }
                   ]
                 },
@@ -1686,8 +1686,8 @@
                   "fields": [
                     {
                       "name": "item",
-                      "type": "int",
-                      "desc": "That item: its number"
+                      "type": "text",
+                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
                     }
                   ]
                 }
@@ -1701,16 +1701,16 @@
           "fields": [
             {
               "name": "keep",
-              "type": "int",
-              "desc": "The item kept: its number"
+              "type": "text",
+              "desc": "The item kept: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "absorbed",
               "type": "list",
               "desc": "The items merged into it, one per row",
               "item": {
-                "type": "int",
-                "desc": "An item's number"
+                "type": "text",
+                "desc": "An item: its number, or the key of an item an earlier change of this batch creates"
               },
               "min": 1
             }
@@ -1722,8 +1722,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "goes",
@@ -1738,8 +1738,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             }
           ]
         },
@@ -1749,8 +1749,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             }
           ]
         },
@@ -1760,8 +1760,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "part",
@@ -1799,8 +1799,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "acceptance",
@@ -1820,8 +1820,8 @@
           "fields": [
             {
               "name": "item",
-              "type": "int",
-              "desc": "Which item: its number"
+              "type": "text",
+              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
             },
             {
               "name": "level",
@@ -2755,8 +2755,8 @@
       "policy": "The policy in force for the project.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready.",
-      "queue": "The project's queue: the matters that can be picked, each with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
-      "batch": "The batch so far: the matters handled and how each ended, the item changes made, whether a hold to set things straight was released, and whether the owner asked to rethink the policy.",
+      "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
+      "batch": "The batch so far: the numbers of the matters handled, and each with how it ended, the item changes made, whether a hold to set things straight was released, and whether the owner asked to rethink the policy.",
       "matter": "The matter picked, with its material by its kind.",
       "matter_items": "The items and works the matter picked concerns, in full.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
@@ -3554,7 +3554,7 @@
           {
             "name": "side_reports",
             "type": "list",
-            "desc": "Things you came across that do not block this work. Go on with your work as usual; this only reports them. An empty list if none",
+            "desc": "Things you came across that do not block this work and that this work has not reported before. Go on with your work as usual; this only reports them. An empty list if none",
             "item": {
               "type": "obj",
               "fields": [
@@ -9167,7 +9167,7 @@
         ],
         "rules": [
           "A wake goes on in the session the project's last wake left. A new session starts at the project's first wake, after a new policy took effect, when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
-          "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations and the queue are given once in a session and after that only as what changed; a matter's material is given to the first cell of its path, and the second refers to it.",
+          "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
           "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
           "When the architect hands in pause, the engine runs the same cell again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
@@ -10278,7 +10278,7 @@
               ]
             },
             {
-              "what": "Your queue: each matter that can be picked, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
+              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
               "from": [
                 {
                   "engine": "queue"
@@ -10531,6 +10531,12 @@
                   ]
                 }
               ]
+            },
+            {
+              "name": "progress",
+              "type": "text",
+              "optional": true,
+              "desc": "The design card matters closed without a look, their card confirmed by the owner or replaced, each with why; left out when none"
             }
           ],
           "cases": [
@@ -10592,7 +10598,8 @@
             }
           ],
           "shown": [
-            "queue"
+            "queue",
+            "progress"
           ]
         },
         {
@@ -10606,7 +10613,7 @@
           ],
           "inputs": [
             {
-              "what": "Your queue: each matter that can be picked, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
+              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
               "from": [
                 {
                   "engine": "queue"
