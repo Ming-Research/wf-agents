@@ -497,6 +497,58 @@ fn a_kind(t: &str) -> String {
     }
 }
 
+/// A value with each field `s` lets it leave out that it holds as null left out, at every depth, as an agent may write
+/// null for a field it has nothing for. Of alternatives, each the value may be is followed: one whose fixed values the
+/// value's agree with, and whose fields hold every field the value has.
+pub fn without_null_options(s: &Value, x: &mut Value) {
+    let Some(o) = s.as_object() else { return };
+    for key in ["oneOf", "anyOf"] {
+        for b in o.get(key).and_then(Value::as_array).into_iter().flatten() {
+            if may_be(b, x) {
+                without_null_options(b, x);
+            }
+        }
+    }
+    match x {
+        Value::Array(xs) => {
+            if let Some(it) = o.get("items") {
+                for v in xs {
+                    without_null_options(it, v);
+                }
+            }
+        }
+        Value::Object(xo) => {
+            let Some(props) = o.get("properties").and_then(Value::as_object) else {
+                return;
+            };
+            let required = |k: &str| {
+                o.get("required")
+                    .and_then(Value::as_array)
+                    .is_some_and(|r| r.iter().any(|x| x == k))
+            };
+            xo.retain(|k, v| !(v.is_null() && props.contains_key(k) && !required(k)));
+            for (k, v) in xo.iter_mut() {
+                if let Some(p) = props.get(k) {
+                    without_null_options(p, v);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a value may be of an alternative: its fixed values agree, and every field the value holds, other than a
+/// null, is one of the alternative's.
+fn may_be(b: &Value, x: &Value) -> bool {
+    let (Some(props), Some(xo)) = (b.get("properties").and_then(Value::as_object), x.as_object()) else {
+        return false;
+    };
+    let consts = props
+        .iter()
+        .all(|(k, p)| p.get("const").is_none_or(|c| xo.get(k).is_none_or(|v| v == c)));
+    consts && xo.iter().all(|(k, v)| v.is_null() || props.contains_key(k))
+}
+
 /// Whether `x` fits `s`, for the part of JSON Schema the compiler writes.
 pub fn valid(s: &Value, x: &Value) -> bool {
     let Some(o) = s.as_object() else { return true };

@@ -2741,7 +2741,7 @@ fn say(e: &mut Engine, text: &str) {
 // session has not understood the project, understands it, judges the policy and what runs, takes the lone matter on
 // its path, whose item change is collected; the batch is done, its review finds the change sound, and the engine makes
 // it as the architect; the rethink goes on, nothing is left, and the wake wraps up and ends, referred to the state of
-// things its session wrote.
+// things its session wrote. A field the path cell may leave out and wrote as null is taken as left out.
 #[test]
 fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     let s = setup("wake");
@@ -2754,7 +2754,10 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": [given.clone()] }))],
+                vec![(
+                    "outcome.effects",
+                    json!({ "item_changes": [given.clone()], "notes": null }),
+                )],
             )
         }),
     );
@@ -3238,6 +3241,9 @@ fn the_search_of_observations_hands_back_candidates() {
     assert_eq!((line.as_str(), model.as_str()), ("observer", "m-cheap"));
     let back = message_at(&e, wake, "I2", true);
     assert!(back.contains("It records the same slowness."), "{back}");
+    // The observer writes what the owner reads in the owner's language, as every line does.
+    let search = message_at(&e, wake, "S1", false);
+    assert!(search.contains("`owner.language` (English)"), "{search}");
     let times: (i64, String) =
         e.db.conn()
             .query_row("SELECT times_reported, refs FROM observations WHERE id = 1", [], |r| {

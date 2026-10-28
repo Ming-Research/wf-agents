@@ -33,7 +33,7 @@ use std::fmt;
 
 pub use compiled::{
     AskNeed, COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse,
-    Stats, ToolUse, found_at, valid,
+    Stats, ToolUse, found_at, valid, without_null_options,
 };
 pub use run::Position;
 

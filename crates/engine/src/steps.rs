@@ -300,7 +300,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
-    let Some(output) = reply.output.clone() else {
+    let Some(mut output) = reply.output.clone() else {
         let f = Failed {
             w,
             cell,
@@ -310,6 +310,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return f.handle(e, ended, &reply);
     };
     e.returned();
+    // A field the flow lets the return leave out that the agent wrote as null is left out.
+    if let Some(s) = &cell.schema {
+        flow::without_null_options(s, &mut output);
+    }
     let row = match g.take(&cell.id, &output, &given) {
         Ok(r) => r.clone(),
         Err(why) => {

@@ -1147,7 +1147,7 @@
           "type": "list",
           "optional": true,
           "min": 1,
-          "desc": "Items that work must stop and wait for now: until they deliver, it cannot go on; for instance, it needs a feature added to the compiler first. Items it only has to wait for before merging do not go here: a dependency is enough, and the engine waits for them before merging. None if it need not stop",
+          "desc": "Items that work must stop and wait for now: until they deliver, it cannot go on; for instance, it needs a feature added to the compiler first. Items it only has to wait for before merging do not go here: a dependency is enough, and the engine waits for them before merging. Leave it out if it need not stop",
           "item": {
             "type": "obj",
             "fields": [
@@ -12910,7 +12910,8 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: which open observations match what is looked for. For the same one: those that record this very thing. For related ones: those an item doing this could take in. Hand in at most ten, the closest first, each with why it matches in a sentence; an empty list when none does."
+            "This round answers one thing only: which open observations match what is looked for. For the same one: those that record this very thing. For related ones: those an item doing this could take in. Hand in at most ten, the closest first, each with why it matches in a sentence; an empty list when none does.",
+            "Write progress and tell_owner in the owner's language, as `format:common` says of a field the owner reads."
           ],
           "out": [
             {

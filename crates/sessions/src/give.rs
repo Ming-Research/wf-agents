@@ -312,8 +312,21 @@ impl<'a> Giver<'a> {
                 .into_iter()
                 .collect(),
             None => {
-                let r = self.rounds.iter().find(|r| r.id == v.round)?;
-                let message = db::put_back(self.conn, &r.input["message"]);
+                // The round is the work's, or one of an earlier work the session went on from, such as an earlier
+                // wake of the project's architect.
+                let input = match self.rounds.iter().find(|r| r.id == v.round) {
+                    Some(r) => r.input.clone(),
+                    None => self
+                        .conn
+                        .query_row(
+                            "SELECT input FROM rounds WHERE work = ?1 AND n = ?2",
+                            [v.round.work, v.round.n],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<Value>(&t).ok())?,
+                };
+                let message = db::put_back(self.conn, &input["message"]);
                 written_under(message.as_str()?, &v.address)
             }
         };

@@ -176,6 +176,36 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     );
 }
 
+// A field the flow lets a return leave out that the agent wrote as null is taken as left out, and the return fits; a
+// null in a field the return must hold still does not fit.
+#[test]
+fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let s = g.cell("F1").unwrap().schema.clone().unwrap();
+    let mut ret = serde_json::json!({
+        "outcome": {
+            "fix": { "way": "nothing", "why": "It passed." },
+            "reply": { "text": "Go on.", "why": "It passed.", "waits": null, "children": null },
+            "effects": null
+        },
+        "tell_owner": [],
+        "progress": "Nothing to fix."
+    });
+    assert!(!flow::valid(&s, &ret));
+    flow::without_null_options(&s, &mut ret);
+    assert!(flow::valid(&s, &ret), "{ret}");
+    assert_eq!(
+        ret["outcome"],
+        serde_json::json!({ "fix": { "way": "nothing", "why": "It passed." },
+                            "reply": { "text": "Go on.", "why": "It passed." } })
+    );
+    let mut bad = ret.clone();
+    bad["outcome"]["reply"]["text"] = Value::Null;
+    flow::without_null_options(&s, &mut bad);
+    assert!(!flow::valid(&s, &bad), "{bad}");
+}
+
 // What the engine stores reads back as it was, with the same digest each time.
 #[test]
 fn the_compiled_flow_reads_back_with_a_stable_digest() {
