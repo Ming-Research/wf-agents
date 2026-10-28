@@ -463,8 +463,9 @@ async function findHeld(
   return null;
 }
 
-/// One conditional input of the message: its address and what it is; one the session already held, and so was not
-/// sent, greyed, opening to what the session held, outside the box since this round did not send it.
+/// One conditional input of the message: its address and what it is, in bold when this round sent it; one the session
+/// already held, and so was not sent, greyed, opening to what the session held, outside the box since this round did
+/// not send it.
 function InputRow({ address, given, hash, words: what, d, rounds, f }: {
   address: string;
   given: boolean;
@@ -482,7 +483,7 @@ function InputRow({ address, given, hash, words: what, d, rounds, f }: {
       <span>{what}</span>
     </>
   );
-  if (given) return <div className="rp-input">{row}</div>;
+  if (given) return <div className="rp-input rp-sent">{row}</div>;
   const toggle = () => {
     setOpen(!open);
     if (value === undefined) findHeld(address, hash, d, rounds, f?.g.within ?? 'outcome').then(setValue, () => setValue(null));

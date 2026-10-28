@@ -2791,6 +2791,11 @@ p.rp-note {
   overflow-wrap: anywhere;
 }
 
+/* An input this round sent: bold, its address and its words, so that it stands apart from those the session held. */
+.rp-sent {
+  font-weight: 600;
+}
+
 /* An input the session already held, not sent this round: greyed, and opening to what the session held. */
 .rp-held {
   color: var(--muted);
