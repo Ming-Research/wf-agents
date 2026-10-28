@@ -235,6 +235,7 @@ pub fn ping(
         new_session: due.cli_session.clone(),
         prompt: MESSAGE.to_string(),
         schema: json!({}),
+        envelope: json!({}),
         refused: Vec::new(),
         readable: Vec::new(),
         replay: Some(line),

@@ -2837,6 +2837,25 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
             )
             .unwrap();
     assert!(review.1.is_some(), "{review:?}");
+    // Every round of the architect's line gives the CLI the same schema, the rethink's included, which keeps the
+    // session's prompt cache.
+    let schemas: Vec<(String, Value)> = engine::query_json(
+        e.db.conn(),
+        "SELECT r.cell, r.input FROM rounds r JOIN sessions s ON s.id = r.session
+         WHERE r.work = ?1 AND s.line = 'architect' ORDER BY r.n",
+        &[&wake],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| {
+        let args = r["input"]["call"]["command"].as_array().cloned().unwrap_or_default();
+        let at = args.iter().position(|a| a == "--json-schema").unwrap();
+        (r["cell"].as_str().unwrap().to_string(), args[at + 1].clone())
+    })
+    .collect();
+    assert!(schemas.iter().any(|x| x.0 == "C1"), "{schemas:?}");
+    assert!(schemas.iter().all(|x| x.1 == schemas[0].1), "{schemas:?}");
     // The wrap-up is referred to the state of things its session wrote at the understanding, not given it again.
     let wrap_up = &inputs_at(&e, wake, "E1")[0];
     assert_eq!(given_ending(wrap_up, "·U1·state"), Some(false), "{wrap_up}");

@@ -27,8 +27,10 @@ pub struct Request {
     pub new_session: String,
     /// The message, given on the CLI's standard input.
     pub prompt: String,
-    /// What the return must be, as JSON Schema; the CLI is given only its envelope.
+    /// What the return must be, as JSON Schema; the engine checks the return against it.
     pub schema: Value,
+    /// The schema the CLI is given, the same for every cell of the graph: [`envelope`].
+    pub envelope: Value,
     /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
     pub refused: Vec<String>,
     /// Directories outside the worktree the agent may read but not change, such as where the engine saves a tool's
@@ -95,12 +97,9 @@ pub fn command_line(r: &Request) -> Vec<String> {
         .map(|s| s.to_string()),
     );
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
-    // next would leave nothing of the session's prompt cache. The CLI is given only the fields every return of the
-    // graph has, with their types, which is the same for every cell; the cell's own answer is a conditional input of the
-    // message, and the engine checks the return against the cell's whole schema. Without the types the model hands
-    // in each field as the JSON text of its value.
+    // next would leave nothing of the session's prompt cache: it is the graph's envelope, the same for every cell.
     out.push("--json-schema".into());
-    out.push(envelope(&r.schema).to_string());
+    out.push(r.envelope.to_string());
     if let Some(e) = &r.effort {
         out.extend(["--effort".to_string(), e.clone()]);
     }
@@ -340,29 +339,53 @@ pub fn activity_of(line: &str) -> Option<String> {
     }
 }
 
-/// A return's top-level fields as a schema gives them, each with only its type: an agent's forms are under one field
-/// as an anyOf of objects, so it is an object, which says that the other fields sit beside it.
-fn envelope(schema: &Value) -> Value {
+/// The schema the CLI is given for every round of a graph's agents, the same for every cell, since a schema that changed
+/// from one round to the next leaves nothing of the session's prompt cache: a return's top-level fields, each with only
+/// its type; the field an agent's forms are under is an object that holds none of the fields beside it. Required are
+/// that field and those beside it that no form of any cell leaves out. Without the types the model hands in each field
+/// as the JSON text of its value; the cell's own answer is a conditional input of the message, and the engine checks the
+/// return against the cell's whole schema.
+pub fn envelope(g: &flow::CompiledGraph) -> Value {
+    let cells: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
     let empty = serde_json::Map::new();
-    let ps = schema["properties"].as_object().unwrap_or(&empty);
+    let ps = cells
+        .iter()
+        .find_map(|c| c.schema.as_ref()?.get("properties")?.as_object())
+        .unwrap_or(&empty);
+    let beside: Vec<&str> = ps.keys().filter(|k| **k != g.within).map(String::as_str).collect();
     let props: serde_json::Map<String, Value> = ps
         .iter()
-        .map(|(k, v)| match v.get("type") {
-            Some(t) => (k.clone(), json!({ "type": t })),
-            None => {
-                let beside: Vec<&str> = ps.keys().filter(|x| *x != k).map(String::as_str).collect();
-                let desc = format!(
-                    "Exactly one of the forms the prompt's schema lists under {k}; {} sit beside it, not inside it",
-                    beside.join(" and ")
+        .map(|(k, v)| {
+            if *k != g.within {
+                return (
+                    k.clone(),
+                    json!({ "type": v.get("type").cloned().unwrap_or(Value::Null) }),
                 );
-                (k.clone(), json!({ "type": "object", "description": desc }))
             }
+            let desc = format!(
+                "Exactly one of the forms the prompt's schema lists under {k}; {} sit beside it, not inside it",
+                beside.join(" and ")
+            );
+            let not_inside: Vec<Value> = beside.iter().map(|b| json!({ "required": [b] })).collect();
+            (
+                k.clone(),
+                json!({ "type": "object", "description": desc, "not": { "anyOf": not_inside } }),
+            )
         })
+        .collect();
+    let left_out: std::collections::BTreeSet<&str> = cells
+        .iter()
+        .flat_map(|c| &c.forms)
+        .flat_map(|f| &f.without)
+        .map(String::as_str)
+        .collect();
+    let required: Vec<&str> = std::iter::once(g.within.as_str())
+        .chain(beside.iter().copied().filter(|b| !left_out.contains(b)))
         .collect();
     json!({
         "type": "object",
         "properties": props,
-        "required": schema.get("required").cloned().unwrap_or_else(|| json!([])),
+        "required": required,
         "additionalProperties": false,
     })
 }
@@ -606,6 +629,8 @@ mod tests {
         assert!(r.error.is_none());
     }
 
+    // The CLI is given one schema for a whole graph: its form's field holds none of the fields beside it, and a field
+    // beside it that some form leaves out, such as progress, is not required.
     #[test]
     fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
         let relations = db::relations(db::SCHEMA).unwrap();
@@ -618,21 +643,22 @@ mod tests {
         )
         .unwrap();
         let g = f.graph("engineer").unwrap();
-        let shapes: Vec<Value> = g
-            .cells
-            .iter()
-            .filter(|c| c.kind == "agent")
-            .filter_map(|c| c.schema.as_ref().map(envelope))
-            .collect();
-        assert!(shapes.len() > 10);
-        assert!(shapes.iter().all(|s| *s == shapes[0]));
-        assert_eq!(shapes[0]["properties"][&g.within]["type"], "object");
+        let s = envelope(g);
+        assert_eq!(s["properties"][&g.within]["type"], "object");
         assert!(
-            shapes[0]["properties"][&g.within]["description"]
+            s["properties"][&g.within]["description"]
                 .as_str()
                 .unwrap()
                 .contains("side_reports")
         );
+        assert_eq!(s["required"], json!(["outcome", "side_reports", "tell_owner"]));
+        assert_eq!(
+            s["properties"][&g.within]["not"],
+            json!({ "anyOf": [{ "required": ["side_reports"] }, { "required": ["tell_owner"] },
+                              { "required": ["progress"] }] })
+        );
+        let a = envelope(f.graph("architect").unwrap());
+        assert_eq!(a["required"], json!(["outcome", "tell_owner"]));
     }
 
     #[test]
@@ -746,6 +772,7 @@ mod tests {
             new_session: "s2".into(),
             prompt: "p".into(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
+            envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             refused: config::Permissions::default().refused("engineer"),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,

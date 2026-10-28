@@ -227,6 +227,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
+        envelope: sessions::cli::envelope(g),
         refused: e.config.config.install.agents.permissions.refused(&line_of_cell),
         readable,
         replay: None,
