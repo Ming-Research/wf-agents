@@ -1466,7 +1466,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        old.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        old.migrate(MIGRATIONS).unwrap();
         let mut st = old
             .conn()
             .prepare("SELECT kind, what, body FROM architect_matters ORDER BY id")
@@ -1499,7 +1499,7 @@ mod tests {
             ] })
         );
         let mut none = at_version(13);
-        none.upgrade(SCHEMA, MIGRATIONS).unwrap();
+        none.migrate(MIGRATIONS).unwrap();
         let n: i64 = none
             .conn()
             .query_row("SELECT count(*) FROM architect_matters", [], |r| r.get(0))
