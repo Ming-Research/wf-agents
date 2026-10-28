@@ -251,11 +251,11 @@ not_asked: string | null,
 /**
  * For an agent's round, where it spent its tokens, from its usage record.
  */
-tokens: RoundTokens | null,
+tokens: RoundTokens | null, 
 /**
  * The session it ran in, by its row; none for the engine's own steps, tool cells and the owner.
  */
-session: number | null,
+session: number | null, 
 /**
  * When it started a new session: why, as the session manager recorded it: line, the line's first session in the
  * work (or a cell on no line, whose session is its own); cell, a cell the line starts a new session at; limit, the
@@ -511,11 +511,11 @@ recorded: JsonValue, rounds: Array<RoundSummary>, design_cards: Array<DesignCard
 /**
  * What its agents told the owner, and what the engine told the owner of it, oldest first.
  */
-messages: Array<OwnerMessage>, interjections: Array<Interjection>,
+messages: Array<OwnerMessage>, interjections: Array<Interjection>, 
 /**
  * The sessions its lines ran in, oldest first.
  */
-sessions: Array<WorkSession>,
+sessions: Array<WorkSession>, 
 /**
  * The keep-warm pings sent to its sessions while it waited, oldest first.
  */
@@ -529,12 +529,12 @@ export type Session = { line: string, cli: string, cli_session: string, };
 /**
  * A session one of a work's lines ran in.
  */
-export type WorkSession = { id: number, line: string,
+export type WorkSession = { id: number, line: string, 
 /**
  * Why it started: line, cell, limit, or wake (a wake of the architect going on in the CLI session the last wake
  * left).
  */
-started: string,
+started: string, 
 /**
  * When it ended, so that the line's next round started a new one; none while it goes on.
  */
@@ -544,19 +544,19 @@ ended: number | null, };
  * A keep-warm ping: a minimal message the session manager sent a session while its work waited, so that the
  * session's prompt cache was read instead of expiring. A ping means the work waited over an hour.
  */
-export type Ping = { id: number, session: number, line: string,
+export type Ping = { id: number, session: number, line: string, 
 /**
  * The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
  */
-cell: string, on: string, what: string, started_at: number, ended_at: number | null, model: string | null,
+cell: string, on: string, what: string, started_at: number, ended_at: number | null, model: string | null, 
 /**
  * What it cost, as the command line reported it; none for one that failed or runs.
  */
-cost_usd: number | null,
+cost_usd: number | null, 
 /**
  * Tokens read from the cache, and written to it.
  */
-read: number, written: number,
+read: number, written: number, 
 /**
  * Why it failed, when it did.
  */
