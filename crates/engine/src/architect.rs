@@ -41,14 +41,13 @@ pub const INPUTS: [&str; 10] = [
 
 /// The kinds of point an engineer's question is queued as a matter of the same kind; a question of any other kind is
 /// queued as other_question.
-const QUESTION_KINDS: [&str; 7] = [
+const QUESTION_KINDS: [&str; 6] = [
     "split",
     "duplicate",
     "depends_on_other_item",
     "out_of_scope_defect",
     "root_elsewhere",
     "too_costly",
-    "over_plan",
 ];
 
 /// The most rows an input of the architect's gives of one list.

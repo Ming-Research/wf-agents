@@ -343,23 +343,6 @@
    "given": {}
   }
  ],
- "3g": [
-  {
-   "row": "no",
-   "json": {
-    "outcome": {
-     "answer": {
-      "verdict": "no",
-      "why": "outcome.answer.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress"
-   },
-   "given": {}
-  }
- ],
  "3e": [
   {
    "row": "implementation",

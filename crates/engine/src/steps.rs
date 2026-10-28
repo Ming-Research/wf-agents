@@ -857,11 +857,10 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
     };
-    let quick = matches!(step.as_deref(), None | Some("choose_checks") | Some("check_plan"));
+    let quick = matches!(step.as_deref(), None | Some("choose_checks"));
     if quick {
         let output = match step.as_deref() {
             Some("choose_checks") => choose_checks(e, w, g)?,
-            Some("check_plan") => json!({ "plan": { "verdict": "fits" } }),
             _ => json!({}),
         };
         let row = g.take(&cell.id, &output, &given)?.clone();

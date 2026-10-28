@@ -177,7 +177,7 @@ describe('the checklist of a work', () => {
     round(2, 'a', 'tools'),
     round(3, 't', 'ran'),
     round(4, 'a', 'done', { progress: 'understood it' }),
-    round(5, 'g', 'no', { not_asked: 'plan' }),
+    round(5, 'g', 'no', { not_asked: 'other_projects' }),
     round(6, 'b', 'ask'),
     round(7, 'q', 'answered'),
     round(8, 'b', 'done', { progress: 'designed it' }),

@@ -338,7 +338,7 @@ pub fn row_key(row: &Value) -> Option<&str> {
 /// the column's number; for a column it could not verify, the column; for a test, the test only when it went wrong
 /// (red after the change, or a result before it that does not fit its kind); for a result with checks, each check that
 /// is not green with the rest of the result, or the whole result when every check is green, as a flaky one is once
-/// run again; for what goes over the plan, each touch rule or budget; anything else as it is.
+/// run again; anything else as it is.
 fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
     let items = match v {
         Value::Array(xs) => xs.clone(),
@@ -388,8 +388,6 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
                 m.extend(object(c));
                 out.push(m);
             }
-        } else if let Some(Value::Array(over)) = o.get("over").cloned() {
-            out.extend(over.into_iter().map(object));
         } else {
             out.push(o);
         }
@@ -469,7 +467,6 @@ pub fn engine_input(
             };
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
-        "plan_segment" | "plan_usage" => None,
         "existing_work" => existing_work(e, w, g, item, &main)?.map(Value::String),
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {

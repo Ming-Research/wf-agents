@@ -168,7 +168,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 34);
+    assert_eq!(n, 33);
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.

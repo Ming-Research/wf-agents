@@ -410,8 +410,8 @@ case!(
         );
     }
 );
-case!(the_design_never_asked_about_the_plan, "unreached 3g", |v| {
-    node(v, "3d")["to"] = json!("3e");
+case!(the_design_never_asked_about_other_projects, "unreached 3d", |v| {
+    node(v, "3c")["to"] = json!("3e");
 });
 
 // Every loop counts.
@@ -508,10 +508,10 @@ case!(the_blind_conclusions_on_a_report_read_by_nobody, "nobody reads", |v| {
     obj(node(v, "5")).remove("checks");
 });
 case!(
-    a_fix_that_never_hears_the_plan_went_over,
-    "nobody reads plan[over]",
+    a_fix_that_never_hears_the_merge_broke_main,
+    "nobody reads main[broken_by_merge]",
     |v| {
-        drop_source(v, "8", json!(["19a", "plan[over]"]));
+        drop_source(v, "8", json!(["10", "main[broken_by_merge]"]));
     }
 );
 case!(
