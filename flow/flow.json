@@ -195,7 +195,7 @@
       "name": "followup",
       "type": "text",
       "optional": true,
-      "desc": "Only for a work that delivers a report: the report's \"what to do next\", a paragraph or two, handed to the architect to decide whether and when to open follow-up items; a work that delivers a change does not hand this in"
+      "desc": "Only for a work that delivers a report: the report's \"what to do next\", a paragraph or two. When the work ends, it goes to the architect as a matter of its own, which decides whether and when to open follow-up items; a work that delivers a change does not hand this in"
     },
     "done_conditions": {
       "$ref": "conditions",
@@ -1300,6 +1300,10 @@
         [
           "next_look",
           "A look you set yourself at a wrap-up has come due"
+        ],
+        [
+          "report_followup",
+          "A work that delivered a report has ended, with its what to do next, for you to decide whether and when to open follow-up items"
         ]
       ]
     },
@@ -2798,7 +2802,7 @@
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the work stops and waits without holding a slot. The owner's chosen option or sentence goes back unchanged to the side that asked.",
-      "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
+      "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged. A work that delivered a report and handed in what to do next queues it for the architect as a matter of its own: the latest it handed in, as written, with the report's paths under research/ and the commit the work merged.",
       "wake": "Wakes the architect: a wake is a work of the architect's graph, which belongs to no item. It goes on in the session the last wake left; the first wake, and the first after a new policy took effect, start a new one. A wake holds no slot, and only one runs at a time.",
       "submit_changes": "Puts every change the wake collected to the owner in one ask, each with its reason, the matter it belongs to and who waits; the owner approves all, some (naming which), or none (saying why). With none collected it puts nothing. The wake does not wait for the answer: once the owner answers, the answer is queued for the architect as a matter of its own, and wakes it.",
       "end_wake": "Ends the wake. The architect is woken again by the next matter that comes to its queue, or at the next look it set.",
@@ -8849,7 +8853,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, ask the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, and the architect takes it to the owner at the end. The owner_only group of the ask kinds may only be asked of the owner, by asking the owner. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, ask the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds may only be asked of the owner, by asking the owner. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -10742,7 +10746,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
               "from": [
                 {
                   "engine": "matter_material"
@@ -10877,7 +10881,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
               "from": [
                 {
                   "engine": "matter_material"
@@ -11098,6 +11102,9 @@
               ],
               "next_look": [
                 "A look you set yourself at a wrap-up has come due: what to look at and why are in the input. Look at it by the policy and the plan, and handle what it calls for."
+              ],
+              "report_followup": [
+                "A work that delivered a report has ended, and its what to do next is in the input, as written, with the report's paths and the commit that merged it. Read the report. Then open the follow-up items it calls for through the changes, or set a next look for when they will be due, or open nothing and say why; and tell the owner of a gap under test the report names."
               ]
             }
           },

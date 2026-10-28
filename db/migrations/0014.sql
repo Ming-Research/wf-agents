@@ -7,8 +7,9 @@
 
 CREATE TABLE architect_matters (
   -- A matter for the architect: an engineer's question, the owner's words or answer, the owner's approval of the
-  -- changes the architect collected, a design card to look at, a tool that failed, a side report, a place the fifth
-  -- question found to change, an advance the engine asks for, a next look the architect set, or a new policy. The
+  -- changes the architect collected, a design card to look at, a tool that failed, a side report, a report's what to
+  -- do next once its work ended, a place the fifth question found to change, an advance the engine asks for, a next
+  -- look the architect set, or a new policy. The
   -- architect's queue is the matters due and not handled; its sixth question picks among them by the constitution and
   -- the policy, not by the order they came. A matter that waits wakes the architect.
   -- Read by: the engine, which wakes the architect, hands it each matter's material and takes its replies back; the
@@ -19,7 +20,8 @@ CREATE TABLE architect_matters (
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,
   -- Its material, JSON: what the asking cell handed in, the owner's words, what the owner approved, the tool that
-  -- failed, the report, the place to change, the next look. Read by: the engine, for the matter's material.
+  -- failed, the side report, a report's what to do next with its paths and the commit merged, the place to change, the
+  -- next look. Read by: the engine, for the matter's material.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The item it concerns; NULL when it concerns none.
   item INTEGER REFERENCES items(id),
@@ -207,6 +209,7 @@ DROP VIEW ready_items;
 DROP VIEW item_body;
 DROP VIEW side_reports;
 DROP VIEW item_design_cards;
+DROP VIEW work_followups;
 
 CREATE VIEW ready_items AS
   -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then those
@@ -402,3 +405,13 @@ CREATE VIEW urgent_side_reports AS
     ON m.at >= (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id)
   WHERE w.graph = 'architect' AND w.ended IS NULL AND m.handled_round IS NULL
     AND json_extract(m.body, '$.urgent') = 1;
+
+CREATE VIEW work_followups AS
+  -- What to do next, as each report or fix handed in. A return of a flow version before the answer of implementing
+  -- and fixing was flat holds it under end. Read by: cell 20, whose step queues a report's latest for the architect;
+  -- the owner's interface.
+  SELECT w.item, r.work, r.n AS round, coalesce(json_extract(r.output, '$.outcome.followup'),
+    json_extract(r.output, '$.outcome.end.followup')) AS followup
+  FROM rounds r JOIN works w ON w.id = r.work
+  WHERE r.cell IN ('4', '8') AND coalesce(json_extract(r.output, '$.outcome.followup'),
+    json_extract(r.output, '$.outcome.end.followup')) IS NOT NULL;

@@ -3348,3 +3348,91 @@ fn db_write_writes_the_changes_approved_and_refuses_the_rest() {
     assert_eq!((title.as_str(), held), ("Parse the input first", None), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// A work that delivered a report ends with its what to do next, which reaches the architect as one matter of its own,
+// due at once: the text as written, the report's paths under research/ and the commit the work merged; a work that
+// handed in no what to do next queues none.
+#[test]
+fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
+    let s = setup("report-followup");
+    let checkout = s.root.join("checkout");
+    write(&checkout, "research/report.md", "# Report\nWhat was found.\n");
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-q", "-m", "the report"]);
+    let merged = git(&checkout, &["rev-parse", "HEAD"]).trim().to_string();
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    // A work of a report at its end, with the round that handed in what to do next, or none, and the one that merged.
+    let at_end = |e: &mut Engine, followup: Option<&str>| -> i64 {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Study the parser', 'x', 'y', 'report', 'l')",
+                [],
+            )?;
+            let item = tx.last_insert_rowid();
+            let version: i64 = tx.query_row("SELECT max(id) FROM flow_versions", [], |r| r.get(0))?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', '20')",
+                params![item, version],
+            )?;
+            let w = tx.last_insert_rowid();
+            let four = match followup {
+                Some(f) => json!({ "outcome": { "followup": f } }),
+                None => json!({ "outcome": {} }),
+            };
+            let nine = json!({ "result": { "verdict": "merged", "merge_commit": merged } });
+            for (n, cell, output, row) in [(1, "4", four, "done"), (2, "9", nine, "merged")] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', ?2, ?2)",
+                    params![w, n, cell, output.to_string(), row],
+                )?;
+            }
+            Ok(w)
+        })
+        .unwrap()
+    };
+    let followups = |e: &Engine| -> Vec<(Option<i64>, Option<i64>, Option<i64>, Value)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT item, work, round, body FROM architect_matters WHERE kind = 'report_followup'")
+                .unwrap();
+        st.query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                serde_json::from_str(&r.get::<_, String>(3)?).unwrap(),
+            ))
+        })
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+    };
+    let with = at_end(&mut e, Some("Open an item to measure the parser."));
+    e.step_work(with).unwrap();
+    let log = said.borrow().join("\n");
+    let item: i64 =
+        e.db.conn()
+            .query_row("SELECT item FROM works WHERE id = ?1", [with], |r| r.get(0))
+            .unwrap();
+    assert_eq!(
+        followups(&e),
+        [(
+            Some(item),
+            Some(with),
+            Some(1),
+            json!({
+                "followup": "Open an item to measure the parser.",
+                "reports": ["research/report.md"],
+                "commit": merged,
+            })
+        )],
+        "{log}"
+    );
+    let without = at_end(&mut e, None);
+    e.step_work(without).unwrap();
+    assert_eq!(followups(&e).len(), 1, "{}", said.borrow().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}

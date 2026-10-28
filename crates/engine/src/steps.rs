@@ -1,7 +1,7 @@
 //! What the engine does at each kind of cell: an agent's round, its own steps, the tool cells, and asking the owner.
 
 use db::Actor;
-use db::rusqlite::{Transaction, params};
+use db::rusqlite::{OptionalExtension, Transaction, params};
 use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
@@ -928,21 +928,86 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     Ok(json!({ "place": place }))
 }
 
-/// Cell 20: the worktree is removed once the round is written; the branch stays.
+/// Cell 20: the worktree is removed once the round is written; the branch stays. A work that delivered a report and
+/// handed in what to do next queues it for the architect, as a matter of its own.
 fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    if let Some(wt) = &w.worktree {
-        let args = json!({ "checkout": project.checkout, "dir": wt });
-        e.db.write(Actor::Engine, |tx| {
+    let followup = report_followup(e, w, &project)?;
+    e.db.write(Actor::Engine, |tx| {
+        if let Some(wt) = &w.worktree {
+            let args = json!({ "checkout": project.checkout, "dir": wt });
             tx.execute(
                 "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'remove_worktree', ?2, ?3)",
                 params![w.id, args.to_string(), db::now()],
             )?;
-            Ok(())
-        })
-        .map_err(sql)?;
-    }
+        }
+        if let Some(m) = &followup {
+            db::queue_matter(tx, m)?;
+        }
+        Ok(())
+    })
+    .map_err(sql)?;
     Ok(json!({}))
+}
+
+/// What to do next that a work which delivered a report handed in, as a matter for the architect: the latest the work
+/// handed in, as written, with the report's paths under `research/` and the commit the work merged, read where git has
+/// that commit; none for a work that delivered a change, or handed in no what to do next.
+fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Option<db::Matter>, String> {
+    let item = e.item_of(w)?;
+    if item.deliver != "report" {
+        return Ok(None);
+    }
+    let conn = e.db.conn();
+    let latest: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT round, followup FROM work_followups WHERE work = ?1 ORDER BY round DESC LIMIT 1",
+            [w.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((round, followup)) = latest else {
+        return Ok(None);
+    };
+    let commit: Option<String> = conn
+        .query_row(
+            "SELECT json_extract(output, '$.result.merge_commit') FROM rounds
+             WHERE work = ?1 AND cell = '9' AND transition = 'merged' ORDER BY n DESC LIMIT 1",
+            [w.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?
+        .flatten();
+    let reports: Vec<String> = commit
+        .as_deref()
+        .and_then(|c| {
+            let dirs = [
+                w.worktree.as_deref().map(std::path::Path::new),
+                Some(project.checkout.as_path()),
+            ];
+            dirs.into_iter()
+                .flatten()
+                .find_map(|dir| git::changed(dir, &format!("{c}^"), c).ok())
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| f.starts_with("research/"))
+        .collect();
+    Ok(Some(db::Matter {
+        kind: "report_followup".into(),
+        what: format!(
+            "What to do next after the report of item {} ({}): {}",
+            item.id,
+            item.title,
+            db::one_sentence(&followup)
+        ),
+        body: json!({ "followup": followup, "reports": reports, "commit": commit }),
+        item: Some(item.id),
+        raised: Some((w.id, round)),
+        ..db::Matter::default()
+    }))
 }
 
 /// Cell 16: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell 15 that an
