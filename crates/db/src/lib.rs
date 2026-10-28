@@ -44,6 +44,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0016.sql"),
     include_str!("../../../db/migrations/0017.sql"),
     include_str!("../../../db/migrations/0018.sql"),
+    include_str!("../../../db/migrations/0019.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1589,5 +1590,61 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    // Taken to version 19, a database has no plan: every item is ranked among its project's items by the order it was
+    // made, the owner's queue keeps its rows, and the items to start come from the queue first, then by rank.
+    #[test]
+    fn the_items_are_ranked_in_each_project_by_the_order_they_were_made() {
+        let mut old = at_version(18);
+        old.write(Actor::Owner, |tx| {
+            for (project, title) in [("p", "a"), ("q", "b"), ("p", "c"), ("p", "d")] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES (?1, ?2, 'x', 'y', 'change', 'l')",
+                    [project, title],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO plan_segments (key, project, title, stage, delivers, done_when, assumptions, indicators, size)
+                 VALUES ('s1', 'p', 't', '1', 'd', 'w', '[]', '[]', 'small')",
+                [],
+            )?;
+            tx.execute("UPDATE items SET segment = 's1', touches = '[]' WHERE id = 1", [])?;
+            tx.execute("UPDATE items SET held = 'later' WHERE id = 4", [])?;
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (3, 1.0)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let rows = |q: &str| -> Vec<(i64, Option<i64>)> {
+            let mut st = old.conn().prepare(q).unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert_eq!(
+            rows("SELECT id, rank FROM items ORDER BY id"),
+            [(1, Some(1)), (2, Some(1)), (3, Some(2)), (4, Some(3))]
+        );
+        assert_eq!(
+            rows("SELECT item, rank FROM ready_items"),
+            [(3, Some(2)), (1, Some(1)), (2, Some(1))]
+        );
+        let queued: Vec<(i64, f64)> = {
+            let mut st = old.conn().prepare("SELECT item, position FROM dispatch_queue").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert_eq!(queued, [(3, 1.0)]);
+        let plan: i64 = old
+            .conn()
+            .query_row("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'plan%'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(plan, 0);
     }
 }

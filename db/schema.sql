@@ -67,20 +67,17 @@ CREATE TABLE items (
   -- owner's interface.
   imported_branch TEXT,
   imported_pr INTEGER,
-  -- The plan segment a root item hangs on: an item no other item depends on hangs on a segment, or on none, which
-  -- puts it in the pool no work starts from; an item others depend on goes with them. Set by the architect's
-  -- approved changes. Read by: the dispatch order in ready_items; the architect through plan.
-  segment TEXT REFERENCES plan_segments(key),
-  -- What the item's work will touch that a plan gate governs (specification, public_interface, data_format), JSON
-  -- list, as the architect wrote it when creating the item; NULL for an item made otherwise.
-  -- Read by: the architect, which checks the segment it hangs on may touch them.
-  touches TEXT CHECK (touches IS NULL OR json_valid(touches)),
   -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The locked
   -- acceptance, designed by the work, is acceptance. Read by: cell 1, through item_body.
   wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
   -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
   -- is not. Read by: ready_items; the architect.
   held TEXT,
+  -- Its place among its project's items in the architect's order, which works start in, lower first: the architect
+  -- sets it with its approved changes, moving an item first, last, or before or after another item of the project,
+  -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
+  -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
+  rank INTEGER,
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
   FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
@@ -101,8 +98,9 @@ CREATE TABLE item_links (
 ) STRICT;
 
 CREATE TABLE dispatch_queue (
-  -- Items waiting for a work to start, in the order the owner sets by hand. When a slot is free the engine starts a
-  -- work on the first one. This table goes away once the architect's plan derives the order.
+  -- Items waiting for a work to start, in the order the owner sets by hand, ahead of the architect's order. When a
+  -- slot is free the engine starts a work on the first one. This table goes away once the architect's order alone
+  -- decides what starts.
   -- Read by: the engine at cell 0.
   item INTEGER PRIMARY KEY REFERENCES items(id),
   -- Lower starts first. A real number, so an item can be put between two others without renumbering.
@@ -549,64 +547,6 @@ CREATE TABLE dispatch_holds (
   why TEXT
 ) STRICT;
 
-CREATE TABLE plan_segments (
-  -- A segment of the plan: one piece of delivery under a stage of the policy, the top of a project's items. Root
-  -- items hang on segments; the dispatch order comes from the segments' order, the items' dependencies and the slots.
-  -- Each project has a standing maintenance segment for defects of committed behaviour. Written only by the
-  -- architect's changes the owner approved.
-  -- Read by: the architect, through plan; ready_items; cell 19a, through the plan segment the work hangs on.
-  -- The segment's key, as the architect named it.
-  key TEXT PRIMARY KEY,
-  project TEXT NOT NULL,
-  -- What it delivers, as an action.
-  title TEXT NOT NULL,
-  -- The stage of the policy it belongs to, by the stage's number, or maintenance.
-  stage TEXT NOT NULL,
-  delivers TEXT NOT NULL,
-  -- When it counts as done: its acceptance, something that can be checked.
-  done_when TEXT NOT NULL,
-  -- The segments that must be done first, JSON list of keys.
-  after TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(after)),
-  -- What it rests on, JSON list of {holds, wrong_if}.
-  assumptions TEXT NOT NULL CHECK (json_valid(assumptions)),
-  -- What to watch, JSON list of indicators with their lines.
-  indicators TEXT NOT NULL CHECK (json_valid(indicators)),
-  -- Roughly how large.
-  size TEXT NOT NULL,
-  -- Until when or what it is deferred; NULL while it is not. The works of its items pause while it is deferred.
-  deferred TEXT,
-  -- Its place in the order of the segments not deferred, lower first; NULL for one after those ordered.
-  position REAL
-) STRICT;
-
-CREATE TABLE plan_gates (
-  -- A gate of the plan: which segments may touch one thing a gate governs (the specification, a public interface, a
-  -- data format); an item of another segment that touches it may not merge. Written only by the architect's changes
-  -- the owner approved. Read by: the architect, through plan; cell 19a.
-  name TEXT PRIMARY KEY,
-  -- The article of the constitution and the point of the policy it rests on.
-  basis TEXT NOT NULL,
-  -- What it governs: specification, public_interface or data_format.
-  what TEXT NOT NULL CHECK (what IN ('specification', 'public_interface', 'data_format')),
-  -- The segments that may touch it, JSON list of keys.
-  segments TEXT NOT NULL CHECK (json_valid(segments))
-) STRICT;
-
-CREATE TABLE plan_budgets (
-  -- A budget of the plan: a number the engine measures on the commit to merge, with a line shared out among the
-  -- segments; an item past its segment's share may not merge. Written only by the architect's changes the owner
-  -- approved. Read by: the architect, through plan; cell 19a.
-  name TEXT PRIMARY KEY,
-  -- The article of the constitution and the point of the policy it rests on.
-  basis TEXT NOT NULL,
-  -- What is measured and how.
-  measure TEXT NOT NULL,
-  -- The whole line.
-  line TEXT NOT NULL,
-  -- The line shared out, JSON list of {segment, amount}; a segment not listed has none.
-  split TEXT NOT NULL CHECK (json_valid(split))
-) STRICT;
-
 -- Indexes for the reads every step makes.
 
 -- What an item depends on is the primary key; who depends on an item needs this.
@@ -641,14 +581,15 @@ CREATE INDEX architect_matters_waiting ON architect_matters (id) WHERE handled_r
 -- engineer's graph.
 
 CREATE VIEW ready_items AS
-  -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then those
-  -- the plan gives, by the order of the segments they hang on, among the segments not deferred whose earlier segments
-  -- are done, an item others depend on before them. An item is ready when it is not cancelled, not held, not done and
-  -- has no work running. An item leaves the owner's queue when a work starts on it, and may be queued again once its
-  -- works ended. A work runs until it ends or its last round, at the cell it is at, completed without taking a row,
-  -- which only the end of its graph does; it is done at the end of the engineer's graph. While dispatch_holds has a
-  -- row, the engine starts none. Read by: cell 0; the architect, through what runs and starts next.
-  WITH RECURSIVE
+  -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then the
+  -- others in the architect's order, each by its rank among its project's items, lower first, those placed nowhere yet
+  -- after, in the order made. An item is ready when it is not cancelled, not held and has no work running, and, unless
+  -- the owner queued it, is not done. An item leaves the owner's queue when a work starts on it, and may be queued
+  -- again once its works ended. A work runs until it ends or its last round, at the cell it is at, completed without
+  -- taking a row, which only the end of its graph does; it is done at the end of the engineer's graph. While
+  -- dispatch_holds has a row, the engine starts none. Read by: cell 0; the architect, through what runs and starts
+  -- next.
+  WITH
   running(item) AS (
     SELECT w.item FROM works w
     WHERE w.item IS NOT NULL AND w.ended IS NULL AND NOT EXISTS (
@@ -656,28 +597,12 @@ CREATE VIEW ready_items AS
       WHERE r.work = w.id AND r.n = (SELECT max(x.n) FROM rounds x WHERE x.work = w.id)
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
-    SELECT w.item FROM works w WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at = '20'),
-  hung(item, segment, depth) AS (
-    SELECT i.id, i.segment, 0 FROM items i WHERE i.segment IS NOT NULL
-    UNION
-    SELECT l.depends_on, h.segment, h.depth + 1 FROM hung h JOIN item_links l ON l.item = h.item),
-  open_segments(key, position) AS (
-    SELECT s.key, s.position FROM plan_segments s
-    WHERE s.deferred IS NULL AND NOT EXISTS (
-      SELECT 1 FROM json_each(s.after) a JOIN items i ON i.segment = a.value
-      WHERE i.cancelled IS NULL AND i.id NOT IN (SELECT item FROM done)))
-  SELECT item, project, title, level, position, segment FROM (
-    SELECT i.id AS item, i.project, i.title, i.level, q.position, NULL AS segment, 0 AS src, q.position AS k1,
-      0 AS k2, i.id AS k3
-    FROM dispatch_queue q JOIN items i ON i.id = q.item
-    WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
-    UNION ALL
-    SELECT i.id, i.project, i.title, i.level, NULL, h.segment, 1, coalesce(o.position, 1e18), -max(h.depth), i.id
-    FROM hung h JOIN open_segments o ON o.key = h.segment JOIN items i ON i.id = h.item
-    WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
-      AND i.id NOT IN (SELECT item FROM done) AND i.id NOT IN (SELECT item FROM dispatch_queue)
-    GROUP BY i.id)
-  ORDER BY src, k1, k2, k3;
+    SELECT w.item FROM works w WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at = '20')
+  SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
+  FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
+  WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
+    AND (q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
+  ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
   -- The item as its creator wrote it, the acceptance it wanted included. Read by: cells 1 and 5a.
@@ -1010,18 +935,6 @@ CREATE VIEW policy_trials AS
                         ORDER BY v.n LIMIT 1))))
      FROM rounds r WHERE r.work = d.work AND r.cell = 'P5' AND r.transition IS NOT NULL AND r.n > d.round) AS readings
   FROM policy_draft d;
-
-CREATE VIEW plan AS
-  -- The plan, one row per segment, in the order works start from them: the segment, and the items that hang on it with
-  -- the cell each one's latest work is at. Its gates and budgets are the tables plan_gates and plan_budgets.
-  -- Read by: the architect's cells A1, A2, A5, A8 and P1; the owner's interface.
-  SELECT s.key AS segment, s.project, s.title, s.stage, s.delivers, s.done_when, s.after, s.assumptions, s.indicators,
-    s.size, s.deferred, s.position,
-    (SELECT json_group_array(json_object('item', i.id, 'title', i.title, 'cancelled', i.cancelled, 'held', i.held,
-       'at', (SELECT w.at FROM works w WHERE w.item = i.id ORDER BY w.id DESC LIMIT 1)))
-     FROM items i WHERE i.segment = s.key) AS items
-  FROM plan_segments s
-  ORDER BY s.deferred IS NOT NULL, s.position IS NULL, s.position, s.key;
 
 CREATE VIEW urgent_side_reports AS
   -- The side reports marked urgent that came while each wake of the architect runs and are not handled yet: an urgent

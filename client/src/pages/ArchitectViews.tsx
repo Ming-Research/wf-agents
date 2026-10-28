@@ -365,7 +365,7 @@ function CruxView({ value }: { value: JsonValue }) {
 }
 
 /// A judgment: the options compared, the one chosen marked, each with what it does, what follows and why; the
-/// articles it touches, the items, how it fits the policy and the plan, and what is inferred.
+/// articles it touches, the items, how it fits the policy, and what is inferred.
 function JudgmentView({ value }: { value: JsonValue }) {
   const j = isObj(value) && isObj(value.judgment) ? value.judgment : null;
   if (j === null) return <Labelled value={value} />;

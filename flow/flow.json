@@ -1201,23 +1201,6 @@
         }
       ]
     },
-    "touch_kind": {
-      "type": "enum",
-      "values": [
-        [
-          "specification",
-          "A rule in the project's specification: added, removed or changed"
-        ],
-        [
-          "public_interface",
-          "An interface other projects or outsiders use: a library function, a command, a protocol"
-        ],
-        [
-          "data_format",
-          "The format of data that is stored or exchanged between components"
-        ]
-      ]
-    },
     "arch_about": {
       "type": "enum",
       "values": [
@@ -1271,7 +1254,7 @@
         ],
         [
           "advance",
-          "Arranging the works by the policy and the plan: the engine reports fewer works ready to start than there are slots, or a segment should be deferred or reordered"
+          "Arranging the works by the policy: the engine reports fewer works ready to start than there are slots"
         ],
         [
           "tidy_board",
@@ -1385,7 +1368,7 @@
         {
           "name": "fit",
           "type": "text",
-          "desc": "Whether it fits the policy and the plan: by which point of the policy, on which segment, against which gate and which budget; if the plan must change, what you change"
+          "desc": "Whether it fits the policy: by which point of the policy, and where it puts the items concerned in the order works start in"
         },
         {
           "name": "inferred",
@@ -1432,18 +1415,9 @@
               },
               {
                 "name": "under",
-                "type": "text",
-                "desc": "Where it goes: the number of the item it is split from, which then depends on it; or, for an item nothing is to depend on, the key of the plan segment it hangs on"
-              },
-              {
-                "name": "touches",
-                "type": "list",
-                "desc": "What this work will touch, one per row: the engine checks that the segment it hangs on may touch it; an empty list if it touches none of them",
-                "item": {
-                  "type": "enum",
-                  "values": "touch_kind",
-                  "desc": "What it touches"
-                }
+                "type": "int",
+                "desc": "The item it is split from, by its number, which then depends on it; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
+                "optional": true
               },
               {
                 "name": "problem",
@@ -1506,7 +1480,7 @@
           },
           {
             "value": "move",
-            "desc": "Place an item elsewhere: an item nothing depends on, on another plan segment; or an item others depend on, so that another item depends on it instead",
+            "desc": "Place an item elsewhere: in the order works start in, among its project's items; or, for an item others depend on, under another item, which then depends on it instead of those that do now",
             "fields": [
               {
                 "name": "item",
@@ -1515,8 +1489,54 @@
               },
               {
                 "name": "to",
-                "type": "text",
-                "desc": "Where to: the key of a plan segment, for an item nothing depends on; or the number of the item that is to depend on it instead of those that do now"
+                "type": "union",
+                "by": "place",
+                "desc": "Where to",
+                "branches": [
+                  {
+                    "value": "first",
+                    "desc": "First among its project's items in the order works start in",
+                    "fields": []
+                  },
+                  {
+                    "value": "last",
+                    "desc": "Last among its project's items in the order works start in",
+                    "fields": []
+                  },
+                  {
+                    "value": "before",
+                    "desc": "Just before another item of its project in the order works start in",
+                    "fields": [
+                      {
+                        "name": "item",
+                        "type": "int",
+                        "desc": "That item: its number"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "after",
+                    "desc": "Just after another item of its project in the order works start in",
+                    "fields": [
+                      {
+                        "name": "item",
+                        "type": "int",
+                        "desc": "That item: its number"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "under",
+                    "desc": "Under another item, which then depends on it instead of those that do now",
+                    "fields": [
+                      {
+                        "name": "item",
+                        "type": "int",
+                        "desc": "That item: its number"
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           },
@@ -1656,355 +1676,6 @@
             ]
           },
           {
-            "value": "add_segment",
-            "desc": "Add a segment to the plan: one piece of delivery under a stage of the policy, the top of a project's items, which no engineer works on itself",
-            "fields": [
-              {
-                "name": "key",
-                "type": "text",
-                "desc": "The segment's key: name one, and the engine checks it is not taken"
-              },
-              {
-                "name": "title",
-                "type": "text",
-                "desc": "Its title: what it delivers, as an action"
-              },
-              {
-                "name": "project",
-                "type": "text",
-                "desc": "The project it is in"
-              },
-              {
-                "name": "stage",
-                "type": "text",
-                "desc": "Which stage of the policy it belongs to, by the stage's number; each project's standing maintenance segment says maintenance"
-              },
-              {
-                "name": "delivers",
-                "type": "text",
-                "desc": "What it delivers"
-              },
-              {
-                "name": "done_when",
-                "type": "text",
-                "desc": "When it counts as done: something that can be checked; it is the segment's acceptance"
-              },
-              {
-                "name": "after",
-                "type": "list",
-                "desc": "The segments that must be done first, by key; an empty list if none",
-                "item": {
-                  "type": "text",
-                  "desc": "A segment's key"
-                }
-              },
-              {
-                "name": "assumptions",
-                "type": "list",
-                "desc": "What it rests on, one per row",
-                "item": {
-                  "type": "obj",
-                  "fields": [
-                    {
-                      "name": "holds",
-                      "type": "text",
-                      "desc": "What is assumed to hold"
-                    },
-                    {
-                      "name": "wrong_if",
-                      "type": "text",
-                      "desc": "What would show it wrong"
-                    }
-                  ]
-                },
-                "min": 1
-              },
-              {
-                "name": "indicators",
-                "type": "list",
-                "desc": "What to watch: the engine computes them, and a line passed is a signal",
-                "item": {
-                  "type": "text",
-                  "desc": "An indicator and its line"
-                },
-                "min": 1
-              },
-              {
-                "name": "size",
-                "type": "text",
-                "desc": "Roughly how large: how many items, at what levels"
-              }
-            ]
-          },
-          {
-            "value": "edit_segment",
-            "desc": "Change a segment's delivery, order, assumptions, indicators or size",
-            "fields": [
-              {
-                "name": "segment",
-                "type": "text",
-                "desc": "Which segment: its key"
-              },
-              {
-                "name": "title",
-                "type": "text",
-                "desc": "Its new title; leave it out to keep it",
-                "optional": true
-              },
-              {
-                "name": "delivers",
-                "type": "text",
-                "desc": "What it delivers now; leave it out to keep it",
-                "optional": true
-              },
-              {
-                "name": "after",
-                "type": "list",
-                "desc": "The segments that must be done first now; leave it out to keep them",
-                "item": {
-                  "type": "text",
-                  "desc": "A segment's key"
-                },
-                "optional": true
-              },
-              {
-                "name": "assumptions",
-                "type": "list",
-                "desc": "Its assumptions now; leave it out to keep them",
-                "item": {
-                  "type": "obj",
-                  "fields": [
-                    {
-                      "name": "holds",
-                      "type": "text",
-                      "desc": "What is assumed to hold"
-                    },
-                    {
-                      "name": "wrong_if",
-                      "type": "text",
-                      "desc": "What would show it wrong"
-                    }
-                  ]
-                },
-                "optional": true,
-                "min": 1
-              },
-              {
-                "name": "indicators",
-                "type": "list",
-                "desc": "Its indicators now; leave it out to keep them",
-                "item": {
-                  "type": "text",
-                  "desc": "An indicator and its line"
-                },
-                "optional": true,
-                "min": 1
-              },
-              {
-                "name": "size",
-                "type": "text",
-                "desc": "Its size now; leave it out to keep it",
-                "optional": true
-              }
-            ]
-          },
-          {
-            "value": "edit_done_when",
-            "desc": "Change when a segment counts as done",
-            "fields": [
-              {
-                "name": "segment",
-                "type": "text",
-                "desc": "Which segment: its key"
-              },
-              {
-                "name": "done_when",
-                "type": "text",
-                "desc": "When it counts as done after the change: something that can be checked"
-              }
-            ]
-          },
-          {
-            "value": "defer_segment",
-            "desc": "Do not go on with a segment for now: the works of its items pause too",
-            "fields": [
-              {
-                "name": "segment",
-                "type": "text",
-                "desc": "Which segment: its key"
-              },
-              {
-                "name": "until",
-                "type": "text",
-                "desc": "Until when, or until what, before it goes on"
-              }
-            ]
-          },
-          {
-            "value": "delete_segment",
-            "desc": "Remove a segment from the plan: its unfinished items must be moved away first",
-            "fields": [
-              {
-                "name": "segment",
-                "type": "text",
-                "desc": "Which segment: its key"
-              }
-            ]
-          },
-          {
-            "value": "order_segments",
-            "desc": "Which segments not deferred go first: the engine works out the dispatch queue from it, the items' dependencies and the slots",
-            "fields": [
-              {
-                "name": "order",
-                "type": "list",
-                "desc": "First to last, one segment per row, by key; those not listed come after",
-                "item": {
-                  "type": "text",
-                  "desc": "A segment's key"
-                },
-                "min": 1
-              }
-            ]
-          },
-          {
-            "value": "add_gate",
-            "desc": "Add a gate: which segments may touch one thing; an item of any other segment that touches it may not merge",
-            "fields": [
-              {
-                "name": "name",
-                "type": "text",
-                "desc": "What the gate is called"
-              },
-              {
-                "name": "basis",
-                "type": "text",
-                "desc": "Which article of the constitution, which point of the policy it rests on"
-              },
-              {
-                "name": "what",
-                "type": "enum",
-                "values": "touch_kind",
-                "desc": "What it governs"
-              },
-              {
-                "name": "segments",
-                "type": "list",
-                "desc": "The segments that may touch it, one per row, by key; an empty list if none may",
-                "item": {
-                  "type": "text",
-                  "desc": "A segment's key"
-                }
-              }
-            ]
-          },
-          {
-            "value": "add_budget",
-            "desc": "Add a budget: a number the engine can measure, with a line shared out among the segments; an item past its segment's share may not merge",
-            "fields": [
-              {
-                "name": "name",
-                "type": "text",
-                "desc": "What the budget is called"
-              },
-              {
-                "name": "basis",
-                "type": "text",
-                "desc": "Which article of the constitution, which point of the policy it rests on"
-              },
-              {
-                "name": "measure",
-                "type": "text",
-                "desc": "What is measured and how: the engine measures it on the commit to merge, before each merge, such as the size of the specification in bytes"
-              },
-              {
-                "name": "line",
-                "type": "text",
-                "desc": "The whole line: the segments' shares add up to no more than it"
-              },
-              {
-                "name": "split",
-                "type": "list",
-                "desc": "The line shared out among the segments, one per row; a segment not listed has none",
-                "item": {
-                  "type": "obj",
-                  "fields": [
-                    {
-                      "name": "segment",
-                      "type": "text",
-                      "desc": "Which segment: its key"
-                    },
-                    {
-                      "name": "amount",
-                      "type": "text",
-                      "desc": "This segment's share: how much more it may use; one that must shrink is negative"
-                    }
-                  ]
-                },
-                "min": 1
-              }
-            ]
-          },
-          {
-            "value": "edit_gate",
-            "desc": "Change which segments a gate lets touch",
-            "fields": [
-              {
-                "name": "gate",
-                "type": "text",
-                "desc": "Which gate: its name"
-              },
-              {
-                "name": "segments",
-                "type": "list",
-                "desc": "The segments that may touch it after the change, by key; an empty list if none may",
-                "item": {
-                  "type": "text",
-                  "desc": "A segment's key"
-                }
-              }
-            ]
-          },
-          {
-            "value": "edit_budget",
-            "desc": "Change a budget's line or the segments' shares, at least one of them",
-            "fields": [
-              {
-                "name": "budget",
-                "type": "text",
-                "desc": "Which budget: its name"
-              },
-              {
-                "name": "line",
-                "type": "text",
-                "desc": "The whole line after the change; leave it out to keep it",
-                "optional": true
-              },
-              {
-                "name": "split",
-                "type": "list",
-                "desc": "Every segment's share after the change; leave it out to keep them",
-                "item": {
-                  "type": "obj",
-                  "fields": [
-                    {
-                      "name": "segment",
-                      "type": "text",
-                      "desc": "Which segment: its key"
-                    },
-                    {
-                      "name": "amount",
-                      "type": "text",
-                      "desc": "This segment's share: how much more it may use; one that must shrink is negative"
-                    }
-                  ]
-                },
-                "min": 1,
-                "optional": true
-              }
-            ]
-          },
-          {
             "value": "add_known_red_check",
             "desc": "Add a check known to fail for a reason outside any one work, so that full CI and the merge queue do not hold it against a work; it needs an item that fixes it",
             "fields": [
@@ -2072,7 +1743,7 @@
               {
                 "name": "what",
                 "type": "text",
-                "desc": "The item, segment or project touched"
+                "desc": "The item or project touched"
               },
               {
                 "name": "how",
@@ -2746,7 +2417,7 @@
     {
       "name": "db_write",
       "desc": "Writes the changes the owner approved: hand in only those, exactly as approved; the engine says whether it wrote them.",
-      "runs": "The engine compares the changes handed in with those the owner approved, and writes them all in one transaction only when every one is approved word for word; then works out the dispatch queue anew by the plan.",
+      "runs": "The engine compares the changes handed in with those the owner approved, and writes them all in one transaction only when every one is approved word for word.",
       "in": [
         {
           "$ref": "arch_changes",
@@ -2767,7 +2438,7 @@
                 {
                   "name": "created",
                   "type": "list",
-                  "desc": "The items and segments created, one per row; an empty list if none",
+                  "desc": "The items created, one per row; an empty list if none",
                   "item": {
                     "type": "obj",
                     "fields": [
@@ -2779,7 +2450,7 @@
                       {
                         "name": "id",
                         "type": "text",
-                        "desc": "What it is now: an item's number, or a segment's key"
+                        "desc": "Its number"
                       }
                     ]
                   }
@@ -2889,7 +2560,7 @@
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
       "constitution_covered": "There is exactly one row for each article of each project's constitution the architect is given, in the constitution's order.",
       "chosen_first": "The matter chosen is the first of the ranked list; one given by its number in the queue is in the queue and not handled.",
-      "changes_valid": "Every change has its reason; an item created has its project, title, problem, why, acceptance, level, deliverable, what it touches and where it goes, and a key no other change uses; a split gives each acceptance condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked; what the rules fix holds: after the dependencies and moves, the items' dependencies and the segments' order have no cycle, every item reaches a segment through the items that depend on it, an item touches only what its segment may touch, each budget's shares add up to no more than its line, and a segment removed has no unfinished item. Otherwise the return is sent back.",
+      "changes_valid": "Every change has its reason; an item created has its project, title, problem, why, acceptance, level and deliverable, and a key no other change uses; a split gives each acceptance condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked; an item is moved first, last, under another item, or before or after another item of its project; after the dependencies and moves, the items' dependencies have no cycle. Otherwise the return is sent back.",
       "question_answered": "For an engineer's question: with no change waiting for approval, this round replied to it with reply; with changes waiting for approval, it did not reply yet.",
       "approved_written": "For the owner's approval: every change approved was written with db_write, and every engineer waiting for them was replied to.",
       "policy_text_clean": "The policy quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
@@ -2905,16 +2576,16 @@
       "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
       "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
-      "since_last_wake": "What changed since the architect's last wake: items changed, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view: the items being worked on in each project, at which stage each is, what it waits for, and who waits for whom.",
+      "since_last_wake": "What changed since the architect's last wake: items changed, each with its rank among its project's items, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view: the items being worked on in each project, each with its rank, at which stage each is, what it waits for, and who waits for whom.",
       "projects_guides": "Each project's guide: its AGENTS.md, its design goal, and the index of its design tree, with the nodes the matter at hand touches in full.",
       "constitutions": "The constitution of each project, as its configuration names it.",
       "policy_signals": "The signals the policy in force says to report on, each with the number the engine measured for it where it measures one.",
-      "running_and_next": "The works running, and the items the engine would start next, as many as there are slots, each with its plan segment, whether that segment is deferred, whether the segments before it are done, what it waits for and for how long.",
+      "running_and_next": "The works running, and the items the engine would start next, as many as there are slots, each with its rank among its project's items; for a work, what it waits for and for how long.",
       "slots": "The machines' slots: how many there are, how many works hold one, how many are free, and how many items are ready to start.",
       "matter_material": "The matter the architect picked, with its material, by its kind.",
-      "whole_view": "The items being worked on, at which stage each is, what each waits for, and who waits for whom.",
+      "whole_view": "The items being worked on, each with its rank among its project's items, at which stage each is, what each waits for, and who waits for whom.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
-      "changes_touch": "The items and segments the changes touch, with where each item hangs, who waits for it and what it waits for; each segment's order, delivery, done-when and assumptions; the gates and budgets touched."
+      "changes_touch": "The items the changes touch, each with its rank among its project's items, who waits for it and what it waits for."
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -9293,11 +8964,11 @@
             "Judging: judge each matter by the constitution of the project it belongs to and by the policy in force. A project's constitution governs that project's work only; when projects compete for the slots, the policy decides between them, not their constitutions. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner, for the policy as the third question does, for the constitution with the kind constitution_and_policy.",
             "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: report it as the third question does.",
             "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from wake to wake, and what you read without need crowds out what later wakes need. What you remember from an earlier wake is how things stood then: before you act on it, check it against what has changed since.",
-            "Yours and the owner's: decide what is yours without asking. The owner reads your decisions afterwards and corrects them; an ask costs the owner's time and holds the matter. Yours to decide, with the owner approving every change to the database: where items hang; creating, splitting, merging and cancelling them; their dependencies and levels; the plan's segments, their order, gates and budgets within the lines the policy writes; pausing and resuming works; holding new works; replying to engineers. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
+            "Yours and the owner's: decide what is yours without asking. The owner reads your decisions afterwards and corrects them; an ask costs the owner's time and holds the matter. Yours to decide, with the owner approving every change to the database: where items hang; creating, splitting, merging and cancelling them; their dependencies, levels and order; pausing and resuming works; holding new works; replying to engineers. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
             "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
             "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs a project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
-            "The engineers' work: look at a work where it meets the whole: whether it still serves its point of the policy and its segment; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
-            "The engineers' work: engineers do not see the policy or the plan. What these require of a work reaches it only through what you write: the item's problem, why and acceptance, its segment's gates and budgets, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
+            "The engineers' work: look at a work where it meets the whole: whether it still serves its point of the policy; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
+            "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
             "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
             "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new works only while starting them would start the wrong ones. Say why in each pause: the owner reads it on the page as yours.",
             "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it in the same wake, or set a next look at the wrap-up for when it should end. Keep nothing you must come back to in your memory: what the engine can bring back to you is a next look.",
@@ -9718,20 +9389,6 @@
               "maybe": true
             },
             {
-              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
-              "from": [
-                {
-                  "db": "plan"
-                },
-                {
-                  "db": "plan_gates"
-                },
-                {
-                  "db": "plan_budgets"
-                }
-              ]
-            },
-            {
               "what": "The state of things you wrote last time, with what your last wrap-up changed of your understanding; none at your first wake",
               "from": [
                 {
@@ -9741,7 +9398,7 @@
               "maybe": true
             },
             {
-              "what": "What changed since your last wake: items changed, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view instead: the items being worked on in each project, at which stage each is, what it waits for, and who waits for whom",
+              "what": "What changed since your last wake: items changed, each with its rank among its project's items, PRs merged, results handed in, works done or stopped, what the owner said; for a new session, the whole view instead: the items being worked on in each project, each with its rank, at which stage each is, what it waits for, and who waits for whom",
               "from": [
                 {
                   "engine": "since_last_wake"
@@ -9881,20 +9538,6 @@
                   "A1",
                   "state"
                 ]
-              ]
-            },
-            {
-              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
-              "from": [
-                {
-                  "db": "plan"
-                },
-                {
-                  "db": "plan_gates"
-                },
-                {
-                  "db": "plan_budgets"
-                }
               ]
             },
             {
@@ -10296,21 +9939,7 @@
               "maybe": true
             },
             {
-              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
-              "from": [
-                {
-                  "db": "plan"
-                },
-                {
-                  "db": "plan_gates"
-                },
-                {
-                  "db": "plan_budgets"
-                }
-              ]
-            },
-            {
-              "what": "Two lists: the works running now; and the items the engine works out from the plan to start next, as many as there are slots. For each, what the engine checked first: the segment it hangs on, whether that segment is deferred, whether the segments before it are done, what it waits for, and for how long",
+              "what": "Two lists: the works running now; and the items the engine would start next, in the order they start, as many as there are slots: those the owner queued first, then the others in your order. For each, its rank among its project's items; for a work, what it waits for, and for how long",
               "from": [
                 {
                   "engine": "running_and_next"
@@ -10361,8 +9990,8 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: by the policy and the plan, whether what runs and what starts next fit. Once the policy is set, these two matter most of all: when they fit, keep the engine running at full and arrange what comes after; when they do not, set the projects straight first, and move on once they are.",
-            "Look at the two lists one by one: whether each still fits the policy's points, whether its direction drifted; whether it should be split, whether its dependencies are right, whether it duplicates another; for one the engine found on the wrong segment, on a deferred segment, or before its earlier segments are done, why it is still on the list. Then look at the whole list: whether the slots are shared rightly among the segments, whether the stages the policy puts first have the slots they should; whether something more urgent is missing from the list.",
+            "This round answers one thing only: by the policy, whether what runs and what starts next fit. Once the policy is set, these two matter most of all: when they fit, keep the engine running at full and arrange what comes after; when they do not, set the projects straight first, and move on once they are.",
+            "Look at the two lists one by one: whether each still fits the policy's points, whether its direction drifted; whether it should be split, whether its dependencies are right, whether it duplicates another; whether it is in its right place in the order. Then look at the whole list: whether the slots are shared rightly among the policy's points, whether the stages the policy puts first have the slots they should; whether something more urgent is missing from the list.",
             "When only a few are wrong and the rest run as usual unaffected, answer some_to_change; when the structure is wrong, so that starting new works would start the wrong ones and their work would have to be redone, answer set_straight: the engine stops starting new works, queues each place to set straight as a matter of yours, you handle them one by one, and when they are done this question is asked again. For both, say what is wrong in each place and how you mean to change it. When all fit, answer fits, and say why."
           ],
           "out": [
@@ -10374,12 +10003,12 @@
               "branches": [
                 {
                   "value": "fits",
-                  "desc": "All fit the policy and the plan",
+                  "desc": "All fit the policy",
                   "fields": [
                     {
                       "name": "why",
                       "type": "text",
-                      "desc": "Why they fit: on which segments the slots are spent, and why those"
+                      "desc": "Why they fit: on which points of the policy the slots are spent, and why those"
                     }
                   ]
                 },
@@ -10397,7 +10026,7 @@
                           {
                             "name": "where",
                             "type": "text",
-                            "desc": "Which item, which segment, or where in the whole list"
+                            "desc": "Which item, or where in the whole list"
                           },
                           {
                             "name": "wrong",
@@ -10407,7 +10036,7 @@
                           {
                             "name": "fix",
                             "type": "text",
-                            "desc": "How you mean to change it: move it to another segment, split it, change its dependencies, pause it, put it back in the pool, add an item"
+                            "desc": "How you mean to change it: move it in the order, split it, change its dependencies, pause it, hold it, add an item"
                           }
                         ]
                       },
@@ -10434,7 +10063,7 @@
                           {
                             "name": "where",
                             "type": "text",
-                            "desc": "Which item, which segment, or where in the whole list"
+                            "desc": "Which item, or where in the whole list"
                           },
                           {
                             "name": "wrong",
@@ -10444,7 +10073,7 @@
                           {
                             "name": "fix",
                             "type": "text",
-                            "desc": "How you mean to change it: move it to another segment, split it, change its dependencies, pause it, put it back in the pool, add an item"
+                            "desc": "How you mean to change it: move it in the order, split it, change its dependencies, pause it, hold it, add an item"
                           }
                         ]
                       },
@@ -10622,7 +10251,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: what is most urgent now. Rank these together: the matters waiting in your queue, what the questions before found wrong, the works to start or stop by the policy and the plan, what to set straight on the board, what to take to the owner. Rank by the constitution and the policy, not by the order they came in; where an agent is stopped waiting, every minute it waits is lost, so count it. While new works are stopped to set things straight, what sets them straight comes first, and agents stopped waiting still count.",
+            "This round answers one thing only: what is most urgent now. Rank these together: the matters waiting in your queue, what the questions before found wrong, the works to start or stop by the policy, what to set straight on the board, what to take to the owner. Rank by the constitution and the policy, not by the order they came in; where an agent is stopped waiting, every minute it waits is lost, so count it. While new works are stopped to set things straight, what sets them straight comes first, and agents stopped waiting still count.",
             "Pick one, and say why it and why not the one ranked after it. When all is handled and nothing is left to do, say why, and go to the wrap-up."
           ],
           "out": [
@@ -10753,7 +10382,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for advancing and tidying the board, the items concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
               "from": [
                 {
                   "engine": "matter_material"
@@ -10889,7 +10518,7 @@
           ],
           "inputs": [
             {
-              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the plan, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items and segments concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
+              "what": "The matter picked and its material: for an engineer's question, the ask it handed in and its work (the problem, why, the acceptance, a summary of its log, the items above it up to the root, beside it, what it waits for and who waits for it); for the owner's words, the words as said; for an approval, what the owner approved, what not, and why; for what the second question found, the answers of the questions before; for what the fifth question found, its answer; for advancing and tidying the board, the items concerned; for a design card, the card, the design and the change to the design tree on the branch; for a tool that failed, which tool, which kind of failure, what happened and how many retries; for a next look, what to look at and why; for a report's what to do next, the text as written, the report's paths and the commit that merged it",
               "from": [
                 {
                   "engine": "matter_material"
@@ -10915,21 +10544,7 @@
               "maybe": true
             },
             {
-              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
-              "from": [
-                {
-                  "db": "plan"
-                },
-                {
-                  "db": "plan_gates"
-                },
-                {
-                  "db": "plan_budgets"
-                }
-              ]
-            },
-            {
-              "what": "The whole: the items being worked on, at which stage each is, what it waits for; who waits for whom",
+              "what": "The whole: the items being worked on, each with its rank among its project's items, at which stage each is, what it waits for; who waits for whom",
               "from": [
                 {
                   "engine": "whole_view"
@@ -10973,8 +10588,8 @@
           ],
           "prompt": [
             "This round thinks through what to do about this matter. The crux was answered last round: think by it, and do not go back to the question on the surface. First see which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked: open an item to check it first, and do not change the structure on it.",
-            "Whatever changes the database (creating, splitting, adding dependencies, moving, merging, cancelling, changing a text or the acceptance, setting a level; the plan's segments, gates, budgets and order) goes into changes, each with its reason: it is not written in this round but collected, and at the wrap-up the engine puts them all to the owner in one ask; once approved, you write them. What does not change the database, do at once with engine_op: pausing or resuming a work, stopping or releasing new works, replying, interjecting. Someone who asked you is answered with reply, concretely enough that the asking side can carry on from it: if sub-items were split off, say plainly that the work must redesign for the part that remains; if the work must stop now and wait for other items to deliver, list them in the reply's waits, while a dependency is enough for what it waits for only before merging; if the work should not be done, put its cancellation in changes and pause it first. A reply that can only be given once changes are approved and written is not given in this round: give it once the owner approves. What the engineer of another item must know, say with interject.",
-            "Every item hangs on the plan: an item nothing depends on hangs on a segment, and an item others depend on goes with them; when creating an item, say what it touches, and it can be created only on a segment that may touch it. One that hangs on no segment goes into the pool, and no one is put on it; one to cancel is cancelled as cancelling goes. Each project has a standing maintenance segment, which takes only defects of committed behaviour, and security defects at any time; new features, and changes that make the specification larger, do not go on it. The engine works out the dispatch queue from the segments' order, the items' dependencies and the slots, and you do not order it yourself: to change the order, order the segments.",
+            "Whatever changes the database (creating, splitting, adding dependencies, moving under another item or in the order, merging, cancelling, changing a text or the acceptance, setting a level) goes into changes, each with its reason: it is not written in this round but collected, and at the wrap-up the engine puts them all to the owner in one ask; once approved, you write them. What does not change the database, do at once with engine_op: pausing or resuming a work, stopping or releasing new works, replying, interjecting. Someone who asked you is answered with reply, concretely enough that the asking side can carry on from it: if sub-items were split off, say plainly that the work must redesign for the part that remains; if the work must stop now and wait for other items to deliver, list them in the reply's waits, while a dependency is enough for what it waits for only before merging; if the work should not be done, put its cancellation in changes and pause it first. A reply that can only be given once changes are approved and written is not given in this round: give it once the owner approves. What the engineer of another item must know, say with interject.",
+            "Works start in your order: first the items the owner queued, then each project's items by their rank, lower first. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. Every item not cancelled, held or done is in that order and starts when its turn comes and a slot is free: hold one that should not start yet, and put an item others need first before them; one to cancel is cancelled as cancelling goes.",
             "The constitution, the policy and what goes outside are the owner's: what must be decided there, ask the owner with ask, with its choice; this matter is held, and you go back to pick the next."
           ],
           "out": [
@@ -11000,17 +10615,7 @@
                     "add_dependency",
                     "move",
                     "merge",
-                    "cancel",
-                    "add_segment",
-                    "edit_segment",
-                    "edit_done_when",
-                    "defer_segment",
-                    "delete_segment",
-                    "order_segments",
-                    "add_gate",
-                    "add_budget",
-                    "edit_gate",
-                    "edit_budget"
+                    "cancel"
                   ]
                 ]
               ],
@@ -11031,17 +10636,7 @@
                     "add_dependency",
                     "move",
                     "merge",
-                    "cancel",
-                    "add_segment",
-                    "edit_segment",
-                    "edit_done_when",
-                    "defer_segment",
-                    "delete_segment",
-                    "order_segments",
-                    "add_gate",
-                    "add_budget",
-                    "edit_gate",
-                    "edit_budget"
+                    "cancel"
                   ]
                 ]
               ],
@@ -11052,22 +10647,22 @@
             "by": "about",
             "cases": {
               "split": [
-                "What is asked is whether to split the work, and how. To split is to create new items and have the work's item depend on them. Given the items it already depends on, look at whether what remains must be split again: each new item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of the item goes to one new item, or stays with the item. The item depends on the new items and is done when they are; when no condition stays with it, its own work has nothing left to do. The new items reach the item's segment through that dependency."
+                "What is asked is whether to split the work, and how. To split is to create new items and have the work's item depend on them. Given the items it already depends on, look at whether what remains must be split again: each new item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of the item goes to one new item, or stays with the item. The item depends on the new items and is done when they are; when no condition stays with it, its own work has nothing left to do. Place the new items in the order where they should start, before the items waiting for them."
               ],
               "duplicate": [
                 "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is a duplicate, keep the one further along and with more waiting for it, and merge the others into it: items waiting for them wait for the one kept, the one kept depends on the unfinished items they depended on, then they are cancelled, the reason saying which item they were merged into. When the one merged away is the asking work's, what is useful on its branch goes into the log of the one kept."
               ],
               "depends_on_other_item": [
-                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now (it needs a feature added to the compiler first, say) or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a dependency is enough. If what it waits for has no item on the board yet, create it in the project that delivers it, under that project's segment that may do it; if no segment may, put it in the pool, and have the asking work depend on it and wait, saying so in the reply."
+                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now (it needs a feature added to the compiler first, say) or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a dependency is enough. If what it waits for has no item on the board yet, create it in the project that delivers it, place it in the order where it should start, and have the asking work depend on it and wait, saying so in the reply."
               ],
               "out_of_scope_defect": [
-                "What is asked is a defect that blocks that work but does not belong to it. Create an item to fix it, on the segment of the plan it belongs to; a defect of committed behaviour goes on the maintenance segment. If that work cannot go on until it is fixed, list it in waits; if it is not blocked, it carries on as usual. Do not let that work get around the defect."
+                "What is asked is a defect that blocks that work but does not belong to it. Create an item to fix it in the project it belongs to, and place it in the order where it should start. If that work cannot go on until it is fixed, list it in waits; if it is not blocked, it carries on as usual. Do not let that work get around the defect."
               ],
               "root_elsewhere": [
-                "What is asked is a root that lies in another item, project or module. Find the item the root lies in, and create one if there is none; then decide what that work does: wait for the root to be fixed, have the root's item do it instead (cancel this one, saying where its work went), or go on with the part that remains. If the root overturns an assumption the plan rests on, change the plan."
+                "What is asked is a root that lies in another item, project or module. Find the item the root lies in, and create one if there is none; then decide what that work does: wait for the root to be fixed, have the root's item do it instead (cancel this one, saying where its work went), or go on with the part that remains. If the root changes what must start first, change the order."
               ],
               "too_costly": [
-                "What is asked is a change so large for this work that it is not worth it. The cost is no reason in itself: a design is judged only on itself, and the cost only decides the order. See where the burden lies: in a flaw of the design itself (the wrong abstraction, the change belongs elsewhere), or in doing it too early (the plan should put it later). Giving up a goal, or changing how goals are traded against each other, is the owner's: ask the owner."
+                "What is asked is a change so large for this work that it is not worth it. The cost is no reason in itself: a design is judged only on itself, and the cost only decides the order. See where the burden lies: in a flaw of the design itself (the wrong abstraction, the change belongs elsewhere), or in doing it too early (it should start later in the order). Giving up a goal, or changing how goals are traded against each other, is the owner's: ask the owner."
               ],
               "other_question": [
                 "What is asked is of another kind. First think whether it really must touch other items or the overall structure; if not, say in the reply whom to ask, and touch nothing on the board."
@@ -11085,16 +10680,16 @@
                 "What the second question found where the state of things no longer matches an earlier judgment of yours. First find out whether you judged wrongly before or the situation changed; if you judged wrongly, correct that decision and the items it touched; if the situation changed, judge again by the new one."
               ],
               "running_unfit": [
-                "One place the fifth question found unfit in what runs or starts next: what is wrong and how you meant to change it are in the input. Change it by the policy and the plan: move one on the wrong segment, split one too large, correct wrong dependencies, pause or put back in the pool one that should not be done now, correct the text and acceptance of one whose direction drifted, create the items missing; interject what the engineer of a running one must know. While the whole is being set straight, handle these one by one, and the engine asks the fifth question again."
+                "One place the fifth question found unfit in what runs or starts next: what is wrong and how you meant to change it are in the input. Change it by the policy: move one in the wrong place in the order, split one too large, correct wrong dependencies, pause or hold one that should not be done now, correct the text and acceptance of one whose direction drifted, create the items missing; interject what the engineer of a running one must know. While the whole is being set straight, handle these one by one, and the engine asks the fifth question again."
               ],
               "advance": [
-                "Arrange the works by the policy and the plan. The engine works out the dispatch queue: do not order it yourself. When the engine reports fewer items ready to start than there are slots, or slots are free and not enough items are ready, pick the next batch from the pool or the segments' plans, hang them on the segments that may do them, set the items straight and their levels, until there are enough; for a segment that should go first, order the segments; for a segment that should wait, defer it, saying what becomes of each running work under it."
+                "Arrange the works by the policy. When the engine reports fewer items ready to start than there are slots, or slots are free and not enough items are ready, find the next batch: release the held items that may start now, create the items the policy calls for next, and set the items straight and their levels, until there are enough; move first what should go first, and hold what should wait, saying what becomes of each running work it concerns."
               ],
               "tidy_board": [
                 "What to set straight on the board: items placed wrongly, missing their parts or acceptance, duplicated or out of date. Set them straight one by one; do not force what you cannot make clear: find out first, then change it."
               ],
               "policy_changed": [
-                "The owner set a new version of the policy, and the old one is no longer used. Go over everything by the new version: which segments must change, be deferred or be added, which running and queued works no longer fit the policy and what becomes of each; the gates and budgets change with them. Items that hang on none of the new segments go into the pool, not cancelled, and the list goes into your log for the owner. Where the policy holds something you cannot judge by, report it to the owner as the third question does, and do not fill it in yourself."
+                "The owner set a new version of the policy, and the old one is no longer used. Go over everything by the new version: which running and queued works no longer fit the policy and what becomes of each, and how the items must be ordered. Items the new policy has no place for are held, not cancelled, and the list goes into your log for the owner. Where the policy holds something you cannot judge by, report it to the owner as the third question does, and do not fill it in yourself."
               ],
               "design_card": [
                 "A work's new design card. You do not rule on it: the owner does. Look at whether the card itself is sound, and whether the approaches it chose by default are reasonable in the whole. If they are not, act on it as the matter needs, such as telling the work's engineer with interject what is wrong and why; if they are, leave the card to the owner."
@@ -11106,7 +10701,7 @@
                 "Main went red after a work merged, and is red on main's commit before the merge too: the red checks and that earlier run are in the input. You do not fix the environment yourself: have it fixed, by an item that fixes it, with the check added to the known red checks meanwhile, or by asking the owner what only the owner can do; then reply, and the engine runs that step again."
               ],
               "next_look": [
-                "A look you set yourself at a wrap-up has come due: what to look at and why are in the input. Look at it by the policy and the plan, and handle what it calls for."
+                "A look you set yourself at a wrap-up has come due: what to look at and why are in the input. Look at it by the policy, and handle what it calls for."
               ],
               "report_followup": [
                 "A work that delivered a report has ended, and its what to do next is in the input, as written, with the report's paths and the commit that merged it. Read the report. Then open the follow-up items it calls for through the changes, or set a next look for when they will be due, or open nothing and say why; and tell the owner of a gap under test the report names."
@@ -11159,7 +10754,7 @@
               ]
             },
             {
-              "what": "The items and segments the changes touch: where each item hangs, who waits for it, what it waits for; each segment's order, delivery, when it counts as done, its assumptions; which segments the gates touched let touch, the budgets' lines, each segment's share and how much of it is used",
+              "what": "The items the changes touch: each one's rank among its project's items, who waits for it, what it waits for",
               "from": [
                 {
                   "engine": "changes_touch"
@@ -11743,20 +11338,6 @@
               ]
             },
             {
-              "what": "The plan: its segments (the stage of the policy each belongs to, what it delivers, when it counts as done, the segments before it, its assumptions, its indicators, whether it is deferred) and its constraints (gates: which segments may touch the specification, a public interface or a data format; budgets: the number the engine measures and its line, each segment's share and how much of it is used); the segment each item hangs on; the indicators the engine computed for each segment",
-              "from": [
-                {
-                  "db": "plan"
-                },
-                {
-                  "db": "plan_gates"
-                },
-                {
-                  "db": "plan_budgets"
-                }
-              ]
-            },
-            {
               "what": "What the owner said after reading the study; none the first time",
               "from": [
                 [
@@ -11769,7 +11350,7 @@
           ],
           "prompt": [
             "This round studies the new policy: every other matter of yours waits until the policy is set. The policy is the guiding thought for now that the owner derives from the constitution and the state of things; it affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
-            "First find out what the owner wants and what for; then read until you can say it: the documents, design trees, code and specifications concerned, and the items, segments and running works concerned on the board. Answer: how the things concerned stand now, with numbers where there are numbers; which items, segments and projects the new policy touches, and how each is affected, which works stop, change or are wasted; at least three ways, with what follows from each, which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
+            "First find out what the owner wants and what for; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works concerned on the board. Answer: how the things concerned stand now, with numbers where there are numbers; which items and projects the new policy touches, and how each is affected, which works stop, change or are wasted; at least three ways, with what follows from each, which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
             "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions."
           ],
           "out": [

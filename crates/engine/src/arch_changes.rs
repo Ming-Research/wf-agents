@@ -8,8 +8,8 @@ use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+use crate::Engine;
 use crate::work::{Work, query_json};
-use crate::{ENGINEER, Engine, actions};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -43,89 +43,28 @@ fn number(v: &Value) -> Option<i64> {
     }
 }
 
-/// The first number a text holds, as a budget's line or share writes it, such as "-2 KB" or "+1500 bytes".
-fn amount(text: &str) -> Option<f64> {
-    let start = text.find(|c: char| c.is_ascii_digit() || c == '-' || c == '+')?;
-    let rest = &text[start..];
-    let end = rest
-        .char_indices()
-        .skip(1)
-        .find(|(_, c)| !(c.is_ascii_digit() || *c == '.'))
-        .map_or(rest.len(), |(i, _)| i);
-    rest[..end].parse().ok()
-}
-
-/// What an item is to the rules the changes keep: the segment it hangs on, and whether it is still to do.
-#[derive(Debug, Clone, Default)]
-struct It {
-    segment: Option<String>,
-    open: bool,
-}
-
-/// A budget's line and its shares: each segment's, by its key.
-type Budget = (String, Vec<(String, String)>);
-
-/// The items, their dependencies and the plan, as the changes find them and as each change leaves them. An item the
-/// changes create is known by its key until it is written, here as a number below zero.
+/// The items, each with its project, and their dependencies, as the changes find them and as each change leaves them.
+/// An item the changes create is known by its key until it is written, here as a number below zero.
 #[derive(Debug, Default)]
 struct State {
-    items: BTreeMap<i64, It>,
+    items: BTreeMap<i64, String>,
     links: BTreeSet<(i64, i64)>,
-    segments: BTreeMap<String, Vec<String>>,
-    gates: BTreeMap<String, (String, Vec<String>)>,
-    budgets: BTreeMap<String, Budget>,
     red: BTreeSet<(String, String)>,
     keys: BTreeMap<String, i64>,
 }
 
 impl State {
-    fn load(e: &Engine, conn: &Connection) -> Result<State, String> {
-        let end = e
-            .flows
-            .get(&e.flow_now)
-            .and_then(|f| f.graph(ENGINEER))
-            .map(|g| g.end.clone())
-            .unwrap_or_default();
+    fn load(conn: &Connection) -> Result<State, String> {
         let mut s = State::default();
-        for r in query_json(
-            conn,
-            "SELECT i.id, i.segment, i.cancelled IS NULL AND NOT EXISTS (
-                SELECT 1 FROM works w WHERE w.item = i.id AND w.graph = 'engineer' AND w.ended IS NULL AND w.at = ?1)
-                AS open
-             FROM items i",
-            &[&end],
-            1_000_000,
-        )? {
-            s.items.insert(
-                r["id"].as_i64().unwrap_or_default(),
-                It {
-                    segment: r["segment"].as_str().map(str::to_string),
-                    open: r["open"].as_i64() == Some(1),
-                },
-            );
+        for r in query_json(conn, "SELECT id, project FROM items", &[], 1_000_000)? {
+            s.items
+                .insert(r["id"].as_i64().unwrap_or_default(), text(&r, "project").to_string());
         }
         for r in query_json(conn, "SELECT item, depends_on FROM item_links", &[], 1_000_000)? {
             s.links.insert((
                 r["item"].as_i64().unwrap_or_default(),
                 r["depends_on"].as_i64().unwrap_or_default(),
             ));
-        }
-        for r in query_json(conn, "SELECT key, after FROM plan_segments", &[], 100_000)? {
-            s.segments.insert(text(&r, "key").to_string(), texts(&r, "after"));
-        }
-        for r in query_json(conn, "SELECT name, what, segments FROM plan_gates", &[], 100_000)? {
-            s.gates.insert(
-                text(&r, "name").to_string(),
-                (text(&r, "what").to_string(), texts(&r, "segments")),
-            );
-        }
-        for r in query_json(conn, "SELECT name, line, split FROM plan_budgets", &[], 100_000)? {
-            let split = items(r.get("split"))
-                .iter()
-                .map(|x| (text(x, "segment").to_string(), text(x, "amount").to_string()))
-                .collect();
-            s.budgets
-                .insert(text(&r, "name").to_string(), (text(&r, "line").to_string(), split));
         }
         for r in query_json(conn, "SELECT project, check_name FROM known_red_checks", &[], 100_000)? {
             s.red
@@ -134,40 +73,9 @@ impl State {
         Ok(s)
     }
 
-    /// The segment an item reaches: its own, or that of an item that depends on it, nearest first.
-    fn reaches(&self, item: i64) -> Option<String> {
-        let mut seen = BTreeSet::new();
-        let mut todo = vec![item];
-        while let Some(i) = todo.pop() {
-            if !seen.insert(i) {
-                continue;
-            }
-            if let Some(s) = self.items.get(&i).and_then(|x| x.segment.clone()) {
-                return Some(s);
-            }
-            todo.extend(self.links.iter().filter(|(_, d)| *d == i).map(|(x, _)| *x));
-        }
-        None
-    }
-
     /// Whether the items' dependencies close a cycle.
     fn links_cycle(&self) -> bool {
         let edges: Vec<(i64, i64)> = self.links.iter().copied().collect();
-        cycle(&edges)
-    }
-
-    /// Whether the segments' order closes a cycle.
-    fn order_cycle(&self) -> bool {
-        let names: Vec<&String> = self.segments.keys().collect();
-        let at = |k: &str| names.iter().position(|n| n.as_str() == k).map(|i| i as i64);
-        let mut edges = Vec::new();
-        for (k, after) in &self.segments {
-            for a in after {
-                if let (Some(x), Some(y)) = (at(k), at(a)) {
-                    edges.push((x, y));
-                }
-            }
-        }
         cycle(&edges)
     }
 }
@@ -208,12 +116,11 @@ fn locked_conditions(conn: &Connection, item: i64) -> BTreeSet<String> {
 
 /// Whether the changes the architect collected are valid: every change has its reason; an item created has what it
 /// needs and a key no other change uses; a split gives each acceptance condition of the item split to one new item at
-/// most, one of its locked conditions when its acceptance is locked; every name a change gives is there, or made by an
-/// earlier change; and what the rules fix holds after them: the items' dependencies and the segments' order close no
-/// cycle, an item created touches only what the segment it reaches may touch, each budget's shares add up to no more
-/// than its line, and a segment removed has no unfinished item. Otherwise why not, every reason at once.
+/// most, one of its locked conditions when its acceptance is locked; every item a change names is there, or made by an
+/// earlier change; an item is moved first, last, under another item, or next to another item of its own project; and
+/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
-    let mut s = State::load(e, e.db.conn())?;
+    let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
     let mut problems: Vec<String> = Vec::new();
     let mut next_new = -1;
@@ -235,20 +142,13 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
             }
         };
-        let segment = |key: &str, s: &State, bad: &mut dyn FnMut(String)| -> bool {
-            let ok = s.segments.contains_key(key);
-            if !ok {
-                bad(format!("there is no segment {key}"));
-            }
-            ok
-        };
         match text(c, "kind") {
             "create_item" => {
                 let key = text(c, "key").trim().to_string();
-                if key.is_empty() || s.keys.contains_key(&key) || s.segments.contains_key(&key) {
+                if key.is_empty() || s.keys.contains_key(&key) {
                     bad(format!("its key \"{key}\" is empty, or another change uses it"));
                 }
-                for k in ["project", "title", "problem", "why", "level", "deliver", "under"] {
+                for k in ["project", "title", "problem", "why", "level", "deliver"] {
                     if text(c, k).trim().is_empty() {
                         bad(format!("it has no {k}"));
                     }
@@ -267,24 +167,20 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
                 let id = next_new;
                 next_new -= 1;
-                let under = text(c, "under").trim().to_string();
-                let mut it = It {
-                    segment: None,
-                    open: true,
-                };
-                match number(&c["under"]) {
-                    Some(parent) if s.items.contains_key(&parent) => {
-                        s.links.insert((parent, id));
+                let under = c.get("under").filter(|v| !v.is_null());
+                if let Some(v) = under {
+                    match number(v) {
+                        Some(parent) if s.items.contains_key(&parent) => {
+                            s.links.insert((parent, id));
+                        }
+                        _ => bad(format!("it hangs under item {v}, which there is not")),
                     }
-                    Some(parent) => bad(format!("it hangs under item {parent}, which there is not")),
-                    None if s.segments.contains_key(&under) => it.segment = Some(under.clone()),
-                    None => bad(format!("it hangs on segment {under}, which there is not")),
                 }
                 // A split gives each acceptance condition of the item split to one new item at most; the rest stay
                 // with that item.
                 let takes = texts(c, "takes");
                 if !takes.is_empty() {
-                    match number(&c["under"]).filter(|split| *split > 0) {
+                    match under.and_then(number).filter(|split| *split > 0) {
                         None => bad("it takes acceptance conditions, but it is split from no item".into()),
                         Some(split) => {
                             let locked = locked_conditions(e.db.conn(), split);
@@ -301,20 +197,8 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                         }
                     }
                 }
-                s.items.insert(id, it);
+                s.items.insert(id, text(c, "project").to_string());
                 s.keys.insert(key, id);
-                // What it touches, its segment may touch.
-                if let Some(seg) = s.reaches(id) {
-                    for t in texts(c, "touches") {
-                        for (name, (what, may)) in &s.gates {
-                            if *what == t && !may.contains(&seg) {
-                                bad(format!(
-                                    "it touches {t}, which the gate {name} lets segment {seg} not touch"
-                                ));
-                            }
-                        }
-                    }
-                }
             }
             "add_dependency" => {
                 if let (Some(a), Some(b)) = (item("item", &s, &mut bad), item("on", &s, &mut bad)) {
@@ -326,23 +210,29 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
             }
             "move" => {
                 if let Some(a) = item("item", &s, &mut bad) {
-                    match number(&c["to"]) {
-                        Some(to) if s.items.contains_key(&to) && to != a => {
-                            s.links.retain(|(_, d)| *d != a);
-                            s.links.insert((to, a));
-                            if let Some(x) = s.items.get_mut(&a) {
-                                x.segment = None;
+                    let to = &c["to"];
+                    let other = number(&to["item"]).filter(|b| s.items.contains_key(b) && *b != a);
+                    match text(to, "place") {
+                        "first" | "last" => {}
+                        "before" | "after" => {
+                            if other.is_none_or(|b| s.items.get(&b) != s.items.get(&a)) {
+                                bad(format!(
+                                    "it moves next to item {}, which is not another item of its project",
+                                    to["item"]
+                                ));
                             }
                         }
-                        Some(to) => bad(format!("it moves under item {to}, which there is not, or is itself")),
-                        None => {
-                            let key = text(c, "to").to_string();
-                            if segment(&key, &s, &mut bad)
-                                && let Some(x) = s.items.get_mut(&a)
-                            {
-                                x.segment = Some(key);
+                        "under" => match other {
+                            Some(b) => {
+                                s.links.retain(|(_, d)| *d != a);
+                                s.links.insert((b, a));
                             }
-                        }
+                            None => bad(format!(
+                                "it moves under item {}, which there is not, or is itself",
+                                to["item"]
+                            )),
+                        },
+                        place => bad(format!("there is no place {place}")),
                     }
                 }
             }
@@ -362,20 +252,10 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                                 s.links.insert((x, d));
                             }
                         }
-                        if let Some(x) = s.items.get_mut(&a) {
-                            x.open = false;
-                        }
                     }
                 }
             }
-            "cancel" => {
-                if let Some(a) = item("item", &s, &mut bad)
-                    && let Some(x) = s.items.get_mut(&a)
-                {
-                    x.open = false;
-                }
-            }
-            "hold" | "release" | "edit_acceptance" => {
+            "cancel" | "hold" | "release" | "edit_acceptance" => {
                 item("item", &s, &mut bad);
             }
             "edit_item" => {
@@ -392,98 +272,6 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 if let Err(why) = cfg.item_level(text(c, "level")) {
                     bad(why);
                 }
-            }
-            "add_segment" => {
-                let key = text(c, "key").trim().to_string();
-                if key.is_empty() || s.segments.contains_key(&key) || s.keys.contains_key(&key) {
-                    bad(format!("the segment's key \"{key}\" is empty, or taken"));
-                }
-                if !cfg.projects.contains_key(text(c, "project")) {
-                    bad(format!("there is no project {}", text(c, "project")));
-                }
-                let after = texts(c, "after");
-                for a in &after {
-                    segment(a, &s, &mut bad);
-                }
-                s.segments.insert(key, after);
-            }
-            "edit_segment" => {
-                let key = text(c, "segment").to_string();
-                if segment(&key, &s, &mut bad) && c.get("after").is_some() {
-                    let after = texts(c, "after");
-                    for a in &after {
-                        segment(a, &s, &mut bad);
-                    }
-                    s.segments.insert(key, after);
-                }
-            }
-            "edit_done_when" | "defer_segment" => {
-                segment(text(c, "segment"), &s, &mut bad);
-            }
-            "delete_segment" => {
-                let key = text(c, "segment").to_string();
-                if segment(&key, &s, &mut bad) {
-                    let unfinished: Vec<i64> = s
-                        .items
-                        .iter()
-                        .filter(|(_, x)| x.open && x.segment.as_deref() == Some(key.as_str()))
-                        .map(|(i, _)| *i)
-                        .collect();
-                    if !unfinished.is_empty() {
-                        bad(format!("segment {key} still has unfinished items: {unfinished:?}"));
-                    }
-                    s.segments.remove(&key);
-                }
-            }
-            "order_segments" => {
-                for k in texts(c, "order") {
-                    segment(&k, &s, &mut bad);
-                }
-            }
-            "add_gate" | "edit_gate" => {
-                let adding = text(c, "kind") == "add_gate";
-                let name = text(c, if adding { "name" } else { "gate" }).to_string();
-                if adding == s.gates.contains_key(&name) {
-                    bad(format!("the gate {name} is taken, or there is none"));
-                }
-                let may = texts(c, "segments");
-                for k in &may {
-                    segment(k, &s, &mut bad);
-                }
-                let what = match s.gates.get(&name) {
-                    Some((w, _)) if !adding => w.clone(),
-                    _ => text(c, "what").to_string(),
-                };
-                s.gates.insert(name, (what, may));
-            }
-            "add_budget" | "edit_budget" => {
-                let adding = text(c, "kind") == "add_budget";
-                let name = text(c, if adding { "name" } else { "budget" }).to_string();
-                if adding == s.budgets.contains_key(&name) {
-                    bad(format!("the budget {name} is taken, or there is none"));
-                }
-                let (mut line, mut split) = s.budgets.get(&name).cloned().unwrap_or_default();
-                if let Some(l) = c["line"].as_str() {
-                    line = l.to_string();
-                }
-                if c.get("split").is_some() {
-                    split = items(c.get("split"))
-                        .iter()
-                        .map(|x| (text(x, "segment").to_string(), text(x, "amount").to_string()))
-                        .collect();
-                }
-                for (k, _) in &split {
-                    segment(k, &s, &mut bad);
-                }
-                let shares: Option<Vec<f64>> = split.iter().map(|(_, a)| amount(a)).collect();
-                if let (Some(line_n), Some(shares)) = (amount(&line), shares)
-                    && shares.iter().filter(|x| **x > 0.0).sum::<f64>() > line_n
-                {
-                    bad(format!(
-                        "the shares of budget {name} add up to more than its line, {line}"
-                    ));
-                }
-                s.budgets.insert(name, (line, split));
             }
             "add_known_red_check" => {
                 if !cfg.projects.contains_key(text(c, "project")) {
@@ -510,9 +298,6 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
     }
     if s.links_cycle() {
         problems.push("after the changes, the items' dependencies close a cycle".into());
-    }
-    if s.order_cycle() {
-        problems.push("after the changes, the segments' order closes a cycle".into());
     }
     if problems.is_empty() {
         Ok(())
@@ -570,7 +355,7 @@ pub fn db_write(e: &mut Engine, _w: &Work, req: &Value) -> Value {
     }
 }
 
-/// Writes every change, in order, and gives what was created: each item and segment, by its key, with what it is now.
+/// Writes every change, in order, and gives what was created: each item, by its key, with its number.
 fn write_all(tx: &Transaction<'_>, changes: &[Value]) -> Result<Vec<Value>, String> {
     let mut keys: BTreeMap<String, i64> = BTreeMap::new();
     let mut created = Vec::new();
@@ -627,10 +412,9 @@ fn write_one(
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
         "create_item" => {
-            let segment = number(&c["under"]).is_none().then(|| text(c, "under").to_string());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level, touches, wanted, segment)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO items (project, title, problem, why, deliver, level, wanted)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
@@ -638,9 +422,7 @@ fn write_one(
                     text(c, "why"),
                     text(c, "deliver"),
                     text(c, "level"),
-                    json_of("touches"),
-                    json_of("acceptance"),
-                    segment
+                    json_of("acceptance")
                 ],
             )
             .map_err(sql)?;
@@ -660,20 +442,20 @@ fn write_one(
         "add_dependency" => depend(tx, item_of(&c["item"], keys)?, item_of(&c["on"], keys)?, reason)?,
         "move" => {
             let item = item_of(&c["item"], keys)?;
-            match number(&c["to"]) {
-                Some(to) => {
+            let to = &c["to"];
+            match text(to, "place") {
+                "under" => {
+                    let under = item_of(&to["item"], keys)?;
                     tx.execute("DELETE FROM item_links WHERE depends_on = ?1", [item])
                         .map_err(sql)?;
-                    tx.execute("UPDATE items SET segment = NULL WHERE id = ?1", [item])
-                        .map_err(sql)?;
-                    depend(tx, to, item, reason)?;
+                    depend(tx, under, item, reason)?;
                 }
-                None => {
-                    tx.execute(
-                        "UPDATE items SET segment = ?2 WHERE id = ?1",
-                        params![item, text(c, "to")],
-                    )
-                    .map_err(sql)?;
+                place => {
+                    let other = match place {
+                        "before" | "after" => Some(item_of(&to["item"], keys)?),
+                        _ => None,
+                    };
+                    rank(tx, item, place, other)?;
                 }
             }
         }
@@ -752,156 +534,6 @@ fn write_one(
             )
             .map_err(sql)?;
         }
-        "add_segment" => {
-            tx.execute(
-                "INSERT INTO plan_segments (key, project, title, stage, delivers, done_when, after, assumptions,
-                                            indicators, size)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    text(c, "key"),
-                    text(c, "project"),
-                    text(c, "title"),
-                    text(c, "stage"),
-                    text(c, "delivers"),
-                    text(c, "done_when"),
-                    json_of("after"),
-                    json_of("assumptions"),
-                    json_of("indicators"),
-                    text(c, "size")
-                ],
-            )
-            .map_err(sql)?;
-            created.push(json!({ "key": text(c, "key"), "id": text(c, "key") }));
-        }
-        "edit_segment" => {
-            let key = text(c, "segment");
-            for (field, column, is_json) in [
-                ("title", "title", false),
-                ("delivers", "delivers", false),
-                ("after", "after", true),
-                ("assumptions", "assumptions", true),
-                ("indicators", "indicators", true),
-                ("size", "size", false),
-            ] {
-                if c.get(field).is_none() {
-                    continue;
-                }
-                let v = if is_json {
-                    json_of(field)
-                } else {
-                    text(c, field).to_string()
-                };
-                tx.execute(
-                    &format!("UPDATE plan_segments SET {column} = ?2 WHERE key = ?1"),
-                    params![key, v],
-                )
-                .map_err(sql)?;
-            }
-        }
-        "edit_done_when" => {
-            tx.execute(
-                "UPDATE plan_segments SET done_when = ?2 WHERE key = ?1",
-                params![text(c, "segment"), text(c, "done_when")],
-            )
-            .map_err(sql)?;
-        }
-        "defer_segment" => {
-            let key = text(c, "segment");
-            let until = text(c, "until");
-            tx.execute(
-                "UPDATE plan_segments SET deferred = ?2 WHERE key = ?1",
-                params![key, until],
-            )
-            .map_err(sql)?;
-            // The works of its items pause too: those of the items that hang on it, and of the items they depend on.
-            let works = query_json(
-                tx,
-                "WITH RECURSIVE hung(item) AS (
-                   SELECT id FROM items WHERE segment = ?1
-                   UNION SELECT l.depends_on FROM item_links l JOIN hung h ON l.item = h.item)
-                 SELECT w.id FROM works w JOIN hung h ON h.item = w.item WHERE w.ended IS NULL AND w.paused IS NULL",
-                &[&key],
-                100_000,
-            )?;
-            let why = format!("{}: segment {key} is deferred until {until}", db::STOPPED_BY_ARCHITECT);
-            for w in works {
-                let id = w["id"].as_i64().unwrap_or_default();
-                tx.execute(
-                    "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
-                    params![id, why],
-                )
-                .map_err(sql)?;
-                actions::notify(tx, Some(id), &format!("Work {id} is {why}"))?;
-            }
-        }
-        "delete_segment" => {
-            let key = text(c, "segment");
-            tx.execute("UPDATE items SET segment = NULL WHERE segment = ?1", [key])
-                .map_err(sql)?;
-            tx.execute(
-                "UPDATE plan_segments SET after = (SELECT json_group_array(a.value) FROM json_each(after) a
-                                                   WHERE a.value <> ?1)
-                 WHERE EXISTS (SELECT 1 FROM json_each(after) a WHERE a.value = ?1)",
-                [key],
-            )
-            .map_err(sql)?;
-            tx.execute("DELETE FROM plan_segments WHERE key = ?1", [key])
-                .map_err(sql)?;
-        }
-        "order_segments" => {
-            tx.execute("UPDATE plan_segments SET position = NULL", [])
-                .map_err(sql)?;
-            for (i, k) in texts(c, "order").iter().enumerate() {
-                tx.execute(
-                    "UPDATE plan_segments SET position = ?2 WHERE key = ?1",
-                    params![k, (i + 1) as f64],
-                )
-                .map_err(sql)?;
-            }
-        }
-        "add_gate" => {
-            tx.execute(
-                "INSERT INTO plan_gates (name, basis, what, segments) VALUES (?1, ?2, ?3, ?4)",
-                params![text(c, "name"), text(c, "basis"), text(c, "what"), json_of("segments")],
-            )
-            .map_err(sql)?;
-        }
-        "edit_gate" => {
-            tx.execute(
-                "UPDATE plan_gates SET segments = ?2 WHERE name = ?1",
-                params![text(c, "gate"), json_of("segments")],
-            )
-            .map_err(sql)?;
-        }
-        "add_budget" => {
-            tx.execute(
-                "INSERT INTO plan_budgets (name, basis, measure, line, split) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    text(c, "name"),
-                    text(c, "basis"),
-                    text(c, "measure"),
-                    text(c, "line"),
-                    json_of("split")
-                ],
-            )
-            .map_err(sql)?;
-        }
-        "edit_budget" => {
-            if c.get("line").is_some() {
-                tx.execute(
-                    "UPDATE plan_budgets SET line = ?2 WHERE name = ?1",
-                    params![text(c, "budget"), text(c, "line")],
-                )
-                .map_err(sql)?;
-            }
-            if c.get("split").is_some() {
-                tx.execute(
-                    "UPDATE plan_budgets SET split = ?2 WHERE name = ?1",
-                    params![text(c, "budget"), json_of("split")],
-                )
-                .map_err(sql)?;
-            }
-        }
         "add_known_red_check" => {
             tx.execute(
                 "INSERT INTO known_red_checks (project, check_name, why, fix_item) VALUES (?1, ?2, ?3, ?4)",
@@ -926,22 +558,124 @@ fn write_one(
     Ok(())
 }
 
+/// Puts an item at its place among its project's items in the architect's order and ranks every item of the project
+/// afresh by that order, 1 the first; the order it starts from is the items' ranks, those with none after, in the order
+/// they were made.
+fn rank(tx: &Transaction<'_>, item: i64, place: &str, other: Option<i64>) -> Result<(), String> {
+    let order: Vec<i64> = query_json(
+        tx,
+        "SELECT id FROM items WHERE project = (SELECT project FROM items WHERE id = ?1) ORDER BY rank NULLS LAST, id",
+        &[&item],
+        1_000_000,
+    )?
+    .iter()
+    .filter_map(|r| r["id"].as_i64())
+    .collect();
+    for (i, id) in placed(&order, item, place, other)?.into_iter().enumerate() {
+        tx.execute(
+            "UPDATE items SET rank = ?2 WHERE id = ?1 AND rank IS NOT ?2",
+            params![id, i as i64 + 1],
+        )
+        .map_err(sql)?;
+    }
+    Ok(())
+}
+
+/// An order of items with one put at its place: first, last, or just before or after another item of the order.
+fn placed(order: &[i64], item: i64, place: &str, other: Option<i64>) -> Result<Vec<i64>, String> {
+    let mut out: Vec<i64> = order.iter().copied().filter(|x| *x != item).collect();
+    let next_to = || -> Result<usize, String> {
+        let o = other.ok_or_else(|| format!("item {item} moves {place} another item, which it does not name"))?;
+        out.iter()
+            .position(|x| *x == o)
+            .ok_or_else(|| format!("item {o} is not another item of item {item}'s project"))
+    };
+    let at = match place {
+        "first" => 0,
+        "last" => out.len(),
+        "before" => next_to()?,
+        "after" => next_to()? + 1,
+        p => return Err(format!("there is no place {p}")),
+    };
+    out.insert(at, item);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use db::Db;
 
-    #[test]
-    fn a_budget_s_amount_is_its_first_number() {
-        assert_eq!(amount("+1500 bytes"), Some(1500.0));
-        assert_eq!(amount("-2.5 KB"), Some(-2.5));
-        assert_eq!(amount("at most 40 rules"), Some(40.0));
-        assert_eq!(amount("none"), None);
-    }
+    use super::*;
 
     #[test]
     fn a_cycle_is_found_and_a_chain_is_not() {
         assert!(cycle(&[(1, 2), (2, 3), (3, 1)]));
         assert!(!cycle(&[(1, 2), (2, 3), (1, 3)]));
         assert!(!cycle(&[]));
+    }
+
+    #[test]
+    fn an_item_is_put_first_last_or_next_to_another() {
+        let order = [1, 2, 3, 4];
+        assert_eq!(placed(&order, 3, "first", None), Ok(vec![3, 1, 2, 4]));
+        assert_eq!(placed(&order, 1, "last", None), Ok(vec![2, 3, 4, 1]));
+        assert_eq!(placed(&order, 4, "before", Some(2)), Ok(vec![1, 4, 2, 3]));
+        assert_eq!(placed(&order, 1, "after", Some(3)), Ok(vec![2, 3, 1, 4]));
+        assert!(placed(&order, 1, "after", Some(9)).is_err());
+        assert!(placed(&order, 1, "after", Some(1)).is_err());
+        assert!(placed(&order, 1, "before", None).is_err());
+        assert!(placed(&order, 1, "between", None).is_err());
+    }
+
+    // Moving an item ranks every item of its project afresh, those not ranked yet after the others in the order they
+    // were made, and leaves the items of another project as they were.
+    #[test]
+    fn a_move_ranks_the_items_of_the_project_afresh() {
+        let mut db = Db::in_memory().unwrap();
+        let ranks = |db: &Db| -> Vec<(i64, Option<i64>)> {
+            let mut st = db.conn().prepare("SELECT id, rank FROM items ORDER BY id").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        db.write(Actor::Owner, |tx| {
+            for (project, rank) in [("p", Some(2)), ("q", Some(1)), ("p", Some(1)), ("p", None), ("p", None)] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, rank)
+                     VALUES (?1, 't', 'x', 'y', 'change', 'l', ?2)",
+                    params![project, rank],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let moved = |db: &mut Db, to: Value| {
+            let change = json!({ "kind": "move", "item": 5, "to": to, "reason": "r" });
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &[change]).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        moved(&mut db, json!({ "place": "before", "item": 1 }));
+        assert_eq!(
+            ranks(&db),
+            [(1, Some(3)), (2, Some(1)), (3, Some(1)), (4, Some(4)), (5, Some(2))]
+        );
+        moved(&mut db, json!({ "place": "first" }));
+        assert_eq!(
+            ranks(&db),
+            [(1, Some(3)), (2, Some(1)), (3, Some(2)), (4, Some(4)), (5, Some(1))]
+        );
+        moved(&mut db, json!({ "place": "under", "item": 1 }));
+        let links: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM item_links WHERE item = 1 AND depends_on = 5",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(links, 1);
     }
 }

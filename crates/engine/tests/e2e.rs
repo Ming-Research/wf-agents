@@ -1660,7 +1660,8 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let stepped = e.step(None).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(stepped.started_item, Some(items[1]), "{log}");
-    assert_eq!(ready(&e), vec![queued], "{log}");
+    // The first, whose work was stopped, waits again in the architect's order, after the item the owner queued.
+    assert_eq!(ready(&e), vec![queued, items[0]], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -2660,17 +2661,25 @@ fn wake_done(e: &mut Engine, wake: i64) -> bool {
     e.done(&w).unwrap()
 }
 
-/// Puts an item no work runs on, and in no queue.
+/// Puts an item no work runs on, in no queue; new works are held, as the architect holds them, so that none starts on
+/// it while the test looks at the architect.
 fn an_item(e: &mut Engine) -> i64 {
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO items (project, title, problem, why, deliver, level)
-             VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
-            [],
-        )?;
-        Ok(tx.last_insert_rowid())
+    let id =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute("INSERT INTO dispatch_holds (reason, since) VALUES ('architect', 1)", [])?;
+        Ok(())
     })
-    .unwrap()
+    .unwrap();
+    id
 }
 
 // An engineer's question to the architect is a matter of its queue, which wakes it; the work waits at its question,

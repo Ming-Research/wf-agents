@@ -1414,7 +1414,7 @@ fn whole_view(e: &Engine) -> Result<Value, String> {
     let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
-        "SELECT i.id AS item, i.project, i.title, i.segment, i.held, w.id AS work, w.at, w.paused,
+        "SELECT i.id AS item, i.project, i.title, i.rank, i.held, w.id AS work, w.at, w.paused,
                 (SELECT json_group_array(l.depends_on) FROM item_links l WHERE l.item = i.id) AS waits_for_items,
                 (SELECT json_group_array(l.item) FROM item_links l WHERE l.depends_on = i.id) AS waited_by
          FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
@@ -1460,7 +1460,7 @@ fn since_last_wake(e: &Engine, w: &Work, _g: &CompiledGraph) -> Result<Option<Va
         .map_err(sql)?;
     let items_changed = query_json(
         conn,
-        "SELECT i.id AS item, i.project, i.title, i.segment, i.held, i.cancelled FROM items i
+        "SELECT i.id AS item, i.project, i.title, i.rank, i.held, i.cancelled FROM items i
          WHERE i.id IN (SELECT json_extract(c.row_key, '$.id') FROM changes c WHERE c.table_name = 'items' AND c.at > ?1)
          ORDER BY i.id",
         &[&since],
@@ -1571,40 +1571,14 @@ fn policy_signals(e: &Engine) -> Result<Option<Value>, String> {
     Ok(Some(Value::Array(signals)))
 }
 
-/// What the engine checks of a segment: whether it is deferred, and whether the segments before it are done.
-fn segment_state(e: &Engine, segment: Option<&str>) -> Result<Value, String> {
-    let Some(key) = segment else {
-        return Ok(json!({ "segment": null }));
-    };
-    let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
-    let deferred: Option<Option<String>> =
-        e.db.conn()
-            .query_row("SELECT deferred FROM plan_segments WHERE key = ?1", [key], |r| r.get(0))
-            .optional()
-            .map_err(sql)?;
-    let unfinished = count(
-        e.db.conn(),
-        "SELECT count(*) FROM json_each((SELECT after FROM plan_segments WHERE key = ?1)) a
-         JOIN items i ON i.segment = a.value
-         WHERE i.cancelled IS NULL AND NOT EXISTS (
-           SELECT 1 FROM works x WHERE x.item = i.id AND x.graph = 'engineer' AND x.ended IS NULL AND x.at = ?2)",
-        &[&key, &end],
-    )?;
-    Ok(json!({
-        "segment": key,
-        "deferred": deferred.flatten(),
-        "earlier_segments_done": unfinished == 0,
-    }))
-}
-
-/// The works running, and the items the engine would start next, as many as there are slots, each with its segment,
-/// whether that is deferred, whether the segments before it are done, what it waits for and for how long.
+/// The works running, and the items the engine would start next, as many as there are slots, each with its rank among
+/// its project's items; for a work, what it waits for and for how long.
 fn running_and_next(e: &Engine) -> Result<Value, String> {
     let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
     let now = db::now();
     let works = query_json(
         e.db.conn(),
-        "SELECT w.id AS work, w.item, i.title, i.segment, w.at, w.paused,
+        "SELECT w.id AS work, w.item, i.project, i.title, i.rank, w.at, w.paused,
                 (SELECT max(r.ended_at) FROM rounds r WHERE r.work = w.id) AS last_round_ended
          FROM works w JOIN items i ON i.id = w.item WHERE w.graph = 'engineer' AND w.ended IS NULL ORDER BY w.id",
         &[],
@@ -1618,21 +1592,17 @@ fn running_and_next(e: &Engine) -> Result<Value, String> {
         }
         let waits = work_waits(e, r["work"].as_i64().unwrap_or_default(), &at, r["paused"].as_str())?;
         let waited = waits.as_ref().and(r["last_round_ended"].as_i64()).map(|t| now - t);
-        r["segment_state"] = segment_state(e, r["segment"].as_str())?;
         r["waits"] = json!(waits);
         r["waited_ms"] = json!(waited);
         running.push(r);
     }
     let slots = total_slots(e);
-    let mut next = query_json(
+    let next = query_json(
         e.db.conn(),
-        "SELECT item, project, title, segment FROM ready_items LIMIT ?1",
+        "SELECT item, project, title, rank FROM ready_items LIMIT ?1",
         &[&slots],
         ROWS,
     )?;
-    for r in &mut next {
-        r["segment_state"] = segment_state(e, r["segment"].as_str())?;
-    }
     let holds = query_json(e.db.conn(), "SELECT reason, since FROM dispatch_holds", &[], 10)?;
     Ok(json!({ "running": running, "next": next, "dispatch_holds": holds }))
 }
@@ -1887,65 +1857,20 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     Ok(json!({ "close_items": close, "same_paths": same_paths }))
 }
 
-/// The items and segments the changes collected touch, with where each item hangs, who waits for it and what it waits
-/// for; each segment as the plan has it; the gates and budgets touched.
+/// The items the changes collected touch, each with its rank among its project's items, who waits for it and what it
+/// waits for.
 fn changes_touch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>, String> {
     let Some(changes) = last_return(e, w, g, "A8", "changes")?.and_then(|r| r.get("changes").cloned()) else {
         return Ok(None);
     };
     let mut item_ids: BTreeSet<i64> = BTreeSet::new();
-    let mut segments: BTreeSet<String> = BTreeSet::new();
-    let mut gates: BTreeSet<String> = BTreeSet::new();
-    let mut budgets: BTreeSet<String> = BTreeSet::new();
-    let mut touched: BTreeSet<String> = BTreeSet::new();
-    let number_or_key = |v: &Value, ids: &mut BTreeSet<i64>, keys: &mut BTreeSet<String>| match v {
-        Value::Number(n) => ids.extend(n.as_i64()),
-        Value::String(s) => match s.trim().trim_start_matches('#').parse::<i64>() {
-            Ok(n) => {
-                ids.insert(n);
-            }
-            Err(_) => {
-                keys.insert(s.clone());
-            }
-        },
-        _ => {}
-    };
     for c in items(Some(&changes)) {
-        for k in ["item", "on", "keep"] {
+        for k in ["item", "on", "keep", "under", "fix_item"] {
             ids_of(&c[k], &mut item_ids);
         }
+        ids_of(&c["to"]["item"], &mut item_ids);
         for a in items(c.get("absorbed")) {
             ids_of(&a, &mut item_ids);
-        }
-        for k in ["under", "to", "fix_item"] {
-            number_or_key(&c[k], &mut item_ids, &mut segments);
-        }
-        for k in ["segment", "key"] {
-            if let Some(s) = c[k].as_str().filter(|_| c["kind"] != "create_item") {
-                segments.insert(s.to_string());
-            }
-        }
-        for k in ["after", "order", "segments"] {
-            segments.extend(items(c.get(k)).iter().filter_map(|x| x.as_str().map(str::to_string)));
-        }
-        segments.extend(
-            items(c.get("split"))
-                .iter()
-                .filter_map(|x| x["segment"].as_str().map(str::to_string)),
-        );
-        touched.extend(
-            items(c.get("touches"))
-                .iter()
-                .filter_map(|x| x.as_str().map(str::to_string)),
-        );
-        match c["kind"].as_str() {
-            Some("add_gate") | Some("edit_gate") => {
-                gates.extend(c["name"].as_str().or(c["gate"].as_str()).map(str::to_string));
-            }
-            Some("add_budget") | Some("edit_budget") => {
-                budgets.extend(c["name"].as_str().or(c["budget"].as_str()).map(str::to_string));
-            }
-            _ => {}
         }
     }
     let conn = e.db.conn();
@@ -1953,7 +1878,7 @@ fn changes_touch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value
     for id in &item_ids {
         item_rows.extend(query_json(
             conn,
-            "SELECT i.id AS item, i.title, i.segment, i.cancelled, i.held,
+            "SELECT i.id AS item, i.project, i.title, i.rank, i.cancelled, i.held,
                     (SELECT json_group_array(l.item) FROM item_links l WHERE l.depends_on = i.id) AS waited_by,
                     (SELECT json_group_array(l.depends_on) FROM item_links l WHERE l.item = i.id) AS waits_for
              FROM items i WHERE i.id = ?1",
@@ -1961,31 +1886,7 @@ fn changes_touch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value
             1,
         )?);
     }
-    let mut segment_rows = Vec::new();
-    for key in &segments {
-        segment_rows.extend(query_json(conn, "SELECT * FROM plan WHERE segment = ?1", &[key], 1)?);
-    }
-    let mut gate_rows = query_json(conn, "SELECT * FROM plan_gates ORDER BY name", &[], ROWS)?;
-    gate_rows.retain(|r| {
-        r["name"].as_str().is_some_and(|n| gates.contains(n))
-            || r["what"].as_str().is_some_and(|w| touched.contains(w))
-            || items(r.get("segments"))
-                .iter()
-                .any(|s| s.as_str().is_some_and(|s| segments.contains(s)))
-    });
-    let mut budget_rows = query_json(conn, "SELECT * FROM plan_budgets ORDER BY name", &[], ROWS)?;
-    budget_rows.retain(|r| {
-        r["name"].as_str().is_some_and(|n| budgets.contains(n))
-            || items(r.get("split"))
-                .iter()
-                .any(|s| s["segment"].as_str().is_some_and(|s| segments.contains(s)))
-    });
-    Ok(Some(json!({
-        "items": item_rows,
-        "segments": segment_rows,
-        "gates": gate_rows,
-        "budgets": budget_rows,
-    })))
+    Ok(Some(json!({ "items": item_rows })))
 }
 
 /// An item's number given as a number or as a text of one, added to a set.
