@@ -194,16 +194,31 @@ fn cycle(edges: &[(i64, i64)]) -> bool {
     nodes.into_iter().any(|n| visit(n, edges, &mut state))
 }
 
+/// The numbers of an item's locked acceptance conditions; none while its acceptance is not locked.
+fn locked_conditions(conn: &Connection, item: i64) -> BTreeSet<String> {
+    let text: Option<String> = conn
+        .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
+        .ok()
+        .flatten();
+    let rows: Vec<Value> = text.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| r["id"].as_str().map(str::to_string))
+        .collect()
+}
+
 /// Whether the changes the architect collected are valid: every change has its reason; an item created has what it
-/// needs and a key no other change uses; every name a change gives is there, or made by an earlier change; and what
-/// the rules fix holds after them: the items' dependencies and the segments' order close no cycle, an item created
-/// touches only what the segment it reaches may touch, each budget's shares add up to no more than its line, and a
-/// segment removed has no unfinished item. Otherwise why not, every reason at once.
+/// needs and a key no other change uses; a split gives each acceptance condition of the item split to one new item at
+/// most, one of its locked conditions when its acceptance is locked; every name a change gives is there, or made by an
+/// earlier change; and what the rules fix holds after them: the items' dependencies and the segments' order close no
+/// cycle, an item created touches only what the segment it reaches may touch, each budget's shares add up to no more
+/// than its line, and a segment removed has no unfinished item. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
     let mut s = State::load(e, e.db.conn())?;
     let cfg = &e.config.config;
     let mut problems: Vec<String> = Vec::new();
     let mut next_new = -1;
+    // The acceptance conditions each item split gives to its new items so far.
+    let mut taken: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
     for (i, c) in changes.iter().enumerate() {
         let n = i + 1;
         let mut bad = |p: String| problems.push(format!("change {n} ({}): {p}", text(c, "kind")));
@@ -261,6 +276,27 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                     Some(parent) => bad(format!("it hangs under item {parent}, which there is not")),
                     None if s.segments.contains_key(&under) => it.segment = Some(under.clone()),
                     None => bad(format!("it hangs on segment {under}, which there is not")),
+                }
+                // A split gives each acceptance condition of the item split to one new item at most; the rest stay
+                // with that item.
+                let takes = texts(c, "takes");
+                if !takes.is_empty() {
+                    match number(&c["under"]).filter(|split| *split > 0) {
+                        None => bad("it takes acceptance conditions, but it is split from no item".into()),
+                        Some(split) => {
+                            let locked = locked_conditions(e.db.conn(), split);
+                            for t in takes {
+                                if !locked.is_empty() && !locked.contains(&t) {
+                                    bad(format!("item {split} has no acceptance condition {t}"));
+                                }
+                                if !taken.entry(split).or_default().insert(t.clone()) {
+                                    bad(format!(
+                                        "acceptance condition {t} of item {split} goes to two new items"
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
                 s.items.insert(id, it);
                 s.keys.insert(key, id);

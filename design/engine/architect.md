@@ -16,6 +16,8 @@ Decision: The architect's session goes on from one wake to the next, and the eng
 
 Decision: New works stop starting while the architect holds them (`engine_op hold_dispatch`), while it sets the whole straight after its fifth question, and while it sets a new policy, each a row of `dispatch_holds`, and works already running go on, instead of a single switch, because each hold ends on its own: the architect releases its own, setting the whole straight ends when its matters are handled, and a new policy ends when it takes effect or the owner says it need not change.
 
+Decision: The architect splits a work in dependencies: it creates new items and has the work's item depend on them, gives each acceptance condition of the item to one new item at most, the rest staying with the item, and the item is done when the new items are, instead of sub-items under a parent that ends, because items own no item and depend on one another only, and an engine check can then see that no condition goes to two new items.
+
 Decision: A next look the architect sets at its wrap-up is a time or an item's work ending, which the engine queues as a matter due then, instead of a time or a condition written as text, because the engine must tell mechanically when it is due.
 
 Decision: The engine asks the architect to advance when fewer items are ready to start than there are slots, at most once an hour while such a matter waits or was handled; provisional: the line is the slots' number until how long slots stand empty has been measured, and the hour keeps an empty queue from waking the architect again and again.

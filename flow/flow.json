@@ -1413,7 +1413,7 @@
         "branches": [
           {
             "value": "create_item",
-            "desc": "Create a new item; splitting off a sub-item is this too, made under the item it is split from",
+            "desc": "Create a new item; a split is this too: the item split depends on the new one",
             "fields": [
               {
                 "name": "key",
@@ -1433,7 +1433,7 @@
               {
                 "name": "under",
                 "type": "text",
-                "desc": "Where it hangs: the number of the item it is split from, which then depends on it; or for a root item, the key of the plan segment it hangs on"
+                "desc": "Where it goes: the number of the item it is split from, which then depends on it; or, for an item nothing is to depend on, the key of the plan segment it hangs on"
               },
               {
                 "name": "touches",
@@ -1478,7 +1478,7 @@
               {
                 "name": "takes",
                 "type": "list",
-                "desc": "The acceptance conditions it takes over from the item it is split from, by number; leave it out for an item not split off",
+                "desc": "The acceptance conditions of the item it is split from that go to it, by number; a condition goes to one new item at most, and those that go to none stay with that item; leave it out for an item no split makes",
                 "item": {
                   "type": "text",
                   "desc": "The condition's number"
@@ -1506,7 +1506,7 @@
           },
           {
             "value": "move",
-            "desc": "Hang an item elsewhere: a root item on another plan segment, or a sub-item under another item",
+            "desc": "Place an item elsewhere: an item nothing depends on, on another plan segment; or an item others depend on, so that another item depends on it instead",
             "fields": [
               {
                 "name": "item",
@@ -1516,7 +1516,7 @@
               {
                 "name": "to",
                 "type": "text",
-                "desc": "Where to: the key of a plan segment, for a root item; or the number of the item that is to depend on it instead of those that do now"
+                "desc": "Where to: the key of a plan segment, for an item nothing depends on; or the number of the item that is to depend on it instead of those that do now"
               }
             ]
           },
@@ -2863,7 +2863,7 @@
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
       "constitution_covered": "There is exactly one row for each article of each project's constitution the architect is given, in the constitution's order.",
       "chosen_first": "The matter chosen is the first of the ranked list; one given by its number in the queue is in the queue and not handled.",
-      "changes_valid": "Every change has its reason; an item created has its project, title, problem, why, acceptance, level, deliverable, what it touches and where it hangs, and a key no other change uses; what the rules fix holds: after the dependencies and moves, the items' dependencies and the segments' order have no cycle, every item reaches a segment through the items that depend on it, an item touches only what its segment may touch, each budget's shares add up to no more than its line, and a segment removed has no unfinished item. Otherwise the return is sent back.",
+      "changes_valid": "Every change has its reason; an item created has its project, title, problem, why, acceptance, level, deliverable, what it touches and where it goes, and a key no other change uses; a split gives each acceptance condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked; what the rules fix holds: after the dependencies and moves, the items' dependencies and the segments' order have no cycle, every item reaches a segment through the items that depend on it, an item touches only what its segment may touch, each budget's shares add up to no more than its line, and a segment removed has no unfinished item. Otherwise the return is sent back.",
       "question_answered": "For an engineer's question: with no change waiting for approval, this round replied to it with reply; with changes waiting for approval, it did not reply yet.",
       "approved_written": "For the owner's approval: every change approved was written with db_write, and every engineer waiting for them was replied to.",
       "policy_text_clean": "The policy quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
@@ -10927,7 +10927,7 @@
           "prompt": [
             "This round thinks through what to do about this matter. The crux was answered last round: think by it, and do not go back to the question on the surface. First see which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked: open an item to check it first, and do not change the structure on it.",
             "Whatever changes the database (creating, splitting, adding dependencies, moving, merging, cancelling, changing a text or the acceptance, setting a level; the plan's segments, gates, budgets and order) goes into changes, each with its reason: it is not written in this round but collected, and at the wrap-up the engine puts them all to the owner in one ask; once approved, you write them. What does not change the database, do at once with engine_op: pausing or resuming a work, stopping or releasing new works, replying, interjecting. Someone who asked you is answered with reply, concretely enough that the asking side can carry on from it: if sub-items were split off, say plainly that the work must redesign for the part that remains; if the work must stop now and wait for other items to deliver, list them in the reply's waits, while a dependency is enough for what it waits for only before merging; if the work should not be done, put its cancellation in changes and pause it first. A reply that can only be given once changes are approved and written is not given in this round: give it once the owner approves. What the engineer of another item must know, say with interject.",
-            "Every item hangs on the plan: a root item on a segment, a sub-item with its root; when creating an item, say what it touches, and it can be created only on a segment that may touch it. One that hangs on no segment goes into the pool, and no one is put on it; one to cancel is cancelled as cancelling goes. Each project has a standing maintenance segment, which takes only defects of committed behaviour, and security defects at any time; new features, and changes that make the specification larger, do not go on it. The engine works out the dispatch queue from the segments' order, the items' dependencies and the slots, and you do not order it yourself: to change the order, order the segments.",
+            "Every item hangs on the plan: an item nothing depends on hangs on a segment, and an item others depend on goes with them; when creating an item, say what it touches, and it can be created only on a segment that may touch it. One that hangs on no segment goes into the pool, and no one is put on it; one to cancel is cancelled as cancelling goes. Each project has a standing maintenance segment, which takes only defects of committed behaviour, and security defects at any time; new features, and changes that make the specification larger, do not go on it. The engine works out the dispatch queue from the segments' order, the items' dependencies and the slots, and you do not order it yourself: to change the order, order the segments.",
             "The constitution, the policy and what goes outside are the owner's: what must be decided there, ask the owner with ask, with its choice; this matter is held, and you go back to pick the next."
           ],
           "out": [
@@ -11005,10 +11005,10 @@
             "by": "about",
             "cases": {
               "split": [
-                "What is asked is whether to split, and how. Given the structure already split, look at whether what remains must be split again: each sub-item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of that work goes to one sub-item, or the work keeps it. Sub-items are created under that work, and hang on the same segment with it."
+                "What is asked is whether to split the work, and how. To split is to create new items and have the work's item depend on them. Given the items it already depends on, look at whether what remains must be split again: each new item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of the item goes to one new item, or stays with the item. The item depends on the new items and is done when they are; when no condition stays with it, its own work has nothing left to do. The new items reach the item's segment through that dependency."
               ],
               "duplicate": [
-                "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is a duplicate, keep the one further along and with more waiting for it, and merge the others into it: items waiting for them wait for the one kept, their unfinished sub-items move to it, then they are cancelled, the reason saying which item they were merged into. When the one merged away is the asking work's, what is useful on its branch goes into the log of the one kept."
+                "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is a duplicate, keep the one further along and with more waiting for it, and merge the others into it: items waiting for them wait for the one kept, the one kept depends on the unfinished items they depended on, then they are cancelled, the reason saying which item they were merged into. When the one merged away is the asking work's, what is useful on its branch goes into the log of the one kept."
               ],
               "depends_on_other_item": [
                 "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now (it needs a feature added to the compiler first, say) or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a dependency is enough. If what it waits for has no item on the board yet, create it in the project that delivers it, under that project's segment that may do it; if no segment may, put it in the pool, and have the asking work depend on it and wait, saying so in the reply."
