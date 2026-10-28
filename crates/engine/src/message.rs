@@ -8,9 +8,16 @@
 //! does not hold it: one the session already holds, by its content, is only referred to; one that is new or changed
 //! is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the
 //! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
-//! and that the return is to be rewritten. The project guide is read from main as the work's branch merged it, so the
-//! work's own edits never change it; when main changed it since the version a session holds, the session is given only
-//! the entries that differ, under the new version's address.
+//! and that the return is to be rewritten.
+//!
+//! The standard context is what every agent needs once in a session: the return formats, the lists of inputs, the
+//! rules, the project guide, the project's settings and the worktree. When one of them changed since the version a
+//! session holds, the session is given only what changed: the lines of a text that differ, the entries of an object.
+//! The project guide is read from main as the work's branch merged it, so the work's own edits never change it.
+//!
+//! Before a message is sent, it is checked for what it would give whole that its session already holds: content the
+//! session got before, under any address, or a whole new version of an input of the standard context. Such a message
+//! is not sent; it is the engine's fault, and the work is paused for the owner.
 //!
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
@@ -33,11 +40,18 @@ use crate::work::{Item, Round, RoundId, Work};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conditional {
     pub address: String,
-    /// What it is: a text, or JSON.
+    /// What the message writes for it: a text, or JSON; for one given as what changed, that change.
     pub content: Value,
+    /// The hash of its content: of the whole version the session holds once given it, even when only what changed
+    /// in it is written.
     pub hash: String,
     /// Given in this message; otherwise the session already holds it, and the message only refers to it.
     pub given: bool,
+    /// Given as what changed in the version the session held, not whole.
+    pub changes: bool,
+    /// For an input of the standard context, the key `contents` keeps its whole version under, so that a later round
+    /// can give only what changed in it.
+    pub text: Option<String>,
 }
 
 /// An agent round's message: its text, word for word, and every conditional input it gives or refers to.
@@ -53,15 +67,28 @@ pub struct Message {
     /// The round a short message goes on from, a return sent back or a round cut off midway: the session holds
     /// everything that round was given, and only the interjections it was given are this round's.
     pub continues: Option<RoundId>,
+    /// What the message would give whole that its session already holds, each said with the input's address, its
+    /// size and the round the session got it or its earlier version in; a message with any is not sent.
+    pub repeats: Vec<String>,
 }
 
 impl Message {
-    /// The conditional inputs as a round records them: each by its address and hash, given or referred to.
+    /// The conditional inputs as a round records them: each by its address and hash, given or referred to, whether
+    /// only what changed was given, and for an input of the standard context the key its whole version is kept under.
     pub fn record(&self) -> Value {
         Value::Array(
             self.conditional
                 .iter()
-                .map(|m| json!({ "address": m.address, "hash": m.hash, "given": m.given }))
+                .map(|m| {
+                    let mut r = json!({ "address": m.address, "hash": m.hash, "given": m.given });
+                    if m.changes {
+                        r["changes"] = Value::Bool(true);
+                    }
+                    if let Some(t) = &m.text {
+                        r["text"] = Value::String(t.clone());
+                    }
+                    r
+                })
                 .collect(),
         )
     }
@@ -72,9 +99,17 @@ pub fn round_of(address: &str) -> Option<RoundId> {
     RoundId::parse(address.split('·').next()?)
 }
 
-/// The conditional inputs a round recorded, each as its address and hash; none for a round recorded before they
-/// were. A round recorded before they were called so keeps them under `materials`.
-fn recorded(input: &Value) -> Vec<(String, String)> {
+/// One conditional input a round recorded.
+struct Recorded {
+    address: String,
+    hash: String,
+    /// The key its whole version is kept under, for an input of the standard context recorded since rounds kept it.
+    text: Option<String>,
+}
+
+/// The conditional inputs a round recorded; none for a round recorded before they were. A round recorded before they
+/// were called so keeps them under `materials`.
+fn recorded(input: &Value) -> Vec<Recorded> {
     input
         .get("conditional")
         .or_else(|| input.get("materials"))
@@ -82,10 +117,43 @@ fn recorded(input: &Value) -> Vec<(String, String)> {
         .as_array()
         .map(|xs| {
             xs.iter()
-                .filter_map(|m| Some((m["address"].as_str()?.to_string(), m["hash"].as_str()?.to_string())))
+                .filter_map(|m| {
+                    Some(Recorded {
+                        address: m["address"].as_str()?.to_string(),
+                        hash: m["hash"].as_str()?.to_string(),
+                        text: m["text"].as_str().map(str::to_string),
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// How the address of a version of the project guide ends, and the input of the standard context it is.
+const GUIDE_ADDRESS: &str = "·engine·project_guide";
+const GUIDE_INPUT: &str = "engine·project_guide";
+
+/// Which input of the standard context an address is a version of: the project guide, whose versions have addresses
+/// of their own, or a return format, a list of inputs, a rule, a setting or the worktree, whose versions share one;
+/// none for an address of anything else.
+pub fn standard(address: &str) -> Option<&str> {
+    if address.ends_with(GUIDE_ADDRESS) {
+        return Some(GUIDE_INPUT);
+    }
+    ["format:", "inputs:", "rule:", "config:", "work:"]
+        .iter()
+        .any(|p| address.starts_with(p))
+        .then_some(address)
+}
+
+/// A version of an input of the standard context a session holds: its address, the hash of its content, the round
+/// the session got it in, and the key `contents` keeps it under, none for a version recorded before rounds kept it.
+#[derive(Debug, Clone)]
+pub struct Version {
+    pub address: String,
+    pub hash: String,
+    pub round: RoundId,
+    pub text: Option<String>,
 }
 
 /// What a session already holds: what it was given and what it handed back since it was last compacted.
@@ -97,17 +165,10 @@ pub struct Held {
     pub rounds: BTreeSet<RoundId>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
     pub compacted: Option<RoundId>,
-    /// The latest version of the project guide it holds.
-    pub guide: Option<HeldGuide>,
-}
-
-/// A version of the project guide a session holds: its address, the hash of its content, and the commit it was read
-/// from, which reads it again as it was; none for a round recorded before rounds recorded that commit.
-#[derive(Debug, Clone)]
-pub struct HeldGuide {
-    pub address: String,
-    pub hash: String,
-    pub commit: Option<String>,
+    /// Where it first got each content it holds, by the content's hash: the round, and the address it got it under.
+    pub got: HashMap<String, (RoundId, String)>,
+    /// The latest version it holds of each input of the standard context, by which input it is.
+    pub standard: HashMap<String, Version>,
 }
 
 impl Held {
@@ -127,15 +188,25 @@ impl Held {
                 continue;
             }
             h.rounds.insert(r.id);
-            let given = recorded(&r.input);
-            if let Some((address, hash)) = given.iter().find(|(a, _)| a.ends_with(GUIDE_ADDRESS)) {
-                h.guide = Some(HeldGuide {
-                    address: address.clone(),
-                    hash: hash.clone(),
-                    commit: r.input["engine"]["guide"].as_str().map(str::to_string),
-                });
+            for x in recorded(&r.input) {
+                let round = h.got.entry(x.hash.clone()).or_insert((r.id, x.address.clone())).0;
+                if let Some(input) = standard(&x.address) {
+                    let text = x.text.clone().or_else(|| {
+                        h.standard
+                            .get(input)
+                            .filter(|v| v.hash == x.hash)
+                            .and_then(|v| v.text.clone())
+                    });
+                    let v = Version {
+                        address: x.address.clone(),
+                        hash: x.hash.clone(),
+                        round,
+                        text,
+                    };
+                    h.standard.insert(input.to_string(), v);
+                }
+                h.conditional.insert((x.address, x.hash));
             }
-            h.conditional.extend(given);
         }
         h
     }
@@ -152,10 +223,10 @@ impl Held {
 pub fn registry(work_rounds: &[Round]) -> HashMap<String, Vec<String>> {
     let mut out: HashMap<String, Vec<String>> = HashMap::new();
     for r in work_rounds {
-        for (address, hash) in recorded(&r.input) {
-            let seen = out.entry(hash).or_default();
-            if !seen.contains(&address) {
-                seen.push(address);
+        for x in recorded(&r.input) {
+            let seen = out.entry(x.hash).or_default();
+            if !seen.contains(&x.address) {
+                seen.push(x.address);
             }
         }
     }
@@ -183,9 +254,6 @@ fn empty(v: &Value) -> bool {
     }
 }
 
-/// How the address of a version of the project guide ends.
-const GUIDE_ADDRESS: &str = "·engine·project_guide";
-
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
 /// AGENTS.md and design tree) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
@@ -198,6 +266,69 @@ fn render(v: &Value) -> String {
         Value::String(s) => s.trim_end().to_string(),
         other => other.to_string(),
     }
+}
+
+/// What a message wrote under an address, as each text it may be: the message does not mark where a text that holds
+/// headings of its own ends, so each heading after it is a place it may end, and a text may have ended in a line break
+/// the message left out.
+fn written_under(message: &str, address: &str) -> Vec<String> {
+    let heading = format!("### {address}\n\n");
+    let Some(at) = message.find(&heading) else {
+        return Vec::new();
+    };
+    let rest = &message[at + heading.len()..];
+    rest.match_indices("\n\n#")
+        .map(|(i, _)| i)
+        .chain(std::iter::once(rest.len()))
+        .flat_map(|i| [rest[..i].to_string(), format!("{}\n", &rest[..i])])
+        .collect()
+}
+
+/// Whether an address names a row of the database that is its own thing whatever it says: an interjection, an ask of
+/// the owner, a design card or the item. One that says what another said is new at its place, not a repeat.
+fn own_thing(address: &str) -> bool {
+    ["ij:", "ask:", "design_card:", "item:"]
+        .iter()
+        .any(|p| address.starts_with(p))
+}
+
+/// What a message would give whole that its session already holds, each said with the input's address, its size and
+/// the round the session got it, or its earlier version, in: content the session got before under any address (a
+/// word or a number two places give alike is not one thing, and a row of the database that is its own thing is new
+/// at its place), and a whole new version of an input of the standard context the session holds an earlier version
+/// of, of which only what changed may be given. A value new at its place, such as another round's return or what the
+/// engine reports of the work as it is now, is new content, and a session started afresh or just compacted holds
+/// nothing.
+fn repeats(held: &Held, list: &[Conditional]) -> Vec<String> {
+    list.iter()
+        .filter(|c| c.given && !c.changes)
+        .filter_map(|c| {
+            let size = render(&c.content).chars().count();
+            if copied(&c.content)
+                && !own_thing(&c.address)
+                && let Some((round, at)) = held.got.get(&c.hash)
+            {
+                let under = if *at == c.address {
+                    String::new()
+                } else {
+                    format!(" as {at}")
+                };
+                return Some(format!(
+                    "{} ({size} characters) would be given whole again, though the session got the same content in \
+                     {round}{under}",
+                    c.address
+                ));
+            }
+            let v = held.standard.get(standard(&c.address)?)?;
+            (v.hash != c.hash).then(|| {
+                format!(
+                    "{} ({size} characters) would be given whole, though the session holds its earlier version {} \
+                     from {}, and only what changed in it may be given",
+                    c.address, v.address, v.round
+                )
+            })
+        })
+        .collect()
 }
 
 /// The kinds of question a project cannot meet, which its agents are not told of: those whose need it does not meet.
@@ -253,6 +384,9 @@ struct Conditionals<'a> {
     held: &'a Held,
     registry: &'a HashMap<String, Vec<String>>,
     list: Vec<Conditional>,
+    /// The whole version of each input of the standard context the message gives or refers to, by the key `contents`
+    /// keeps it under.
+    kept: Vec<(String, String)>,
 }
 
 impl Conditionals<'_> {
@@ -265,25 +399,47 @@ impl Conditionals<'_> {
             return m.address.clone();
         }
         let given = !self.held.holds(&address, &h);
+        let text = self.keep(&address, &content);
         self.list.push(Conditional {
             address: address.clone(),
             content,
             hash: h,
             given,
+            changes: false,
+            text,
         });
         address
     }
 
-    /// Adds a conditional input the session holds an earlier version of by giving only what this version changes in
-    /// it: the message writes `changes` under the address, and the session then holds `content` under it.
+    /// Adds an input of the standard context the session holds an earlier version of by giving only what this version
+    /// changes in it: the message writes `changes` under the address, and the session then holds `content` under it.
     fn add_changes(&mut self, address: String, content: &Value, changes: Value) -> String {
+        let text = self.keep(&address, content);
         self.list.push(Conditional {
             address: address.clone(),
             content: changes,
             hash: hash(content),
             given: true,
+            changes: true,
+            text,
         });
         address
+    }
+
+    /// Keeps the whole version of an input of the standard context, so that a later round can give only what changes
+    /// in it, and gives the key it is kept under; none for any other input. A text is kept as it is, anything else as
+    /// its JSON.
+    fn keep(&mut self, address: &str, content: &Value) -> Option<String> {
+        standard(address)?;
+        let text = match content {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        let key = db::content_hash(&text);
+        if !self.kept.iter().any(|(k, _)| *k == key) {
+            self.kept.push((key.clone(), text));
+        }
+        Some(key)
     }
 
     /// The address of a round's value: of the rounds that produced the same content in the work, wherever it was
@@ -316,30 +472,68 @@ impl Context<'_> {
             .unwrap_or_else(|| format!("{}{suffix}", self.round))
     }
 
-    /// What main changed in the project guide since the version the session holds, when it holds an earlier one and
-    /// not this one: the entries that differ, as one small input under this version's address, instead of the whole
-    /// guide again. None when the session holds this version or none, or when the version it holds cannot be read
-    /// again as it was; the guide is then given whole.
-    fn guide_changes(&self, p: &Part, address: &str, content: &Value) -> Option<Value> {
-        if !matches!(&p.origin, Origin::Engine(n) if n == GUIDE) {
+    /// Adds a conditional input: for an input of the standard context the session holds an earlier version of, only
+    /// what changed in it; any other as [`Conditionals::add`] does.
+    fn give(&self, m: &mut Conditionals<'_>, address: String, content: Value) -> String {
+        match self.changes(&address, &content) {
+            Some(changes) => m.add_changes(address, &content, changes),
+            None => m.add(address, content),
+        }
+    }
+
+    /// What changed in an input of the standard context since the latest version the session holds, when that is
+    /// another: the lines of a text that differ, as a unified diff, or the entries of an object that differ. None when
+    /// the session holds no version of it or holds this one as its latest, and when the version it holds cannot be
+    /// read again as it was, for which the check before sending stops the message.
+    fn changes(&self, address: &str, content: &Value) -> Option<Value> {
+        let held = self.held.standard.get(standard(address)?)?;
+        if held.hash == hash(content) {
             return None;
         }
-        let h = hash(content);
-        let held = self.held.guide.as_ref().filter(|g| g.hash != h)?;
-        if self.held.holds(address, &h) {
-            return None;
-        }
-        let wt = self.w.worktree.as_deref()?;
-        let earlier = crate::inputs::project_guide(self.e, self.item, wt, held.commit.as_deref()?).ok()?;
-        if hash(&earlier) != held.hash {
-            return None;
-        }
-        Some(Value::String(format!(
-            "Main changed the project guide since {}: these are its entries that differ, each in place of the one \
-             there, null for one no longer there. {}",
-            held.address,
-            config::guide_changes(&earlier, content)
-        )))
+        let earlier = self.version(held, content)?;
+        let what = match (&earlier, content) {
+            (Value::String(was), Value::String(is)) => format!(
+                "What changed since {}, given in {}, as a unified diff of its lines:\n{}",
+                held.address,
+                held.round,
+                crate::changes::lines(was, is)
+            ),
+            (Value::Object(_), Value::Object(_)) => format!(
+                "What changed since {}, given in {}: each entry here takes the place of the one there, and null \
+                 removes it. {}",
+                held.address,
+                held.round,
+                crate::changes::entries(&earlier, content)
+            ),
+            _ => return None,
+        };
+        Some(Value::String(what))
+    }
+
+    /// A version of an input the session holds, read again as it was: from `contents`, or for a version recorded
+    /// before rounds kept it there, from the message of the round that gave it whole; none when neither reads back to
+    /// its hash.
+    fn version(&self, v: &Version, like: &Value) -> Option<Value> {
+        let conn = self.e.db.conn();
+        let texts: Vec<String> = match &v.text {
+            Some(key) => conn
+                .query_row("SELECT text FROM contents WHERE hash = ?1", [key], |r| r.get(0))
+                .ok()
+                .into_iter()
+                .collect(),
+            None => {
+                let r = self.rounds.iter().find(|r| r.id == v.round)?;
+                let message = db::put_back(conn, &r.input["message"]);
+                written_under(message.as_str()?, &v.address)
+            }
+        };
+        texts.into_iter().find_map(|t| {
+            let value = match like {
+                Value::String(_) => Value::String(t),
+                _ => serde_json::from_str(&t).ok()?,
+            };
+            (hash(&value) == v.hash).then_some(value)
+        })
     }
 
     fn cell_of_round(&self, id: RoundId) -> Option<String> {
@@ -537,6 +731,7 @@ impl Context<'_> {
             kept: Vec::new(),
             conditional: Vec::new(),
             continues: Some(prev),
+            repeats: Vec::new(),
         };
         if let Some((prev, reason)) = self.sent_back() {
             let text = format!(
@@ -557,6 +752,7 @@ impl Context<'_> {
             held: self.held,
             registry: self.registry,
             list: Vec::new(),
+            kept: Vec::new(),
         };
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
@@ -564,17 +760,19 @@ impl Context<'_> {
         // project cannot meet are left out of the formats.
         let project = e.config.config.projects.get(&item.project);
         let gone = kinds_left_out(g, project);
-        m.add(
+        self.give(
+            &mut m,
             "format:common".into(),
             Value::String(with_settings(e, &item.project, common_format(g, &gone), true)),
         );
-        m.add(
+        self.give(
+            &mut m,
             format!("format:{}", c.id),
             Value::String(with_settings(e, &item.project, cell_format(g, c, &gone), true)),
         );
         let numbered = cell_inputs(c);
         if !numbered.is_empty() {
-            m.add(format!("inputs:{}", c.id), Value::String(numbered));
+            self.give(&mut m, format!("inputs:{}", c.id), Value::String(numbered));
         }
         let mut rules = Vec::new();
         for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
@@ -582,7 +780,7 @@ impl Context<'_> {
                 continue;
             };
             let text = with_settings(e, &item.project, text.trim().to_string(), false);
-            rules.push(m.add(format!("rule:{name}"), Value::String(text)));
+            rules.push(self.give(&mut m, format!("rule:{name}"), Value::String(text)));
         }
         for r in &c.rules {
             if let Some(rule) = g.rules.iter().find(|x| x.name == r.name) {
@@ -593,14 +791,14 @@ impl Context<'_> {
                     format!("{}\n\n{}", rule.desc, lines.join("\n")),
                     false,
                 );
-                rules.push(m.add(format!("rule:{}", rule.name), Value::String(text)));
+                rules.push(self.give(&mut m, format!("rule:{}", rule.name), Value::String(text)));
             }
         }
         // A line the configuration keeps from changing anything only reads the worktree.
         let line = c.line.clone().unwrap_or_else(|| "engineer".to_string());
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
-        let workspace =
-            workspace(w, project, read_only).map(|text| m.add(format!("work:{}", w.id), Value::String(text)));
+        let workspace = workspace(w, project, read_only)
+            .map(|text| self.give(&mut m, format!("work:{}", w.id), Value::String(text)));
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full.
         let mut work_from = Vec::new();
@@ -628,10 +826,7 @@ impl Context<'_> {
                     if empty(&content) {
                         continue;
                     }
-                    let a = match self.guide_changes(p, &address, &content) {
-                        Some(changes) => m.add_changes(address, &content, changes),
-                        None => m.add(address, content),
-                    };
+                    let a = self.give(&mut m, address, content);
                     if a.starts_with("ij:") && !interjections.contains(&a) {
                         interjections.push(a.clone());
                     }
@@ -700,11 +895,17 @@ impl Context<'_> {
             out.line("");
         }
         out.line(&format!("Hand in one JSON object, as format:{} says.", c.id));
-        let (text, stored, kept) = out.finish();
+        let (text, stored, mut kept) = out.finish();
+        for (key, whole) in m.kept {
+            if !kept.iter().any(|(k, _)| *k == key) {
+                kept.push((key, whole));
+            }
+        }
         Message {
             text,
             stored,
             kept,
+            repeats: repeats(self.held, &m.list),
             conditional: m.list,
             continues: None,
         }
@@ -991,6 +1192,7 @@ mod tests {
             held: &held,
             registry: &registry,
             list: Vec::new(),
+            kept: Vec::new(),
         };
         // An address written before rounds were named by their work is never given again.
         assert_eq!(
@@ -1018,6 +1220,113 @@ mod tests {
             "R4-30·2a·acceptance"
         );
         assert_eq!(m.list.len(), 3);
+    }
+
+    // What a message would give whole that its session holds is caught: the same content under another address, and
+    // a whole new version of an input of the standard context, each with the round the session got it in. Only what
+    // changed passes, and so do values new at their place, a word two places give alike, an interjection that says
+    // what another said, and anything given to a session that holds nothing.
+    #[test]
+    fn a_repeat_is_caught_and_what_is_new_passes() {
+        let guide = json!({ "agents_md": "How to work.", "design_tree": { "design/a.md": "A" }, "cited_nodes": {} });
+        let newer = json!({ "agents_md": "How to work.", "design_tree": { "design/a.md": "A", "design/b.md": "B" } });
+        let results = json!({ "results": [{ "tool": "query", "ran": { "rows": [1] } }] });
+        let findings = json!([{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R1" }] }]);
+        let ci = json!({ "fast": { "head": "a", "result": "red" } });
+        let said = json!("From the owner: go on");
+        let record = |xs: &[(&str, &Value)]| {
+            let xs: Vec<Value> = xs
+                .iter()
+                .map(|(a, v)| json!({ "address": a, "hash": hash(v), "given": true }))
+                .collect();
+            json!({ "conditional": xs })
+        };
+        let session = [
+            round(
+                2,
+                record(&[
+                    ("R1-2·engine·project_guide", &guide),
+                    ("rule:ground", &json!("Facts first.")),
+                    ("R1-2·engine·rethought", &json!("no")),
+                    ("ij:1", &said),
+                ]),
+                Some(json!({})),
+                0,
+            ),
+            round(
+                4,
+                record(&[
+                    ("R1-3·13·results", &results),
+                    ("R1-4·5a·columns[findings]", &findings),
+                    ("R1-4·engine·work_ci", &ci),
+                ]),
+                Some(json!({})),
+                0,
+            ),
+        ];
+        let held = Held::of(&session);
+        let one = |address: &str, content: Value| Conditional {
+            address: address.into(),
+            hash: hash(&content),
+            content,
+            given: true,
+            changes: false,
+            text: None,
+        };
+        let caught = repeats(
+            &held,
+            &[
+                one("rule:elsewhere", json!("Facts first.")),
+                one("R1-7·engine·project_guide", newer.clone()),
+            ],
+        );
+        assert_eq!(caught.len(), 2, "{caught:?}");
+        assert!(
+            caught[0].starts_with("rule:elsewhere (12 characters) would be given whole again")
+                && caught[0].ends_with("in R1-2 as rule:ground"),
+            "{}",
+            caught[0]
+        );
+        assert!(
+            caught[1].starts_with("R1-7·engine·project_guide (")
+                && caught[1].contains("its earlier version R1-2·engine·project_guide from R1-2"),
+            "{}",
+            caught[1]
+        );
+        let changed = Conditional {
+            hash: hash(&newer),
+            changes: true,
+            ..one(
+                "R1-7·engine·project_guide",
+                json!("What changed since R1-2·engine·project_guide"),
+            )
+        };
+        let new = [
+            changed,
+            one(
+                "R1-9·13·results",
+                json!({ "results": [{ "tool": "query", "ran": { "rows": [2] } }] }),
+            ),
+            one(
+                "R1-9·5a·columns[findings]",
+                json!([{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R2" }] }]),
+            ),
+            one(
+                "R1-9·engine·work_ci",
+                json!({ "fast": { "head": "b", "result": "green" } }),
+            ),
+            one("R1-9·3b·answer.verdict", json!("no")),
+            one("ij:2", said.clone()),
+        ];
+        assert_eq!(repeats(&held, &new), Vec::<String>::new());
+        let mut compacted = session.to_vec();
+        compacted.push(round(5, json!({}), Some(json!({})), 1));
+        let again = [
+            one("rule:ground", json!("Facts first.")),
+            one("R1-7·engine·project_guide", newer),
+        ];
+        assert_eq!(repeats(&Held::default(), &again), Vec::<String>::new());
+        assert_eq!(repeats(&Held::of(&compacted), &again), Vec::<String>::new());
     }
 
     // The forms every return shares hold every tool and every role any cell has; a cell's own format names the ones

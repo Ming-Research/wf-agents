@@ -552,7 +552,7 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
 }
 
 /// The branch of the project the flow calls main.
-pub fn main_of(e: &Engine, item: &Item) -> String {
+fn main_of(e: &Engine, item: &Item) -> String {
     e.config
         .config
         .projects
@@ -561,26 +561,19 @@ pub fn main_of(e: &Engine, item: &Item) -> String {
         .unwrap_or_else(|| "main".into())
 }
 
-/// Whether a cell is given the project guide.
-pub fn reads_guide(cell: &CompiledCell) -> bool {
-    cell.inputs
-        .iter()
-        .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n == GUIDE)))
-}
-
 /// The engine's value the project guide is.
 pub const GUIDE: &str = "project_guide";
 
 /// The commit the project guide of a work is read from: main as the work's branch has merged it, the merge base of
 /// its head and the fetched main. What the work itself changes on its branch is never in it, so its own edits to the
 /// design tree or to AGENTS.md never make the guide a new one to give again: the agent knows what it edited.
-pub fn guide_base(wt: &Path, main: &str) -> Result<String, String> {
+fn guide_base(wt: &Path, main: &str) -> Result<String, String> {
     git::fork_point(wt, main)
 }
 
 /// The project guide for the item as a commit of the project has it, read with git from the work's worktree: what
 /// the project says of itself, with the full text of the nodes the item names.
-pub fn project_guide(e: &Engine, item: &Item, wt: &Path, commit: &str) -> Result<Value, String> {
+fn project_guide(e: &Engine, item: &Item, wt: &Path, commit: &str) -> Result<Value, String> {
     let text = format!(
         "{} {} {}",
         item.title,

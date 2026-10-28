@@ -15,6 +15,7 @@ pub mod git;
 pub mod hub;
 
 mod actions;
+mod changes;
 mod checks;
 mod failed;
 mod inputs;

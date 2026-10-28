@@ -1853,10 +1853,11 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A conditional input whose content changed is given again under its address; after a compaction the session holds nothing,
-// and the next round is given what it needs again, the session's own earlier returns included.
+// A rule that changed since the session got it is given as what changed in it, under its address; after a compaction the
+// session holds nothing, and the next round is given what it needs again whole, the session's own earlier returns
+// included.
 #[test]
-fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compaction() {
+fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     let s = setup("again");
     let mut scripts = scripts();
     scripts.insert(
@@ -1878,6 +1879,21 @@ fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compa
     let (a, b, c) = (&rounds[0].2, &rounds[1].2, &rounds[2].2);
     assert_eq!(given(b, "rule:ground"), Some(true));
     assert_ne!(hash_of(a, "rule:ground"), hash_of(b, "rule:ground"));
+    let changes = |input: &Value| {
+        input["conditional"]
+            .as_array()
+            .and_then(|xs| xs.iter().find(|m| m["address"] == "rule:ground"))
+            .map(|m| m["changes"] == true)
+    };
+    assert_eq!((changes(b), changes(c)), (Some(true), Some(false)));
+    assert_eq!(
+        given_text(b, "rule:ground").unwrap().trim_end(),
+        format!(
+            "What changed since rule:ground, given in {}, as a unified diff of its lines:\n@@ -1,1 +1,1 @@\n\
+             -Facts first.\n+Facts first, then the rest.",
+            rounds[0].0
+        )
+    );
     assert_eq!(given(b, "format:common"), Some(false));
     assert_eq!(given(c, "format:common"), Some(true));
     assert_eq!(given(c, "rule:ground"), Some(true));
@@ -1967,7 +1983,11 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
     assert_eq!(changed, format!("{}·engine·project_guide", rounds[1].0));
     let text = given_text(&rounds[1].2, &changed).unwrap();
     assert!(
-        text.starts_with(&format!("Main changed the project guide since {first}: ")),
+        text.starts_with(&format!(
+            "What changed since {first}, given in {}: each entry here takes the place of the one there, and null \
+             removes it. ",
+            rounds[0].0
+        )),
         "{text}"
     );
     assert!(
@@ -1980,6 +2000,53 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
         "{text}"
     );
     assert_eq!(guide_in(&rounds[2].2), Some((changed, false)));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A message that would give its session whole what the session already holds is not sent: the work is paused by the
+// engine, with a reason naming the input, its size and the round the session got it in, and the owner is told. The
+// session's record is made to hold the rule under another address, as a fault of the addresses would.
+#[test]
+fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
+    let s = setup("repeat");
+    let (mut e, said, item) = start(&s, scripts());
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET input = replace(input, '\"address\":\"rule:ground\"', '\"address\":\"rule:elsewhere\"')
+             WHERE work = ?1 AND n = 2",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let before = rounds_count(&e);
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "1a", "{log}");
+    let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
+    assert!(
+        paused.starts_with(&format!(
+            "cell 1a: the message of R{work}-3 was not sent, since it would repeat what its session holds: \
+             rule:ground (12 characters) would be given whole again, though the session got the same content in \
+             R{work}-2 as rule:elsewhere"
+        )),
+        "{paused}"
+    );
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
+    assert_eq!(rounds_count(&e), before, "nothing was sent:\n{log}");
+    let notices: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell 1a: the message%'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(notices, 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

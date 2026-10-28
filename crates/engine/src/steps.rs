@@ -116,9 +116,18 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         columns,
         table,
         number,
-        guide,
         msg,
     } = compose(e, w, g, cell, &item)?;
+    // A message that would give its session whole what the session already holds is the engine's fault: it is not
+    // sent, and the work waits for the owner.
+    if !msg.repeats.is_empty() {
+        let why = format!(
+            "cell {}: the message of {number} was not sent, since it would repeat what its session holds: {}",
+            cell.id,
+            msg.repeats.join("; ")
+        );
+        return failed::pause(e, w, &why);
+    }
     // A session the CLI has started is resumed; one it never started is started under the id kept for it.
     let used = line_rounds
         .iter()
@@ -179,9 +188,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
-        "engine": {
-            "head": head, "change": change, "columns": columns, "table": table, "interjections": ids, "guide": guide
-        },
+        "engine": { "head": head, "change": change, "columns": columns, "table": table, "interjections": ids },
     });
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -294,9 +301,6 @@ struct Composed {
     table: Vec<Value>,
     /// The round it will be.
     number: RoundId,
-    /// The commit the project guide is read from, for a cell given it: the round's record keeps it, so that a later
-    /// round can read the version its session holds again and give only what changed.
-    guide: Option<String>,
     msg: message::Message,
 }
 
@@ -331,10 +335,6 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
     let columns = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
     let number = work::next_round(e.db.conn(), w.id)?;
-    let guide = match w.worktree.as_deref() {
-        Some(wt) if inputs::reads_guide(cell) => Some(inputs::guide_base(wt, &inputs::main_of(e, item))?),
-        _ => None,
-    };
     let msg = message::Context {
         e,
         w,
@@ -370,7 +370,6 @@ fn compose(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: &
         columns,
         table,
         number,
-        guide,
         msg,
     })
 }

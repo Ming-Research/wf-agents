@@ -826,38 +826,6 @@ fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde
     json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
 }
 
-/// What a later version of a project guide changes in an earlier one, as the later one has it: its AGENTS.md when that
-/// differs, and each entry of the index and each cited node that differs, null for one the later version no longer
-/// has. Empty when they are the same.
-pub fn guide_changes(earlier: &serde_json::Value, later: &serde_json::Value) -> serde_json::Value {
-    use serde_json::{Map, Value};
-    let mut out = Map::new();
-    if earlier["agents_md"] != later["agents_md"] {
-        out.insert("agents_md".into(), later["agents_md"].clone());
-    }
-    let none = Map::new();
-    for key in ["design_tree", "cited_nodes"] {
-        let (was, is) = (
-            earlier[key].as_object().unwrap_or(&none),
-            later[key].as_object().unwrap_or(&none),
-        );
-        let mut changed: Map<String, Value> = is
-            .iter()
-            .filter(|(k, v)| was.get(*k) != Some(*v))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        changed.extend(
-            was.keys()
-                .filter(|k| !is.contains_key(*k))
-                .map(|k| (k.clone(), Value::Null)),
-        );
-        if !changed.is_empty() {
-            out.insert(key.into(), Value::Object(changed));
-        }
-    }
-    Value::Object(out)
-}
-
 /// The texts of git objects of a repository, in the order of their names, read by one run of git.
 fn blob_texts(repo: &Path, objects: &[&str]) -> Result<Vec<String>, String> {
     use std::io::Write;
@@ -1123,8 +1091,7 @@ asks = 9
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // The project guide of a commit is read from the commit alone, whatever the worktree's files say; what a later
-    // guide changes is its entries that differ, null for one it no longer has.
+    // The project guide of a commit is read from the commit alone, whatever the worktree's files say.
     #[test]
     fn the_guide_of_a_commit_is_what_the_commit_holds() {
         let dir = std::env::temp_dir().join(format!("wf-agents-guide-{}", std::process::id()));
@@ -1165,15 +1132,12 @@ asks = 9
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "second"]);
         let second = run(&["rev-parse", "HEAD"]).trim().to_string();
         let later = project_guide_at(&dir, &second, &design, "it cites design/a/b.md").unwrap();
+        assert_eq!(later["agents_md"], "Changed, not committed.\n");
         assert_eq!(
-            guide_changes(&g, &later),
-            serde_json::json!({
-                "agents_md": "Changed, not committed.\n",
-                "design_tree": { "design/a/new.md": "Decision: new.", "design/a/b.md": null },
-                "cited_nodes": { "design/a/b.md": null }
-            })
+            later["design_tree"],
+            serde_json::json!({ "design/a.md": "Decision: a.", "design/a/new.md": "Decision: new." })
         );
-        assert_eq!(guide_changes(&later, &later), serde_json::json!({}));
+        assert_eq!(later["cited_nodes"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
