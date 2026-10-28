@@ -32,6 +32,7 @@ import { settingsChange, settingsProblems } from './pages/Settings';
 import { tiersAllowed } from './pages/Item';
 import { spendTable } from './spend';
 import { gapsOf, usageOf } from './usage';
+import { stateChanges } from './architect';
 
 describe('the message catalog', () => {
   it('has every text, none empty, all in English', () => {
@@ -982,6 +983,22 @@ describe('the settings on the page', () => {
   it('offers an item no tier above the highest', () => {
     expect(tiersAllowed(settings)).toEqual(['1', '2', '3']);
     expect(tiersAllowed({ ...settings, highest_level: null })).toEqual(['1', '2', '3', '4']);
+  });
+});
+
+describe("the architect's state of things", () => {
+  it('says what each version changed from the one before it, line by line, and the first is all new', () => {
+    const before: JsonValue = { lines: [{ line: 'A', where: 'x' }, { line: 'B', where: 'b' }], changed: 'c1' };
+    const after: JsonValue = { lines: [{ line: 'A', where: 'y' }, { line: 'C', where: 'c' }], changed: 'c2' };
+    const c = stateChanges(before, after);
+    expect(c.lines.map((l) => [l.line, l.kind])).toEqual([
+      ['A', 'changed'],
+      ['C', 'added'],
+      ['B', 'removed'],
+    ]);
+    expect(c.lines[0].fields.filter((f) => f.changed)).toEqual([{ field: 'where', before: 'x', after: 'y', changed: true }]);
+    expect(c.changed).toEqual({ before: 'c1', after: 'c2' });
+    expect(stateChanges(null, after).lines.map((l) => l.kind)).toEqual(['added', 'added']);
   });
 });
 

@@ -100,3 +100,47 @@ export function againstInOrder(rows: JsonValue): Obj[] {
     .sort((a, b) => rank(str(a.r.status)) - rank(str(b.r.status)) || a.i - b.i)
     .map((x) => x.r);
 }
+
+/// What one line of work became from one version of the state of things to the next: new, gone, changed or the same,
+/// each of its fields with what it was and what it is.
+export type LineChange = {
+  line: string;
+  kind: 'added' | 'removed' | 'changed' | 'same';
+  fields: Array<{ field: string; before: string | null; after: string | null; changed: boolean }>;
+};
+
+/// The fields a line of work holds, in the order the page shows them.
+export const LINE_FIELDS = ['line', 'serves', 'approach', 'where', 'stuck', 'recent'] as const;
+
+/// What changed from one version of the state of things to the next, part by part: its lines of work, matched by
+/// their name, in the new version's order with those gone after them; and what it says changed. With no version
+/// before it, everything is new.
+export function stateChanges(
+  before: JsonValue | null,
+  after: JsonValue,
+): { lines: LineChange[]; changed: { before: string | null; after: string } } {
+  const rows = (v: JsonValue | null): Obj[] => (isObj(v) && Array.isArray(v.lines) ? v.lines.filter(isObj) : []);
+  const key = (o: Obj) => str(o.line).trim();
+  const old = new Map(rows(before).map((o) => [key(o), o]));
+  const now = rows(after);
+  const seen = new Set(now.map(key));
+  const fields = (o: Obj | undefined, n: Obj | undefined) =>
+    LINE_FIELDS.map((f) => {
+      const b = o !== undefined ? str(o[f]) : null;
+      const a = n !== undefined ? str(n[f]) : null;
+      return { field: f, before: b, after: a, changed: o !== undefined && n !== undefined && b !== a };
+    });
+  const lines: LineChange[] = now.map((n) => {
+    const o = before === null ? undefined : old.get(key(n));
+    const f = fields(o, n);
+    const kind: LineChange['kind'] = o === undefined ? 'added' : f.some((x) => x.changed) ? 'changed' : 'same';
+    return { line: key(n), kind, fields: f };
+  });
+  for (const [k, o] of old) {
+    if (!seen.has(k)) lines.push({ line: k, kind: 'removed', fields: fields(o, undefined) });
+  }
+  return {
+    lines,
+    changed: { before: isObj(before) ? str(before.changed) : null, after: isObj(after) ? str(after.changed) : '' },
+  };
+}

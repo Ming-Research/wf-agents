@@ -4,10 +4,10 @@
 // second look; the state of things and the check against the constitution; the plan. A value not of the shape expected
 // is shown as labelled text, never as a tree of JSON.
 
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import type { JsonValue, LogEntry, PlanBudget, PlanGate, PlanSegment, Said, Understanding } from '../api';
-import { againstInOrder } from '../architect';
+import { againstInOrder, LINE_FIELDS, stateChanges } from '../architect';
 import { time } from '../format';
 import { Field, Fold, OptionBoxes } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
@@ -551,6 +551,82 @@ export function LogEntryView({ e, open, live, onRound }: {
   );
 }
 
+/// Every version of the state of things, newest first, one at a time with the newer and older ones a click away: its
+/// wake and round, each line of work marked new, changed or gone since the version before it (what a changed field was
+/// struck through, what it is now marked), what it says changed and what its wake learned; the first version is all
+/// new.
+function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
+  const [at, setAt] = useState(0);
+  const versions = u.versions;
+  const v = versions[Math.min(at, versions.length - 1)];
+  if (v === undefined) return null;
+  const k = Math.min(at, versions.length - 1);
+  const before = versions[k + 1];
+  const c = stateChanges(before !== undefined ? before.state : null, v.state);
+  const said: Said = { work: v.work, round: v.round, at: v.at, value: v.state };
+  const chip = (kind: string) =>
+    kind === 'added' ? t('line_added') : kind === 'changed' ? t('line_changed') : kind === 'removed' ? t('line_removed') : '';
+  return (
+    <section className="arch-part">
+      <div className="work-item-head">
+        <span className="decision-label">{t('understanding_state')}</span>
+        <From said={said} onRound={onRound} />
+        <span className="arch-versions">
+          <button type="button" className="link" disabled={k === 0} onClick={() => setAt(k - 1)}>
+            {t('understanding_newer')}
+          </button>
+          <span className="muted">{t('understanding_version', { k: versions.length - k, n: versions.length })}</span>
+          <button type="button" className="link" disabled={k === versions.length - 1} onClick={() => setAt(k + 1)}>
+            {t('understanding_older')}
+          </button>
+        </span>
+      </div>
+      <p className="muted arch-since">
+        {before === undefined ? t('understanding_first') : t('understanding_since', { round: `R${before.work}-${before.round}` })}
+      </p>
+      {c.lines.length > 0 ? (
+        <div className="arch-table-wrap">
+          <table className="list arch-lines">
+            <thead>
+              <tr>
+                <th />
+                {LINE_FIELDS.map((f) => (
+                  <th key={f}>{t(`line_${f}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {c.lines.map((l, i) => (
+                <tr key={i} className={`arch-line-${l.kind}`}>
+                  <td className="nowrap">{l.kind !== 'same' ? <span className={`badge arch-chip-${l.kind}`}>{chip(l.kind)}</span> : null}</td>
+                  {l.fields.map((f) => (
+                    <td key={f.field}>
+                      {f.changed ? (
+                        <>
+                          <del className="arch-was">
+                            <MarkdownInline text={f.before ?? ''} />
+                          </del>{' '}
+                          <ins className="arch-now">
+                            <MarkdownInline text={f.after ?? ''} />
+                          </ins>
+                        </>
+                      ) : (
+                        <MarkdownInline text={(l.kind === 'removed' ? f.before : f.after) ?? ''} />
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      <Field label={t('understanding_changed')} value={c.changed.after} />
+      <Texts label={t('understanding_learned_wake')} value={v.learned} />
+    </section>
+  );
+}
+
 /// Where things stand, as the architect last wrote it: each line of work as a row of a table, what changed and what
 /// was learned since; then the articles of the constitution, those broken and at risk first and those kept folded, and
 /// where its earlier judgments no longer match.
@@ -578,7 +654,9 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
   );
   return (
     <>
-      {u.state !== null ? (
+      {u.versions.length > 0 ? (
+        <StateVersions u={u} onRound={onRound} />
+      ) : u.state !== null ? (
         <section className="arch-part">
           <div className="work-item-head">
             <span className="decision-label">{t('understanding_state')}</span>

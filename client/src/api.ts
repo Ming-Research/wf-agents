@@ -995,7 +995,18 @@ export type Reading = { round: number, reading: JsonValue, verdict: JsonValue, }
  * wrap-ups learned since, oldest first, and its latest check against the constitution with the mismatches with its
  * earlier judgments.
  */
-export type Understanding = { state: Said | null, learned: Array<JsonValue>, against: Said | null, };
+export type Understanding = { state: Said | null, learned: Array<JsonValue>, against: Said | null, 
+/**
+ * Every version of the state of things, newest first: each wake's first question's answer, with what that
+ * wake's wrap-up learned.
+ */
+versions: Array<StateVersion>, };
+
+/**
+ * One version of the state of things: what a wake's first question answered, by the wake and its round, with what
+ * the wrap-up of that wake learned.
+ */
+export type StateVersion = { work: number, round: number, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
 
 /**
  * The plan: its segments in the order works start from them, its gates and its budgets.

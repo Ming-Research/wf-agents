@@ -997,6 +997,20 @@ pub struct Understanding {
     pub state: Option<Said>,
     pub learned: Vec<Value>,
     pub against: Option<Said>,
+    /// Every version of the state of things, newest first: each wake's first question's answer, with what that
+    /// wake's wrap-up learned.
+    pub versions: Vec<StateVersion>,
+}
+
+/// One version of the state of things: what a wake's first question answered, by the wake and its round, with what
+/// the wrap-up of that wake learned.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct StateVersion {
+    pub work: i64,
+    pub round: i64,
+    pub at: Option<i64>,
+    pub state: Value,
+    pub learned: Vec<Value>,
 }
 
 /// The plan: its segments in the order works start from them, its gates and its budgets.

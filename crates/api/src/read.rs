@@ -19,8 +19,8 @@ use crate::{
     ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk,
     OwnerMessage, PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow,
     Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens,
-    RunningRound, Said, Session, Shown, Spend, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
-    WorkSummary,
+    RunningRound, Said, Session, Shown, Spend, StateVersion, ToolRun, Understanding, Waits, Wake, WorkDetail,
+    WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1978,10 +1978,31 @@ fn understanding(conn: &Connection) -> Result<Understanding> {
         Some((s, l)) => (Some(s), l),
         None => (None, Vec::new()),
     };
+    // Every version, read from the round records alone: each wake's first question, with what its wrap-up learned.
+    let mut st = conn.prepare(
+        "SELECT r.work, r.n, r.ended_at, json_extract(r.output, '$.outcome.state'),
+                (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x
+                 WHERE x.work = r.work AND x.cell = 'A10' AND x.transition IS NOT NULL AND x.n > r.n)
+         FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.graph = 'architect' AND r.cell = 'A1' AND r.transition IS NOT NULL
+         ORDER BY r.work DESC, r.n DESC",
+    )?;
+    let versions = st
+        .query_map([], |r| {
+            Ok(StateVersion {
+                work: r.get(0)?,
+                round: r.get(1)?,
+                at: r.get(2)?,
+                state: json(r.get(3)?).unwrap_or(Value::Null),
+                learned: json(r.get(4)?).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Understanding {
         state,
         learned,
         against,
+        versions,
     })
 }
 

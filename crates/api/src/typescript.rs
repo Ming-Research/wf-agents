@@ -80,6 +80,7 @@ pub fn typescript() -> String {
         decl::<Draft>(&cfg),
         decl::<Reading>(&cfg),
         decl::<Understanding>(&cfg),
+        decl::<StateVersion>(&cfg),
         decl::<Plan>(&cfg),
         decl::<PlanSegment>(&cfg),
         decl::<PlanGate>(&cfg),

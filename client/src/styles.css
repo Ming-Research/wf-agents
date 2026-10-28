@@ -3842,6 +3842,76 @@ details.dc[open] > summary::before,
   margin-top: 4px;
 }
 
+/* A version of the architect's state of things: a line of work new, changed or gone since the version before it, and
+   in a changed line what a field was, struck through, beside what it is now, marked. */
+.arch-versions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-left: auto;
+}
+
+.arch-since {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+
+.arch-line-added > td {
+  background: color-mix(in srgb, var(--good) 10%, transparent);
+}
+
+.arch-line-changed > td {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.arch-line-removed > td {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.arch-chip-added {
+  color: var(--good);
+}
+
+.arch-chip-changed {
+  color: var(--warn);
+}
+
+.arch-chip-removed {
+  color: var(--bad);
+}
+
+.arch-was {
+  color: var(--muted);
+}
+
+.arch-now {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  text-decoration: none;
+}
+
+/* The head of a block of a work or of the architect: its name and what is said of it, on one line. */
+.work-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+summary > .work-item-head {
+  display: inline-flex;
+}
+
+.card-view {
+  display: grid;
+  gap: 8px;
+}
+
+.ask-question {
+  margin: 0;
+  font-weight: 600;
+}
+
 /* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's
    top edge at the left, so that the name plainly belongs to its graph. */
 
