@@ -101,8 +101,8 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
             </li>
             <li>
               <Swatch>
-                <Halo box={{ x: 8, y: 6, width: 18, height: 6 }} round={false} small />
-                <rect className="fc-ring fc-ring-running" x="6" y="4" width="22" height="10" rx="3" />
+                <Halo box={{ x: 11, y: 7, width: 12, height: 4 }} round={false} small />
+                <rect className="fc-ring fc-ring-running" x="9" y="5" width="16" height="8" rx="3" />
               </Swatch>
               {t('legend_running')}
             </li>

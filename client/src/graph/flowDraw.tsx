@@ -240,7 +240,8 @@ function CellShape({ n, cell, box, lines, marks }: {
 /// colours, for a browser that asks for less motion (the styles say how it moves). `small` draws it for the legend.
 export function Halo({ box, round, small = false }: { box: Box; round: boolean; small?: boolean }) {
   const blur = `fc-halo-blur-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
-  const unit = small ? 1 : 4;
+  // How far out each part stands from the cell: the glow, the ring that spreads, the arcs (the legend draws it small).
+  const [glow, pulse, arcs] = small ? [5, 2, 4] : [12, RING, RING + 4];
   const at = (pad: number) => ({
     x: box.x - pad,
     y: box.y - pad,
@@ -253,11 +254,11 @@ export function Halo({ box, round, small = false }: { box: Box; round: boolean; 
       <filter id={blur} x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation={small ? 1.5 : 8} />
       </filter>
-      <rect className="fc-halo-glow" filter={`url(#${blur})`} {...at(3 * unit)} />
-      <rect className="fc-halo-pulse" {...at(RING)} />
-      <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at(small ? 2 : RING + 4)} />
-      <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at(small ? 2 : RING + 4)} />
-      <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at(small ? 2 : RING + 4)} />
+      <rect className="fc-halo-glow" filter={`url(#${blur})`} {...at(glow)} />
+      <rect className="fc-halo-pulse" {...at(pulse)} />
+      <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at(arcs)} />
+      <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at(arcs)} />
+      <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at(arcs)} />
     </g>
   );
 }

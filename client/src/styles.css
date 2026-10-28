@@ -2936,13 +2936,13 @@ p.rp-note {
 
 .rp-table th {
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .rp-table td {
   border-top: 1px dashed var(--line);
-  min-width: 3em;
   max-width: 32em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .rp-li {
