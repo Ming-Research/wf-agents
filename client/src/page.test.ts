@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, GraphView, RoundSummary, Status, WorkSummary } from './api';
 import { controls, course } from './components';
+import { held } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
@@ -121,6 +122,9 @@ describe('how a work goes on', () => {
     const all = course(work({}), status({ paused: true }));
     expect(all.held).toBe('all');
     expect(controls(all, status({ paused: true }))).toEqual({ pause: false, resume: false, step: true, canStep: true });
+    // Only the owner's own pause of a work reads as paused by the owner; held with every work, it reads as what it is.
+    expect(held(all, work({}))).toBeNull();
+    expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('paused by you');
     // Going on by itself, its round running: Pause only; once paused, it pauses after the round.
     const on = course(work({}), status({ running: 5 }));
     expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);

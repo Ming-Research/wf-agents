@@ -97,7 +97,6 @@ const messages = {
   course_step: 'running one round',
   course_paused: 'paused by you',
   course_paused_why: 'paused by you: {why}',
-  course_paused_all: 'paused by you: every work is paused; Start all in the bar, or Step, lets it go on',
   course_stopped: 'stopped by the engine',
   course_stopped_why: 'stopped by the engine: {why}',
   course_note_all: 'Every work is paused: Start all in the bar lets them go on, and Step runs one round of this one.',

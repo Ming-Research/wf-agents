@@ -116,7 +116,9 @@ export function Controls({ a, w, status, onStep }: {
   );
 }
 
-/// Why a work is held back, in words, for a work that is.
+/// Why a work is held back by itself, in words, for a work that is: paused by the owner, or stopped by the engine. A
+/// work held only because every work is paused is not: it reads as what it is, ready or waiting for something, and the
+/// bar says that nothing runs until Start all.
 export function held(c: Course, w: WorkSummary): string | null {
-  return c.held !== null ? heldWords(c, w.paused) : null;
+  return c.held !== null && c.held !== 'all' ? heldWords(c, w.paused) : null;
 }

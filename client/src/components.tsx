@@ -122,10 +122,9 @@ export function controls(c: Course, status: Status | null) {
 /// Why the engine pauses a work the owner paused without saying why, as the engine writes it.
 const PAUSED_BY_OWNER = 'the owner paused it';
 
-/// Why a work is held back, in words.
+/// Why a work is held back by itself, in words: stopped by the engine, or paused by the owner.
 export function heldWords(c: Course, why: string | null): string {
   if (c.held === 'engine') return t('course_stopped_why', { why: why ?? '' });
-  if (c.held === 'all') return t('course_paused_all');
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 
