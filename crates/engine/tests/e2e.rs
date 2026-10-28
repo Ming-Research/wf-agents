@@ -4812,6 +4812,121 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// Records a round of a work that ended at a cell with a return and the row it took.
+fn record_round(
+    tx: &db::rusqlite::Transaction<'_>,
+    work: i64,
+    n: i64,
+    cell: &str,
+    output: &Value,
+    row: &str,
+) -> Result<(), db::Error> {
+    tx.execute(
+        "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+         VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', ?6, ?6)",
+        params![work, n, cell, output.to_string(), row, db::now()],
+    )?;
+    Ok(())
+}
+
+/// A wake of project p's architect at a cell, with no round yet.
+fn wake_at(e: &mut Engine, cell: &str) -> i64 {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', ?2, 'p')",
+            params![v, cell],
+        )?;
+        Ok(tx.last_insert_rowid())
+    })
+    .unwrap()
+}
+
+/// The line of the next message of a work that lists its input by number.
+fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
+    let m = engine::next_message(e, work).unwrap().text;
+    work_from(&m)
+        .into_iter()
+        .find(|l| l.starts_with(&format!("{number}. ")))
+        .unwrap_or_else(|| panic!("{m}"))
+}
+
+// U3 is given the study of a new policy and the owner's answer to it only when the owner's latest answer to a study in
+// the wake said the policy in force stays, not when the owner was satisfied with the study.
+#[test]
+fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays() {
+    let s = setup("stays");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "U3");
+    let study =
+        json!({ "outcome": { "study": { "intent": "Faster parsing." } }, "progress": "Studied.", "tell_owner": [] });
+    let ruling = |choice: &str| json!({ "ruling": { "choice": choice, "text": "Seen." } });
+    e.db.write(Actor::Engine, |tx| {
+        record_round(tx, wake, 1, "P1", &study, "studied")?;
+        record_round(tx, wake, 2, "P2", &ruling("satisfied"), "satisfied")
+    })
+    .unwrap();
+    assert_eq!(next_listed(&mut e, wake, 8), "8. none");
+    e.db.write(Actor::Engine, |tx| {
+        record_round(tx, wake, 3, "P2", &ruling("policy_stays"), "policy_stays")
+    })
+    .unwrap();
+    let stays = next_listed(&mut e, wake, 8);
+    assert!(
+        stays.contains("·P1·study") && stays.contains(&format!("R{wake}-3·P2·ruling")),
+        "{stays}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// U2 is given only the signals of the policy in force that the engine measures, each with its numbers: a signal that
+// names a measure of the numbers by its name. When the policy has none such, the input is none.
+#[test]
+fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbers() {
+    let s = setup("signals");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let set = |e: &mut Engine, signals: Value| {
+        let v = e.flow_now;
+        let policy = json!({ "goal": "g", "why": "w", "points": [{ "no": 1, "text": "t" }], "stages": ["s"],
+                             "signals": signals, "scope": "all" });
+        let written =
+            json!({ "outcome": { "policy": policy, "probes": [] }, "progress": "Written.", "tell_owner": [] });
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended, project)
+                 VALUES (NULL, ?1, 'architect', 'W0', 'over', 'p')",
+                [v],
+            )?;
+            let set = tx.last_insert_rowid();
+            record_round(tx, set, 1, "P3", &written, "written")?;
+            record_round(tx, set, 2, "P10", &json!({}), "new_architect")
+        })
+        .unwrap();
+    };
+    set(
+        &mut e,
+        json!([{ "what": "Fewer items merged", "how": "merged below 1 a week" },
+               { "what": "The owner is unhappy", "how": "something the owner says" }]),
+    );
+    let wake = wake_at(&mut e, "U2");
+    let m = engine::next_message(&mut e, wake).unwrap().text;
+    let signals = given_value(&m, "·engine·policy_signals").expect(&m);
+    assert_eq!(
+        signals["1"]["numbers"]["merged"]["by_week"],
+        json!([0, 0, 0, 0]),
+        "{signals}"
+    );
+    assert_eq!(signals.get("2"), None, "{signals}");
+    set(
+        &mut e,
+        json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
+    );
+    assert_eq!(next_listed(&mut e, wake, 3), "3. none");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
 /// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked

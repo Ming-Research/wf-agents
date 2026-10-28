@@ -1462,7 +1462,7 @@
               {
                 "name": "how",
                 "type": "text",
-                "desc": "How it shows: a number the engine measures and its line, or something that happens"
+                "desc": "How it shows: a number the engine measures, named as the numbers name it (such as `merged` or `design_bytes`), and its line; or something that happens"
               }
             ]
           },
@@ -2753,7 +2753,7 @@
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project.",
-      "policy_signals": "The signals the project's policy says to report on, each with the number the engine measured for it where it measures one.",
+      "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready.",
       "queue": "The project's queue: the matters that can be picked, each with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
       "batch": "The batch so far: the matters handled and how each ended, the item changes made, whether a hold to set things straight was released, and whether the owner asked to rethink the policy.",
@@ -2762,6 +2762,7 @@
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
+      "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the wake said the policy in force stays.",
       "draft_text": "The text of the policy being set, as the round that last wrote or corrected it handed it in.",
       "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
@@ -9997,7 +9998,7 @@
               "maybe": true
             },
             {
-              "what": "The signals the policy says to report on, each with the number the engine measured for it and its line where it measures one; none before the first policy takes effect",
+              "what": "The signals of the policy the engine measures, each with its numbers; none when it measures none, or before the first policy takes effect",
               "from": [
                 {
                   "engine": "policy_signals"
@@ -10318,14 +10319,9 @@
             {
               "what": "When the owner said the policy stays after reading a study of a new one: the study, and what the owner said; none otherwise",
               "from": [
-                [
-                  "P1",
-                  "study"
-                ],
-                [
-                  "@from",
-                  "ruling"
-                ]
+                {
+                  "engine": "policy_stays"
+                }
               ],
               "maybe": true
             },

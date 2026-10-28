@@ -32,7 +32,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
-/// and those of the policy being set, which [`draft_places`] names the places of.
+/// [`STAYS`], and those of the policy being set, which [`draft_places`] names the places of.
 pub const INPUTS: [&str; 21] = [
     "constitution",
     "guide",
@@ -60,6 +60,19 @@ pub const INPUTS: [&str; 21] = [
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
+
+/// The input that gives the study of a new policy and the owner's answer to it, as places of the returns of P1 and P2,
+/// when the owner's latest answer to a study in the wake said the policy in force stays; none otherwise.
+pub const STAYS: &str = "policy_stays";
+
+/// The places of the returns [`STAYS`] gives.
+pub const STAYS_PLACES: [(&str, &str); 2] = [("P1", "study"), ("P2", "ruling")];
+
+/// Whether the owner's latest answer in the wake to a study of a new policy (P2) said the policy in force stays.
+pub fn policy_stays(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
+    let latest = inputs::returns_holding(e, w, g, "P2", "ruling")?.into_iter().next();
+    Ok(latest.is_some_and(|(_, r)| r["ruling"]["choice"] == "policy_stays"))
+}
 
 /// The inputs that give the policy being set, its text and its probes, as the wake's round that last wrote (P3) or
 /// corrected (P7) them handed them in, each with the places of those cells' returns it is at: addressed as that return,
@@ -1933,7 +1946,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "policy" => policy(e, project),
-        "policy_signals" => policy_signals(e, project),
+        "policy_signals" => policy_signals(e, w, project),
         "slots" => slots(e).map(Some),
         "queue" => queue(e, project).map(Some),
         "batch" => batch(e, w, project).map(Some),
@@ -2438,24 +2451,54 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     Ok(rows.first().map(|r| r["policy"].clone()).filter(|p| p.is_object()))
 }
 
-/// The signals the policy in force for a project says to report on; the engine measures none of them by name, so each
-/// says where to look. None before the first policy takes effect.
-fn policy_signals(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+/// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
+/// words name a measure of the numbers by its name (`merged`, or `items made` for `items_made`), with that measure week
+/// by week, the latest first, or now, a week ago and a month ago. None when the engine measures none of them, or before
+/// the first policy takes effect.
+fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
     };
-    let signals: Map<String, Value> = items(policy.get("signals"))
-        .into_iter()
-        .enumerate()
-        .map(|(i, s)| {
-            (
+    let numbers = numbers(e, w, project)?;
+    let mut measures: Vec<(String, Value)> = Vec::new();
+    let weeks = items(numbers.get("weeks"));
+    if let Some(first) = weeks.first().and_then(Value::as_object) {
+        for k in first.keys().filter(|k| *k != "weeks_ago") {
+            let by_week: Vec<Value> = weeks.iter().map(|x| x[k].clone()).collect();
+            measures.push((k.clone(), json!({ "by_week": by_week })));
+        }
+    }
+    let size = &numbers["size_on_main"];
+    if let Some(now) = size["now"].as_object() {
+        for k in now.keys() {
+            let at = |when: &str| size[when][k].clone();
+            measures.push((
+                k.clone(),
+                json!({ "now": at("now"), "a_week_ago": at("a_week_ago"), "a_month_ago": at("a_month_ago") }),
+            ));
+        }
+    }
+    let mut out = Map::new();
+    for (i, s) in items(policy.get("signals")).iter().enumerate() {
+        let said: String = format!("{} {}", text(&s["what"]), text(&s["how"]))
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+            .collect();
+        let said = format!(" {} ", said.split_whitespace().collect::<Vec<_>>().join(" "));
+        let found: Map<String, Value> = measures
+            .iter()
+            .filter(|(k, _)| said.contains(&format!(" {} ", k.replace('_', " "))))
+            .cloned()
+            .collect();
+        if !found.is_empty() {
+            out.insert(
                 format!("{}", i + 1),
-                json!({ "what": s["what"], "how": s["how"],
-                        "measured": "not by name: read what the numbers input measures, or measure it with tools" }),
-            )
-        })
-        .collect();
-    Ok(Some(Value::Object(signals)))
+                json!({ "what": s["what"], "how": s["how"], "numbers": found }),
+            );
+        }
+    }
+    Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
 
 /// The machines' slots, all together.
