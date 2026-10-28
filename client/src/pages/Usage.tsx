@@ -12,7 +12,7 @@ import type { CompiledGraph, WorkDetail } from '../api';
 import { cost, duration, roundName } from '../format';
 import { tokens } from '../round';
 import { t } from '../text';
-import { type SessionRow, type Usage as UsageData, usageOf } from '../usage';
+import { type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
 import { modelName } from './RoundView';
 
 const pct = (x: number, total: number) => (total > 0 ? (100 * x) / total : 0);
@@ -73,7 +73,7 @@ function Bars({ items, colour }: { items: Array<{ label: string; value: number; 
 
 /// The work's wall time, from its first round's start to its last round's end, a block for each round of a model or
 /// of the tools over the time no round ran, with the hours marked under it.
-function Timeline({ u, work }: { u: UsageData; work: number }) {
+function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }) {
   const x = (ms: number) => pct(ms - u.start, u.wall);
   const hours: number[] = [];
   const first = new Date(u.start);
@@ -81,7 +81,24 @@ function Timeline({ u, work }: { u: UsageData; work: number }) {
   for (let h = first.getTime() + 3_600_000; h < u.end; h += 3_600_000) hours.push(h);
   return (
     <div className="us-timeline">
-      <div className="us-track" data-tip={t('us_not_running_tip', { time: duration(u.time.idle) })}>
+      <div className="us-track">
+        {gaps.map((g) => (
+          <span
+            key={`gap-${g.before}-${g.after}`}
+            className="us-block us-gap"
+            style={{ left: `${x(g.start)}%`, width: `max(${pct(g.end - g.start, u.wall)}%, 2px)` }}
+            data-tip={[
+              t('us_gap_tip', {
+                from: clock(g.start),
+                to: clock(g.end),
+                time: duration(g.end - g.start),
+                before: roundName(work, g.before),
+                after: roundName(work, g.after),
+              }),
+              ...g.waited,
+            ].join(' · ')}
+          />
+        ))}
         {u.blocks
           .filter((b) => b.doer !== 'engine')
           .map((b) => (
@@ -112,6 +129,26 @@ function Timeline({ u, work }: { u: UsageData; work: number }) {
       </div>
     </div>
   );
+}
+
+/// What the record shows a work waited on, with when it ended: each answer to an ask of the owner and each ruling on
+/// a design card.
+function waits(d: WorkDetail): Array<{ at: number; what: string }> {
+  const out: Array<{ at: number; what: string }> = [];
+  for (const a of d.asks) {
+    const answer = a.answer;
+    if (answer !== null && typeof answer === 'object' && !Array.isArray(answer) && typeof answer.at === 'number') {
+      out.push({ at: answer.at, what: t('us_gap_ask', { id: a.id, at: clock(answer.at) }) });
+    }
+  }
+  for (const c of d.design_cards) {
+    for (const r of Array.isArray(c.rulings) ? c.rulings : []) {
+      if (r !== null && typeof r === 'object' && !Array.isArray(r) && typeof r.at === 'number') {
+        out.push({ at: r.at, what: t('us_gap_card', { id: c.id, at: clock(r.at) }) });
+      }
+    }
+  }
+  return out;
 }
 
 const LINE_COLOURS = ['var(--us-1)', 'var(--us-2)', 'var(--us-3)', 'var(--us-4)'];
@@ -283,7 +320,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
             { value: u.time.idle, colour: 'var(--us-idle)', label: t('us_not_running'), tip: t('us_not_running_tip', { time: duration(u.time.idle) }) },
           ]}
         />
-        <Timeline u={u} work={work} />
+        <Timeline u={u} work={work} gaps={gapsOf(u.blocks, waits(d))} />
       </Section>
       <Section
         title={t('us_models_title')}

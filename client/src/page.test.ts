@@ -29,7 +29,7 @@ import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, foldLabel, messageParts, placeSchema, preview, shape, spent, tokens, valueMeanings } from './round';
 import { spendTable } from './spend';
-import { usageOf } from './usage';
+import { gapsOf, usageOf } from './usage';
 
 describe('the message catalog', () => {
   it('has every text, none empty, all in English', () => {
@@ -862,6 +862,10 @@ describe("a work's usage", () => {
     expect(u.sessions.map((s) => [s.line, s.context, s.points.length])).toEqual([['engineer', 250_000, 2]]);
     expect(u.tools).toEqual([{ cell: 't', title: 'Run tools', ms: 60_000, runs: 1 }]);
     expect(u.kinds !== null && Math.round(u.kinds.read)).toBe(200_000);
+    // Each stretch no round ran is a block of its own, between the rounds around it, with what happened in it.
+    expect(gapsOf(u.blocks, [{ at: 200_000, what: 'answered' }, { at: 400_000, what: 'later' }])).toEqual([
+      { start: 120_000, end: 300_000, before: 2, after: 3, waited: ['answered'] },
+    ]);
   });
 
   it('lists each session of a line with why it started, and counts the keep-warm pings in the cost', () => {

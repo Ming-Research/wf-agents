@@ -3666,6 +3666,13 @@ details.dc[open] > summary::before,
   background: var(--us-2);
 }
 
+/* A stretch no round ran: a block of its own, saying when, how long and between which rounds. */
+.us-gap {
+  top: 0;
+  bottom: 0;
+  background: var(--us-idle);
+}
+
 .us-axis {
   position: relative;
   height: 18px;

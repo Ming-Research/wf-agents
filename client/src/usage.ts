@@ -3,7 +3,7 @@
 // cell, how long each tool ran, and what each ping cost and where the work waited. Each round's level is the one it
 // recorded, never the configuration's now; a round's subagents are the models whose count grew in its session during
 // it; the cost by kind of token is weighed by the models' prices as each round's cost line is; the work's cost counts
-// its pings; and the time no round ran is one block, since nothing records why a work stood still.
+// its pings; and each stretch no round ran is a block of its own, with what the record shows the work waited on.
 
 import type { Ping, RoundSummary, WorkSession } from './api';
 import { costParts, type CostParts } from './round';
@@ -260,4 +260,30 @@ export function usageOf(
     pings: pings.map((p) => ({ ...p, nth: nth.get(p.session) ?? 1 })),
     tools: [...tools.values()].sort((a, b) => b.ms - a.ms),
   };
+}
+
+/// A stretch of a work's wall time in which no round ran: from when to when, the round that ended last before it and
+/// the round that started after it, and what the record shows the work waited on then.
+export type Gap = { start: number; end: number; before: number; after: number; waited: string[] };
+
+/// The stretches in which no round ran, each from the latest end of the rounds before it to the next round's start,
+/// those shorter than a second left out; each with the events given that fall in it, such as an ask answered or a
+/// design card ruled on, which say what the work waited for.
+export function gapsOf(blocks: Block[], events: Array<{ at: number; what: string }> = []): Gap[] {
+  const sorted = [...blocks].sort((a, b) => a.start - b.start);
+  const gaps: Gap[] = [];
+  let end = -Infinity;
+  let before: number | null = null;
+  for (const b of sorted) {
+    if (before !== null && b.start - end >= 1000) {
+      const start = end;
+      const waited = events.filter((e) => e.at >= start && e.at <= b.start).map((e) => e.what);
+      gaps.push({ start, end: b.start, before, after: b.n, waited });
+    }
+    if (b.end >= end) {
+      end = b.end;
+      before = b.n;
+    }
+  }
+  return gaps;
 }
