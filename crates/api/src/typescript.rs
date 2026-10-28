@@ -72,6 +72,7 @@ pub fn typescript() -> String {
         decl::<SettingsChange>(&cfg),
         decl::<NewLevel>(&cfg),
         decl::<Architect>(&cfg),
+        decl::<ConversationEntry>(&cfg),
         decl::<Wake>(&cfg),
         decl::<Queued>(&cfg),
         decl::<Matter>(&cfg),

@@ -1,8 +1,9 @@
 // What an architect's page works out from what the interface reads, apart from drawing it: the wake it shows, how the
-// architect stands, its queue in parts, the observations the owner looks for, the articles of the constitution in the
-// order the owner reads them, and what an answer to an ask of the architect's sends.
+// architect stands, its queue in parts, why the owner's words still wait for it, the observations the owner looks for,
+// the articles of the constitution in the order the owner reads them, and what an answer to an ask of the architect's
+// sends.
 
-import type { JsonValue, Matter, Observation, Wake, WorkSummary } from './api';
+import type { ConversationEntry, JsonValue, Matter, Observation, Status, Wake, WorkSummary } from './api';
 import { isObj, str, type Obj } from './labelled';
 
 /// A wake goes on no more once it reached its end or was ended.
@@ -40,6 +41,21 @@ export function architectState(wakes: Wake[], queue: Matter[]): ArchitectState {
   }
   if (wakes.length === 0) return { kind: 'never', waiting };
   return { kind: 'asleep', since: wakes[0].work.last_at, waiting };
+}
+
+/// Why the owner's words still wait for the architect, while some do: its wake is paused; it is held back while every
+/// work is paused and the owner has not started it; it is asleep, and wakes for them by itself; or it is awake and
+/// takes them up in its turn. None while no words wait.
+export function wordsWait(
+  talk: ConversationEntry[],
+  state: ArchitectState,
+  status: Status | null,
+  project: string,
+): 'paused' | 'held' | 'asleep' | 'awake' | null {
+  if (!talk.some((x) => x.kind === 'words' && x.waiting)) return null;
+  if (state.kind === 'awake' && state.wake.paused !== null) return 'paused';
+  if (status !== null && status.paused && !status.architects_started.includes(project)) return 'held';
+  return state.kind === 'awake' ? 'awake' : 'asleep';
 }
 
 /// The observations the owner looks for: with the tag chosen, if one is, and the words searched for, if any, in what

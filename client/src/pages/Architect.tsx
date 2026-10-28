@@ -2,14 +2,16 @@
 // to it. Its line says, with more than one project, whose architect it is, with the switch to another's; how the
 // architect stands in words (asleep since when and how many matters are in its queue; or awake: the question it is
 // at, the matter it handles, a round running and for how long, or what holds it back), what stops the project's new
-// works from starting, the architect's Start, Pause and Step with the session they run its next round in, a way to
-// say something to it, and the switch between its wakes (when each woke, why, how many matters it handled, what it
-// cost). Under the line, its graph fills the window with the wake shown placed on it as a work is (the wake going on,
-// else the latest, else the bare graph), and the column docked at its right holds the architect's panel on top and
-// what is open on the chart below it. The panel's tabs: its asks of the owner, those waiting first with their forms;
-// its queue, the matters in it, then those an ask holds; its log, newest first; the item changes its batches made;
-// the project's observations; the policy in force and the one being set; where things stand as it understands them;
-// and the rounds of the wake shown.
+// works from starting, the architect's Start, Pause and Step with the session they run its next round in, and the
+// switch between its wakes (when each woke, why, how many matters it handled, what it cost). Under the line, its graph
+// fills the window with the wake shown placed on it as a work is (the wake going on, else the latest, else the bare
+// graph), and the column docked at its right holds the architect's panel in its upper half, the owner's conversation
+// with the architect in its lower half, and what is open on the chart below them. The panel's tabs: its asks of the
+// owner, those waiting first with their forms; its queue, the matters in it, then those an ask holds; its log, newest
+// first; the item changes its batches made; the project's observations; the policy in force and the one being set;
+// where things stand as it understands them; and the rounds of the wake shown. The conversation, whichever tab is
+// open: the owner's words and what the architect told the owner and asked, in time order, the newest at the bottom;
+// whether the owner's words still wait for the architect, and why; and a box that says more.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -17,6 +19,7 @@ import type {
   Architect as ArchitectRead,
   Compiled,
   CompiledGraph,
+  ConversationEntry,
   FlowView,
   ItemChange,
   Matter,
@@ -26,7 +29,7 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, observationsShown, overWake, queueParts, shownWake } from '../architect';
+import { architectState, observationsShown, overWake, queueParts, shownWake, wordsWait } from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
@@ -172,8 +175,7 @@ function Awake({ w, project, handling, onAsk }: {
 const HOLDS: Record<string, Key> = { architect: 'hold_architect', set_straight: 'hold_set_straight', policy: 'hold_policy' };
 
 /// The line above an architect's chart: with more than one project, whose architect it is and the switch to another's;
-/// how it stands, what stops the project's new works, its controls, what to say to it, and the switch between its
-/// wakes.
+/// how it stands, what stops the project's new works, its controls, and the switch between its wakes.
 function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   a: ArchitectRead;
   shown: Wake | null;
@@ -181,8 +183,8 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   current: WorkSummary | null;
   onTab: (tab: ArchitectTab) => void;
   onAsk: (id: number) => void;
-  pop: 'say' | 'wakes' | null;
-  setPop: (p: 'say' | 'wakes' | null) => void;
+  pop: 'wakes' | null;
+  setPop: (p: 'wakes' | null) => void;
 }) {
   const status = useStatus();
   const state = architectState(a.wakes, a.queue);
@@ -250,15 +252,6 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
       ) : null}
       {asleep ? <SessionChoice on={s.newSession} set={s.setNewSession} disabled={s.busy || !canStart} /> : null}
       {s.error !== null ? <span className="bad why">{t('request_failed', { error: s.error })}</span> : null}
-      <button
-        type="button"
-        className="control"
-        aria-expanded={pop === 'say'}
-        title={t('arch_say_hint')}
-        onClick={() => setPop(pop === 'say' ? null : 'say')}
-      >
-        {t('arch_say')}
-      </button>
       {shown !== null ? (
         <button
           type="button"
@@ -274,18 +267,68 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   );
 }
 
-/// What the owner says to an architect: it goes to the architect's queue as the owner's words.
-function SayBox({ project, onClose }: { project: string; onClose: () => void }) {
+const WAITS: Record<string, Key> = {
+  paused: 'talk_waits_paused',
+  held: 'talk_waits_held',
+  asleep: 'talk_waits_asleep',
+  awake: 'talk_waits_awake',
+};
+
+/// One entry of the conversation: the owner's words or answer on the right, what the architect told or asked on the
+/// left, each with when and, for the architect's, its round; words still waiting for the architect say so; an ask
+/// leads to its form under Asks.
+function Spoken({ x, onAsk, onRound }: { x: ConversationEntry; onAsk: (id: number) => void; onRound: OpenRound }) {
+  const owner = x.kind === 'words' || x.kind === 'answer';
+  const ask = x.ask;
+  return (
+    <div className={owner ? 'talk talk-owner' : 'talk talk-architect'}>
+      <div className="talk-head muted">
+        <span>{t(owner ? 'talk_you' : 'talk_architect')}</span>
+        <span>{time(x.at)}</span>
+        {!owner && x.work !== null && x.round !== null ? (
+          <RoundLink work={x.work} round={x.round} onRound={onRound} />
+        ) : null}
+        {x.kind === 'words' && x.waiting ? <span className="chip waits">{t('talk_waiting')}</span> : null}
+      </div>
+      {x.kind === 'ask' && ask !== null ? (
+        <>
+          {x.text !== '' ? <p className="talk-text">{x.text}</p> : null}
+          <button type="button" className="link" onClick={() => onAsk(ask)}>
+            {t(x.waiting ? 'talk_answer_ask' : 'talk_see_ask', { id: ask })}
+          </button>
+        </>
+      ) : (
+        <Markdown text={x.text} />
+      )}
+    </div>
+  );
+}
+
+/// The owner's conversation with the architect, in the lower half of the column at the right of its chart, whichever
+/// tab is open above it: the owner's words and what the architect told the owner and asked, in time order, the newest
+/// at the bottom and scrolled to; while the owner's words wait for the architect, why; and a box that says more, as
+/// the owner's words, sent with its button or Ctrl or Cmd with Enter.
+function Conversation({ a, onAsk, onRound }: { a: ArchitectRead; onAsk: (id: number) => void; onRound: OpenRound }) {
+  const status = useStatus();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const talk = a.conversation;
+  useEffect(() => {
+    const el = list.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [talk.length]);
+  const waits = wordsWait(talk, architectState(a.wakes, a.queue), status, a.project);
+  const ready = !busy && text.trim() !== '';
   const send = () => {
     setBusy(true);
     setError(null);
-    postJson(forProject('/api/v1/architect/say', project), { text: text.trim() }).then(
+    postJson(forProject('/api/v1/architect/say', a.project), { text: text.trim() }).then(
       () => {
+        setBusy(false);
+        setText('');
         reread('architect');
-        onClose();
       },
       (e: unknown) => {
         setBusy(false);
@@ -294,20 +337,36 @@ function SayBox({ project, onClose }: { project: string; onClose: () => void }) 
     );
   };
   return (
-    <div className="bar-pop arch-pop arch-say" role="dialog" aria-label={t('arch_say')}>
-      <div className="bar-pop-h">{t('arch_say')}</div>
-      <p className="muted">{t('arch_say_note')}</p>
-      <textarea value={text} rows={4} onChange={(e) => setText(e.target.value)} disabled={busy} />
-      <div className="bar-pop-row">
-        <button type="button" className="decide-button" onClick={send} disabled={busy || text.trim() === ''}>
-          {t('arch_say_send')}
-        </button>
-        <button type="button" className="tog-btn" onClick={onClose}>
-          {t('close')}
+    <section className="arch-talk" aria-label={t('talk_title')}>
+      <div className="arch-talk-h">{t('talk_title')}</div>
+      <div className="arch-talk-list" ref={list}>
+        {talk.length === 0 ? <p className="muted">{t('talk_none')}</p> : null}
+        {talk.map((x, i) => (
+          <Spoken key={`${x.kind}-${x.at}-${i}`} x={x} onAsk={onAsk} onRound={onRound} />
+        ))}
+        {waits !== null ? <p className="muted talk-waits">{t(WAITS[waits])}</p> : null}
+      </div>
+      <div className="arch-talk-say">
+        <textarea
+          value={text}
+          rows={2}
+          placeholder={t('talk_placeholder')}
+          title={t('talk_send_hint')}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ready) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          disabled={busy}
+        />
+        <button type="button" className="decide-button" onClick={send} disabled={!ready}>
+          {t('talk_send')}
         </button>
       </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
+      {error !== null ? <p className="bad talk-error">{t('request_failed', { error })}</p> : null}
+    </section>
   );
 }
 
@@ -774,8 +833,9 @@ function Panel({ route, a, d, g, go, onRound }: {
   );
 }
 
-/// The architect's graph filling the window, with the wake shown placed on it, and the docked column.
-function Chart({ route, a, wake, d, compiled, view, go }: {
+/// The architect's graph filling the window, with the wake shown placed on it, and the docked column: the panel in its
+/// upper half, the conversation in its lower half.
+function Chart({ route, a, wake, d, compiled, view, go, onAsk }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   wake: Wake | null;
@@ -783,6 +843,7 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
   compiled: Compiled;
   view: FlowView;
   go: (to: Partial<ArchitectRoute>) => void;
+  onAsk: (id: number) => void;
 }) {
   const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === GRAPH);
@@ -808,7 +869,12 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       round={route.wake === id ? route.round : null}
       onRound={(x) => go(x !== null ? { wake: id, round: x, cell: null } : { round: null })}
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
-      side={<Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
+      side={
+        <div className="arch-side">
+          <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />
+          <Conversation a={a} onAsk={onAsk} onRound={onRound} />
+        </div>
+      }
     />
   );
 }
@@ -824,7 +890,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   const d = detail.data !== undefined && detail.data.work.id === id ? detail.data : null;
   const going = a.wakes.find((w) => !overWake(w.work)) ?? null;
   const current = going !== null && d !== null && d.work.id === going.work.id ? d.work : (going?.work ?? null);
-  const [pop, setPop] = useState<'say' | 'wakes' | null>(null);
+  const [pop, setPop] = useState<'wakes' | null>(null);
   const go = (to: Partial<ArchitectRoute>) => navigate(href({ ...route, ...to }), true);
   // A link to an ask on this page brings it into view once the page is there.
   const ready = compiled.data !== undefined && view.data !== undefined;
@@ -848,7 +914,6 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
         pop={pop}
         setPop={setPop}
       />
-      {pop === 'say' ? <SayBox project={a.project} onClose={() => setPop(null)} /> : null}
       {pop === 'wakes' ? (
         <WakeList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
       ) : null}
@@ -856,7 +921,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
         <Loaded r={compiled}>
           {(c) => (
             <Loaded r={view}>
-              {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} />}
+              {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} onAsk={onAsk} />}
             </Loaded>
           )}
         </Loaded>

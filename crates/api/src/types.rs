@@ -904,6 +904,28 @@ pub struct Architect {
     pub observations: Vec<Observation>,
     /// The project's tags for observations, each with what it covers.
     pub tags: Vec<Tag>,
+    /// The owner's conversation with it, oldest first: the owner's words to it, what its rounds told the owner, and its
+    /// asks of the owner with the owner's answers.
+    pub conversation: Vec<ConversationEntry>,
+}
+
+/// One entry of the owner's conversation with a project's architect.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ConversationEntry {
+    /// words: the owner's words to the architect, said on the page, on an item or to a wake, or the owner letting a
+    /// work it had stopped go on; told: what a round of the architect told the owner; ask: an ask of the owner the
+    /// architect put, in the words of the notice that told of it; answer: the owner's answer to one.
+    pub kind: String,
+    pub text: String,
+    pub at: i64,
+    /// For the owner's words: whether they still wait for the architect, not handled or handed in yet; for an ask:
+    /// whether it waits for the owner's answer.
+    pub waiting: bool,
+    /// For what the architect told or asked: its wake and round.
+    pub work: Option<i64>,
+    pub round: Option<i64>,
+    /// For an ask and its answer: the ask.
+    pub ask: Option<i64>,
 }
 
 /// One wake of an architect.

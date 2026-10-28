@@ -34,6 +34,8 @@ Decision: The engine queues `slots_free` when fewer of the project's items are r
 
 Decision: Why the architect pauses a work or holds new starts is written in the owner's language, kept with the pause or the hold, and shown on the page; a work it paused is let go on by its resume or by the owner's Start of that work, which is told to the architect as the owner's words, instead of a third kind of pause, because what matters to the owner is who stopped the work and that it stays stopped.
 
+Decision: The architect answers each of the owner's words in the owner's messages (`tell_owner`), saying what it made of them and what it did: at O1 for the owner's words that come as a matter, and in the round that took them for words the owner said to a wake while a round ran, instead of the owner reading what it made of them only in its log, because the owner talks with the architect in a window of its own on the page and the conversation goes on only when every word is answered.
+
 Decision: E1 wraps a wake up, writing what it learned into the state of things, and E2 ends it, the session staying for the next wake, instead of a wake that ends when its last matter is handled, because what a wake learned is what the next wake's understanding builds on.
 
 Rejected:

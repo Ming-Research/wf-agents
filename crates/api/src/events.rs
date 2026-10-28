@@ -31,8 +31,8 @@ fn wake(conn: &Connection, work: i64) -> bool {
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
 /// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
-/// (its matters, what stops new works, the item changes its batches made, the observations, and a wake with its rounds
-/// and asks) makes the architect's event too.
+/// (its matters, what stops new works, the item changes its batches made, the observations, and a wake with its rounds,
+/// asks and what it told the owner) makes the architect's event too.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -82,7 +82,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
         };
         let of = match &event {
             Some(Event::Work { work } | Event::Round { work, .. }) => Some(*work),
-            Some(Event::Ask { work, .. }) => *work,
+            Some(Event::Ask { work, .. } | Event::OwnerMessage { work, .. }) => *work,
             _ => None,
         };
         let also = of.is_some_and(|w| wake(conn, w)).then_some(Event::Architect);

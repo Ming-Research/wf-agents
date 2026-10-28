@@ -4048,7 +4048,87 @@ summary > .work-item-head {
   max-width: calc(100% - 24px);
 }
 
-.arch-pop textarea {
+/* The architect's column: its panel in the upper half, the conversation with it in the lower half, whichever tab is
+   open. */
+.arch-side {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-side > .drawer,
+.arch-side > .arch-talk {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.arch-talk {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.arch-talk-h {
+  padding: 6px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+
+.arch-talk-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.talk {
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--code);
+}
+
+.talk-owner {
+  align-self: flex-end;
+  background: var(--accent-soft);
+}
+
+.talk-architect {
+  align-self: flex-start;
+}
+
+.talk-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.talk-text {
+  margin: 4px 0;
+}
+
+.talk-waits {
+  margin: 0;
+  align-self: center;
+  text-align: center;
+}
+
+.arch-talk-say {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.arch-talk-say textarea {
+  flex: 1;
   font: inherit;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -4058,8 +4138,8 @@ summary > .work-item-head {
   resize: vertical;
 }
 
-.arch-say {
-  width: 460px;
+.talk-error {
+  margin: 0 8px 8px;
 }
 
 .arch-wakes {

@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemChange,
-    ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter, Misses,
-    NamedText, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued,
-    Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens,
-    RunningRound, Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail,
-    WorkSession, WorkState, WorkSummary,
+    Architect, AskKind, ConversationEntry, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow,
+    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
+    LogEntry, Matter, Misses, NamedText, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce,
+    PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
+    RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding,
+    Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1728,6 +1728,7 @@ pub fn architect(
         understanding: understanding(conn, project)?,
         observations: observations(conn, project)?,
         tags,
+        conversation: conversation(conn, project)?,
     })
 }
 
@@ -1981,6 +1982,108 @@ fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The owner's conversation with a project's architect, oldest first: the owner's words to it (its matters of the
+/// owner's words, but for an answer to an ask, which shows as the ask's answer, and what the owner said to one of its
+/// wakes), what its rounds told the owner, and its asks of the owner with the owner's answers.
+fn conversation(conn: &Connection, project: &str) -> Result<Vec<ConversationEntry>> {
+    let entry = |kind: &str, text: String, at: i64| ConversationEntry {
+        kind: kind.to_string(),
+        text,
+        at,
+        waiting: false,
+        work: None,
+        round: None,
+        ask: None,
+    };
+    let mut out = Vec::new();
+    let mut st = conn.prepare(
+        "SELECT json_extract(body, '$.text'), at, handled_round IS NULL FROM architect_matters
+         WHERE project = ?1 AND kind = 'owner_words' AND coalesce(detail, '') <> 'answer'
+           AND json_extract(body, '$.text') IS NOT NULL",
+    )?;
+    let words = st.query_map([project], |r| {
+        Ok(ConversationEntry {
+            waiting: r.get(2)?,
+            ..entry("words", r.get(0)?, r.get(1)?)
+        })
+    })?;
+    for x in words {
+        out.push(x?);
+    }
+    let mut st = conn.prepare(
+        "SELECT i.text, coalesce((SELECT min(c.at) FROM changes c
+                                  WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', i.id)),
+                                 (SELECT min(r.started_at) FROM rounds r WHERE r.work = i.work), 0),
+                i.delivered_round IS NULL, i.work, i.delivered_round
+         FROM interjections i JOIN works w ON w.id = i.work
+         WHERE w.graph = 'architect' AND w.project = ?1 AND i.speaker = 'owner'",
+    )?;
+    let said = st.query_map([project], |r| {
+        Ok(ConversationEntry {
+            waiting: r.get(2)?,
+            work: Some(r.get(3)?),
+            round: r.get(4)?,
+            ..entry("words", r.get(0)?, r.get(1)?)
+        })
+    })?;
+    for x in said {
+        out.push(x?);
+    }
+    let mut st = conn.prepare(
+        "SELECT m.text, coalesce(r.ended_at, r.started_at), m.work, m.round
+         FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+         WHERE w.graph = 'architect' AND w.project = ?1",
+    )?;
+    let told = st.query_map([project], |r| {
+        Ok(ConversationEntry {
+            work: Some(r.get(2)?),
+            round: Some(r.get(3)?),
+            ..entry("told", r.get(0)?, r.get(1)?)
+        })
+    })?;
+    for x in told {
+        out.push(x?);
+    }
+    let mut st = conn.prepare(
+        "SELECT a.id, a.work, a.round,
+                coalesce((SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
+                coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.answer
+         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
+         WHERE w.graph = 'architect' AND w.project = ?1",
+    )?;
+    let asked = st.query_map([project], |r| {
+        let ask: i64 = r.get(0)?;
+        let at: i64 = r.get(4)?;
+        let answer = json(r.get(5)?);
+        let put = ConversationEntry {
+            waiting: answer.is_none(),
+            work: Some(r.get(1)?),
+            round: Some(r.get(2)?),
+            ask: Some(ask),
+            ..entry("ask", r.get(3)?, at)
+        };
+        // The owner's answer, in words or as the choice made; the engine's, which says none was needed, is not said.
+        let answered = answer.filter(|a| a["by"] != "engine").map(|a| {
+            let text = match a["text"].as_str().filter(|t| !t.trim().is_empty()) {
+                Some(t) => t.to_string(),
+                None => a["choice"].as_str().unwrap_or_default().to_string(),
+            };
+            ConversationEntry {
+                ask: Some(ask),
+                ..entry("answer", text, a["at"].as_i64().unwrap_or(at))
+            }
+        });
+        Ok((put, answered))
+    })?;
+    for x in asked {
+        let (put, answered) = x?;
+        out.push(put);
+        out.extend(answered);
+    }
+    out.sort_by_key(|e| e.at);
+    Ok(out)
 }
 
 /// A project's observations: the open ones first, then those closed, each newest first.
@@ -2869,7 +2972,7 @@ mod tests {
             )?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, at)
-                 VALUES ('p', 'owner_words', 'said', 'The owner said', '{}', 200)",
+                 VALUES ('p', 'owner_words', 'said', 'The owner said', '{\"text\":\"Put the parser first.\"}', 200)",
                 &[],
             )?;
             run(
@@ -3039,5 +3142,23 @@ mod tests {
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);
         assert_eq!(a.observations[0].tags, ["perf"]);
+
+        // The conversation in time order: the owner's words, still waiting for the architect; what a wake told the
+        // owner; its asks, waiting for the owner's answer.
+        type Spoken<'a> = (&'a str, &'a str, i64, bool, Option<i64>);
+        let talk: Vec<Spoken> = a
+            .conversation
+            .iter()
+            .map(|x| (x.kind.as_str(), x.text.as_str(), x.at, x.waiting, x.ask))
+            .collect();
+        assert_eq!(
+            talk,
+            [
+                ("words", "Put the parser first.", 200, true, None),
+                ("told", "Learned L", 209, false, None),
+                ("ask", "", 209, true, Some(2)),
+                ("ask", "", 400, true, Some(1))
+            ]
+        );
     }
 }

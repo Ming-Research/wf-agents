@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledGraph, FlowDiff, GraphView, Matter, Observation, Wake, WorkSummary } from './api';
+import type {
+  CompiledGraph,
+  ConversationEntry,
+  FlowDiff,
+  GraphView,
+  Matter,
+  Observation,
+  Status,
+  Wake,
+  WorkSummary,
+} from './api';
 import {
   againstInOrder,
   architectState,
@@ -9,6 +19,7 @@ import {
   queueParts,
   rulingAnswer,
   shownWake,
+  wordsWait,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
 import { graphOfCell, withGraph } from './flow/FlowScreen';
@@ -190,6 +201,30 @@ describe("the architect's page", () => {
 
   it('is read again when what it shows changed', () => {
     expect(named({ kind: 'architect' })).toEqual(['architect']);
+  });
+
+  it("says why the owner's words still wait for the architect", () => {
+    const said = (waiting: boolean): ConversationEntry => ({
+      kind: 'words',
+      text: 'Put the parser first.',
+      at: 1,
+      waiting,
+      work: null,
+      round: null,
+      ask: null,
+    });
+    const status = (paused: boolean, started: string[] = []) =>
+      ({ paused, architects_started: started }) as unknown as Status;
+    const asleep = architectState([wake(9)], []);
+    expect(wordsWait([said(false)], asleep, status(false), 'p')).toBeNull();
+    expect(wordsWait([said(true)], asleep, status(false), 'p')).toBe('asleep');
+    // Held back while every work is paused, unless the owner started it.
+    expect(wordsWait([said(true)], asleep, status(true), 'p')).toBe('held');
+    expect(wordsWait([said(true)], asleep, status(true, ['p']), 'p')).toBe('asleep');
+    const awake = architectState([wake(10, { state: 'running', at: 'O1' })], []);
+    expect(wordsWait([said(true)], awake, status(false), 'p')).toBe('awake');
+    const paused = architectState([wake(10, { state: 'paused', paused: 'to look', paused_by: 'owner' })], []);
+    expect(wordsWait([said(true)], paused, status(false), 'p')).toBe('paused');
   });
 });
 

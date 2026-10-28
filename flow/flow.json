@@ -9629,7 +9629,7 @@
           {
             "name": "tell_owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. Words the owner said to you during the round: what you made of them and what you did. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -11939,7 +11939,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: what the owner asks, and what for: when the owner wants one thing done, ask yourself what it is for. Then do it now, in effects; or, when it is about how you work, keep it as a standing instruction in your notes about the whole, with the owner's words and since when; or, when it decides what comes first or touches the constitution or the policy, rethink: the state of things and the policy are thought again at the end of this batch. You do not change the constitution or the policy yourself."
+            "This round answers one thing only: what the owner asks, and what for: when the owner wants one thing done, ask yourself what it is for. Then do it now, in effects; or, when it is about how you work, keep it as a standing instruction in your notes about the whole, with the owner's words and since when; or, when it decides what comes first or touches the constitution or the policy, rethink: the state of things and the policy are thought again at the end of this batch. You do not change the constitution or the policy yourself. Tell the owner in tell_owner what you made of the words and what you did."
           ],
           "out": [
             {
