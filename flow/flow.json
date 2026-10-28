@@ -9619,7 +9619,7 @@
           "step": "wake",
           "inputs": [
             {
-              "what": "Why you woke: a matter someone waits for came (an engineer's question, the owner's words, the owner's answer to a matter you held, the owner's approval of the changes you collected, a design card to look at, a tool that failed), fewer works are ready to start than there are slots (the engine queues an advance), a side report that cannot wait came or the oldest has waited an hour, or the next look you set last time is due. Every matter that came is in your queue",
+              "what": "Why you woke: a matter someone waits for came (an engineer's question, the owner's words, the owner's answer to a matter you held, the owner's approval of the changes you collected, a design card to look at, a tool that failed), fewer works are ready to start than there are slots (the engine queues an advance, at most once an hour), a side report came, or the next look you set last time is due. Every matter that came is in your queue",
               "from": [
                 {
                   "db": "architect_queue"
