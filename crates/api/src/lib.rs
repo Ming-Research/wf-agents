@@ -27,12 +27,12 @@ pub use diff::diff;
 pub use events::events;
 pub use marks::mark_read;
 pub use owner::{
-    answer, can_start, close_observation, keep_warm_paused, pause, pause_wake, project_named, resume, rule,
-    set_keep_warm_paused,
+    answer, can_start, close_observation, interject, keep_warm_paused, pause, pause_wake, project_named, resume, rule,
+    say_to_work, set_keep_warm_paused,
 };
 pub use read::{
-    Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, messages, round,
-    spend, version_of, work, works,
+    Error, Flows, architect, compiled_flow, content, conversation, conversations, file, flow_view, flows, inputs_now,
+    item, items, round, spend, version_of, work, works,
 };
 pub use settings::{save_settings, set_level, settings};
 pub use source::{Sources, refs};

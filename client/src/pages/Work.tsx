@@ -5,9 +5,9 @@
 // column holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by
 // itself, its next round with the Step that runs it, resuming its session or in a new one as the owner chooses, and
 // shown as it would be sent so; its design cards, the one waiting for the owner's ruling first
-// with its controls; and its messages, the asks waiting for the owner's answer first with their forms, then what its
-// agents and the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought
-// into view.
+// with its controls; and its conversation, the same the messages view shows: its asks waiting for the owner's answer
+// pinned with their forms, then what its agents, the owner, the architect and the engine said about it. A round or a
+// cell opened shows in the column's lower part, its cell brought into view.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -18,8 +18,6 @@ import type {
   FlowView,
   GraphView,
   NextRound,
-  OwnerAsk,
-  OwnerMessage,
   RoundSummary,
   WorkDetail,
   WorkSummary,
@@ -27,15 +25,15 @@ import type {
 import { controls, type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
 import { held, runningWords, SessionChoice, sessionKey, takeoverWords, useNewSession, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration, roundName, time } from '../format';
+import { cost, duration, roundName } from '../format';
 import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
 import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
-import { AskView, bringIntoView, currentCard, DesignCardView, words } from './Decide';
-import { markRead } from './Messages';
+import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
+import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
 import { Usage } from './Usage';
 
@@ -432,92 +430,6 @@ function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) =
   );
 }
 
-/// Who told the owner a message: the engine, or an agent by its line and cell.
-function teller(m: OwnerMessage): string {
-  if (m.engine) return t('message_engine');
-  return [m.line, m.cell !== null ? t('message_cell', { cell: m.cell }) : null].filter((x) => x !== null).join(' · ');
-}
-
-/// One thing the work's agents or the engine told the owner: who and when, the round it came with, the text; one
-/// unread is marked read here as on the messages view.
-function Told({ m, onRound, onAsk }: { m: OwnerMessage; onRound: (r: number) => void; onAsk: (id: number) => void }) {
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <div className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
-      <div className="msg-head">
-        <span className="muted">{teller(m)}</span>
-        {m.at !== null ? <span className="muted">{time(m.at)}</span> : null}
-        {m.round !== null && m.work !== null ? <RoundLink work={m.work} round={m.round} onRound={onRound} /> : null}
-        {m.read_at === null ? (
-          <button
-            type="button"
-            className="link"
-            onClick={() => {
-              markRead(m.engine ? { notices: [m.id] } : { ids: [m.id] }).catch((e: unknown) =>
-                setError(e instanceof Error ? e.message : String(e)),
-              );
-            }}
-          >
-            {t('message_mark_read')}
-          </button>
-        ) : null}
-      </div>
-      <p className="msg-text">{m.text}</p>
-      {m.ask !== null ? (
-        <button type="button" className="link" onClick={() => onAsk(m.ask ?? 0)}>
-          {t('message_answer_ask', { id: m.ask })}
-        </button>
-      ) : null}
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
-  );
-}
-
-/// The work's messages: the asks waiting for the owner's answer first, with their forms; then what its agents and the
-/// engine told the owner, newest first; the asks answered and the interjections folded under them.
-function Messages({ d, onRound, onAsk }: { d: WorkDetail; onRound: (r: number) => void; onAsk: (id: number) => void }) {
-  if (d.asks.length === 0 && d.messages.length === 0 && d.interjections.length === 0) {
-    return <p className="muted">{t('messages_none')}</p>;
-  }
-  const waiting = d.asks.filter((a) => a.answer === null);
-  const answered = d.asks.filter((a) => a.answer !== null).reverse();
-  const round = (a: OwnerAsk) => <RoundLink work={a.work} round={a.round} onRound={onRound} />;
-  return (
-    <>
-      {waiting.map((a) => (
-        <AskView key={a.id} a={a} round={round(a)} />
-      ))}
-      {[...d.messages].reverse().map((m) => (
-        <Told key={`${m.engine ? 'e' : 'a'}${m.id}`} m={m} onRound={onRound} onAsk={onAsk} />
-      ))}
-      {answered.length > 0 ? (
-        <details className="boxed work-old">
-          <summary>{t('work_answered_asks', { n: answered.length })}</summary>
-          {answered.map((a) => (
-            <AskView key={a.id} a={a} round={round(a)} />
-          ))}
-        </details>
-      ) : null}
-      {d.interjections.length > 0 ? (
-        <details className="boxed work-old">
-          <summary>
-            {t('interjections')} ({d.interjections.length})
-          </summary>
-          {d.interjections.map((x) => (
-            <div key={x.id} className="boxed">
-              <div className="muted">
-                #{x.id} {x.speaker} → {x.line} ·{' '}
-                {x.delivered_round !== null ? t('delivered', { round: roundName(x.work, x.delivered_round) }) : t('waiting_delivery')}
-              </div>
-              <pre className="j-text">{x.text}</pre>
-            </div>
-          ))}
-        </details>
-      ) : null}
-    </>
-  );
-}
-
 /// The work's panel, on top of the column docked at the right of its chart: its tabs, the rounds (under how the work
 /// goes on and its next round), the design cards and the messages.
 function WorkPanel({ d, g, r, go }: {
@@ -615,7 +527,7 @@ function WorkPanel({ d, g, r, go }: {
           </>
         ) : null}
         {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
-        {r.tab === 'messages' ? <Messages d={d} onRound={onRound} onAsk={onAsk} /> : null}
+        {r.tab === 'messages' ? <ConversationView conversation={`work:${d.work.id}`} /> : null}
         {r.tab === 'usage' ? <Usage d={d} g={g} /> : null}
       </div>
     </div>

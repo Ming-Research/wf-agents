@@ -90,11 +90,13 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
 }
 
 /// Says something to a project's architect, as the owner: the words come to its queue as a matter of the kind
-/// owner_words, which wakes it. Where it was said goes with it: on an item's page, the item.
+/// owner_words, which wakes it. Where it was said goes with it: in the conversation about a work, the work and its item;
+/// on an item's page, the item.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,
     item: Option<i64>,
+    work: Option<i64>,
     text: &str,
 ) -> std::result::Result<String, String> {
     let text = text.trim();
@@ -109,7 +111,11 @@ pub fn say_to_architect(
         kind: "owner_words".into(),
         detail: Some("said".into()),
         what: format!("The owner says: {}", one_sentence(text)),
-        body: serde_json::json!({ "text": text, "where": if item.is_some() { "item" } else { "page" } }),
+        body: match (work, item) {
+            (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
+            (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
+            (None, None) => serde_json::json!({ "text": text, "where": "page" }),
+        },
         item,
         ..Matter::default()
     };
@@ -158,10 +164,10 @@ mod tests {
     #[test]
     fn the_owner_s_words_come_to_the_architect_s_queue() {
         let mut db = Db::in_memory().unwrap();
-        assert!(say_to_architect(&mut db, "p", None, "  ").is_err());
-        assert!(say_to_architect(&mut db, "", None, "Go on.").is_err());
+        assert!(say_to_architect(&mut db, "p", None, None, "  ").is_err());
+        assert!(say_to_architect(&mut db, "", None, None, "Go on.").is_err());
         assert_eq!(
-            say_to_architect(&mut db, "p", None, "Put the parser first. It blocks the rest.").unwrap(),
+            say_to_architect(&mut db, "p", None, None, "Put the parser first. It blocks the rest.").unwrap(),
             "the architect of p has it as matter 1"
         );
         let (project, kind, what, body): (String, String, String, String) = db

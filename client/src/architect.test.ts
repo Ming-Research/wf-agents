@@ -200,18 +200,27 @@ describe("the architect's page", () => {
   });
 
   it('is read again when what it shows changed', () => {
-    expect(named({ kind: 'architect' })).toEqual(['architect']);
+    expect(named({ kind: 'architect' })).toEqual(['architect', 'messages']);
   });
 
   it("says why the owner's words still wait for the architect", () => {
-    const said = (waiting: boolean): ConversationEntry => ({
-      kind: 'words',
+    const said = (pending: boolean): ConversationEntry => ({
+      source: 'words',
+      id: 1,
+      sender: 'owner',
+      recipient: 'architect',
       text: 'Put the parser first.',
       at: 1,
-      waiting,
       work: null,
       round: null,
       ask: null,
+      design_card: null,
+      read_at: null,
+      waiting: false,
+      pending,
+      agents: false,
+      fault: null,
+      misses: null,
     });
     const status = (paused: boolean, started: string[] = []) =>
       ({ paused, architects_started: started }) as unknown as Status;

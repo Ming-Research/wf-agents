@@ -7,7 +7,9 @@ import type {
   DesignCard,
   GraphView,
   JsonValue,
-  OwnerMessage,
+  Conversation,
+  ConversationDetail,
+  ConversationEntry,
   RoundSummary,
   RoundTokens,
   Status,
@@ -24,7 +26,7 @@ import { ASKING, chart, MAIN, overlays, partsOf, related, roundArrows, runs, sha
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
-import { messageOrder } from './pages/Messages';
+import { conversationGroups, conversationTitle, party, pinnedOf, runsOf, toMarkRead } from './conversation';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
@@ -60,7 +62,8 @@ describe('the addresses', () => {
       { ...work, only: 'failed' },
       { page: 'items' },
       { page: 'item', id: 5 },
-      { page: 'messages' },
+      { page: 'messages', open: null },
+      { page: 'messages', open: 'architects:p|q' },
       { ...flow, version: 1, cell: '13' },
       flow,
       { ...flow, version: 2, from: 1 },
@@ -241,10 +244,17 @@ describe('the flow in words', () => {
 
 describe('events', () => {
   it('name what to read again', () => {
-    expect(named({ kind: 'round', work: 2, round: 9 })).toEqual(['works', 'work:2', 'round:2-9', 'items', 'item:*']);
+    expect(named({ kind: 'round', work: 2, round: 9 })).toEqual([
+      'works',
+      'work:2',
+      'round:2-9',
+      'items',
+      'item:*',
+      'messages',
+    ]);
     expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works']);
     expect(named({ kind: 'ready' })).toEqual([]);
-    expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*']);
+    expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages']);
     expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2']);
   });
 });
@@ -1103,27 +1113,92 @@ describe('a ruling on a design card', () => {
   });
 });
 
-describe('the messages view', () => {
-  it('keeps the reports of a fault of wf-agents on top until read, and shows the rest newest first', () => {
-    const m = (id: number, fault: string | null, read: boolean): OwnerMessage => ({
-      id,
-      engine: fault !== null,
-      round: null,
-      cell: null,
-      line: null,
-      at: id,
-      work: null,
-      item: null,
-      title: null,
-      text: `told ${id}`,
-      read_at: read ? 9 : null,
-      ask: null,
-      ask_kinds: [],
-      architect: null,
-      fault,
-      misses: null,
-    });
-    const shown = messageOrder([m(1, 'cache_miss', false), m(2, null, false), m(3, 'flow_anomaly', true), m(4, null, false)]);
-    expect(shown.map((x) => x.id)).toEqual([1, 4, 3, 2]);
+describe("the owner's conversations", () => {
+  const talk = (key: string, extra: Partial<Conversation> = {}): Conversation => ({
+    key,
+    project: 'p',
+    work: null,
+    item: null,
+    title: null,
+    waiting: 0,
+    unread: 0,
+    last_at: 1,
+    ...extra,
+  });
+  const entry = (source: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
+    source,
+    id: 1,
+    sender: 'engineer',
+    recipient: 'owner',
+    text: 'said',
+    at: 1,
+    work: 5,
+    round: 2,
+    ask: null,
+    design_card: null,
+    read_at: null,
+    waiting: false,
+    pending: false,
+    agents: false,
+    fault: null,
+    misses: null,
+    ...extra,
+  });
+
+  it('lists those where something waits for the owner first, then by their latest entry, by project when several', () => {
+    const one = conversationGroups([
+      talk('work:5', { last_at: 9 }),
+      talk('architect:p', { last_at: 3, waiting: 1 }),
+      talk('wf-agents', { project: null, last_at: 5 }),
+    ]);
+    expect(one.map((g) => g.project)).toEqual([null]);
+    expect(one[0].conversations.map((c) => c.key)).toEqual(['architect:p', 'work:5', 'wf-agents']);
+    const several = conversationGroups([
+      talk('work:5', { last_at: 9, unread: 2 }),
+      talk('architect:q', { project: 'q', last_at: 3, waiting: 1 }),
+      talk('architects:p|q', { project: null, last_at: 4 }),
+    ]);
+    expect(several.map((g) => [g.project, g.waiting, g.unread])).toEqual([
+      ['q', 1, 0],
+      ['p', 0, 2],
+      [null, 0, 0],
+    ]);
+  });
+
+  it('names each conversation by its subject, and each side of an entry', () => {
+    expect(conversationTitle(talk('work:5', { work: 5, item: 3, title: 'Parse it' }))).toBe('Work 5 · #3 Parse it');
+    expect(conversationTitle(talk('architect:p'))).toBe('The architect of p');
+    expect(conversationTitle(talk('architects:p|q'))).toBe('The architects of p and q');
+    expect(conversationTitle(talk('wf-agents'))).toBe('wf-agents');
+    expect(party(entry('message'), 'owner')).toBe('you');
+    expect(party(entry('between'), 'q')).toBe('the architect of q');
+    expect(party(entry('advice'), 'advisor')).toBe('advisor');
+  });
+
+  it('pins what waits for the owner, folds what passes between agents, and marks the rest read on opening', () => {
+    const d: ConversationDetail = {
+      key: 'work:5',
+      entries: [
+        entry('message', { id: 1 }),
+        entry('question', { id: 2, agents: true, sender: 'engineer', recipient: 'architect' }),
+        entry('reply', { id: 3, agents: true, sender: 'architect', recipient: 'engineer' }),
+        entry('ask', { id: 4, waiting: true }),
+        entry('notice', { id: 5, sender: 'engine' }),
+        entry('notice', { id: 6, sender: 'wf-agents', fault: 'cache_miss', waiting: true }),
+        entry('message', { id: 7, read_at: 3 }),
+      ],
+      asks: [],
+      design_cards: [],
+    };
+    const { faults, stream } = pinnedOf(d);
+    expect(faults.map((e) => e.id)).toEqual([6]);
+    expect(stream.map((e) => e.id)).toEqual([1, 2, 3, 5, 7]);
+    expect(runsOf(stream).map((r) => [r.agents, r.entries.length])).toEqual([
+      [false, 1],
+      [true, 2],
+      [false, 1],
+      [false, 1],
+    ]);
+    expect(toMarkRead(d)).toEqual({ ids: [1], notices: [5] });
   });
 });

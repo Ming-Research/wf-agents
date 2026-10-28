@@ -447,22 +447,110 @@ ask: number | null, ask_kinds: Array<AskKind>,
  * For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
  * architect's project; none otherwise.
  */
-architect: string | null, 
-/**
- * For the engine's notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its
- * kind: cache_miss; none for any other message.
- */
-fault: string | null, 
-/**
- * For the engine's notice of cache misses: the misses it tells of, the first and those added to it since.
- */
-misses: Misses | null, };
+architect: string | null, };
 
 /**
  * The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
  * reading the cache, and when the latest came.
  */
 export type Misses = { count: number, written: number, cost_usd: number, last_at: number | null, };
+
+/**
+ * One of the owner's conversations, by its subject, as their list shows it.
+ */
+export type Conversation = { 
+/**
+ * Which: `work:<id>` for an engineer's work, `architect:<project>` for a project's architect,
+ * `architects:<project>|<project>` for two projects' architects, `wf-agents` for wf-agents itself.
+ */
+key: string, 
+/**
+ * The project it is about; none for one between two projects' architects, and for wf-agents'.
+ */
+project: string | null, 
+/**
+ * For a work's: the work, its item and the item's title.
+ */
+work: number | null, item: number | null, title: string | null, 
+/**
+ * How many things in it wait for the owner: asks not answered, design cards not ruled, faults not read.
+ */
+waiting: number, 
+/**
+ * How many of the messages and notices in it the owner has not read, faults aside.
+ */
+unread: number, 
+/**
+ * When its latest entry came.
+ */
+last_at: number, };
+
+/**
+ * One entry of a conversation of the owner's, as `conversation_entries` gives it.
+ */
+export type ConversationEntry = { 
+/**
+ * What it is: message, notice, ask, answer, interjection, words, question, reply, advice_ask, advice, card,
+ * ruling or between.
+ */
+source: string, 
+/**
+ * Its row in the table it comes from; for advice_ask and advice, the round's number in its work.
+ */
+id: number, 
+/**
+ * Who said it and to whom: a line, the owner, the engine or wf-agents; for between, the projects.
+ */
+sender: string, recipient: string, text: string, at: number, 
+/**
+ * The work and the round it came with, when it came with one.
+ */
+work: number | null, round: number | null, 
+/**
+ * For an ask and its answer, the ask; for a design card and a ruling on it, the card.
+ */
+ask: number | null, design_card: number | null, 
+/**
+ * For a message or a notice: when the owner marked it read; none while it is unread.
+ */
+read_at: number | null, 
+/**
+ * Whether it waits for the owner: an ask not answered, a design card not ruled, a fault not read.
+ */
+waiting: boolean, 
+/**
+ * Whether the owner's words in it are not taken up yet.
+ */
+pending: boolean, 
+/**
+ * Whether it passes between agents, not to or from the owner.
+ */
+agents: boolean, 
+/**
+ * For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
+ * cache_miss or flow_anomaly.
+ */
+fault: string | null, 
+/**
+ * For a notice of cache misses: the misses it tells of, the first and those added to it since.
+ */
+misses: Misses | null, };
+
+/**
+ * A conversation in full: its entries in time order, and what waits for the owner in it with its form: the asks not
+ * answered and the design cards not ruled.
+ */
+export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, };
+
+/**
+ * What the owner says in a conversation about a work: to its engineer, or another of its lines, as an interjection;
+ * or to the architect of its project, as the owner's words naming the work.
+ */
+export type WorkSaid = { text: string, 
+/**
+ * The line it is for, `engineer` unless named; `architect` for the project's architect.
+ */
+to?: string, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -952,36 +1040,7 @@ observations: Array<Observation>,
 /**
  * The project's tags for observations, each with what it covers.
  */
-tags: Array<Tag>, 
-/**
- * The owner's conversation with it, oldest first: the owner's words to it, what its rounds told the owner, and its
- * asks of the owner with the owner's answers.
- */
-conversation: Array<ConversationEntry>, };
-
-/**
- * One entry of the owner's conversation with a project's architect.
- */
-export type ConversationEntry = { 
-/**
- * words: the owner's words to the architect, said on the page, on an item or to a wake, or the owner letting a
- * work it had stopped go on; told: what a round of the architect told the owner; ask: an ask of the owner the
- * architect put, in the words of the notice that told of it; answer: the owner's answer to one.
- */
-kind: string, text: string, at: number, 
-/**
- * For the owner's words: whether they still wait for the architect, not handled or handed in yet; for an ask:
- * whether it waits for the owner's answer.
- */
-waiting: boolean, 
-/**
- * For what the architect told or asked: its wake and round.
- */
-work: number | null, round: number | null, 
-/**
- * For an ask and its answer: the ask.
- */
-ask: number | null, };
+tags: Array<Tag>, };
 
 /**
  * One wake of an architect.

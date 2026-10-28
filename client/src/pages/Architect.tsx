@@ -63,6 +63,7 @@ import {
   UnderstandingView,
 } from './ArchitectViews';
 import { bringIntoView } from './Decide';
+import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
 import { Next, Timeline, workMarks } from './Work';
 
@@ -274,98 +275,19 @@ const WAITS: Record<string, Key> = {
   awake: 'talk_waits_awake',
 };
 
-/// One entry of the conversation: the owner's words or answer on the right, what the architect told or asked on the
-/// left, each with when and, for the architect's, its round; words still waiting for the architect say so; an ask
-/// leads to its form under Asks.
-function Spoken({ x, onAsk, onRound }: { x: ConversationEntry; onAsk: (id: number) => void; onRound: OpenRound }) {
-  const owner = x.kind === 'words' || x.kind === 'answer';
-  const ask = x.ask;
-  return (
-    <div className={owner ? 'talk talk-owner' : 'talk talk-architect'}>
-      <div className="talk-head muted">
-        <span>{t(owner ? 'talk_you' : 'talk_architect')}</span>
-        <span>{time(x.at)}</span>
-        {!owner && x.work !== null && x.round !== null ? (
-          <RoundLink work={x.work} round={x.round} onRound={onRound} />
-        ) : null}
-        {x.kind === 'words' && x.waiting ? <span className="chip waits">{t('talk_waiting')}</span> : null}
-      </div>
-      {x.kind === 'ask' && ask !== null ? (
-        <>
-          {x.text !== '' ? <p className="talk-text">{x.text}</p> : null}
-          <button type="button" className="link" onClick={() => onAsk(ask)}>
-            {t(x.waiting ? 'talk_answer_ask' : 'talk_see_ask', { id: ask })}
-          </button>
-        </>
-      ) : (
-        <Markdown text={x.text} />
-      )}
-    </div>
-  );
-}
-
 /// The owner's conversation with the architect, in the lower half of the column at the right of its chart, whichever
-/// tab is open above it: the owner's words and what the architect told the owner and asked, in time order, the newest
-/// at the bottom and scrolled to; while the owner's words wait for the architect, why; and a box that says more, as
-/// the owner's words, sent with its button or Ctrl or Cmd with Enter.
-function Conversation({ a, onAsk, onRound }: { a: ArchitectRead; onAsk: (id: number) => void; onRound: OpenRound }) {
+/// tab is open above it: the same conversation the messages view shows, saying under it, while the owner's words wait
+/// for the architect, why they wait.
+function Conversation({ a }: { a: ArchitectRead }) {
   const status = useStatus();
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const list = useRef<HTMLDivElement>(null);
-  const talk = a.conversation;
-  useEffect(() => {
-    const el = list.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [talk.length]);
-  const waits = wordsWait(talk, architectState(a.wakes, a.queue), status, a.project);
-  const ready = !busy && text.trim() !== '';
-  const send = () => {
-    setBusy(true);
-    setError(null);
-    postJson(forProject('/api/v1/architect/say', a.project), { text: text.trim() }).then(
-      () => {
-        setBusy(false);
-        setText('');
-        reread('architect');
-      },
-      (e: unknown) => {
-        setBusy(false);
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
+  const why = (entries: ConversationEntry[]) => {
+    const waits = wordsWait(entries, architectState(a.wakes, a.queue), status, a.project);
+    return waits !== null ? t(WAITS[waits]) : null;
   };
   return (
     <section className="arch-talk" aria-label={t('talk_title')}>
       <div className="arch-talk-h">{t('talk_title')}</div>
-      <div className="arch-talk-list" ref={list}>
-        {talk.length === 0 ? <p className="muted">{t('talk_none')}</p> : null}
-        {talk.map((x, i) => (
-          <Spoken key={`${x.kind}-${x.at}-${i}`} x={x} onAsk={onAsk} onRound={onRound} />
-        ))}
-        {waits !== null ? <p className="muted talk-waits">{t(WAITS[waits])}</p> : null}
-      </div>
-      <div className="arch-talk-say">
-        <textarea
-          value={text}
-          rows={2}
-          placeholder={t('talk_placeholder')}
-          title={t('talk_send_hint')}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ready) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          disabled={busy}
-        />
-        <button type="button" className="decide-button" onClick={send} disabled={!ready}>
-          {t('talk_send')}
-        </button>
-      </div>
-      {error !== null ? <p className="bad talk-error">{t('request_failed', { error })}</p> : null}
+      <ConversationView conversation={`architect:${a.project}`} note={why} />
     </section>
   );
 }
@@ -835,7 +757,7 @@ function Panel({ route, a, d, g, go, onRound }: {
 
 /// The architect's graph filling the window, with the wake shown placed on it, and the docked column: the panel in its
 /// upper half, the conversation in its lower half.
-function Chart({ route, a, wake, d, compiled, view, go, onAsk }: {
+function Chart({ route, a, wake, d, compiled, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   wake: Wake | null;
@@ -843,7 +765,6 @@ function Chart({ route, a, wake, d, compiled, view, go, onAsk }: {
   compiled: Compiled;
   view: FlowView;
   go: (to: Partial<ArchitectRoute>) => void;
-  onAsk: (id: number) => void;
 }) {
   const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === GRAPH);
@@ -872,7 +793,7 @@ function Chart({ route, a, wake, d, compiled, view, go, onAsk }: {
       side={
         <div className="arch-side">
           <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />
-          <Conversation a={a} onAsk={onAsk} onRound={onRound} />
+          <Conversation a={a} />
         </div>
       }
     />
@@ -921,7 +842,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
         <Loaded r={compiled}>
           {(c) => (
             <Loaded r={view}>
-              {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} onAsk={onAsk} />}
+              {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} />}
             </Loaded>
           )}
         </Loaded>

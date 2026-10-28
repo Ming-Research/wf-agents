@@ -52,7 +52,7 @@ export function wordsWait(
   status: Status | null,
   project: string,
 ): 'paused' | 'held' | 'asleep' | 'awake' | null {
-  if (!talk.some((x) => x.kind === 'words' && x.waiting)) return null;
+  if (!talk.some((x) => x.pending && x.sender === 'owner')) return null;
   if (state.kind === 'awake' && state.wake.paused !== null) return 'paused';
   if (status !== null && status.paused && !status.architects_started.includes(project)) return 'held';
   return state.kind === 'awake' ? 'awake' : 'asleep';

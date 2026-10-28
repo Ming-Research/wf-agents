@@ -481,47 +481,6 @@ td.clip {
   background: var(--bad);
 }
 
-.msg-tools {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin: 8px 0;
-}
-
-.msgs {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.msg {
-  border-top: 1px solid var(--line);
-  padding: 8px 0;
-}
-
-.msg-unread .msg-text {
-  font-weight: 600;
-}
-
-/* A report of a fault of wf-agents: set apart from what agents and the engine told, and on top until read. */
-.msg-fault {
-  border-left: 3px solid var(--bad);
-  padding-left: 10px;
-  background: color-mix(in srgb, var(--bad) 7%, transparent);
-}
-
-.msg-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: baseline;
-}
-
-.msg-text {
-  margin: 4px 0 0;
-  white-space: pre-wrap;
-}
-
 .kept {
   margin: 2px 0;
 }
@@ -3551,13 +3510,6 @@ details.dc[open] > summary::before,
   }
 }
 
-.msg-ask {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .decide {
   display: grid;
   gap: 6px;
@@ -4075,7 +4027,106 @@ summary > .work-item-head {
   border-bottom: 1px solid var(--line);
 }
 
-.arch-talk-list {
+/* The owner's conversations: their list on the left, the one open on the right. */
+.talks {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.talks-list {
+  flex: none;
+  width: 320px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.talks-group-h {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px 4px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.talks-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.talks-item:hover {
+  background: var(--accent-soft);
+}
+
+.talks-item.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.talks-item.talks-waits .talks-title {
+  font-weight: 600;
+}
+
+.talks-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.talks-open {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.talks-open-h {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* One conversation: what waits for the owner pinned on top, the stream under it, the box at the bottom. */
+.talk-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-body > .talk-view {
+  flex: 1 1 auto;
+}
+
+.talk-pins {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+}
+
+.talk-pins-h {
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.talk-stream {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -4097,8 +4148,25 @@ summary > .work-item-head {
   background: var(--accent-soft);
 }
 
-.talk-architect {
+.talk-other {
   align-self: flex-start;
+}
+
+/* What passes between agents reads quieter than what is to or from the owner. */
+.talk-agents {
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+/* A report of a fault of wf-agents: set apart from what agents and the engine told. */
+.talk-fault {
+  border-left: 3px solid var(--bad);
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
+}
+
+.talk-pinned {
+  max-width: none;
+  align-self: stretch;
 }
 
 .talk-head {
@@ -4109,26 +4177,38 @@ summary > .work-item-head {
   font-size: 12px;
 }
 
+.talk-who {
+  font-weight: 600;
+}
+
 .talk-text {
   margin: 4px 0;
 }
 
-.talk-waits {
+.talk-folded {
+  align-self: center;
+  font-size: 12px;
+}
+
+.talk-note {
   margin: 0;
   align-self: center;
   text-align: center;
 }
 
-.arch-talk-say {
+.talk-say {
+  flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: flex-end;
   padding: 8px;
   border-top: 1px solid var(--line);
 }
 
-.arch-talk-say textarea {
+.talk-say textarea {
   flex: 1;
+  min-width: 160px;
   font: inherit;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -4139,7 +4219,8 @@ summary > .work-item-head {
 }
 
 .talk-error {
-  margin: 0 8px 8px;
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .arch-wakes {

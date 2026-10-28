@@ -54,7 +54,11 @@ export type Route =
   | ArchitectRoute
   | { page: 'items' }
   | { page: 'item'; id: number }
-  | { page: 'messages' }
+  | {
+      page: 'messages';
+      /// The conversation open, by its key; with none, the first in the list.
+      open: string | null;
+    }
   | { page: 'spend' }
   | { page: 'settings' }
   | {
@@ -114,7 +118,7 @@ export function parse(pathname: string, search: string): Route {
     };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
-  if (first === 'messages' && parts.length === 1) return { page: 'messages' };
+  if (first === 'messages' && parts.length === 1) return { page: 'messages', open: q.get('c') };
   if (first === 'spend' && parts.length === 1) return { page: 'spend' };
   if (first === 'settings' && parts.length === 1) return { page: 'settings' };
   if (first === 'items' && parts.length === 2) {
@@ -167,7 +171,7 @@ export function href(r: Route): string {
     case 'item':
       return `/items/${r.id}`;
     case 'messages':
-      return '/messages';
+      return `/messages${query([['c', r.open]])}`;
     case 'spend':
       return '/spend';
     case 'settings':

@@ -126,6 +126,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/step", post(step))
         .route("/api/v1/works/{id}/start", post(start_work))
         .route("/api/v1/works/{id}/pause", post(pause))
+        .route("/api/v1/works/{id}/say", post(say_to_work))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
         .route("/api/v1/flows", get(flows))
@@ -138,7 +139,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/architect", get(architect))
-        .route("/api/v1/messages", get(messages))
+        .route("/api/v1/conversations", get(conversations))
+        .route("/api/v1/conversation", get(conversation))
         .route("/api/v1/spend", get(spend))
         .route("/api/v1/settings", get(settings).post(save_settings))
         .route("/api/v1/items/{id}/level", post(set_level))
@@ -537,15 +539,35 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
     .map(Json)
 }
 
-#[derive(Deserialize)]
-struct Which {
-    /// Every message, those read too; otherwise only those unread.
-    #[serde(default)]
-    all: bool,
+/// The owner's conversations, each with what waits for the owner in it and what is unread.
+async fn conversations(State(app): State<App>) -> Result<Json<Vec<api::Conversation>>, Fail> {
+    read(&app, |c, _| api::conversations(c)).await.map(Json)
 }
 
-async fn messages(State(app): State<App>, Query(q): Query<Which>) -> Result<Json<Vec<api::OwnerMessage>>, Fail> {
-    read(&app, move |c, _| api::messages(c, q.all)).await.map(Json)
+/// Which conversation a request is about, by its key.
+#[derive(Deserialize)]
+struct OfConversation {
+    key: String,
+}
+
+/// One of the owner's conversations in full.
+async fn conversation(
+    State(app): State<App>,
+    Query(q): Query<OfConversation>,
+) -> Result<Json<api::ConversationDetail>, Fail> {
+    read(&app, move |c, a| api::conversation(c, &a.flows, &q.key))
+        .await
+        .map(Json)
+}
+
+/// What the owner says in the conversation about a work: to its engineer or another of its lines, as an interjection,
+/// or to the architect of its project, as the owner's words naming the work.
+async fn say_to_work(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(s): Json<api::WorkSaid>,
+) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::say_to_work(db, id, &s)).await
 }
 
 /// The settings the owner keeps on the page, as the configuration's last commit has them.
@@ -611,7 +633,10 @@ async fn say_to_architect(
     Json(s): Json<Said>,
 ) -> Result<Json<api::Done>, Fail> {
     let (project, _) = project_of(&app, &q)?;
-    decide(&app, move |db| db::say_to_architect(db, &project, s.item, &s.text)).await
+    decide(&app, move |db| {
+        db::say_to_architect(db, &project, s.item, None, &s.text)
+    })
+    .await
 }
 
 /// Runs one round of a project's architect: the next round of its wake that runs, or, when none runs and its queue

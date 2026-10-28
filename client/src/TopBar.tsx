@@ -1,12 +1,12 @@
-// The bar on every view: the views (the works, the architect, the items, the flow, and the messages to the owner with
-// how many are unread, the reports of a fault of wf-agents apart), and how the engine stands: running, paused (saying which works the owner started run
-// meanwhile), pausing while the last round finishes, or waiting for what stops every work, with the switch that pauses
-// every work or starts them all, the switch that keeps waiting sessions warm while every work is paused, and the slots
-// in use. The engine starts with every work paused.
+// The bar on every view: the views (the works, the architect, the items, the flow, and the owner's conversations with
+// how many things in them wait for the owner and how many messages are unread), and how the engine stands: running,
+// paused (saying which works the owner started run meanwhile), pausing while the last round finishes, or waiting for
+// what stops every work, with the switch that pauses every work or starts them all, the switch that keeps waiting
+// sessions warm while every work is paused, and the slots in use. The engine starts with every work paused.
 
 import { useState } from 'react';
 
-import type { OwnerMessage, Status, WorkSummary } from './api';
+import type { Conversation, Status, WorkSummary } from './api';
 import { course } from './components';
 import { time } from './format';
 import { postJson } from './http';
@@ -145,22 +145,26 @@ function Engine() {
   );
 }
 
-/// The view of the messages to the owner, with how many are unread: the reports of a fault of wf-agents in a badge of
-/// their own, then the rest.
+/// The view of the owner's conversations, with how many things in them wait for the owner (asks not answered, design
+/// cards not ruled, faults of wf-agents not read) in a badge of its own, and how many messages are unread.
 function Unread({ className }: { className: string }) {
-  const r = useResource<OwnerMessage[]>('messages', '/api/v1/messages');
+  const r = useResource<Conversation[]>('messages', '/api/v1/conversations');
   const list = r.data ?? [];
-  const faults = list.filter((m) => m.fault !== null).length;
-  const rest = list.length - faults;
+  const waiting = list.reduce((n, c) => n + c.waiting, 0);
+  const unread = list.reduce((n, c) => n + c.unread, 0);
   return (
     <Link to="/messages" className={className}>
       {t('nav_messages')}
-      {faults > 0 ? (
-        <span className="nav-count nav-fault" title={t('nav_faults', { n: faults })}>
-          {faults}
+      {waiting > 0 ? (
+        <span className="nav-count nav-fault" title={t('nav_waiting', { n: waiting })}>
+          {waiting}
         </span>
       ) : null}
-      {rest > 0 ? <span className="nav-count">{rest}</span> : null}
+      {unread > 0 ? (
+        <span className="nav-count" title={t('nav_unread', { n: unread })}>
+          {unread}
+        </span>
+      ) : null}
     </Link>
   );
 }

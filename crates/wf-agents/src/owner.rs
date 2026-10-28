@@ -266,19 +266,12 @@ pub fn say_to_architect(data: &Path, project: Option<&str>, item: Option<i64>, t
     let committed = config::committed(data).map_err(|e| e.to_string())?;
     let project = api::project_named(&committed.config, project)?;
     let mut db = open(data)?;
-    db::say_to_architect(&mut db, &project, item, text)
+    db::say_to_architect(&mut db, &project, item, None, text)
 }
 
+/// Says something to a running work's line, as the page does: an interjection, which the line gets in its next round.
 pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {
-    open(data)?
-        .write(Actor::Owner, |tx| {
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
-                params![work, line, text],
-            )?;
-            Ok(tx.last_insert_rowid())
-        })
-        .map_err(sql)
+    api::interject(&mut open(data)?, work, line, text)
 }
 
 /// Lifts a work's pause, as its Start on the page does.

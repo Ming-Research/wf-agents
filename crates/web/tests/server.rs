@@ -360,9 +360,10 @@ fn the_flow_page_reads_a_version_explained_and_compared() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
-// The page reads what agents and the engine told the owner, and the owner marks it read: one message, then the rest.
+// The page reads the owner's conversations, what agents and the engine told the owner in them, and the owner marks it
+// read: one message, then the rest; and says something in a work's conversation, to its engineer.
 #[test]
-fn the_owner_reads_messages_and_marks_them_read() {
+fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let s = serve("messages");
     let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
     db.write(db::Actor::Engine, |tx| {
@@ -388,32 +389,40 @@ fn the_owner_reads_messages_and_marks_them_read() {
     })
     .unwrap();
     let here = format!("127.0.0.1:{}", s.port);
-    let (status, unread) = get(s.port, "/api/v1/messages", &here, "");
-    assert_eq!(status, 200, "{unread}");
+    let (status, list) = get(s.port, "/api/v1/conversations", &here, "");
+    assert_eq!(status, 200, "{list}");
     assert!(
-        unread.contains(r#""text":"first""#) && unread.contains(r#""cell":"5a""#),
-        "{unread}"
+        list.contains(r#""key":"work:1""#) && list.contains(r#""unread":3"#),
+        "{list}"
     );
+    let (status, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
+    assert_eq!(status, 200, "{talk}");
     assert!(
-        unread.contains(r#""engine":true,"round":null"#) && unread.contains(r#""text":"Work 1 stopped.""#),
-        "{unread}"
+        talk.contains(r#""text":"first""#) && talk.contains(r#""source":"notice""#),
+        "{talk}"
     );
     let (status, marked) = post(s.port, "/api/v1/messages/read", r#"{"ids":[1]}"#, "application/json");
     assert_eq!(status, 200, "{marked}");
     assert!(marked.ends_with(r#"{"marked":1}"#), "{marked}");
-    let (_, unread) = get(s.port, "/api/v1/messages", &here, "");
-    assert!(
-        !unread.contains(r#""text":"first""#) && unread.contains(r#""text":"second""#),
-        "{unread}"
-    );
+    let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
+    assert!(list.contains(r#""unread":2"#), "{list}");
     let (_, marked) = post(s.port, "/api/v1/messages/read", r#"{"all":true}"#, "application/json");
     assert!(marked.ends_with(r#"{"marked":2}"#), "{marked}");
-    let (_, every) = get(s.port, "/api/v1/messages?all=true", &here, "");
-    assert!(
-        every.contains(r#""text":"first""#) && every.contains(r#""text":"second""#),
-        "{every}"
+    let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
+    assert!(list.contains(r#""unread":0"#), "{list}");
+    let (status, said) = post(
+        s.port,
+        "/api/v1/works/1/say",
+        r#"{"text":"Look at the log."}"#,
+        "application/json",
     );
-    assert!(!every.contains(r#""read_at":null"#), "{every}");
+    assert_eq!(status, 200, "{said}");
+    assert!(said.contains("goes to the engineer of work 1"), "{said}");
+    let (_, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
+    assert!(
+        talk.contains(r#""source":"interjection""#) && talk.contains("Look at the log."),
+        "{talk}"
+    );
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

@@ -18,7 +18,7 @@ export function App() {
   const route = useRoute();
   useEffect(() => connect(), []);
   const work = route.page === 'work' ? route : null;
-  const screen = ['flow', 'work', 'works', 'architect', 'items', 'item'].includes(route.page);
+  const screen = ['flow', 'work', 'works', 'architect', 'items', 'item', 'messages'].includes(route.page);
   return (
     <div className={screen ? 'app app-screen' : 'app'}>
       <TopBar route={route} />
@@ -32,7 +32,7 @@ export function App() {
           <Items selected={route.page === 'item' ? route.id : null} />
         ) : null}
         {route.page === 'architect' ? <Architect route={route} /> : null}
-        {route.page === 'messages' ? <Messages /> : null}
+        {route.page === 'messages' ? <Messages open={route.open} /> : null}
         {route.page === 'spend' ? <Spend /> : null}
         {route.page === 'settings' ? <Settings /> : null}
         {route.page === 'flow' ? <Flow route={route} /> : null}

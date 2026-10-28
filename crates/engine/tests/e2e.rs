@@ -2734,7 +2734,7 @@ fn an_item(e: &mut Engine) -> i64 {
 
 /// The owner says something to project p's architect.
 fn say(e: &mut Engine, text: &str) {
-    db::say_to_architect(&mut e.db, "p", None, text).unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, text).unwrap();
 }
 
 // The owner's words wake project p's architect, whose wake goes once through the whole graph: it wakes, finds its new

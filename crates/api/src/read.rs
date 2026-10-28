@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, AskKind, ConversationEntry, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow,
-    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
-    LogEntry, Matter, Misses, NamedText, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce,
-    PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
-    RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding,
-    Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Architect, AskKind, Conversation, ConversationDetail, ConversationEntry, DesignCard, DispatchHold, Draft,
+    FlowVersion, FlowView, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
+    KeptFile, LevelChange, LinkedItem, LogEntry, Matter, Misses, NamedText, Observation, OwnerAsk, OwnerMessage,
+    PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional,
+    RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Spend,
+    StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -711,20 +711,13 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             ask: None,
             ask_kinds: Vec::new(),
             architect: r.get(10)?,
-            fault: None,
-            misses: None,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body,
-       CASE WHEN w.graph = 'architect' THEN w.project END, n.fault,
-       (SELECT count(*) FROM cache_misses c WHERE c.notice = n.id),
-       (SELECT coalesce(sum(c.written), 0) FROM cache_misses c WHERE c.notice = n.id),
-       (SELECT coalesce(sum(c.cost_usd), 0.0) FROM cache_misses c WHERE c.notice = n.id),
-       (SELECT max(r.started_at) FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
-        WHERE c.notice = n.id)
+       CASE WHEN w.graph = 'architect' THEN w.project END
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
 LEFT JOIN owner_asks a ON a.id = n.ask";
 
@@ -746,29 +739,9 @@ fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Ow
             ask: r.get(7)?,
             ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
             architect: r.get(9)?,
-            fault: r.get(10)?,
-            misses: match r.get::<_, i64>(11)? {
-                0 => None,
-                count => Some(Misses {
-                    count,
-                    written: r.get(12)?,
-                    cost_usd: r.get(13)?,
-                    last_at: r.get(14)?,
-                }),
-            },
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
-}
-
-/// What agents told the owner and what the engine told the owner of its own accord, oldest first: those unread, or
-/// every one.
-pub fn messages(conn: &Connection, all: bool) -> Result<Vec<OwnerMessage>> {
-    let mut out = messages_where(conn, if all { "" } else { "WHERE m.read_at IS NULL" }, &[])?;
-    let unread = if all { "" } else { "WHERE n.read_at IS NULL" };
-    out.extend(notices_where(conn, unread, &[])?);
-    out.sort_by_key(|m| m.at.unwrap_or(0));
-    Ok(out)
 }
 
 fn interjections(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Interjection>> {
@@ -1728,7 +1701,6 @@ pub fn architect(
         understanding: understanding(conn, project)?,
         observations: observations(conn, project)?,
         tags,
-        conversation: conversation(conn, project)?,
     })
 }
 
@@ -1984,106 +1956,102 @@ fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// The owner's conversation with a project's architect, oldest first: the owner's words to it (its matters of the
-/// owner's words, but for an answer to an ask, which shows as the ask's answer, and what the owner said to one of its
-/// wakes), what its rounds told the owner, and its asks of the owner with the owner's answers.
-fn conversation(conn: &Connection, project: &str) -> Result<Vec<ConversationEntry>> {
-    let entry = |kind: &str, text: String, at: i64| ConversationEntry {
-        kind: kind.to_string(),
-        text,
-        at,
-        waiting: false,
-        work: None,
-        round: None,
-        ask: None,
+/// The owner's conversations, each with what waits for the owner in it, what is unread and when its latest entry came;
+/// a work's with its item.
+pub fn conversations(conn: &Connection) -> Result<Vec<Conversation>> {
+    let mut st = conn.prepare(
+        "SELECT c.conversation, c.project, c.last_at, c.waiting, c.unread, w.id, w.item, i.title FROM (
+           SELECT conversation, max(project) AS project, max(at) AS last_at, sum(waiting) AS waiting,
+             sum(source IN ('message', 'notice') AND read_at IS NULL AND fault IS NULL) AS unread
+           FROM conversation_entries GROUP BY conversation) c
+         LEFT JOIN works w ON c.conversation = 'work:' || w.id LEFT JOIN items i ON i.id = w.item
+         ORDER BY c.last_at DESC",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok(Conversation {
+            key: r.get(0)?,
+            project: r.get(1)?,
+            last_at: r.get(2)?,
+            waiting: r.get(3)?,
+            unread: r.get(4)?,
+            work: r.get(5)?,
+            item: r.get(6)?,
+            title: r.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// One of the owner's conversations in full: its entries in time order, and the asks of the owner and the design cards
+/// in it that wait for the owner, with their forms.
+pub fn conversation(conn: &Connection, flows: &Flows, key: &str) -> Result<ConversationDetail> {
+    let mut st = conn.prepare(
+        "SELECT source, id, sender, recipient, text, at, work, round, ask, design_card, read_at, waiting, pending, agents,
+                fault
+         FROM conversation_entries WHERE conversation = ?1 ORDER BY at, source, id",
+    )?;
+    let rows = st.query_map([key], |r| {
+        Ok(ConversationEntry {
+            source: r.get(0)?,
+            id: r.get(1)?,
+            sender: r.get(2)?,
+            recipient: r.get(3)?,
+            text: r.get(4)?,
+            at: r.get(5)?,
+            work: r.get(6)?,
+            round: r.get(7)?,
+            ask: r.get(8)?,
+            design_card: r.get(9)?,
+            read_at: r.get(10)?,
+            waiting: r.get(11)?,
+            pending: r.get(12)?,
+            agents: r.get(13)?,
+            fault: r.get(14)?,
+            misses: None,
+        })
+    })?;
+    let mut entries: Vec<ConversationEntry> = rows.collect::<rusqlite::Result<_>>()?;
+    let mut tally = conn.prepare(
+        "SELECT count(*), coalesce(sum(c.written), 0), coalesce(sum(c.cost_usd), 0.0), max(r.started_at)
+         FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.notice = ?1",
+    )?;
+    for e in entries.iter_mut().filter(|e| e.source == "notice" && e.fault.is_some()) {
+        let misses = tally.query_row([e.id], |r| {
+            Ok(Misses {
+                count: r.get(0)?,
+                written: r.get(1)?,
+                cost_usd: r.get(2)?,
+                last_at: r.get(3)?,
+            })
+        })?;
+        e.misses = (misses.count > 0).then_some(misses);
+    }
+    // The ids are numbers the view gave, listed into the filter as the architect's wakes are.
+    let waiting = |source: &str| -> String {
+        entries
+            .iter()
+            .filter(|e| e.waiting && e.source == source)
+            .map(|e| e.id.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     };
-    let mut out = Vec::new();
-    let mut st = conn.prepare(
-        "SELECT json_extract(body, '$.text'), at, handled_round IS NULL FROM architect_matters
-         WHERE project = ?1 AND kind = 'owner_words' AND coalesce(detail, '') <> 'answer'
-           AND json_extract(body, '$.text') IS NOT NULL",
-    )?;
-    let words = st.query_map([project], |r| {
-        Ok(ConversationEntry {
-            waiting: r.get(2)?,
-            ..entry("words", r.get(0)?, r.get(1)?)
-        })
-    })?;
-    for x in words {
-        out.push(x?);
-    }
-    let mut st = conn.prepare(
-        "SELECT i.text, coalesce((SELECT min(c.at) FROM changes c
-                                  WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', i.id)),
-                                 (SELECT min(r.started_at) FROM rounds r WHERE r.work = i.work), 0),
-                i.delivered_round IS NULL, i.work, i.delivered_round
-         FROM interjections i JOIN works w ON w.id = i.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND i.speaker = 'owner'",
-    )?;
-    let said = st.query_map([project], |r| {
-        Ok(ConversationEntry {
-            waiting: r.get(2)?,
-            work: Some(r.get(3)?),
-            round: r.get(4)?,
-            ..entry("words", r.get(0)?, r.get(1)?)
-        })
-    })?;
-    for x in said {
-        out.push(x?);
-    }
-    let mut st = conn.prepare(
-        "SELECT m.text, coalesce(r.ended_at, r.started_at), m.work, m.round
-         FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
-         WHERE w.graph = 'architect' AND w.project = ?1",
-    )?;
-    let told = st.query_map([project], |r| {
-        Ok(ConversationEntry {
-            work: Some(r.get(2)?),
-            round: Some(r.get(3)?),
-            ..entry("told", r.get(0)?, r.get(1)?)
-        })
-    })?;
-    for x in told {
-        out.push(x?);
-    }
-    let mut st = conn.prepare(
-        "SELECT a.id, a.work, a.round,
-                coalesce((SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
-                coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.answer
-         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
-         WHERE w.graph = 'architect' AND w.project = ?1",
-    )?;
-    let asked = st.query_map([project], |r| {
-        let ask: i64 = r.get(0)?;
-        let at: i64 = r.get(4)?;
-        let answer = json(r.get(5)?);
-        let put = ConversationEntry {
-            waiting: answer.is_none(),
-            work: Some(r.get(1)?),
-            round: Some(r.get(2)?),
-            ask: Some(ask),
-            ..entry("ask", r.get(3)?, at)
-        };
-        // The owner's answer, in words or as the choice made; the engine's, which says none was needed, is not said.
-        let answered = answer.filter(|a| a["by"] != "engine").map(|a| {
-            let text = match a["text"].as_str().filter(|t| !t.trim().is_empty()) {
-                Some(t) => t.to_string(),
-                None => a["choice"].as_str().unwrap_or_default().to_string(),
-            };
-            ConversationEntry {
-                ask: Some(ask),
-                ..entry("answer", text, a["at"].as_i64().unwrap_or(at))
-            }
-        });
-        Ok((put, answered))
-    })?;
-    for x in asked {
-        let (put, answered) = x?;
-        out.push(put);
-        out.extend(answered);
-    }
-    out.sort_by_key(|e| e.at);
-    Ok(out)
+    let (open_asks, open_cards) = (waiting("ask"), waiting("card"));
+    let asks = if open_asks.is_empty() {
+        Vec::new()
+    } else {
+        asks(conn, &format!("WHERE a.id IN ({open_asks})"), &[])?
+    };
+    let design_cards = if open_cards.is_empty() {
+        Vec::new()
+    } else {
+        design_cards(conn, flows, &format!("WHERE c.id IN ({open_cards})"), &[])?
+    };
+    Ok(ConversationDetail {
+        key: key.to_string(),
+        entries,
+        asks,
+        design_cards,
+    })
 }
 
 /// A project's observations: the open ones first, then those closed, each newest first.
@@ -3004,6 +2972,58 @@ mod tests {
         s
     }
 
+    // The owner's conversations by subject: the architect's holds the owner's words, still waiting for it, what a wake
+    // told the owner and its asks, waiting for the owner, pinned with their forms; the work's what its agents told the
+    // owner and asked the architect. Another project's are its own.
+    #[test]
+    fn the_owner_s_conversations_gather_what_was_said_by_subject() {
+        let s = architect_setup("talk");
+        let all = conversations(s.db.conn()).unwrap();
+        let p = all.iter().find(|c| c.key == "architect:p").unwrap();
+        assert_eq!(
+            (p.project.as_deref(), p.waiting, p.unread, p.work),
+            (Some("p"), 2, 1, None)
+        );
+        let w = all.iter().find(|c| c.key == "work:1").unwrap();
+        assert_eq!(
+            (w.work, w.item, w.title.as_deref(), w.unread),
+            (Some(1), Some(1), Some("First"), 1)
+        );
+        let d = conversation(s.db.conn(), &Flows::default(), "architect:p").unwrap();
+        type Seen<'a> = (&'a str, &'a str, &'a str, i64, bool, bool);
+        let seen: Vec<Seen> = d
+            .entries
+            .iter()
+            .map(|e| {
+                (
+                    e.source.as_str(),
+                    e.sender.as_str(),
+                    e.text.as_str(),
+                    e.at,
+                    e.waiting,
+                    e.pending,
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("words", "owner", "Put the parser first.", 200, false, true),
+                ("ask", "architect", "", 209, true, false),
+                ("message", "architect", "Learned L", 209, false, false),
+                ("ask", "architect", "", 400, true, false)
+            ]
+        );
+        assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [1, 2]);
+        assert!(d.design_cards.is_empty());
+        let work = conversation(s.db.conn(), &Flows::default(), "work:1").unwrap();
+        let sources: Vec<(&str, bool)> = work.entries.iter().map(|e| (e.source.as_str(), e.agents)).collect();
+        assert!(
+            sources.contains(&("message", false)) && sources.contains(&("question", true)),
+            "{sources:?}"
+        );
+    }
+
     // The works list leaves the wakes out; a wake reads as a work on no item.
     #[test]
     fn the_architect_wakes_are_its_tab_s_not_the_works_list_s() {
@@ -3015,10 +3035,6 @@ mod tests {
         assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 5, 1));
         let r = round(s.db.conn(), &cache, &s.data, 3, 4).unwrap();
         assert!(r.limits.is_empty());
-        // What a wake's round told the owner names the architect.
-        let all = messages(s.db.conn(), true).unwrap();
-        let told: Vec<(&str, Option<&str>)> = all.iter().map(|m| (m.text.as_str(), m.architect.as_deref())).collect();
-        assert!(told.contains(&("Learned L", Some("p"))) && told.contains(&("told", None)));
     }
 
     // A project's tab: its wakes newest first, with what woke each and what it handled; its queue, then what an ask
@@ -3142,23 +3158,5 @@ mod tests {
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);
         assert_eq!(a.observations[0].tags, ["perf"]);
-
-        // The conversation in time order: the owner's words, still waiting for the architect; what a wake told the
-        // owner; its asks, waiting for the owner's answer.
-        type Spoken<'a> = (&'a str, &'a str, i64, bool, Option<i64>);
-        let talk: Vec<Spoken> = a
-            .conversation
-            .iter()
-            .map(|x| (x.kind.as_str(), x.text.as_str(), x.at, x.waiting, x.ask))
-            .collect();
-        assert_eq!(
-            talk,
-            [
-                ("words", "Put the parser first.", 200, true, None),
-                ("told", "Learned L", 209, false, None),
-                ("ask", "", 209, true, Some(2)),
-                ("ask", "", 400, true, Some(1))
-            ]
-        );
     }
 }

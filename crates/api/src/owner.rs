@@ -1,16 +1,71 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, pausing a work and lifting a work's pause, and the switch that keeps waiting sessions warm while every
-//! work is paused. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it goes
-//! on. What the owner says to the architect is `db::say_to_architect`.
+//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, and the switch that
+//! keeps waiting sessions warm while every work is paused. Each is written as the owner, so `changes` records it as
+//! theirs, and the engine reads it as it goes on. What the owner says to the architect is `db::say_to_architect`.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
-use crate::{Answer, Ruling};
+use crate::{Answer, Ruling, WorkSaid};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Says something to a work's line as the owner: an interjection, handed to the line's round that runs after its next
+/// tool use, or at the top of its next round. Gives the interjection.
+pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("what is said to a work says something".into());
+    }
+    if line.trim().is_empty() {
+        return Err("what is said to a work names the line it is for".into());
+    }
+    let ended: Option<Option<String>> = db
+        .conn()
+        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    match ended {
+        None => return Err(format!("no work {work}")),
+        Some(Some(why)) => return Err(format!("work {work} has ended: {why}")),
+        Some(None) => {}
+    }
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
+            params![work, line, text],
+        )?;
+        Ok(tx.last_insert_rowid())
+    })
+    .map_err(sql)
+}
+
+/// What the owner says in the conversation about a work: to its engineer, or the line named, as an interjection; or to
+/// the architect of its item's project, as the owner's words naming the work.
+pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
+    let to = said.to.as_deref().unwrap_or("engineer");
+    if to != "architect" {
+        let id = interject(db, work, to, &said.text)?;
+        return Ok(format!("interjection {id} goes to the {to} of work {work}"));
+    }
+    let of: Option<(Option<i64>, Option<String>)> = db
+        .conn()
+        .query_row(
+            "SELECT w.item, i.project FROM works w LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((item, Some(project))) = of else {
+        return Err(format!(
+            "work {work} is on no item of a project, so it has no architect to say it to"
+        ));
+    };
+    db::say_to_architect(db, &project, item, Some(work), &said.text)
 }
 
 /// The option the owner chose, for an ask of the architect's that offers options.

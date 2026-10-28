@@ -49,10 +49,12 @@ export function named(e: Event): string[] {
     case 'work':
       return ['works', `work:${e.work}`, 'items', 'item:*'];
     case 'round':
-      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*'];
+      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*', 'messages'];
     case 'design_card':
     case 'ask':
-      return e.work === null ? ['works', 'work:*', 'item:*'] : ['works', `work:${e.work}`, 'item:*'];
+      return e.work === null
+        ? ['works', 'work:*', 'item:*', 'messages']
+        : ['works', `work:${e.work}`, 'item:*', 'messages'];
     case 'owner_message':
       return e.work === null ? ['messages', 'work:*'] : ['messages', `work:${e.work}`];
     case 'item':
@@ -60,7 +62,7 @@ export function named(e: Event): string[] {
     case 'flow':
       return ['flows'];
     case 'architect':
-      return ['architect'];
+      return ['architect', 'messages'];
     default:
       return [];
   }

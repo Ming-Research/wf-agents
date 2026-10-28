@@ -433,11 +433,6 @@ pub struct OwnerMessage {
     /// For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
     /// architect's project; none otherwise.
     pub architect: Option<String>,
-    /// For the engine's notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its
-    /// kind: cache_miss; none for any other message.
-    pub fault: Option<String>,
-    /// For the engine's notice of cache misses: the misses it tells of, the first and those added to it since.
-    pub misses: Option<Misses>,
 }
 
 /// The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
@@ -904,28 +899,81 @@ pub struct Architect {
     pub observations: Vec<Observation>,
     /// The project's tags for observations, each with what it covers.
     pub tags: Vec<Tag>,
-    /// The owner's conversation with it, oldest first: the owner's words to it, what its rounds told the owner, and its
-    /// asks of the owner with the owner's answers.
-    pub conversation: Vec<ConversationEntry>,
 }
 
-/// One entry of the owner's conversation with a project's architect.
+/// One of the owner's conversations, by its subject, as their list shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Conversation {
+    /// Which: `work:<id>` for an engineer's work, `architect:<project>` for a project's architect,
+    /// `architects:<project>|<project>` for two projects' architects, `wf-agents` for wf-agents itself.
+    pub key: String,
+    /// The project it is about; none for one between two projects' architects, and for wf-agents'.
+    pub project: Option<String>,
+    /// For a work's: the work, its item and the item's title.
+    pub work: Option<i64>,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    /// How many things in it wait for the owner: asks not answered, design cards not ruled, faults not read.
+    pub waiting: i64,
+    /// How many of the messages and notices in it the owner has not read, faults aside.
+    pub unread: i64,
+    /// When its latest entry came.
+    pub last_at: i64,
+}
+
+/// One entry of a conversation of the owner's, as `conversation_entries` gives it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
-    /// words: the owner's words to the architect, said on the page, on an item or to a wake, or the owner letting a
-    /// work it had stopped go on; told: what a round of the architect told the owner; ask: an ask of the owner the
-    /// architect put, in the words of the notice that told of it; answer: the owner's answer to one.
-    pub kind: String,
+    /// What it is: message, notice, ask, answer, interjection, words, question, reply, advice_ask, advice, card,
+    /// ruling or between.
+    pub source: String,
+    /// Its row in the table it comes from; for advice_ask and advice, the round's number in its work.
+    pub id: i64,
+    /// Who said it and to whom: a line, the owner, the engine or wf-agents; for between, the projects.
+    pub sender: String,
+    pub recipient: String,
     pub text: String,
     pub at: i64,
-    /// For the owner's words: whether they still wait for the architect, not handled or handed in yet; for an ask:
-    /// whether it waits for the owner's answer.
-    pub waiting: bool,
-    /// For what the architect told or asked: its wake and round.
+    /// The work and the round it came with, when it came with one.
     pub work: Option<i64>,
     pub round: Option<i64>,
-    /// For an ask and its answer: the ask.
+    /// For an ask and its answer, the ask; for a design card and a ruling on it, the card.
     pub ask: Option<i64>,
+    pub design_card: Option<i64>,
+    /// For a message or a notice: when the owner marked it read; none while it is unread.
+    pub read_at: Option<i64>,
+    /// Whether it waits for the owner: an ask not answered, a design card not ruled, a fault not read.
+    pub waiting: bool,
+    /// Whether the owner's words in it are not taken up yet.
+    pub pending: bool,
+    /// Whether it passes between agents, not to or from the owner.
+    pub agents: bool,
+    /// For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
+    /// cache_miss or flow_anomaly.
+    pub fault: Option<String>,
+    /// For a notice of cache misses: the misses it tells of, the first and those added to it since.
+    pub misses: Option<Misses>,
+}
+
+/// A conversation in full: its entries in time order, and what waits for the owner in it with its form: the asks not
+/// answered and the design cards not ruled.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ConversationDetail {
+    pub key: String,
+    pub entries: Vec<ConversationEntry>,
+    pub asks: Vec<OwnerAsk>,
+    pub design_cards: Vec<DesignCard>,
+}
+
+/// What the owner says in a conversation about a work: to its engineer, or another of its lines, as an interjection;
+/// or to the architect of its project, as the owner's words naming the work.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct WorkSaid {
+    pub text: String,
+    /// The line it is for, `engineer` unless named; `architect` for the project's architect.
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
 }
 
 /// One wake of an architect.
