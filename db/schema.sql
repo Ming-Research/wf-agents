@@ -574,6 +574,11 @@ CREATE TABLE architect_matters (
   -- The architect's round that handled it: its wake and the round that closed it; NULL while it is not handled.
   handled_work INTEGER,
   handled_round INTEGER,
+  -- Why it left the queue unhandled: the work it waits on, which raised it (a question, a failure, a design card),
+  -- ended, saying how; NULL otherwise. Read by: architect_queue, which leaves it out; the engine, which tells a new
+  -- work on the item what an earlier work asked and had withdrawn; the owner's interface, which leaves it out of the
+  -- queue.
+  withdrawn TEXT,
   CHECK ((work IS NULL) = (round IS NULL)),
   CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
   CHECK ((asked IS NULL) = (resume_cell IS NULL)),
@@ -689,11 +694,12 @@ CREATE INDEX observations_by_project ON observations (project);
 
 CREATE VIEW item_blocked_by AS
   -- Each item with each item it depends on by a blocking dependency that is not merged yet, as the merge cell (9)
-  -- records a merge: no work starts on the item until every one is. Read by: ready_items; the architect, through its
-  -- board; the owner's interface, which shows an item that would start but for them as waiting for them.
+  -- records a merge: no work starts on the item until every one is. A cancelled item, which never delivers, holds back
+  -- none. Read by: ready_items; the architect, through its board; the owner's interface, which shows an item that
+  -- would start but for them as waiting for them.
   SELECT l.item, l.depends_on, l.needs
-  FROM item_links l
-  WHERE l.kind = 'blocking' AND NOT EXISTS (
+  FROM item_links l JOIN items d ON d.id = l.depends_on
+  WHERE l.kind = 'blocking' AND d.cancelled IS NULL AND NOT EXISTS (
     SELECT 1 FROM rounds r JOIN works w ON w.id = r.work
     WHERE w.item = l.depends_on AND r.cell = '9' AND r.transition = 'merged');
 
@@ -938,11 +944,11 @@ CREATE VIEW known_red_counts AS
   GROUP BY i.project;
 
 CREATE VIEW architect_queue AS
-  -- Each project's queue: the matters not handled and not held by an ask of the owner still waiting, each with who
-  -- waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for the owner's
-  -- words; or no one), when it came and how long it has waited, whether it comes back with the owner's answer, and
-  -- whether it is urgent. Read by: cells W0 and D0; the engine, which wakes each project's architect and gives the
-  -- architect its queue; the owner's interface.
+  -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
+  -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
+  -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
+  -- answer, and whether it is urgent. Read by: cells W0 and D0; the engine, which wakes each project's architect and
+  -- gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
@@ -955,7 +961,7 @@ CREATE VIEW architect_queue AS
     m.asked IS NOT NULL AS answered,
     coalesce(json_extract(m.body, '$.urgent'), 0) AS urgent
   FROM architect_matters m
-  WHERE m.handled_round IS NULL
+  WHERE m.handled_round IS NULL AND m.withdrawn IS NULL
     AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))
   ORDER BY m.id;
 

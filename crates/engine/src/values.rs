@@ -164,11 +164,15 @@ fn brought_back(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>
     Ok(last_return(e, w, g, from, "reply")?.and_then(|r| r.get("reply").cloned()))
 }
 
-/// The items an item depends on.
+/// The items an item depends on; a cancelled one, which never delivers, holds back nothing, and cancelling an item
+/// removes the dependencies on it.
 pub fn dependencies(e: &Engine, item: i64) -> Result<Vec<i64>, String> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT depends_on FROM item_links WHERE item = ?1")
+            .prepare(
+                "SELECT l.depends_on FROM item_links l JOIN items d ON d.id = l.depends_on
+                 WHERE l.item = ?1 AND d.cancelled IS NULL",
+            )
             .map_err(|e| e.to_string())?;
     st.query_map([item], |r| r.get(0))
         .map_err(|e| e.to_string())?

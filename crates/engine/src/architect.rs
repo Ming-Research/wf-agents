@@ -1275,9 +1275,13 @@ fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
 
 /// Makes the given rows of a wake's batch, as the architect, each in order; a key a change made the item under is
 /// given its number. Gives the keys and the numbers they were given.
-fn make(tx: &Transaction<'_>, rows: &[Change]) -> Result<BTreeMap<String, i64>, String> {
+fn make(
+    tx: &Transaction<'_>,
+    rows: &[Change],
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<BTreeMap<String, i64>, String> {
     let changes: Vec<Value> = rows.iter().map(|r| r.3.clone()).collect();
-    let created = crate::arch_changes::write_all(tx, &changes)?;
+    let created = crate::arch_changes::write_all(tx, &changes, projects)?;
     let keys: BTreeMap<String, i64> = created
         .iter()
         .filter_map(|c| Some((c["key"].as_str()?.to_string(), c["id"].as_str()?.parse().ok()?)))
@@ -1372,7 +1376,7 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (w, project) = wake_of(ctx)?;
     let review = items(ctx.unwrapped.get("review"));
     let (sound, dropped) = sorted_by_review(collected(tx, w)?, &review);
-    let keys = make(tx, &sound)?;
+    let keys = make(tx, &sound, &ctx.projects)?;
     let matters: BTreeSet<i64> = sound.iter().map(|r| r.2).collect();
     let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.2).collect();
     send_held_replies(tx, &matters.difference(&held).copied().collect(), &keys)?;
@@ -1559,7 +1563,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "apply_batch" => {
             let (_, project) = wake_of(ctx)?;
             let rows = collected(tx, w)?;
-            let keys = make(tx, &rows)?;
+            let keys = make(tx, &rows, &ctx.projects)?;
             let matters: BTreeSet<i64> = rows.iter().map(|r| r.2).collect();
             send_held_replies(tx, &matters, &keys)?;
             batch_over(tx, w, &project)?;
@@ -2922,7 +2926,7 @@ fn queue(e: &Engine, project: &str) -> Result<Value, String> {
     let held = query_json(
         conn,
         "SELECT m.id, m.kind, m.what, m.asked FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
-         WHERE m.project = ?1 AND m.handled_round IS NULL AND a.answer IS NULL ORDER BY m.id",
+         WHERE m.project = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL AND a.answer IS NULL ORDER BY m.id",
         &[&project],
         ROWS,
     )?;

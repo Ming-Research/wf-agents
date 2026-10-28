@@ -2689,7 +2689,7 @@
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again.",
-      "end_work": "Ends the work: ends its sessions and records the end. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged. A work that delivered a report and handed in what to do next queues it for the architect as a matter of its own: the latest it handed in, as written, with the report's paths under research/ and the commit the work merged.",
+      "end_work": "Ends the work as every work ends: ends its sessions, removes its worktree, keeping its branch, and withdraws what it asked the architect and had no answer to. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged. A work that delivered a report and handed in what to do next queues it for the architect as a matter of its own: the latest it handed in, as written, with the report's paths under research/ and the commit the work merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
       "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
@@ -2785,7 +2785,7 @@
       "tree_changes_to_review": "The change to the design tree to review: across the whole branch at the first review, since the last review at a re-review; the engine lists the nodes changed.",
       "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
       "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
-      "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
+      "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
@@ -3874,7 +3874,7 @@
               ]
             },
             {
-              "what": "What already exists for this item, when it was worked on before: its earlier works here, how far each got and why it ended, where an imported item came from, the branch your worktree took over and the PR kept, each with how to read it; read them yourself. None for an item nothing was done on",
+              "what": "What already exists for this item, when it was worked on before: its earlier works here, how far each got and why it ended, what each asked the architect and had withdrawn when it ended, where an imported item came from, the branch your worktree took over and the PR kept, each with how to read it; read them yourself. None for an item nothing was done on",
               "from": [
                 {
                   "engine": "existing_work"
@@ -10935,7 +10935,7 @@
           ],
           "inputs": [
             {
-              "what": "The place to set straight, as your queue holds it: the fix the understanding gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, or a new policy taking effect",
+              "what": "The place to set straight, as your queue holds it: the fix the understanding gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, a new policy taking effect, or an item that depended on one cancelled",
               "from": [
                 {
                   "engine": "matter"

@@ -328,3 +328,65 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+// The owner's cancel ends the item's work as every work ends: its session ends, and its worktree's removal and its
+// pull request's closing are queued, saying why.
+#[test]
+fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
+    let dir = data_directory("cancel");
+    for line in [
+        "init",
+        "item add --project p --title kept --problem x --why y --level l",
+    ] {
+        let out = wf(&dir, line);
+        assert!(out.status.success(), "`{line}`: {}", stderr(&out));
+    }
+    let mut base = db::Db::open(&config::database(&dir)).unwrap();
+    base.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (1, 1, 'engineer', '4', '/w/1', 5)",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'engineer', 'claude', 's1')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    drop(base);
+    let out = wf(&dir, "item cancel 1 --why duplicate");
+    assert!(out.status.success(), "{}", stderr(&out));
+    let base = db::Db::open(&config::database(&dir)).unwrap();
+    let going: i64 = base
+        .conn()
+        .query_row("SELECT count(*) FROM sessions WHERE ended IS NULL", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(going, 0);
+    let mut st = base
+        .conn()
+        .prepare("SELECT kind, json_extract(args, '$.comment') FROM outbox ORDER BY id")
+        .unwrap();
+    let queued: Vec<(String, Option<String>)> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert_eq!(
+        queued,
+        [
+            ("remove_worktree".to_string(), None),
+            (
+                "close_pr".to_string(),
+                Some("Its work ended without merging: item cancelled: duplicate.".to_string())
+            )
+        ]
+    );
+    drop(st);
+    drop(base);
+    let _ = std::fs::remove_dir_all(&dir);
+}

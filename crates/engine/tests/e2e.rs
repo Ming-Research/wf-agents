@@ -563,6 +563,22 @@ fn an_item_goes_from_the_queue_to_main() {
             .unwrap();
     assert_eq!(at, "20", "{log}");
     assert_eq!(pr, Some(1));
+    // Done at its end, the work let go of what it held: no session goes on, and its pull request, merged, is not
+    // closed.
+    let going: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM sessions s JOIN works w ON w.id = s.work WHERE w.item = ?1 AND s.ended IS NULL",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(going, 0, "{log}");
+    let closing: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'close_pr'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(closing, 0, "{log}");
     let main = git(
         &s.root,
         &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
@@ -1377,7 +1393,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         Ok(())
     })
     .unwrap();
-    // It put two asks to the owner.
+    // It put two asks to the owner, and a question to the architect.
     let asks: Vec<i64> =
         e.db.write(Actor::Engine, |tx| {
             let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [old], |r| r.get(0))?;
@@ -1389,6 +1405,18 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
                 )?;
                 asks.push(tx.last_insert_rowid());
             }
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "engineer_question".into(),
+                    detail: Some("other_question".into()),
+                    what: format!("Work {old} on item {item} asks which name to keep"),
+                    body: json!({ "to": "architect", "work": old }),
+                    item: Some(item),
+                    raised: Some((old, round)),
+                },
+            )?;
             Ok(asks)
         })
         .unwrap();
@@ -1427,6 +1455,27 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
             .unwrap()
     };
     assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
+    // The work stopped as every work ends: its sessions ended and its question left the architect's queue, while the
+    // new work took over its worktree, branch and pull request.
+    let going: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM sessions WHERE work = ?1 AND ended IS NULL",
+                [old],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(going, 0);
+    let withdrawn: String =
+        e.db.conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE work = ?1", [old], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(
+        withdrawn.starts_with("the work that raised it ended (stopped: the flow moved to version"),
+        "{withdrawn}"
+    );
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let works = works_of(&e, item);
@@ -1450,6 +1499,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         "git log --oneline origin/main..HEAD".to_string(),
         format!("pr view {} --comments", pr.unwrap()),
         "it was half done before".to_string(),
+        format!("- Work {old} asked the architect, and had no answer when it ended, so the question was withdrawn"),
     ] {
         assert!(m.contains(&want), "{want}\n{m}");
     }
@@ -5124,6 +5174,56 @@ fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     .unwrap();
     let started = e.step(None).unwrap();
     assert_eq!(started.started_item, Some(library), "{}", said.borrow().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits for the items its item depends on (11b) goes on at once to choose the way on (11) when one of them
+// is cancelled, told which, why and what it needed of it; its item no longer depends on the cancelled one.
+#[test]
+fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
+    let s = setup("cancelled-dependency");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let lexer = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            db::add_dependency(tx, parser, lexer, "its tokens", "parallel")?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', '11b')",
+                params![parser, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let at = |e: &Engine| -> String {
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    e.step_work(work).unwrap();
+    assert_eq!(at(&e), "11b", "{}", said.borrow().join("\n"));
+    let projects = e.config.config.projects.clone();
+    e.db.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, lexer, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+    })
+    .unwrap();
+    e.step_work(work).unwrap();
+    assert_eq!(at(&e), "11", "{}", said.borrow().join("\n"));
+    let told: String =
+        e.db.conn()
+            .query_row("SELECT text FROM interjections WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert!(
+        told.contains("its tokens") && told.contains("no longer needed"),
+        "{told}"
+    );
+    let links: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM item_links", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(links, 0);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

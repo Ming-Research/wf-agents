@@ -111,18 +111,15 @@ pub fn depend(data: &Path, item: i64, d: &Dependency) -> Result<(), String> {
         .map_err(sql)
 }
 
+/// Cancels an item, as the architect's cancellation does: its works end as every work ends, and the items that
+/// depended on it are told.
 pub fn cancel(data: &Path, item: i64, why: &str) -> Result<(), String> {
-    open(data)?
-        .write(Actor::Owner, |tx| {
-            tx.execute("UPDATE items SET cancelled = ?2 WHERE id = ?1", params![item, why])?;
-            tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])?;
-            tx.execute(
-                "UPDATE works SET ended = ?2 WHERE item = ?1 AND ended IS NULL",
-                params![item, format!("item cancelled: {why}")],
-            )?;
-            Ok(())
-        })
-        .map_err(sql)
+    let mut base = open(data)?;
+    let projects = config::committed(data).map_err(sql)?.config.projects;
+    base.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, item, why, "owner", &projects).map_err(db::Error::Abort)
+    })
+    .map_err(sql)
 }
 
 /// Where an item goes in the queue.

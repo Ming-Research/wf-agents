@@ -277,6 +277,28 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
+    // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
+    // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it.
+    let gone: Option<String> =
+        e.db.conn()
+            .query_row("SELECT ended FROM works WHERE id = ?1", [w.id], |r| r.get(0))
+            .map_err(sql)?;
+    if gone.is_some() {
+        let usage = ended.usage.as_ref().map(Value::to_string);
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET usage = coalesce(usage, ?3) WHERE work = ?1 AND n = ?2",
+                params![round.work, round.n, usage],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)?;
+        (e.say)(&format!(
+            "work {} ended while {round} ran: what it handed in is not taken",
+            w.id
+        ));
+        return Ok(Advance::Stopped);
+    }
     // A round that resumed its session within the cache's lifetime and still wrote most of it to the cache again missed
     // the cache: a fault of wf-agents, which the owner is told of.
     if req.resume.is_some()
@@ -791,6 +813,7 @@ pub fn finish(
         within: g.within.clone(),
         data: e.data.clone(),
         given: given.clone(),
+        projects: e.config.config.projects.clone(),
     };
     let ended = Ended {
         output: Some(output),
@@ -1001,20 +1024,15 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     Ok(json!({ "place": place }))
 }
 
-/// Cell 20: the work's sessions end, and the worktree is removed once the round is written; the branch stays. A work
-/// that delivered a report and handed in what to do next queues it for the architect, as a matter of its own.
+/// Cell 20: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
+/// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
+/// for the architect, as a matter of its own.
 fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let followup = report_followup(e, w, &project)?;
+    let projects = &e.config.config.projects;
     e.db.write(Actor::Engine, |tx| {
-        sessions::choose::end_work(tx, w.id).map_err(db::Error::Abort)?;
-        if let Some(wt) = &w.worktree {
-            let args = json!({ "checkout": project.checkout, "dir": wt });
-            tx.execute(
-                "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'remove_worktree', ?2, ?3)",
-                params![w.id, args.to_string(), db::now()],
-            )?;
-        }
+        crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
         if let Some(m) = &followup {
             db::queue_matter(tx, m)?;
         }

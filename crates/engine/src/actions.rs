@@ -4,6 +4,7 @@
 //! transaction and carried out by [`run_outbox`] after it. What the flow sends to the architect is queued for it as a
 //! matter, in the same transaction; the actions of the architect's own graph are [`crate::architect::act`].
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -34,6 +35,8 @@ pub struct Ctx {
     /// What the cell's rows were given: the values rows recorded, the engine's values, and each input read by id under
     /// `@<id>`.
     pub given: Map<String, Value>,
+    /// The configuration's projects, for the works an item change ends.
+    pub projects: BTreeMap<String, config::Project>,
 }
 
 fn sql(e: impl std::fmt::Display) -> String {

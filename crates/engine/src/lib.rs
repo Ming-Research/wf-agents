@@ -13,6 +13,7 @@
 //! one step at a time: a long round of one work holds up the others.
 
 pub mod database;
+pub mod ending;
 pub mod git;
 pub mod hub;
 
@@ -199,48 +200,27 @@ impl Engine {
     }
 
     /// Takes over works on an older flow version, which the engine does when each next goes on, instead of taking its
-    /// step: each stops, saying why (the round it was in is cut off, its design cards are replaced and its asks of the
-    /// owner need no answer), and its item gets a new work on this version, whose cell 0 takes over the stopped work's
-    /// branch, worktree and pull request and whose cell 1 is told what exists. Until then the owner still rules on its
-    /// design cards and answers its asks, and the new work is given them. A new work is paused as the owner had paused
-    /// the old one, so that a work the owner steps stays in the owner's hands. Every work given is stopped before any
-    /// new one starts, so that the slots they held are free; a new work takes a slot only when one is free: in the
-    /// order of the works stopped, those that find one start now, and the items of the rest go to the head of the
-    /// queue, ahead of the items queued before, in the same order, to start as slots free. Gives the new works started.
+    /// step: each stops, saying why, as every work ends ([`ending::end`]: the round it was in is cut off, its design
+    /// cards are replaced, its asks of the owner need no answer, its questions to the architect are withdrawn and its
+    /// sessions end), and its item gets a new work on this version, whose cell 0 takes over the stopped work's branch,
+    /// worktree and pull request and whose cell 1 is told what exists, the questions withdrawn included. Until then the
+    /// owner still rules on its design cards and answers its asks, and the new work is given them. A new work is paused
+    /// as the owner had paused the old one, so that a work the owner steps stays in the owner's hands. Every work given
+    /// is stopped before any new one starts, so that the slots they held are free; a new work takes a slot only when
+    /// one is free: in the order of the works stopped, those that find one start now, and the items of the rest go to
+    /// the head of the queue, ahead of the items queued before, in the same order, to start as slots free. Gives the
+    /// new works started.
     fn take_over(&mut self, works: &[Work]) -> Result<Vec<i64>, String> {
         let now = self.flow_now;
         let why = format!("the flow moved to version {now}, and a new work on it takes the item over");
         let mut takeovers = Vec::new();
+        let projects = self.config.config.projects.clone();
+        let stopped = format!("stopped: {why}");
         for w in works {
             let id = w.id;
-            let at = db::now();
-            let open = work::open_round(self.db.conn(), id)?;
             self.db
                 .write(Actor::Engine, |tx| {
-                    if let Some(r) = &open {
-                        let cut = work::Ended {
-                            rejected: Some(serde_json::json!({ "interrupted": why })),
-                            ..work::Ended::default()
-                        };
-                        work::finish_round(tx, r.id, &cut).map_err(db::Error::Abort)?;
-                    }
-                    tx.execute(
-                        "UPDATE works SET ended = ?2 WHERE id = ?1",
-                        params![id, format!("stopped: {why}")],
-                    )?;
-                    tx.execute(
-                        "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
-                        [id],
-                    )?;
-                    let answer = serde_json::json!({
-                        "by": "engine",
-                        "at": at,
-                        "text": format!("No answer is needed: the work stopped, since {why}."),
-                    });
-                    tx.execute(
-                        "UPDATE owner_asks SET answer = ?2 WHERE answer IS NULL AND work = ?1",
-                        params![id, answer.to_string()],
-                    )?;
+                    ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
                     actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
                     Ok(())
                 })

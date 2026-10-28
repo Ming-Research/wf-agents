@@ -610,6 +610,23 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
             x["rounds"],
             x["at"].as_str().unwrap_or("?"),
         ));
+        // What it asked the architect and had no answer to when it ended: the question left the queue with it.
+        let withdrawn = work::query_json(
+            e.db.conn(),
+            "SELECT id, what FROM architect_matters
+             WHERE work = ?1 AND withdrawn IS NOT NULL AND kind IN ('engineer_question', 'failure') ORDER BY id",
+            &[&id],
+            100,
+        )?;
+        for m in withdrawn {
+            out.push(format!(
+                "- Work {id} asked the architect, and had no answer when it ended, so the question was withdrawn: {}. \
+                 The whole question: `SELECT body FROM architect_matters WHERE id = {}`. Ask again if you still need \
+                 to.",
+                m["what"].as_str().unwrap_or_default().trim_end_matches('.'),
+                m["id"]
+            ));
+        }
     }
     if let Some(from) = &item.imported_from {
         out.push(format!("- The item was imported from outside this flow: {from}."));

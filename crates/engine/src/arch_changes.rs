@@ -348,12 +348,17 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
     }
 }
 
-/// Writes every change, in order, and gives what was created: each item, by its key, with its number.
-pub fn write_all(tx: &Transaction<'_>, changes: &[Value]) -> Result<Vec<Value>, String> {
+/// Writes every change, in order, and gives what was created: each item, by its key, with its number. `projects` are
+/// the configuration's, for the works a cancellation ends.
+pub fn write_all(
+    tx: &Transaction<'_>,
+    changes: &[Value],
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<Vec<Value>, String> {
     let mut keys: BTreeMap<String, i64> = BTreeMap::new();
     let mut created = Vec::new();
     for c in changes {
-        write_one(tx, c, &mut keys, &mut created)?;
+        write_one(tx, c, &mut keys, &mut created, projects)?;
     }
     Ok(created)
 }
@@ -363,20 +368,6 @@ fn item_of(v: &Value, keys: &BTreeMap<String, i64>) -> Result<i64, String> {
     number(v)
         .or_else(|| v.as_str().and_then(|k| keys.get(k.trim()).copied()))
         .ok_or_else(|| format!("there is no item {v}"))
-}
-
-/// Ends the works of an item that is not to be done, and takes it out of the owner's queue.
-fn cancel(tx: &Transaction<'_>, item: i64, why: &str) -> Result<(), String> {
-    tx.execute("UPDATE items SET cancelled = ?2 WHERE id = ?1", params![item, why])
-        .map_err(sql)?;
-    tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])
-        .map_err(sql)?;
-    tx.execute(
-        "UPDATE works SET ended = ?2 WHERE item = ?1 AND ended IS NULL",
-        params![item, format!("item cancelled: {why}")],
-    )
-    .map_err(sql)?;
-    Ok(())
 }
 
 /// Makes one item depend on another by a dependency of the kind given, unless it does already.
@@ -400,7 +391,9 @@ fn write_one(
     c: &Value,
     keys: &mut BTreeMap<String, i64>,
     created: &mut Vec<Value>,
+    projects: &BTreeMap<String, config::Project>,
 ) -> Result<(), String> {
+    let cancel = |item: i64, why: &str| crate::ending::cancel_item(tx, item, why, "architect", projects);
     let reason = text(c, "reason");
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
@@ -495,10 +488,10 @@ fn write_one(
                         text(&p, "kind"),
                     )?;
                 }
-                cancel(tx, a, &format!("merged into item {keep}: {reason}"))?;
+                cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
         }
-        "cancel" => cancel(tx, item_of(&c["item"], keys)?, text(c, "goes"))?,
+        "cancel" => cancel(item_of(&c["item"], keys)?, text(c, "goes"))?,
         "hold" => {
             tx.execute(
                 "UPDATE items SET held = ?2 WHERE id = ?1",
@@ -670,7 +663,7 @@ mod tests {
         let moved = |db: &mut Db, to: Value| {
             let change = json!({ "kind": "move", "item": 5, "to": to, "reason": "r" });
             db.write(Actor::Architect, |tx| {
-                write_all(tx, &[change]).map_err(db::Error::Abort)
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
             })
             .unwrap();
         };
@@ -699,6 +692,79 @@ mod tests {
         assert_eq!(links, 1);
     }
 
+    // The architect's cancellation of an item, and its merge of one item into another, end the work on each as every
+    // work ends: its session ends, and its worktree's removal and its pull request's closing are queued, saying why;
+    // the work on the item kept goes on.
+    #[test]
+    fn a_cancelled_or_merged_item_s_work_ends_as_every_work_ends() {
+        let mut db = Db::in_memory().unwrap();
+        let p: config::Project = serde_json::from_value(json!({
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "design_paths": ["design/"],
+            "test_paths": ["tests/"], "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }
+        }))
+        .unwrap();
+        let projects = BTreeMap::from([("p".to_string(), p)]);
+        db.write(Actor::Architect, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for (title, pr) in [("kept", 1), ("cancelled", 2), ("merged", 3)] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+                let item = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, worktree, pr)
+                     VALUES (?1, 1, 'engineer', '4', ?2, ?3)",
+                    params![item, format!("/w/{item}"), pr],
+                )?;
+                let work = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', 'claude', ?2)",
+                    params![work, title],
+                )?;
+            }
+            let changes = [
+                json!({ "kind": "cancel", "item": "2", "goes": "nowhere", "reason": "r" }),
+                json!({ "kind": "merge", "keep": "1", "absorbed": ["3"], "reason": "the same" }),
+            ];
+            write_all(tx, &changes, &projects).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let going: Vec<i64> = query_json(db.conn(), "SELECT work FROM sessions WHERE ended IS NULL", &[], 10)
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["work"].as_i64())
+            .collect();
+        assert_eq!(going, [1]);
+        let actions: Vec<(String, Value)> = query_json(
+            db.conn(),
+            "SELECT kind, json_extract(args, '$.comment') AS comment FROM outbox ORDER BY id",
+            &[],
+            10,
+        )
+        .unwrap()
+        .iter()
+        .map(|r| (text(r, "kind").to_string(), r["comment"].clone()))
+        .collect();
+        assert_eq!(
+            actions,
+            [
+                ("remove_worktree".to_string(), Value::Null),
+                (
+                    "close_pr".to_string(),
+                    json!("Its work ended without merging: item cancelled: nowhere.")
+                ),
+                ("remove_worktree".to_string(), Value::Null),
+                (
+                    "close_pr".to_string(),
+                    json!("Its work ended without merging: item cancelled: merged into item 1: the same.")
+                ),
+            ]
+        );
+    }
+
     // An observation folded into an item the batch creates, named by its key, is folded into that item once it is made.
     #[test]
     fn an_observation_is_folded_into_an_item_the_batch_creates() {
@@ -714,7 +780,7 @@ mod tests {
                         "deliver": "change", "reason": "r" }),
                 json!({ "kind": "fold_observations", "item": "faster", "observations": [1], "reason": "r" }),
             ];
-            write_all(tx, &changes).map_err(db::Error::Abort)?;
+            write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();

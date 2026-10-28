@@ -1736,7 +1736,7 @@ fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
         .optional()?;
     let Some(m) = picked.flatten() else { return Ok(None) };
     let open: i64 = conn.query_row(
-        "SELECT count(*) FROM architect_matters m WHERE m.id = ?1 AND m.handled_round IS NULL
+        "SELECT count(*) FROM architect_matters m WHERE m.id = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL
            AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))",
         [m],
         |r| r.get(0),
@@ -1896,7 +1896,7 @@ fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
            q.waits, q.waited_ms, coalesce(json_extract(m.body, '$.urgent'), 0)
          FROM architect_matters m LEFT JOIN architect_queue q ON q.matter = m.id
          LEFT JOIN items i ON i.id = m.item LEFT JOIN works w ON w.id = m.work
-         WHERE m.project = ?1 AND m.handled_round IS NULL
+         WHERE m.project = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL
          ORDER BY CASE WHEN q.matter IS NOT NULL THEN 0 ELSE 1 END, m.id",
     )?;
     let rows = st.query_map([project], |r| {
