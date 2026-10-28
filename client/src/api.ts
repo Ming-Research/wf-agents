@@ -289,15 +289,15 @@ window: number | null,
  * The context at the round's start: the end of the latest round before it in the same session, since the usage
  * record keeps only the round's last call; none for a round that started its session.
  */
-context_before: number | null,
+context_before: number | null, 
 /**
  * The level the round ran at, as its call record says it; none for a round recorded before it said.
  */
-level: string | null,
+level: string | null, 
 /**
  * The reasoning effort its command line gave it.
  */
-effort: string | null,
+effort: string | null, 
 /**
  * The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
  * which counts the whole session: the subagents that ran on other models.
@@ -319,12 +319,12 @@ status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null,
 /**
  * For a design card a newer one replaced: that one, as the engine knows it.
  */
-replaced: Replacement | null,
+replaced: Replacement | null, 
 /**
  * The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
  * ended.
  */
-cell: string | null, title: string | null, at: number | null,
+cell: string | null, title: string | null, at: number | null, 
 /**
  * The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
  * its agent's.
