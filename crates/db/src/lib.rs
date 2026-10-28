@@ -48,6 +48,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0020.sql"),
     include_str!("../../../db/migrations/0021.sql"),
     include_str!("../../../db/migrations/0022.sql"),
+    include_str!("../../../db/migrations/0023.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1447,6 +1448,51 @@ mod tests {
         ];
         let want: Vec<(String, Option<i64>)> = want.iter().map(|(s, r)| (s.to_string(), *r)).collect();
         assert_eq!(cards, want);
+    }
+
+    // Taken to version 23, a database keeps what an agent told the owner once: each notice of the engine's that repeats
+    // an agent's message of its work word for word is removed, and every other notice stays.
+    #[test]
+    fn a_notice_that_repeats_an_agents_message_is_removed() {
+        let mut db = at_version(22);
+        db.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '1', '{}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, 'Look at the log.')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at) VALUES
+                   (1, 'The engineer of work 1 (item 1: t) at cell 1 tells you: Look at the log.', 2),
+                   (1, 'Work 1 stopped.', 3),
+                   (1, 'The engineer of work 1 (item 1: t) at cell 1 tells you: Not told as a message.', 4)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        db.migrate(&MIGRATIONS[..22]).unwrap();
+        let mut st = db
+            .conn()
+            .prepare("SELECT text FROM engine_notices ORDER BY id")
+            .unwrap();
+        let left: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(
+            left,
+            [
+                "Work 1 stopped.",
+                "The engineer of work 1 (item 1: t) at cell 1 tells you: Not told as a message."
+            ]
+        );
     }
 
     // Taken to version 14, a database gives the architect a look at each design card not replaced that the owner has

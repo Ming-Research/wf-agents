@@ -1,11 +1,13 @@
-//! The faults of wf-agents the engine tells the owner of: a round that missed its session's prompt cache. wf-agents
-//! runs other projects too, and such a fault is its own whichever project it came up in, to be fixed in wf-agents: so
-//! it goes to the owner, in a notice that names the fault, and not into what a project's architect reads. A further
+//! The faults of wf-agents the engine tells the owner of: a round that missed its session's prompt cache, and a flow
+//! anomaly, where the way on an engineer chose did not fit the situation and the work asks the owner. wf-agents runs
+//! other projects too, and such a fault is its own whichever project it came up in, to be fixed in wf-agents: so it
+//! goes to the owner, in a notice that names the fault, and not into what a project's architect reads. A further cache
 //! miss with the same cause on the same line of the same project, while its notice is unread, adds to that notice
 //! instead of making a new one.
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use flow::CompiledGraph;
 use sessions::miss::{Differs, Miss};
 
 use crate::work::{RoundId, Work};
@@ -13,6 +15,30 @@ use crate::{Engine, actions};
 
 /// The kind of fault a cache miss is, as `engine_notices.fault` names it.
 pub const CACHE_MISS: &str = "cache_miss";
+
+/// The kind of fault a flow anomaly is, as `engine_notices.fault` names it.
+pub const FLOW_ANOMALY: &str = "flow_anomaly";
+
+/// The counter of the flow's rows that a flow anomaly takes.
+const FLOW_ANOMALIES: &str = "flow_anomalies";
+
+/// Whether a work came to the cell it is at by a row that counts a flow anomaly: the latest row its rounds took.
+pub fn came_of_anomaly(conn: &Connection, work: i64, g: &CompiledGraph) -> Result<bool, String> {
+    let took: Option<(String, String)> = conn
+        .query_row(
+            "SELECT cell, transition FROM rounds WHERE work = ?1 AND cell IS NOT NULL AND transition IS NOT NULL
+             ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|x| x.to_string())?;
+    Ok(took.is_some_and(|(cell, row)| {
+        g.cell(&cell)
+            .and_then(|c| c.rows.iter().find(|r| r.name == row))
+            .is_some_and(|r| r.counts.as_deref() == Some(FLOW_ANOMALIES))
+    }))
+}
 
 /// The most of a value of the command line a notice quotes.
 const QUOTED: usize = 80;
@@ -151,6 +177,43 @@ fn thousands(n: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A work came of a flow anomaly when the latest row its rounds took counts one; by another row, it did not.
+    #[test]
+    fn a_work_came_of_a_flow_anomaly_by_the_row_it_took() {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        let g = f.graph("engineer").unwrap();
+        let (cell, anomaly, other) = g
+            .cells
+            .iter()
+            .find_map(|c| {
+                let a = c.rows.iter().find(|r| r.counts.as_deref() == Some(FLOW_ANOMALIES))?;
+                let o = c.rows.iter().find(|r| r.counts.as_deref() != Some(FLOW_ANOMALIES))?;
+                Some((c.id.clone(), a.name.clone(), o.name.clone()))
+            })
+            .unwrap();
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', '16')",
+                    [],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
+                 VALUES (1, 1, ?1, '{}', ?2, 'c', 1), (2, 1, ?1, '{}', ?3, 'c', 1)",
+                params![cell, anomaly, other],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(came_of_anomaly(db.conn(), 1, g).unwrap());
+        assert!(!came_of_anomaly(db.conn(), 2, g).unwrap());
+    }
 
     // The owner is told where the miss came up, what it wrote again and cost, and what differs in the command line, or
     // that nothing does.

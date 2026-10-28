@@ -1,5 +1,5 @@
 // The bar on every view: the views (the works, the architect, the items, the flow, and the messages to the owner with
-// how many are unread), and how the engine stands: running, paused (saying which works the owner started run
+// how many are unread, the reports of a fault of wf-agents apart), and how the engine stands: running, paused (saying which works the owner started run
 // meanwhile), pausing while the last round finishes, or waiting for what stops every work, with the switch that pauses
 // every work or starts them all, the switch that keeps waiting sessions warm while every work is paused, and the slots
 // in use. The engine starts with every work paused.
@@ -145,14 +145,22 @@ function Engine() {
   );
 }
 
-/// The view of the messages to the owner, with how many are unread.
+/// The view of the messages to the owner, with how many are unread: the reports of a fault of wf-agents in a badge of
+/// their own, then the rest.
 function Unread({ className }: { className: string }) {
   const r = useResource<OwnerMessage[]>('messages', '/api/v1/messages');
-  const n = r.data?.length ?? 0;
+  const list = r.data ?? [];
+  const faults = list.filter((m) => m.fault !== null).length;
+  const rest = list.length - faults;
   return (
     <Link to="/messages" className={className}>
       {t('nav_messages')}
-      {n > 0 ? <span className="nav-count">{n}</span> : null}
+      {faults > 0 ? (
+        <span className="nav-count nav-fault" title={t('nav_faults', { n: faults })}>
+          {faults}
+        </span>
+      ) : null}
+      {rest > 0 ? <span className="nav-count">{rest}</span> : null}
     </Link>
   );
 }

@@ -193,9 +193,10 @@ CREATE TABLE engine_notices (
   -- owner's interface.
   ask INTEGER REFERENCES owner_asks(id),
   -- When the notice reports a fault of wf-agents, its kind: cache_miss, rounds that missed their session's prompt
-  -- cache, each kept in cache_misses. wf-agents runs other projects too, and such a fault is its own, to be fixed in
-  -- wf-agents whichever project it came up in. NULL for another notice. Read by: the owner's interface, which sets
-  -- such a notice apart.
+  -- cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row counting a flow anomaly,
+  -- where the way on an engineer chose did not fit the situation. wf-agents runs other projects too, and such a fault
+  -- is its own, to be fixed in wf-agents whichever project it came up in. NULL for another notice. Read by: the
+  -- owner's interface, which sets such a notice apart.
   fault TEXT
 ) STRICT;
 

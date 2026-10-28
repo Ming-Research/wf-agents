@@ -1,8 +1,10 @@
-// What agents and the engine told the owner: messages that need no answer, newest first. The engine's own notices (a
-// work stopped by a new flow version, a design card posted, every work halted until a limit resets) are marked as the
-// engine's; what a wake of the architect told is named as the architect's and leads to its page; a notice of a new ask
-// shows the kinds it asks about as chips coloured by their group; a notice of cache misses says how many it holds, the
-// tokens they wrote again and what they cost. The owner marks one read, or all of them; read ones are shown on asking.
+// What agents and the engine told the owner: messages that need no answer, newest first. What an agent told shows once,
+// as the agent's with its cell. The engine's own notices (a work stopped by a new flow version, a design card posted,
+// every work halted until a limit resets) are marked as the engine's; what a wake of the architect told is named as the
+// architect's and leads to its page; a notice of a new ask shows the kinds it asks about as chips coloured by their
+// group. A report of a fault of wf-agents (a cache miss, a flow anomaly) has a look of its own and stays on top until
+// read; one of cache misses says how many it holds, the tokens they wrote again and what they cost. The owner marks one
+// read, or all of them; read ones are shown on asking.
 
 import { useState } from 'react';
 
@@ -10,9 +12,25 @@ import type { OwnerMessage } from '../api';
 import { cost, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
+import { words } from '../labelled';
 import { architectHref, Link, workHref } from '../route';
-import { t } from '../text';
+import { t, type Key } from '../text';
 import { KindChip } from './Decide';
+
+/// The kinds of a fault of wf-agents, in words.
+const FAULTS: Record<string, Key> = { cache_miss: 'fault_cache_miss', flow_anomaly: 'fault_flow_anomaly' };
+
+/// Whether a message is a report of a fault of wf-agents the owner has not read: it stays on top.
+export function pinned(m: OwnerMessage): boolean {
+  return m.fault !== null && m.read_at === null;
+}
+
+/// The messages, oldest first as the interface gives them, in the order the view shows them: the reports of a fault of
+/// wf-agents still unread, then every other one, each part newest first.
+export function messageOrder(list: OwnerMessage[]): OwnerMessage[] {
+  const newest = [...list].reverse();
+  return [...newest.filter(pinned), ...newest.filter((m) => !pinned(m))];
+}
 
 /// Marks messages read: an agent's message or an engine's notice, or every one unread.
 export async function markRead(body: { ids: number[] } | { notices: number[] } | { all: true }): Promise<void> {
@@ -25,9 +43,16 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
     ? t('message_engine')
     : [m.line, m.cell !== null ? t('message_cell', { cell: m.cell }) : null].filter((x) => x !== null).join(' · ');
   const work = m.work;
+  const kind = m.fault !== null ? (FAULTS[m.fault] !== undefined ? t(FAULTS[m.fault]) : words(m.fault)) : null;
+  const look = ['msg', m.read_at === null ? 'msg-unread' : null, kind !== null ? 'msg-fault' : null];
   return (
-    <li className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
+    <li className={look.filter((x) => x !== null).join(' ')}>
       <div className="msg-head">
+        {kind !== null ? (
+          <span className="badge verdict-bad" title={t('message_fault_hint')}>
+            {t('message_fault', { kind })}
+          </span>
+        ) : null}
         {work !== null && m.architect !== null ? (
           <Link
             to={architectHref(
@@ -49,7 +74,7 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
             #{m.item} {m.title ?? ''}
           </Link>
         ) : null}
-        <span className="muted">{who}</span>
+        {kind === null ? <span className="muted">{who}</span> : null}
         {m.at !== null ? <span className="muted">{time(m.at)}</span> : null}
         {m.read_at === null ? (
           <button
@@ -128,7 +153,7 @@ export function Messages() {
         <p className="muted">{t(all ? 'messages_none' : 'messages_none_unread')}</p>
       ) : null}
       <ul className="msgs">
-        {[...list].reverse().map((m) => (
+        {messageOrder(list).map((m) => (
           <Message key={`${m.engine ? 'e' : 'a'}${m.id}`} m={m} onError={setError} />
         ))}
       </ul>

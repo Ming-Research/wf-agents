@@ -61,6 +61,12 @@ pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Resu
     tell(tx, Some(work), Some(ask), None, text).map(|_| ())
 }
 
+/// Tells the owner of a new ask of the owner that reports a fault of wf-agents, the notice naming the ask and the kind
+/// of fault.
+pub fn notify_fault_ask(tx: &Transaction<'_>, work: i64, ask: i64, fault: &str, text: &str) -> Result<(), String> {
+    tell(tx, Some(work), Some(ask), Some(fault), text).map(|_| ())
+}
+
 /// Tells the owner of a fault of wf-agents, the notice naming its kind for the owner's interface to set it apart;
 /// gives the notice.
 pub fn notify_fault(tx: &Transaction<'_>, work: i64, fault: &str, text: &str) -> Result<i64, String> {
@@ -569,22 +575,21 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 .filter(|t| !t.is_empty())
                 .map(str::to_string)
                 .collect();
+            // The owner's interface shows the message as the agent's, with its cell; the notifications log says it too,
+            // and no notice of the engine's repeats it.
             for text in said {
                 tx.execute(
                     "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
                     params![ctx.round.work, ctx.round.n, text],
                 )
                 .map_err(sql)?;
-                notify(
-                    tx,
-                    Some(w),
-                    &format!(
-                        "The {} of {} at cell {} tells you: {text}",
-                        line_of(ctx),
-                        ctx.about(),
-                        ctx.cell.id
-                    ),
-                )?;
+                let logged = format!(
+                    "The {} of {} at cell {} tells you: {text}",
+                    line_of(ctx),
+                    ctx.about(),
+                    ctx.cell.id
+                );
+                outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
         }
         other => return Err(format!("no such engine action: {other}")),

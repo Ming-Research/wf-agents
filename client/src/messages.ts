@@ -36,7 +36,8 @@ const messages = {
   spend_col_total: 'Total',
   spend_advisor: 'advisor {cost}',
   nav_messages: 'Messages',
-  messages_note: 'What agents and the engine told you along the way: none of it needs an answer, and the works go on. A decision comes as an ask of the owner instead.',
+  messages_note:
+    'What agents and the engine told you along the way: none of it needs an answer, and the works go on. A decision comes as an ask of the owner instead. A fault of wf-agents stays on top until you mark it read.',
   messages_all: 'Show read messages too',
   messages_mark_all_read: 'Mark all read',
   messages_none: 'No messages.',
@@ -46,6 +47,11 @@ const messages = {
   message_cell: 'cell {cell}',
   message_engine: 'the engine',
   message_answer_ask: 'Answer ask {id}',
+  message_fault: 'Fault of wf-agents · {kind}',
+  message_fault_hint: 'To be fixed in wf-agents itself, whichever project it came up in.',
+  fault_cache_miss: 'cache miss',
+  fault_flow_anomaly: 'flow anomaly',
+  nav_faults: '{n} unread reports of a fault of wf-agents',
   message_misses:
     '{n} misses with this cause on this line so far, the latest {at}: {written} tokens written to the cache again, about {cost} more than reading them.',
   engine_offline: 'Offline',

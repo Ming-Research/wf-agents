@@ -477,6 +477,10 @@ td.clip {
   font-size: 11px;
 }
 
+.nav-count.nav-fault {
+  background: var(--bad);
+}
+
 .msg-tools {
   display: flex;
   gap: 12px;
@@ -497,6 +501,13 @@ td.clip {
 
 .msg-unread .msg-text {
   font-weight: 600;
+}
+
+/* A report of a fault of wf-agents: set apart from what agents and the engine told, and on top until read. */
+.msg-fault {
+  border-left: 3px solid var(--bad);
+  padding-left: 10px;
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
 }
 
 .msg-head {

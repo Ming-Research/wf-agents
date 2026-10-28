@@ -1122,7 +1122,17 @@ fn ask(
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
     let input = json!({ "inputs": recorded_inputs(&gathered) });
     let commit = e.config.commit.clone();
-    let text = format!("Work {} on item {} ({}) asks you", w.id, item.id, item.title);
+    // An ask that came of a flow anomaly reports a fault of wf-agents: the flow's ways on did not fit the situation.
+    let anomaly = crate::faults::came_of_anomaly(e.db.conn(), w.id, g)?;
+    let text = if anomaly {
+        format!(
+            "Work {} on item {} ({}) met a flow anomaly, a fault of wf-agents: the way on its engineer chose does not \
+             fit the situation, and it asks you how to go on",
+            w.id, item.id, item.title
+        )
+    } else {
+        format!("Work {} on item {} ({}) asks you{about}", w.id, item.id, item.title)
+    };
     let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
@@ -1131,7 +1141,13 @@ fn ask(
                 params![round.work, round.n, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
-            actions::notify_ask(tx, w.id, id, &format!("{text}{about} (ask {id})")).map_err(db::Error::Abort)?;
+            let told = format!("{text} (ask {id})");
+            if anomaly {
+                actions::notify_fault_ask(tx, w.id, id, crate::faults::FLOW_ANOMALY, &told)
+            } else {
+                actions::notify_ask(tx, w.id, id, &told)
+            }
+            .map_err(db::Error::Abort)?;
             Ok(id)
         })
         .map_err(sql)?;

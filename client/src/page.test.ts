@@ -7,6 +7,7 @@ import type {
   DesignCard,
   GraphView,
   JsonValue,
+  OwnerMessage,
   RoundSummary,
   RoundTokens,
   Status,
@@ -23,6 +24,7 @@ import { ASKING, chart, MAIN, overlays, partsOf, related, roundArrows, runs, sha
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
+import { messageOrder } from './pages/Messages';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
@@ -1098,5 +1100,30 @@ describe('a ruling on a design card', () => {
     expect(firstSentence('v1.2 stays\nmore')).toBe('v1.2 stays');
     expect(firstSentence('一二。三')).toBe('一二。');
     expect(firstSentence('x'.repeat(200)).length).toBe(120);
+  });
+});
+
+describe('the messages view', () => {
+  it('keeps the reports of a fault of wf-agents on top until read, and shows the rest newest first', () => {
+    const m = (id: number, fault: string | null, read: boolean): OwnerMessage => ({
+      id,
+      engine: fault !== null,
+      round: null,
+      cell: null,
+      line: null,
+      at: id,
+      work: null,
+      item: null,
+      title: null,
+      text: `told ${id}`,
+      read_at: read ? 9 : null,
+      ask: null,
+      ask_kinds: [],
+      architect: null,
+      fault,
+      misses: null,
+    });
+    const shown = messageOrder([m(1, 'cache_miss', false), m(2, null, false), m(3, 'flow_anomaly', true), m(4, null, false)]);
+    expect(shown.map((x) => x.id)).toEqual([1, 4, 3, 2]);
   });
 });
