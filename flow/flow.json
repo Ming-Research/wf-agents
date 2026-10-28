@@ -3931,6 +3931,7 @@
           "id": "1",
           "kind": "agent",
           "title": "Research the problem itself",
+          "effort": "xhigh",
           "line": "engineer",
           "tools": [
             "measure",
@@ -4084,6 +4085,7 @@
           "id": "1a",
           "kind": "gate",
           "title": "Does it stand",
+          "effort": "medium",
           "about": "work_does_not_stand",
           "question": "Does this work not stand? Judge only whether the problem itself is worth solving; the approach the item writes does not count. It does not stand if the pain does not exist, solving it would not remove the pain, or the item's scope, deliverable or place is wrong; if the root lies in another item, project or module, report root_elsewhere. You may report several reasons it does not stand, each with its reason; not standing does not mean cancelling: someone decides later.",
           "to": "2",
@@ -4106,6 +4108,7 @@
           "id": "2",
           "kind": "agent",
           "title": "Compare approaches",
+          "effort": "high",
           "line": "engineer",
           "tools": [
             "measure",
@@ -4221,6 +4224,7 @@
           "id": "2a",
           "kind": "agent",
           "title": "Choose one and write the design",
+          "effort": "xhigh",
           "line": "engineer",
           "tools": [
             "measure",
@@ -4645,6 +4649,7 @@
           "id": "2b",
           "kind": "agent",
           "title": "Think again: is there a better design",
+          "effort": "xhigh",
           "line": "engineer",
           "tools": [
             "gh",
@@ -4762,6 +4767,7 @@
           "id": "3a",
           "kind": "gate",
           "title": "A gap in what is under test",
+          "effort": "medium",
           "about": "gap_under_test",
           "needs": "under_test",
           "question": "Carrying out your design, would you meet a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly?",
@@ -4791,6 +4797,7 @@
           "id": "3b",
           "kind": "gate",
           "title": "Are you sure",
+          "effort": "high",
           "about": "unsure",
           "question": "Does your design rest on any fact not yet checked that would change the direction if it were wrong?",
           "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
@@ -4819,6 +4826,7 @@
           "id": "3c",
           "kind": "gate",
           "title": "Cost: architectural burden",
+          "effort": "medium",
           "about": "too_costly",
           "question": "By your design, is the change so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it?",
           "na": "a report, or a change to documents only, changes no architecture and adds no burden",
@@ -4847,6 +4855,7 @@
           "id": "3d",
           "kind": "gate",
           "title": "Cross-project dependency",
+          "effort": "medium",
           "about": "depends_on_other_item",
           "needs": "other_projects",
           "question": "By your design, must this work wait for another project to deliver something?",
@@ -4875,6 +4884,7 @@
           "id": "3g",
           "kind": "gate",
           "title": "Plan: what may be touched, and the budgets",
+          "effort": "medium",
           "about": "over_plan",
           "needs": "plan",
           "question": "By your design, must this work touch what the plan segment it hangs on may not touch (a specification, a public interface, a data format), or go past that segment's budget?",
@@ -4912,6 +4922,7 @@
           "id": "3e",
           "kind": "gate",
           "title": "Size: must it be split",
+          "effort": "medium",
           "about": "split",
           "question": "By your design and its estimate, must this work be split into several? If one PR can do it, meaning one engineer can do it in a day and a reader can take it in at a glance, it need not be split.",
           "inputs": [
@@ -5041,6 +5052,7 @@
           "id": "3f",
           "kind": "agent",
           "title": "Is dedicated adversarial testing needed",
+          "effort": "medium",
           "line": "engineer",
           "tools": [
             "gh",
@@ -5149,6 +5161,7 @@
           "id": "4",
           "kind": "agent",
           "title": "Implement",
+          "effort": "xhigh",
           "line": "engineer",
           "tools": [
             "ci",
@@ -5304,6 +5317,7 @@
           "id": "6",
           "kind": "agent",
           "title": "Adversarial testing",
+          "effort": "high",
           "line": "adversarial",
           "tools": [
             "ci",
@@ -6027,6 +6041,7 @@
           "id": "5",
           "kind": "agent",
           "title": "Blind review",
+          "effort": "xhigh",
           "line": "review",
           "tools": [
             "gh"
@@ -6143,6 +6158,7 @@
           "id": "5a",
           "kind": "agent",
           "title": "Table review",
+          "effort": "high",
           "line": "review",
           "tools": [
             "gh",
@@ -6607,6 +6623,7 @@
           "id": "5b",
           "kind": "agent",
           "title": "Review the design tree",
+          "effort": "high",
           "line": "review",
           "tools": [
             "gh",
@@ -7172,6 +7189,7 @@
           "id": "8",
           "kind": "agent",
           "title": "Fix",
+          "effort": "high",
           "line": "engineer",
           "tools": [
             "ci",
@@ -8168,6 +8186,7 @@
           "id": "11",
           "kind": "agent",
           "title": "Choose the way on",
+          "effort": "medium",
           "line": "engineer",
           "tools": [
             "gh",
@@ -8760,6 +8779,7 @@
           "id": "12",
           "kind": "agent",
           "title": "Advisor",
+          "effort": "xhigh",
           "line": "advisor",
           "tools": [
             "ci",
@@ -9688,6 +9708,7 @@
           "id": "A1",
           "kind": "agent",
           "title": "How things stand",
+          "effort": "medium",
           "line": "architect",
           "tools": [
             "gh",
@@ -9853,6 +9874,7 @@
           "id": "A2",
           "kind": "agent",
           "title": "Against the constitution",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -9989,6 +10011,7 @@
           "id": "A3",
           "kind": "agent",
           "title": "Does the policy need setting again",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -10153,6 +10176,7 @@
           "id": "A4",
           "kind": "agent",
           "title": "What is missing",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -10279,6 +10303,7 @@
           "id": "A5",
           "kind": "agent",
           "title": "Does what runs fit",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -10553,6 +10578,7 @@
           "id": "A6",
           "kind": "agent",
           "title": "Pick the most urgent",
+          "effort": "medium",
           "line": "architect",
           "tools": [
             "gh",
@@ -10743,6 +10769,7 @@
           "id": "A7",
           "kind": "agent",
           "title": "The crux",
+          "effort": "xhigh",
           "line": "architect",
           "tools": [
             "gh",
@@ -10876,6 +10903,7 @@
           "id": "A8",
           "kind": "agent",
           "title": "What to do",
+          "effort": "xhigh",
           "line": "architect",
           "tools": [
             "gh",
@@ -11137,6 +11165,7 @@
           "id": "A9",
           "kind": "agent",
           "title": "Look again",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -11309,6 +11338,7 @@
           "id": "A10",
           "kind": "agent",
           "title": "Wrap up",
+          "effort": "medium",
           "line": "architect",
           "tools": [
             "gh",
@@ -11701,6 +11731,7 @@
           "id": "P1",
           "kind": "agent",
           "title": "Study the new policy",
+          "effort": "xhigh",
           "line": "architect",
           "tools": [
             "gh",
@@ -11934,6 +11965,7 @@
           "id": "P3",
           "kind": "agent",
           "title": "Write the policy and its probes",
+          "effort": "xhigh",
           "line": "architect",
           "tools": [
             "gh",
@@ -12028,6 +12060,7 @@
           "id": "P5",
           "kind": "agent",
           "title": "A new architect reads the policy",
+          "effort": "high",
           "inputs": [
             {
               "what": "The policy's text",
@@ -12135,6 +12168,7 @@
           "id": "P6",
           "kind": "agent",
           "title": "Did the new architect understand",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",
@@ -12253,6 +12287,7 @@
           "id": "P7",
           "kind": "agent",
           "title": "Correct the text",
+          "effort": "high",
           "line": "architect",
           "tools": [
             "gh",

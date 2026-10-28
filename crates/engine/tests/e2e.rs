@@ -3069,14 +3069,14 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
 }
 
 // The architect runs at the level the installation names for it, and so does the new architect that reads a policy,
-// on no line: a wake's round and that reading run with the named level's model and effort, not the top level's, and
-// record the level in their call.
+// on no line: a wake's round and that reading run with the named level's model, not the top level's, at the effort
+// their cell declares whatever the model, and record the level in their call.
 #[test]
 fn the_architect_runs_at_the_level_the_installation_names() {
     let s = setup("architect-level");
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
-    let levels = "[agents.levels.2]\ndesc = \"testing\"\ncli = \"claude\"\nmodel = \"m-two\"\neffort = \"medium\"\n\
-                  [agents.levels.4]\ndesc = \"running\"\ncli = \"claude\"\nmodel = \"m-four\"\neffort = \"max\"\n\
+    let levels = "[agents.levels.2]\ndesc = \"testing\"\ncli = \"claude\"\nmodel = \"m-two\"\n\
+                  [agents.levels.4]\ndesc = \"running\"\ncli = \"claude\"\nmodel = \"m-four\"\n\
                   [agents]\narchitect = \"2\"\n";
     write(&s.data, "install.toml", &format!("{install}\n{levels}"));
     git(&s.data, &["commit", "-q", "-am", "the architect's level"]);
@@ -3152,6 +3152,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     e.step_work(reading).unwrap();
     let log = said.borrow().join("\n");
     let (model, call) = ran(&e, reading, "P5").expect(&log);
+    let want = (want.0, want.1, want.2, Some("high".to_string()));
     assert_eq!(at_level(&model, &call), want, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

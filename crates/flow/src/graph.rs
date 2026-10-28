@@ -93,6 +93,8 @@ pub(crate) struct Cell {
     pub step: Option<String>,
     pub needs: Option<String>,
     pub line: Option<String>,
+    /// The reasoning effort the cell runs at, when it declares one.
+    pub effort: Option<String>,
     pub tools: Vec<String>,
     pub inputs: Vec<In>,
     pub rules: Vec<String>,
@@ -688,6 +690,16 @@ impl<'s> Graph<'s> {
                 );
             }
             let line = n.line.clone();
+            ensure!(
+                n.effort.as_deref().is_none_or(|x| crate::format::EFFORTS.contains(&x)),
+                "an effort the command line does not name: {nid} {:?}",
+                n.effort
+            );
+            ensure!(agent || n.effort.is_none(), "only an agent runs at an effort: {nid}");
+            ensure!(
+                !agent || n.effort.is_some(),
+                "an agent's cell declares no effort: {nid}"
+            );
             let own_rules = n.rules.clone().unwrap_or_default();
             ensure!(agent || line.is_none(), "only an agent is on a line: {nid}");
             ensure!(agent || own_rules.is_empty(), "only an agent is given rules: {nid}");
@@ -739,6 +751,7 @@ impl<'s> Graph<'s> {
                 step: n.step.clone(),
                 needs: n.needs.clone(),
                 line,
+                effort: n.effort.clone(),
                 tools,
                 inputs: ins,
                 rules,
@@ -1140,6 +1153,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         to: None,
         sets: None,
         rows: None,
+        effort: n.effort.clone(),
     })
 }
 

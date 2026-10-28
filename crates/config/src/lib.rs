@@ -99,8 +99,8 @@ pub struct Host {
 pub struct Agents {
     /// The CLIs agents run in, by name.
     pub clis: BTreeMap<String, Cli>,
-    /// The levels of work, by name: an item's level picks the CLI, model and effort its agents run with; its advisor
-    /// runs at the level one above.
+    /// The levels of work, the tiers, by name: an item's level picks the CLI and the model its agents run with, each
+    /// cell at the reasoning effort the flow declares for it; its advisor runs at the level one above.
     pub levels: BTreeMap<String, Level>,
     /// What the agents of each line may not do on this machine.
     #[serde(default)]
@@ -290,6 +290,8 @@ pub struct Level {
     pub desc: String,
     pub cli: String,
     pub model: String,
+    /// The effort a level's rounds ran at before each cell declared its own: read in configuration commits of that time,
+    /// for the rounds recorded then, and refused in the configuration the engine runs with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
 }
@@ -691,6 +693,14 @@ impl Config {
     /// configuration does not answer, a setting the flow reads that no project gives.
     pub fn check(&self, compiled: &flow::Compiled) -> Vec<String> {
         let mut problems = Vec::new();
+        for (name, l) in &self.install.agents.levels {
+            if l.effort.is_some() {
+                problems.push(format!(
+                    "install.toml: level {name} sets an effort: a level is a model, and each cell runs at the effort the \
+                     flow declares for it"
+                ));
+            }
+        }
         let counters: BTreeSet<&str> = compiled
             .graphs
             .iter()
@@ -988,7 +998,6 @@ command = "claude"
 desc = "New decisions"
 cli = "claude"
 model = "m"
-effort = "high"
 
 [gh]
 allow = ["pr view"]

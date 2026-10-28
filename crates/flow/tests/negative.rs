@@ -308,6 +308,28 @@ case!(
 case!(a_form_for_no_such_line, "a form for no such line", |v| {
     graph(v)["agentCommon"]["returns"]["forms"][5]["lines"] = json!(["test"]);
 });
+// Every agent's cell runs at an effort the command line names; a cell that is not an agent's runs at none.
+case!(
+    an_effort_the_command_line_does_not_name,
+    "an effort the command line does not name: 4",
+    |v| {
+        node(v, "4")["effort"] = json!("highest");
+    }
+);
+case!(
+    an_effort_on_a_cell_that_is_not_an_agent,
+    "only an agent runs at an effort: 18",
+    |v| {
+        node(v, "18")["effort"] = json!("high");
+    }
+);
+case!(
+    an_agents_cell_with_no_effort,
+    "an agent's cell declares no effort: 4",
+    |v| {
+        obj(node(v, "4")).remove("effort");
+    }
+);
 // A line starts a new session only at an agent's cell of its own: the review's first cell is not the engineer's.
 case!(
     a_new_session_at_another_lines_cell,

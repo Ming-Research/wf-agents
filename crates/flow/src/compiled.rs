@@ -160,6 +160,10 @@ pub struct CompiledCell {
     /// The cell starts a new session of its line at its first round in a work, besides the line's first round.
     #[serde(default, skip_serializing_if = "is_false")]
     pub new_session: bool,
+    /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
+    /// declared one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -727,6 +731,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .lines
                 .iter()
                 .any(|l| c.line.as_ref() == Some(&l.name) && l.starts.contains(&c.id)),
+            effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
             inputs: c

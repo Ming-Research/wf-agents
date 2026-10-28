@@ -558,7 +558,13 @@ pub struct Node {
     pub sets: Option<BTreeMap<String, String>>,
     /// A gate's rows, each holding on its own answer.
     pub rows: Option<Vec<RawRow>>,
+    /// The reasoning effort an agent's cell runs at, whatever the model its item's level picks: one of [`EFFORTS`].
+    /// Every agent's cell declares one.
+    pub effort: Option<String>,
 }
+
+/// The reasoning efforts an agent's cell may run at, as the command line names them.
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]

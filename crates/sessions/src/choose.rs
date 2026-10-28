@@ -224,10 +224,10 @@ pub fn end_work(conn: &Connection, work: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// The effort a round runs with: its level's, as the configuration gives it. A cell's own effort, once the flow gives
-/// cells one, is decided here.
-pub fn effort(level: &config::Level, _cell: &CompiledCell) -> Option<String> {
-    level.effort.clone()
+/// The reasoning effort a round runs with: its cell's, as the flow declares it, whatever the model its level picks; none
+/// for a cell of a flow version stored before cells declared one, which runs at the command line's own.
+pub fn effort(cell: &CompiledCell) -> Option<String> {
+    cell.effort.clone()
 }
 
 #[cfg(test)]
@@ -268,6 +268,20 @@ mod tests {
         ];
         assert_eq!(context(&rs), Some(10_002));
         assert_eq!(context(&rs[1..]), None);
+    }
+
+    // A round runs at its cell's effort whatever the model: implementing at xhigh, the first look at a design at medium.
+    #[test]
+    fn a_round_runs_at_its_cells_effort() {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        let g = f.graph("engineer").unwrap();
+        assert_eq!(effort(g.cell("4").unwrap()).as_deref(), Some("xhigh"));
+        assert_eq!(effort(g.cell("1a").unwrap()).as_deref(), Some("medium"));
+        let mut older = g.cell("4").unwrap().clone();
+        older.effort = None;
+        assert_eq!(effort(&older), None);
     }
 
     // Only a return sent back is rewritten in its own session: a run that failed or was cut off is done again.

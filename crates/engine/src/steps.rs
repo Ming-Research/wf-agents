@@ -227,7 +227,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         line: line_of_cell.clone(),
         cli,
         model: level.model.clone(),
-        effort: sessions::choose::effort(&level, cell),
+        effort: sessions::choose::effort(cell),
         worktree: wt,
         config_dir: e.cli_home(&cli_name),
         resume,
@@ -248,8 +248,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         agent::call(&req, &agent::command_line(&req), &cli_version, crate::VERSION),
         &mut kept,
     );
-    // The level the round runs at, which the configuration maps to its model and effort: the owner reads the round by
-    // it.
+    // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
     let input = json!({
         "message": msg.stored,
