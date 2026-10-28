@@ -3393,7 +3393,9 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
         })
         .unwrap()
     };
-    let followups = |e: &Engine| -> Vec<(Option<i64>, Option<i64>, Option<i64>, Value)> {
+    // A matter's item, work, round and body.
+    type Queued = (Option<i64>, Option<i64>, Option<i64>, Value);
+    let followups = |e: &Engine| -> Vec<Queued> {
         let mut st =
             e.db.conn()
                 .prepare("SELECT item, work, round, body FROM architect_matters WHERE kind = 'report_followup'")
