@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledGraph, FlowDiff, GraphView, Matter, Wake, WorkSummary } from './api';
+import type { CompiledGraph, FlowDiff, GraphView, Matter, Observation, Wake, WorkSummary } from './api';
 import {
   againstInOrder,
   architectState,
-  changesAnswer,
   choicesOf,
+  observationsShown,
   queueParts,
   rulingAnswer,
   shownWake,
@@ -21,7 +21,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   id,
   item: null,
   title: null,
-  project: null,
+  project: 'p',
   graph: 'architect',
   flow_version: 2,
   at: 'A12',
@@ -57,6 +57,7 @@ const wake = (id: number, extra: Partial<WorkSummary> = {}, handling: Wake['hand
 const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
   id,
   kind: 'owner_words',
+  detail: 'said',
   what: `matter ${id}`,
   source: 'owner',
   item: null,
@@ -64,13 +65,27 @@ const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
   work: null,
   round: null,
   at: id,
-  due: null,
-  due_item: null,
-  held: null,
-  held_by: null,
-  waits: null,
-  waited_ms: null,
-  answers: null,
+  asked: null,
+  resume_cell: null,
+  answered: false,
+  waits: 'owner',
+  waited_ms: 0,
+  urgent: false,
+  ...extra,
+});
+
+const observation = (id: number, extra: Partial<Observation> = {}): Observation => ({
+  id,
+  what: `observation ${id}`,
+  tags: [],
+  source: 'the architect, at cell Q2',
+  times_reported: 1,
+  refs: [],
+  folded_into: null,
+  closed: null,
+  closed_why: null,
+  created: id,
+  updated: id,
   ...extra,
 });
 
@@ -84,33 +99,43 @@ describe("the architect's page", () => {
     expect(shownWake([], null)).toBeNull();
   });
 
-  it('splits the queue into what waits for the architect, what is held for the owner and what is not due yet', () => {
+  it('splits the queue into what is in it and what an ask of the owner holds, and says how the architect stands', () => {
     const queue = [
-      matter(1, { waits: 'agent', source: 'work', work: 4, round: 2 }),
-      matter(2, { waits: 'owner' }),
-      matter(3, { held: 'owner_ask', held_by: 5 }),
-      matter(4, { kind: 'next_look', due: 900, source: 'architect' }),
-      matter(5, { kind: 'next_look', due: 600, source: 'architect' }),
+      matter(1, { kind: 'engineer_question', detail: 'split', waits: 'agent', source: 'work', work: 4, round: 2 }),
+      matter(2),
+      matter(3, { kind: 'failure', waits: null, asked: 5, resume_cell: 'F1' }),
+      matter(4, { kind: 'report', waits: 'none', asked: 6, resume_cell: 'I2', answered: true }),
     ];
     const parts = queueParts(queue);
-    expect(parts.waiting.map((m) => m.id)).toEqual([1, 2]);
+    expect(parts.waiting.map((m) => m.id)).toEqual([1, 2, 4]);
     expect(parts.held.map((m) => m.id)).toEqual([3]);
-    expect(parts.later.map((m) => m.id)).toEqual([4, 5]);
-    // Asleep since its last wake ended, with the matter that falls due soonest.
-    expect(architectState([wake(9), wake(7)], queue)).toEqual({
-      kind: 'asleep',
-      since: 950,
-      next: queue[4],
-      waiting: 2,
-    });
-    expect(architectState([], queue)).toEqual({ kind: 'never', waiting: 2 });
-    const awake = wake(10, { state: 'running', at: 'A7' }, { matter: 'Split #4?' });
-    expect(architectState([awake, wake(9)], [])).toEqual({
+    // Asleep since its last wake ended.
+    expect(architectState([wake(9), wake(7)], queue)).toEqual({ kind: 'asleep', since: 950, waiting: 3 });
+    expect(architectState([], queue)).toEqual({ kind: 'never', waiting: 3 });
+    // Awake, handling the matter its latest pick chose.
+    const awake = wake(10, { state: 'running', at: 'Q2' }, 1);
+    expect(architectState([awake, wake(9)], queue)).toEqual({
       kind: 'awake',
       wake: awake.work,
-      handling: { matter: 'Split #4?' },
-      waiting: 0,
+      handling: queue[0],
+      waiting: 3,
     });
+    expect(architectState([wake(10, { state: 'running', at: 'D0' })], [])).toMatchObject({ handling: null, waiting: 0 });
+  });
+
+  it('shows the observations of the tag chosen and the words searched for, those closed only when asked', () => {
+    const all = [
+      observation(3, { tags: ['ui'], refs: ['PR #12'] }),
+      observation(2, { tags: ['perf', 'ui'], what: 'The board is slow' }),
+      observation(1, { tags: ['perf'], closed: 'owner', closed_why: 'Not worth it' }),
+    ];
+    const ids = (os: Observation[]) => os.map((o) => o.id);
+    expect(ids(observationsShown(all, '', '', false))).toEqual([3, 2]);
+    expect(ids(observationsShown(all, '', '', true))).toEqual([3, 2, 1]);
+    expect(ids(observationsShown(all, 'perf', '', true))).toEqual([2, 1]);
+    expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
+    expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
+    expect(ids(observationsShown(all, 'ui', 'cell q2', false))).toEqual([3, 2]);
   });
 
   it('sends a ruling with words unless the owner agrees', () => {
@@ -129,22 +154,6 @@ describe("the architect's page", () => {
     expect(choicesOf({ kind: 'study' })).toEqual([]);
   });
 
-  it('approves all, some or none of the changes, saying why for what is not approved', () => {
-    const all = [1, 2, 3];
-    expect(changesAnswer('approve_all', [], all, '')).toEqual({ choice: 'approve_all', approved: [1, 2, 3], text: '' });
-    expect(changesAnswer('approve_none', [], all, '')).toBeNull();
-    expect(changesAnswer('approve_none', [2], all, 'not now')).toEqual({ choice: 'approve_none', approved: [], text: 'not now' });
-    expect(changesAnswer('approve_some', [3, 1], all, 'two waits')).toEqual({
-      choice: 'approve_some',
-      approved: [1, 3],
-      text: 'two waits',
-    });
-    expect(changesAnswer('approve_some', [1, 3], all, '')).toBeNull();
-    expect(changesAnswer('approve_some', [], all, 'why')).toBeNull();
-    expect(changesAnswer('approve_some', [1, 2, 3], all, 'why')).toBeNull();
-    expect(changesAnswer(null, [1], all, 'why')).toBeNull();
-  });
-
   it('puts the articles broken first, then those at risk, then those kept', () => {
     const rows = [
       { principle: 'a', status: 'kept' },
@@ -157,11 +166,12 @@ describe("the architect's page", () => {
     expect(againstInOrder(null)).toEqual([]);
   });
 
-  it('has an address that names the wake, the tab, the round and the cell', () => {
-    const architect = { page: 'architect' as const, wake: null, tab: 'asks' as const, round: null, cell: null };
+  it('has an address that names the project, the wake, the tab, the round and the cell', () => {
+    const architect = { page: 'architect' as const, project: null, wake: null, tab: 'asks' as const, round: null, cell: null };
     const routes: Route[] = [
       architect,
       { ...architect, tab: 'queue' },
+      { ...architect, project: 'p', tab: 'observations' },
       { ...architect, wake: 12, round: 3, tab: 'rounds' },
       { ...architect, wake: 12, cell: 'A6' },
     ];
@@ -172,6 +182,7 @@ describe("the architect's page", () => {
     }
     expect(href({ ...architect, wake: 12, round: 3 })).toBe('/architect?wake=12&round=R12-3');
     expect(href(architect)).toBe('/architect');
+    expect(href({ ...architect, project: 'p', wake: 12 })).toBe('/architect?project=p&wake=12');
     // A round of another wake, or one with no wake named, opens none; a tab the page does not know is the asks.
     expect(parse('/architect', '?wake=12&round=R11-3&tab=x')).toEqual({ ...architect, wake: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);

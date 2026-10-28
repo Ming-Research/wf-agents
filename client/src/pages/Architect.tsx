@@ -1,14 +1,15 @@
-// The architect's page, laid out as a work's page, since the architect runs a long time and the owner comes back to it.
-// Its line says how the architect stands in words (asleep since when, what falls due next and how many matters wait;
-// or awake: the question it is at, the matter it handles, a round running and for how long, or what holds it back),
-// what stops new works from starting, the architect's Start, Pause and Step with the session they run its next round
-// in, a way to say something to it, and the
-// switch between its wakes (when each woke, why, how many matters it handled, what it cost). Under the line, its graph
-// fills the window with the wake shown placed on it as a work is (the wake going on, else the latest, else the bare
-// graph), and the column docked at its right holds the architect's panel on top and what is open on the chart below
-// it. The panel's tabs: its asks of the owner, those waiting first with their forms; its queue, the matters waiting for
-// it, then those held and those not due yet; its decisions, newest first; the policy in force and the one being set;
-// where things stand as it understands them; and the rounds of the wake shown.
+// A project's architect's page, laid out as a work's page, since an architect runs a long time and the owner comes back
+// to it. Its line says, with more than one project, whose architect it is, with the switch to another's; how the
+// architect stands in words (asleep since when and how many matters are in its queue; or awake: the question it is
+// at, the matter it handles, a round running and for how long, or what holds it back), what stops the project's new
+// works from starting, the architect's Start, Pause and Step with the session they run its next round in, a way to
+// say something to it, and the switch between its wakes (when each woke, why, how many matters it handled, what it
+// cost). Under the line, its graph fills the window with the wake shown placed on it as a work is (the wake going on,
+// else the latest, else the bare graph), and the column docked at its right holds the architect's panel on top and
+// what is open on the chart below it. The panel's tabs: its asks of the owner, those waiting first with their forms;
+// its queue, the matters in it, then those an ask holds; its log, newest first; the item changes its batches made;
+// the project's observations; the policy in force and the one being set; where things stand as it understands them;
+// and the rounds of the wake shown.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -17,25 +18,38 @@ import type {
   Compiled,
   CompiledGraph,
   FlowView,
+  ItemChange,
   Matter,
+  Observation,
   OwnerAsk,
   Wake,
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, overWake, queueParts, shownWake } from '../architect';
+import { architectState, observationsShown, overWake, queueParts, shownWake } from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
 import { Fold } from '../item/Shapes';
-import { words } from '../labelled';
+import { Labelled, words } from '../labelled';
+import { Markdown } from '../markdown';
 import { reread, useResource, useStatus } from '../live';
-import { type ArchitectRoute, type ArchitectTab, architectHref, href, Link, navigate, workHref } from '../route';
+import {
+  type ArchitectRoute,
+  type ArchitectTab,
+  architectHref,
+  forProject,
+  href,
+  Link,
+  navigate,
+  workHref,
+} from '../route';
 import { t, type Key } from '../text';
 import { ArchitectAsk, askKindWords } from './ArchitectAsk';
 import {
+  ChangeView,
   LogEntryView,
   type OpenRound,
   PolicyText,
@@ -66,10 +80,10 @@ function useNow(ticking: boolean): number {
   return now;
 }
 
-/// The architect's Step: one round of the wake going on, or, when none goes on and a matter waits, a new wake and its
+/// An architect's Step: one round of the wake going on, or, when none goes on and a matter waits, a new wake and its
 /// first round, resuming its session or in a new one for its wake as the owner chose; and its Start and Pause while no
 /// wake goes on. Step asks first, as a real round runs on the owner's account.
-function useStep() {
+function useStep(project: string) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newSession, setNewSession] = useNewSession('architect');
@@ -88,20 +102,25 @@ function useStep() {
       },
     );
   };
-  const start = () => send('/api/v1/architect/start', { new_session: newSession });
-  const pause = () => send('/api/v1/architect/pause', {});
+  const start = () => send(forProject('/api/v1/architect/start', project), { new_session: newSession });
+  const pause = () => send(forProject('/api/v1/architect/pause', project), {});
   const step = (ask: string) => {
-    if (window.confirm(ask)) send('/api/v1/architect/step', { new_session: newSession });
+    if (window.confirm(ask)) send(forProject('/api/v1/architect/step', project), { new_session: newSession });
   };
   return { busy, error, step, start, pause, newSession, setNewSession };
 }
 
 /// How the wake going on goes on, on one line: a round running and for how long, or what holds it back, or what it
 /// waits for, linked to the ask; then the question it is at and the matter it handles; and its Start, Pause and Step.
-function Awake({ w, handling, onAsk }: { w: WorkSummary; handling: string; onAsk: (id: number) => void }) {
+function Awake({ w, project, handling, onAsk }: {
+  w: WorkSummary;
+  project: string;
+  handling: string;
+  onAsk: (id: number) => void;
+}) {
   const status = useStatus();
   const a = useActions(w, status, true);
-  const s = useStep();
+  const s = useStep(project);
   const c = a.c;
   const waits = c.waits;
   const now = useNow(c.running !== null);
@@ -150,10 +169,11 @@ function Awake({ w, handling, onAsk }: { w: WorkSummary; handling: string; onAsk
   );
 }
 
-const HOLDS: Record<string, Key> = { architect: 'hold_architect', tidying: 'hold_tidying', policy: 'hold_policy' };
+const HOLDS: Record<string, Key> = { architect: 'hold_architect', set_straight: 'hold_set_straight', policy: 'hold_policy' };
 
-/// The line above the architect's chart: how it stands, what stops new works, its controls, what to say to it, and
-/// the switch between its wakes.
+/// The line above an architect's chart: with more than one project, whose architect it is and the switch to another's;
+/// how it stands, what stops the project's new works, its controls, what to say to it, and the switch between its
+/// wakes.
 function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   a: ArchitectRead;
   shown: Wake | null;
@@ -166,29 +186,35 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
 }) {
   const status = useStatus();
   const state = architectState(a.wakes, a.queue);
-  const s = useStep();
-  const handling = (() => {
-    const h = state.kind === 'awake' ? state.handling : null;
-    return h !== null && typeof h === 'object' && !Array.isArray(h) && typeof h.matter === 'string' ? h.matter : '';
-  })();
+  const s = useStep(a.project);
+  const handling = state.kind === 'awake' && state.handling !== null ? state.handling.what : '';
+  const started = status !== null && status.architects_started.includes(a.project);
   // With no wake going on, the owner's Step wakes the architect while every work is paused and a matter waits: else
   // the engine wakes it by itself. Started, the architect wakes by itself whatever the global state, until paused.
   const canWake = state.kind !== 'awake' && state.waiting > 0 && status !== null && status.paused;
-  const canStart = state.kind !== 'awake' && status !== null && status.paused && !status.architect_started;
-  const canPause = state.kind !== 'awake' && status !== null && status.architect_started;
+  const canStart = state.kind !== 'awake' && status !== null && status.paused && !started;
+  const canPause = state.kind !== 'awake' && started;
   return (
     <div className="work-line arch-line">
+      {a.projects.length > 1 ? (
+        <select
+          className="arch-project"
+          value={a.project}
+          title={t('arch_project_hint')}
+          onChange={(e) => navigate(architectHref({ project: e.target.value }))}
+        >
+          {a.projects.map((p) => (
+            <option key={p} value={p}>
+              {t('arch_of_project', { project: p })}
+            </option>
+          ))}
+        </select>
+      ) : null}
       {state.kind === 'awake' && current !== null ? (
-        <Awake w={current} handling={handling} onAsk={onAsk} />
+        <Awake w={current} project={a.project} handling={handling} onAsk={onAsk} />
       ) : (
         <span className="work-state">
           <strong>{state.kind === 'never' ? t('arch_never') : t('arch_asleep', { at: time(state.kind === 'asleep' ? state.since : null) })}</strong>
-          {state.kind === 'asleep' && state.next !== null ? (
-            <span className="muted" title={state.next.what}>
-              {' '}
-              · {t('arch_next_due', { at: time(state.next.due) })}
-            </span>
-          ) : null}
         </span>
       )}
       {state.waiting > 0 ? (
@@ -250,15 +276,15 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   );
 }
 
-/// What the owner says to the architect: it goes to the architect's queue as the owner's words.
-function SayBox({ onClose }: { onClose: () => void }) {
+/// What the owner says to an architect: it goes to the architect's queue as the owner's words.
+function SayBox({ project, onClose }: { project: string; onClose: () => void }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const send = () => {
     setBusy(true);
     setError(null);
-    postJson('/api/v1/architect/say', { text: text.trim() }).then(
+    postJson(forProject('/api/v1/architect/say', project), { text: text.trim() }).then(
       () => {
         reread('architect');
         onClose();
@@ -289,7 +315,14 @@ function SayBox({ onClose }: { onClose: () => void }) {
 
 /// The architect's wakes over time, newest first: when each woke, why, how many matters it handled, its rounds and
 /// cost; a click shows that wake, and the one shown by default follows the wake going on again.
-function WakeList({ a, shown, tab, onClose }: { a: ArchitectRead; shown: number | null; tab: ArchitectTab; onClose: () => void }) {
+function WakeList({ a, shown, tab, project, onClose }: {
+  a: ArchitectRead;
+  shown: number | null;
+  tab: ArchitectTab;
+  /// The project the address names, kept as it is.
+  project: string | null;
+  onClose: () => void;
+}) {
   const followed = shownWake(a.wakes, null)?.work.id ?? null;
   return (
     <div className="bar-pop arch-pop arch-wakes" role="dialog" aria-label={t('arch_wakes', { n: a.wakes.length })}>
@@ -309,12 +342,13 @@ function WakeList({ a, shown, tab, onClose }: { a: ArchitectRead; shown: number 
           <tbody>
             {a.wakes.map((x) => {
               const why = [...new Set(x.woke_for.map((m) => words(m.kind)))].join(', ');
+              const whyAll = x.woke_for.map((m) => `${words(m.kind)}${m.detail !== null ? ` (${words(m.detail)})` : ''}: ${m.what}`);
               return (
                 <tr
                   key={x.work.id}
                   className={`clickable${x.work.id === shown ? ' selected' : ''}`}
                   onClick={() => {
-                    navigate(architectHref({ wake: x.work.id === followed ? null : x.work.id, tab }));
+                    navigate(architectHref({ project, wake: x.work.id === followed ? null : x.work.id, tab }));
                     onClose();
                   }}
                 >
@@ -323,7 +357,7 @@ function WakeList({ a, shown, tab, onClose }: { a: ArchitectRead; shown: number 
                     {!overWake(x.work) ? <span className="badge state-running">{t('arch_wake_going')}</span> : null}
                   </td>
                   <td className="nowrap">{time(x.work.started_at)}</td>
-                  <td className="clip" title={x.woke_for.map((m) => `${words(m.kind)}: ${m.what}`).join('\n')}>
+                  <td className="clip" title={whyAll.join('\n')}>
                     {why !== '' ? why : '–'}
                   </td>
                   <td className="num">{x.handled}</td>
@@ -351,10 +385,11 @@ const SOURCES: Record<string, Key> = {
   engine: 'source_engine',
 };
 
-/// One matter in the architect's queue: its kind as a chip coloured by who raised it, what it is, its item, and who
-/// waits for it and how long; or what holds it, or when it falls due.
+/// One matter in an architect's queue: its kind, and what more its kind says, as a chip coloured by who raised it;
+/// what it is; whether it is urgent; its item; and who waits for it and how long; or the ask that holds it, or that the
+/// owner answered, so that it goes back to the cell that asked.
 function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: number) => void }) {
-  const since = duration(Math.max(0, now - (m.due ?? m.at)));
+  const since = duration(Math.max(0, now - m.at));
   return (
     <li className="arch-matter">
       <div className="work-item-head">
@@ -363,7 +398,9 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
           title={SOURCES[m.source] !== undefined ? t(SOURCES[m.source]) : undefined}
         >
           {words(m.kind)}
+          {m.detail !== null ? ` · ${words(m.detail)}` : ''}
         </span>
+        {m.urgent ? <span className="badge verdict-bad">{t('matter_urgent')}</span> : null}
         <span className="arch-matter-what">{m.what}</span>
       </div>
       <div className="muted arch-matter-meta">
@@ -379,26 +416,21 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
         ) : null}
         {m.waits === 'owner' ? <span>{t('matter_waits_owner', { for: since })}</span> : null}
         {m.waits === 'none' ? <span>{t('matter_waits_none', { for: since })}</span> : null}
-        {m.held !== null && m.held_by !== null ? (
-          <button type="button" className="link" onClick={() => onAsk(m.held_by ?? 0)}>
-            {t(m.held === 'approval' ? 'matter_held_approval' : 'matter_held_ask', { id: m.held_by })}
+        {m.asked !== null ? (
+          <button type="button" className="link" onClick={() => onAsk(m.asked ?? 0)}>
+            {t(m.answered ? 'matter_answered' : 'matter_held_ask', { id: m.asked, cell: m.resume_cell ?? '' })}
           </button>
-        ) : null}
-        {m.waits === null && m.held === null && m.due !== null ? <span>{t('matter_due', { at: time(m.due) })}</span> : null}
-        {m.waits === null && m.held === null && m.due_item !== null ? (
-          <span>{t('matter_due_item', { item: m.due_item })}</span>
         ) : null}
       </div>
     </li>
   );
 }
 
-/// The architect's queue: the matters waiting for it, in the order they came; then those held for the owner; then
-/// those not due yet.
+/// An architect's queue: the matters in it, in the order they came; then those an ask of the owner holds.
 function Queue({ queue, onAsk }: { queue: Matter[]; onAsk: (id: number) => void }) {
   const now = useNow(false);
   if (queue.length === 0) return <p className="muted">{t('arch_queue_none')}</p>;
-  const { waiting, held: holding, later } = queueParts(queue);
+  const { waiting, held: holding } = queueParts(queue);
   const list = (ms: Matter[]) => (
     <ul className="arch-matters">
       {ms.map((m) => (
@@ -415,12 +447,127 @@ function Queue({ queue, onAsk }: { queue: Matter[]; onAsk: (id: number) => void 
           {list(holding)}
         </section>
       ) : null}
-      {later.length > 0 ? (
-        <section>
-          <div className="works-label">{t('arch_queue_later', { n: later.length })}</div>
-          {list(later)}
-        </section>
-      ) : null}
+    </>
+  );
+}
+
+/// The item changes an architect's batches made or dropped, newest first: each change as handed in, with why; what it
+/// made, or for one dropped, what the review still found; the matter it came from and the round that handed it in.
+function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRound }) {
+  if (changes.length === 0) return <p className="muted">{t('arch_changes_none')}</p>;
+  return (
+    <ul className="arch-matters">
+      {changes.map((c) => (
+        <li key={c.id} className="boxed">
+          <div className="work-item-head">
+            <span className={`badge ${c.state === 'made' ? 'verdict-good' : 'verdict-bad'}`}>{words(c.state)}</span>
+            <span className="muted">{t('change_matter', { n: c.matter })}</span>
+            <RoundLink work={c.work} round={c.round} onRound={onRound} />
+          </div>
+          <ChangeView value={c.change} />
+          {c.outcome !== null ? (
+            <div className="field">
+              <span className="decision-label">{t(c.state === 'made' ? 'change_made' : 'change_dropped')}</span>
+              <Labelled value={c.outcome} />
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/// One observation: what it is; its tags; where it came from and how many times it was reported; what it refers to;
+/// the item that took it in; and, closed, why; open, the owner's Close, which asks why.
+function ObservationRow({ o }: { o: Observation }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const close = () => {
+    const why = window.prompt(t('observation_close_why'));
+    if (why === null || why.trim() === '') return;
+    setBusy(true);
+    setError(null);
+    postJson(`/api/v1/observations/${o.id}/close`, { why: why.trim() }).then(
+      () => reread('architect'),
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  return (
+    <li className="boxed">
+      <div className="work-item-head">
+        <strong>{t('observation_head', { id: o.id })}</strong>
+        {o.tags.map((x) => (
+          <span key={x} className="badge">
+            {x}
+          </span>
+        ))}
+        <span className="muted">{t('observation_reported', { n: o.times_reported })}</span>
+        {o.closed !== null ? (
+          <span className="badge">{t('observation_closed', { why: words(o.closed) })}</span>
+        ) : (
+          <button type="button" className="link" disabled={busy} onClick={close}>
+            {t('observation_close')}
+          </button>
+        )}
+      </div>
+      <Markdown text={o.what} />
+      <div className="muted arch-matter-meta">
+        <span>{t('observation_source', { source: o.source })}</span>
+        {o.refs.length > 0 ? <span>{t('observation_refs', { refs: o.refs.join(', ') })}</span> : null}
+        {o.folded_into !== null ? (
+          <Link to={`/items/${o.folded_into}`}>{t('observation_folded', { item: o.folded_into })}</Link>
+        ) : null}
+        {o.created !== null ? <span>{t('observation_at', { at: time(o.created) })}</span> : null}
+      </div>
+      {o.closed_why !== null ? <p className="muted">{o.closed_why}</p> : null}
+      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+    </li>
+  );
+}
+
+/// A project's observations: by tag, with what each tag covers, searchable, the open ones and, when asked for, those
+/// closed.
+function Observations({ a }: { a: ArchitectRead }) {
+  const [tag, setTag] = useState('');
+  const [search, setSearch] = useState('');
+  const [closed, setClosed] = useState(false);
+  const shown = observationsShown(a.observations, tag, search, closed);
+  const covers = a.tags.find((x) => x.name === tag)?.desc ?? '';
+  return (
+    <>
+      <div className="bar-pop-row">
+        <select value={tag} onChange={(e) => setTag(e.target.value)} title={covers}>
+          <option value="">{t('observation_every_tag')}</option>
+          {a.tags.map((x) => (
+            <option key={x.name} value={x.name} title={x.desc}>
+              {x.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="search"
+          value={search}
+          placeholder={t('observation_search')}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <label>
+          <input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} />{' '}
+          {t('observation_show_closed')}
+        </label>
+      </div>
+      {covers !== '' ? <p className="muted">{covers}</p> : null}
+      {shown.length === 0 ? (
+        <p className="muted">{t('observation_none')}</p>
+      ) : (
+        <ul className="arch-matters">
+          {shown.map((o) => (
+            <ObservationRow key={o.id} o={o} />
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -535,10 +682,18 @@ function Panel({ route, a, d, g, go, onRound }: {
   };
   const waiting = a.asks.filter((x) => x.answer === null).length;
   const live = new Set(a.wakes.filter((w) => !overWake(w.work)).map((w) => w.work.id));
+  const titles = new Map<string, string>(g.cells.map((c) => [c.id, c.title]));
   const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; chip: string | null }> = [
     { tab: 'asks', label: t('arch_tab_asks'), n: a.asks.length, chip: waiting > 0 ? t('open_asks_chip', { n: waiting }) : null },
     { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null },
     { tab: 'decisions', label: t('arch_tab_decisions'), n: a.log.length, chip: null },
+    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null },
+    {
+      tab: 'observations',
+      label: t('arch_tab_observations'),
+      n: a.observations.filter((o) => o.closed === null).length,
+      chip: null,
+    },
     { tab: 'policy', label: t('arch_tab_policy'), n: null, chip: null },
     { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null },
     { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null },
@@ -583,11 +738,14 @@ function Panel({ route, a, d, g, go, onRound }: {
                 e={e}
                 open={i === 0}
                 live={live.has(e.work)}
+                title={(cell) => titles.get(cell) ?? ''}
                 onRound={onRound}
               />
             ))
           )
         ) : null}
+        {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
+        {route.tab === 'observations' ? <Observations a={a} /> : null}
         {route.tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
         {route.tab === 'understanding' ? <UnderstandingView u={a.understanding} onRound={onRound} /> : null}
         {route.tab === 'rounds' ? (
@@ -600,7 +758,7 @@ function Panel({ route, a, d, g, go, onRound }: {
                 onRound={(r) => go({ wake: d.work.id, round: r, cell: null })}
                 onCard={() => undefined}
                 onAsk={onAsk}
-                stepPath="/api/v1/architect/step"
+                stepPath={forProject('/api/v1/architect/step', a.project)}
               />
               <Timeline
                 work={d.work.id}
@@ -692,8 +850,10 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
         pop={pop}
         setPop={setPop}
       />
-      {pop === 'say' ? <SayBox onClose={() => setPop(null)} /> : null}
-      {pop === 'wakes' ? <WakeList a={a} shown={id} tab={route.tab} onClose={() => setPop(null)} /> : null}
+      {pop === 'say' ? <SayBox project={a.project} onClose={() => setPop(null)} /> : null}
+      {pop === 'wakes' ? (
+        <WakeList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
+      ) : null}
       <div className="screen">
         <Loaded r={compiled}>
           {(c) => (
@@ -708,7 +868,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
 }
 
 export function Architect({ route }: { route: ArchitectRoute }) {
-  const a = useResource<ArchitectRead>('architect', '/api/v1/architect');
+  const a = useResource<ArchitectRead>('architect', forProject('/api/v1/architect', route.project));
   return (
     <div className="works-screen">
       <Loaded r={a}>{(data) => <Body route={route} a={data} />}</Loaded>

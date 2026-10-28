@@ -21,13 +21,25 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
-/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its decisions, the policy,
-/// where things stand as it understands them, or the rounds of the wake shown.
-export const ARCHITECT_TABS = ['asks', 'queue', 'decisions', 'policy', 'understanding', 'rounds'] as const;
+/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its log, the item changes its
+/// batches made, the project's observations, the policy, where things stand as it understands them, or the rounds of
+/// the wake shown.
+export const ARCHITECT_TABS = [
+  'asks',
+  'queue',
+  'decisions',
+  'changes',
+  'observations',
+  'policy',
+  'understanding',
+  'rounds',
+] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
 
 export type ArchitectRoute = {
   page: 'architect';
+  /// The project whose architect the page shows; with none, the configuration's one project.
+  project: string | null;
   /// The wake shown, by its work; with none, the wake running, else the latest.
   wake: number | null;
   tab: ArchitectTab;
@@ -94,6 +106,7 @@ export function parse(pathname: string, search: string): Route {
     const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'asks';
     return {
       page: 'architect',
+      project: q.get('project'),
       wake,
       tab,
       round: wake !== null ? roundOf(wake, q.get('round')) : null,
@@ -143,6 +156,7 @@ export function href(r: Route): string {
       ])}`;
     case 'architect':
       return `/architect${query([
+        ['project', r.project],
         ['wake', r.wake],
         ['tab', r.tab === 'asks' ? null : r.tab],
         ['round', r.wake !== null && r.round !== null ? roundName(r.wake, r.round) : null],
@@ -175,9 +189,15 @@ export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'
   return href({ page: 'work', id, round: null, cell: null, tab: 'rounds', only: null, ...more });
 }
 
-/// The address of the architect's page: the wake running or the latest, on its asks, or what `more` names.
+/// The address of an architect's page: the wake running or the latest, on its asks, or what `more` names.
 export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}): string {
-  return href({ page: 'architect', wake: null, tab: 'asks', round: null, cell: null, ...more });
+  return href({ page: 'architect', project: null, wake: null, tab: 'asks', round: null, cell: null, ...more });
+}
+
+/// A path of the interface about a project's architect: for the project named, or with none, the configuration's one
+/// project.
+export function forProject(path: string, project: string | null): string {
+  return project !== null ? `${path}?project=${encodeURIComponent(project)}` : path;
 }
 
 const NAVIGATED = 'wf-navigate';

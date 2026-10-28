@@ -99,7 +99,9 @@ export function course(w: WorkSummary, status: Status | null): Course {
     return { over: true, running: null, held: null, waits: null, outdated: false, started: false, releasing: false };
   }
   const started =
-    status !== null && (status.started.includes(w.id) || (w.graph === 'architect' && status.architect_started));
+    status !== null &&
+    (status.started.includes(w.id) ||
+      (w.graph === 'architect' && w.project !== null && status.architects_started.includes(w.project)));
   const releasing = status !== null && status.releasing.includes(w.id);
   const held: Course['held'] =
     w.paused_by === 'engine'

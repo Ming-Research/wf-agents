@@ -17,7 +17,8 @@ import { t } from './text';
 /// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
 /// asked for, or of a work the owner started.
 function finishing(s: Status): number {
-  const goesOn = s.running !== null && (s.running === s.stepping || s.started.includes(s.running) || s.architect_started);
+  const goesOn =
+    s.running !== null && (s.running === s.stepping || s.started.includes(s.running) || s.architects_started.length > 0);
   return s.paused && s.running !== null && !goesOn ? 1 : 0;
 }
 
@@ -28,7 +29,7 @@ function stateWords(s: Status): string {
   const n = finishing(s);
   if (n === 1) return t('engine_pausing_one');
   if (n > 0) return t('engine_pausing', { n });
-  const runs = [...s.started.map((w) => `#${w}`), ...(s.architect_started ? [t('engine_runs_architect')] : [])];
+  const runs = [...s.started.map((w) => `#${w}`), ...s.architects_started.map((p) => t('engine_runs_architect', { project: p }))];
   return runs.length > 0 ? t('engine_paused_runs', { which: runs.join(', ') }) : t('engine_paused');
 }
 

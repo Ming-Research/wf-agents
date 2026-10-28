@@ -116,7 +116,7 @@ describe('how a work goes on', () => {
     keep_warm: true,
     started: [],
     releasing: [],
-    architect_started: false,
+    architects_started: [],
     running: null,
     stepping: null,
     last_step: null,
@@ -164,9 +164,17 @@ describe('how a work goes on', () => {
     );
     expect([slot.held, heldName(slot).name]).toEqual(['you', 'started, waiting for a free slot']);
     expect([controls(slot, status({})).pause, controls(slot, status({})).start]).toEqual([true, false]);
-    // A wake of the architect goes on while the owner started the architect.
-    const wake = course(work({ graph: 'architect', item: null }), status({ paused: true, architect_started: true }));
+    // A wake of an architect goes on while the owner started that project's architect, and not for another's.
+    const wake = course(
+      work({ graph: 'architect', item: null, project: 'p' }),
+      status({ paused: true, architects_started: ['p'] }),
+    );
     expect([wake.held, wake.started]).toEqual([null, true]);
+    const other = course(
+      work({ graph: 'architect', item: null, project: 'q' }),
+      status({ paused: true, architects_started: ['p'] }),
+    );
+    expect(other.started).toBe(false);
     // Going on by itself, its round running: Pause only; once paused, it pauses after the round.
     const on = course(work({}), status({ running: 5 }));
     expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);
@@ -1016,8 +1024,8 @@ describe('the settings on the page', () => {
 
 describe("the architect's state of things", () => {
   it('says what each version changed from the one before it, line by line, and the first is all new', () => {
-    const before: JsonValue = { lines: [{ line: 'A', where: 'x' }, { line: 'B', where: 'b' }], changed: 'c1' };
-    const after: JsonValue = { lines: [{ line: 'A', where: 'y' }, { line: 'C', where: 'c' }], changed: 'c2' };
+    const before: JsonValue = { state: [{ line: 'A', where: 'x' }, { line: 'B', where: 'b' }], changed: 'c1' };
+    const after: JsonValue = { state: [{ line: 'A', where: 'y' }, { line: 'C', where: 'c' }], changed: 'c2' };
     const c = stateChanges(before, after);
     expect(c.lines.map((l) => [l.line, l.kind])).toEqual([
       ['A', 'changed'],

@@ -28,12 +28,18 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
   return (
     <li className={m.read_at === null ? 'msg msg-unread' : 'msg'}>
       <div className="msg-head">
-        {work !== null && m.architect ? (
-          <Link to={architectHref(m.round !== null ? { wake: work, round: m.round, tab: 'rounds' } : { wake: work })}>
-            {t('message_architect', { id: work })}
+        {work !== null && m.architect !== null ? (
+          <Link
+            to={architectHref(
+              m.round !== null
+                ? { project: m.architect, wake: work, round: m.round, tab: 'rounds' }
+                : { project: m.architect, wake: work },
+            )}
+          >
+            {t('message_architect', { id: work, project: m.architect })}
           </Link>
         ) : null}
-        {work !== null && !m.architect ? (
+        {work !== null && m.architect === null ? (
           <Link to={workHref(work, { round: m.round })}>
             {t('work_title', { id: work })}
           </Link>
@@ -62,12 +68,18 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
         )}
       </div>
       <p className="msg-text">{m.text}</p>
-      {m.ask !== null && (m.item !== null || m.architect) ? (
+      {m.ask !== null && (m.item !== null || m.architect !== null) ? (
         <div className="msg-ask">
           {m.ask_kinds.map((k, i) => (
             <KindChip key={i} k={k} />
           ))}
-          <Link to={m.architect ? `${architectHref()}#ask-${m.ask}` : `/items/${m.item ?? ''}#ask-${m.ask}`}>
+          <Link
+            to={
+              m.architect !== null
+                ? `${architectHref({ project: m.architect })}#ask-${m.ask}`
+                : `/items/${m.item ?? ''}#ask-${m.ask}`
+            }
+          >
             {t('message_answer_ask', { id: m.ask })}
           </Link>
         </div>

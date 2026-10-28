@@ -1,8 +1,8 @@
-// What the architect's page works out from what the interface reads, apart from drawing it: the wake it shows, how the
-// architect stands, its queue in parts, the articles of the constitution in the order the owner reads them, and what an
-// answer to an ask of the architect's sends.
+// What an architect's page works out from what the interface reads, apart from drawing it: the wake it shows, how the
+// architect stands, its queue in parts, the observations the owner looks for, the articles of the constitution in the
+// order the owner reads them, and what an answer to an ask of the architect's sends.
 
-import type { JsonValue, Matter, Wake, WorkSummary } from './api';
+import type { JsonValue, Matter, Observation, Wake, WorkSummary } from './api';
 import { isObj, str, type Obj } from './labelled';
 
 /// A wake goes on no more once it reached its end or was ended.
@@ -14,34 +14,45 @@ export function shownWake(wakes: Wake[], named: number | null): Wake | null {
   return asked ?? wakes.find((x) => !overWake(x.work)) ?? wakes[0] ?? null;
 }
 
-/// The architect's queue in its three parts: the matters due and waiting for it, in the order they came; those held
-/// for the owner; and those not due yet.
-export function queueParts(queue: Matter[]): { waiting: Matter[]; held: Matter[]; later: Matter[] } {
-  return {
-    waiting: queue.filter((m) => m.waits !== null),
-    held: queue.filter((m) => m.waits === null && m.held !== null),
-    later: queue.filter((m) => m.waits === null && m.held === null),
-  };
+/// An architect's queue in its two parts: the matters in its queue, in the order they came; and those an ask of the
+/// owner holds until answered.
+export function queueParts(queue: Matter[]): { waiting: Matter[]; held: Matter[] } {
+  const held = (m: Matter) => m.asked !== null && !m.answered;
+  return { waiting: queue.filter((m) => !held(m)), held: queue.filter(held) };
 }
 
 export type ArchitectState =
   /// It never woke.
   | { kind: 'never'; waiting: number }
-  /// Its last wake is over: since when, and the matter that falls due soonest.
-  | { kind: 'asleep'; since: number | null; next: Matter | null; waiting: number }
+  /// Its last wake is over, since when.
+  | { kind: 'asleep'; since: number | null; waiting: number }
   /// A wake goes on, handling a matter or none.
-  | { kind: 'awake'; wake: WorkSummary; handling: JsonValue | null; waiting: number };
+  | { kind: 'awake'; wake: WorkSummary; handling: Matter | null; waiting: number };
 
-/// How the architect stands: never woken; asleep since its last wake ended, with the matter that falls due soonest; or
-/// awake in a wake, with the matter it handles; and how many matters wait for it.
+/// How an architect stands: never woken; asleep since its last wake ended; or awake in a wake, with the matter it
+/// handles; and how many matters are in its queue.
 export function architectState(wakes: Wake[], queue: Matter[]): ArchitectState {
-  const parts = queueParts(queue);
-  const waiting = parts.waiting.length;
+  const waiting = queueParts(queue).waiting.length;
   const awake = wakes.find((w) => !overWake(w.work));
-  if (awake !== undefined) return { kind: 'awake', wake: awake.work, handling: awake.handling, waiting };
+  if (awake !== undefined) {
+    const handling = awake.handling !== null ? (queue.find((m) => m.id === awake.handling) ?? null) : null;
+    return { kind: 'awake', wake: awake.work, handling, waiting };
+  }
   if (wakes.length === 0) return { kind: 'never', waiting };
-  const next = parts.later.filter((m) => m.due !== null).sort((a, b) => (a.due ?? 0) - (b.due ?? 0))[0] ?? null;
-  return { kind: 'asleep', since: wakes[0].work.last_at, next, waiting };
+  return { kind: 'asleep', since: wakes[0].work.last_at, waiting };
+}
+
+/// The observations the owner looks for: with the tag chosen, if one is, and the words searched for, if any, in what
+/// it is, where it came from or what it refers to; those closed only when asked for. The order stays as read: the
+/// open ones first, each newest first.
+export function observationsShown(all: Observation[], tag: string, search: string, closed: boolean): Observation[] {
+  const words = search.trim().toLowerCase();
+  return all.filter(
+    (o) =>
+      (closed || o.closed === null) &&
+      (tag === '' || o.tags.includes(tag)) &&
+      (words === '' || [o.what, o.source, ...o.refs].some((x) => x.toLowerCase().includes(words))),
+  );
 }
 
 /// The choices an ask of the architect's offers, each value with what it means, as the engine read them from its cell.
@@ -64,32 +75,6 @@ export function rulingAnswer(
   return { choice, text: words };
 }
 
-export type ChangesChoice = 'approve_all' | 'approve_some' | 'approve_none';
-
-/// What an answer to the changes the architect collected sends: the choice, the changes approved by their numbers,
-/// and why; none while it cannot be sent. Approving some needs some, not all, picked and why the rest are not;
-/// approving none needs why.
-export function changesAnswer(
-  choice: ChangesChoice | null,
-  picked: number[],
-  all: number[],
-  text: string,
-): { choice: ChangesChoice; approved: number[]; text: string } | null {
-  const why = text.trim();
-  switch (choice) {
-    case 'approve_all':
-      return { choice, approved: [...all], text: why };
-    case 'approve_none':
-      return why !== '' ? { choice, approved: [], text: why } : null;
-    case 'approve_some': {
-      const approved = all.filter((n) => picked.includes(n));
-      return approved.length > 0 && approved.length < all.length && why !== '' ? { choice, approved, text: why } : null;
-    }
-    default:
-      return null;
-  }
-}
-
 /// The articles of the constitution as the architect last checked them: those broken first, then those at risk, then
 /// those kept, each in the order checked.
 export function againstInOrder(rows: JsonValue): Obj[] {
@@ -110,16 +95,16 @@ export type LineChange = {
 };
 
 /// The fields a line of work holds, in the order the page shows them.
-export const LINE_FIELDS = ['line', 'serves', 'approach', 'where', 'stuck', 'recent'] as const;
+export const LINE_FIELDS = ['line', 'serves', 'approach', 'where', 'stuck', 'recent', 'grounds'] as const;
 
-/// What changed from one version of the state of things to the next, part by part: its lines of work, matched by
-/// their name, in the new version's order with those gone after them; and what it says changed. With no version
-/// before it, everything is new.
+/// What changed from one version of the understanding to the next, part by part: the lines of work of its state of
+/// things, matched by their name, in the new version's order with those gone after them; and what it says changed.
+/// With no version before it, everything is new.
 export function stateChanges(
   before: JsonValue | null,
   after: JsonValue,
 ): { lines: LineChange[]; changed: { before: string | null; after: string } } {
-  const rows = (v: JsonValue | null): Obj[] => (isObj(v) && Array.isArray(v.lines) ? v.lines.filter(isObj) : []);
+  const rows = (v: JsonValue | null): Obj[] => (isObj(v) && Array.isArray(v.state) ? v.state.filter(isObj) : []);
   const key = (o: Obj) => str(o.line).trim();
   const old = new Map(rows(before).map((o) => [key(o), o]));
   const now = rows(after);

@@ -8,6 +8,7 @@ import type { Status, Waits, WorkSummary } from './api';
 import { controls, type Course, course, heldWords } from './components';
 import { postJson } from './http';
 import { reread } from './live';
+import { forProject } from './route';
 import { t } from './text';
 
 /// What a work waits for, in words.
@@ -93,12 +94,12 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
     window.confirm(
       t('confirm_takeover', { id: w.id, version: w.flow_version, now: status?.flow_version ?? '', item: w.item ?? '' }),
     );
-  const pause = () => post(wake ? '/api/v1/architect/pause' : `/api/v1/works/${w.id}/pause`, {});
+  const pause = () => post(wake ? forProject('/api/v1/architect/pause', w.project) : `/api/v1/works/${w.id}/pause`, {});
   const start = () => {
     if (c.outdated && !takeover()) return;
     if (c.held === 'architect' && !window.confirm(t('start_release_confirm', { id: w.id }))) return;
     if (!c.outdated && c.held === 'engine' && !window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
-    post(wake ? '/api/v1/architect/start' : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
+    post(wake ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
       setNewSession(false),
     );
   };
