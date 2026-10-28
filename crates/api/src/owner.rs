@@ -3,7 +3,7 @@
 //! work is paused. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it goes
 //! on. What the owner says to the architect is `db::say_to_architect`.
 
-use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
@@ -22,15 +22,19 @@ fn choice_of(a: &Answer) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The numbers of the changes the owner approved, for the architect's ask of its changes.
-fn approved_of(a: &Answer) -> Vec<i64> {
-    a.approved.clone().unwrap_or_default()
+/// The matters an ask of an architect holds, by their numbers: those it was put about, which come back to their
+/// architect's queue once it is answered.
+fn holds_of(body: &Value) -> Vec<i64> {
+    match &body["holds"] {
+        Value::Array(xs) => xs.iter().filter_map(Value::as_i64).collect(),
+        v => v.as_i64().into_iter().collect(),
+    }
 }
 
-/// Answers an ask the architect put, by its kind: the owner's view of a study or approval of a policy, with the option
-/// chosen; the changes approved, all, some (naming which) or none (saying why), which come back to the architect's
-/// queue as a matter of their own and let go the matters held for them; and an answer to what the architect asked,
-/// which comes back as a matter of its own when the ask held no wake.
+/// Answers an ask an architect put, by its kind: the owner's view of a study or approval of a policy, with the option
+/// chosen; an answer to what the architect asked, which brings back the matters the ask holds, each to the cell that
+/// asked about it, or, for an ask that held neither a matter nor a wake, comes to the architect's queue as the owner's
+/// words. An ask of the changes an earlier architect collected for approval is closed: item changes are reviewed now.
 fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
@@ -57,81 +61,47 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
             .map_err(sql)?;
         }
         "changes" => {
-            let changes = body["changes"].as_array().cloned().unwrap_or_default();
-            let numbers: Vec<i64> = changes.iter().filter_map(|c| c["n"].as_i64()).collect();
-            let chosen = choice_of(a).unwrap_or_default();
-            let approved: Vec<i64> = match chosen.as_str() {
-                "approve_all" => numbers.clone(),
-                "approve_none" => Vec::new(),
-                "approve_some" => {
-                    let mut some = approved_of(a);
-                    some.sort_unstable();
-                    some.dedup();
-                    if some.is_empty() || some.iter().any(|n| !numbers.contains(n)) {
-                        return Err(format!(
-                            "approving some names which, by their numbers among {numbers:?}"
-                        ));
-                    }
-                    some
-                }
-                _ => {
-                    return Err(
-                        "the answer approves all, some or none: approve_all, approve_some or approve_none".into(),
-                    );
-                }
-            };
-            if approved.len() < numbers.len() && text.is_empty() {
-                return Err("what is not approved says why".into());
-            }
-            let answer = json!({ "by": "owner", "at": at, "choice": chosen, "approved": approved, "text": text });
-            let m = Matter {
-                kind: "owner_approved".into(),
-                what: format!(
-                    "The owner approved {} of the {} changes you collected",
-                    approved.len(),
-                    numbers.len()
-                ),
-                body: json!({ "ask": ask, "changes": changes, "approved": approved, "why": text }),
-                ..Matter::default()
-            };
-            db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
-                    params![ask, answer.to_string()],
-                )?;
-                queue_matter(tx, &m)?;
-                let_go(tx, ask)
-            })
-            .map_err(sql)?;
+            return Err(format!(
+                "ask {ask} put changes to the owner's approval, which the architect no longer asks: its item changes \
+                 are reviewed, and the architect is told to go on without it"
+            ));
         }
         _ => {
             if text.is_empty() {
                 return Err("an answer says something".into());
             }
             let answer = json!({ "by": "owner", "at": at, "text": text });
-            // An ask that held no wake, open or holding a matter, comes back to the architect's queue.
-            let holds = body["holds"].as_i64();
-            let comes_back = kind == "open" || holds.is_some();
+            // An ask that held no wake and no matter, as an earlier architect put open questions, comes back to the
+            // queue as the owner's words.
+            let open = kind == "open" && holds_of(body).is_empty();
             let asked = if kind == "open" {
                 body["choice"].clone()
             } else {
                 body["asked"].clone()
-            };
-            let m = Matter {
-                kind: "owner_words".into(),
-                what: format!("The owner answered ask {ask}: {}", db::one_sentence(text)),
-                body: json!({ "ask": asked, "answer": text, "owner_ask": ask }),
-                answers: holds,
-                ..Matter::default()
             };
             db.write(Actor::Owner, |tx| {
                 tx.execute(
                     "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
                     params![ask, answer.to_string()],
                 )?;
-                if comes_back {
-                    queue_matter(tx, &m)?;
-                    let_go(tx, ask)?;
+                if open {
+                    let project = match body["project"].as_str() {
+                        Some(p) => Some(p.to_string()),
+                        None => {
+                            tx.query_row("SELECT min(project) FROM items", [], |r| r.get::<_, Option<String>>(0))?
+                        }
+                    };
+                    if let Some(project) = project {
+                        let m = Matter {
+                            project,
+                            kind: "owner_words".into(),
+                            detail: Some("answer".into()),
+                            what: format!("The owner answered ask {ask}: {}", db::one_sentence(text)),
+                            body: json!({ "ask": asked, "answer": text, "owner_ask": ask }),
+                            ..Matter::default()
+                        };
+                        queue_matter(tx, &m)?;
+                    }
                 }
                 Ok(())
             })
@@ -139,16 +109,6 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
         }
     }
     Ok(format!("ask {ask} answered"))
-}
-
-/// Lets go the matters an ask of the owner held: they stay handled at the round that held them, and the matter the
-/// answer came back as carries them on.
-fn let_go(tx: &Transaction<'_>, ask: i64) -> db::Result<()> {
-    tx.execute(
-        "UPDATE architect_matters SET held = NULL, held_by = NULL WHERE held_by = ?1",
-        [ask],
-    )?;
-    Ok(())
 }
 
 /// Answers an ask of the owner that waits for an answer. An ask an earlier engine put for the architect, whose answer
@@ -307,11 +267,12 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
             tx.execute(
                 "DELETE FROM architect_matters
                  WHERE kind = 'design_card' AND json_extract(body, '$.design_card') = ?1 AND handled_round IS NULL
-                   AND held IS NULL AND id NOT IN (
-                     SELECT json_extract(p.output, '$.outcome.pick.chosen.queued') FROM rounds p
+                   AND asked IS NULL AND id NOT IN (
+                     SELECT coalesce(json_extract(p.output, '$.queue.matter'),
+                                     json_extract(p.output, '$.outcome.pick.matter')) FROM rounds p
                      JOIN works w ON w.id = p.work
-                     WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell = 'A6' AND p.transition = 'picked'
-                       AND json_extract(p.output, '$.outcome.pick.chosen.queued') IS NOT NULL)",
+                     WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell IN ('D0', 'D1')
+                       AND p.transition IS NOT NULL)",
                 [design_card],
             )?;
         }
@@ -366,21 +327,68 @@ pub fn can_start(conn: &Connection, work: i64) -> Result<String, String> {
     }
 }
 
-/// Pauses the architect's wake that runs, as the owner, as [`pause`] pauses a work; none when no wake runs or it is
-/// paused already.
-pub fn pause_wake(db: &mut Db) -> Result<String, String> {
+/// Pauses the wake of a project's architect that runs, as the owner, as [`pause`] pauses a work; none when no wake of
+/// it runs or it is paused already.
+pub fn pause_wake(db: &mut Db, project: &str) -> Result<String, String> {
     let wake: Option<i64> = db
         .conn()
         .query_row(
-            "SELECT max(id) FROM works WHERE graph = 'architect' AND ended IS NULL AND paused IS NULL",
-            [],
+            "SELECT max(id) FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL AND paused IS NULL",
+            [project],
             |r| r.get(0),
         )
         .map_err(sql)?;
     match wake {
         Some(w) => pause(db, w, None),
-        None => Ok("no wake of the architect goes on".into()),
+        None => Ok(format!("no wake of the architect of {project} goes on")),
     }
+}
+
+/// The project an ask of the owner's names, or the configuration's one project when it names none: each project has
+/// its architect, and the owner names which.
+pub fn project_named(config: &config::Config, given: Option<&str>) -> Result<String, String> {
+    let names: Vec<&String> = config.projects.keys().collect();
+    match given.map(str::trim).filter(|g| !g.is_empty()) {
+        Some(g) if config.projects.contains_key(g) => Ok(g.to_string()),
+        Some(g) => Err(format!(
+            "no project {g}; the projects: {}",
+            names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+        )),
+        None => match names.as_slice() {
+            [one] => Ok((*one).clone()),
+            _ => Err(format!(
+                "name the project, one of: {}",
+                names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+            )),
+        },
+    }
+}
+
+/// Closes an observation, as the owner, saying why: it is closed as the owner's, whatever its architect made of it.
+pub fn close_observation(db: &mut Db, id: i64, why: &str) -> Result<String, String> {
+    let why = why.trim();
+    if why.is_empty() {
+        return Err("closing an observation says why".into());
+    }
+    let open: Option<Option<String>> = db
+        .conn()
+        .query_row("SELECT closed FROM observations_all WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    match open {
+        None => return Err(format!("no observation {id}")),
+        Some(Some(_)) => return Err(format!("observation {id} is closed already")),
+        Some(None) => {}
+    }
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE observations SET closed = 'owner', closed_why = ?2 WHERE id = ?1",
+            params![id, why],
+        )?;
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(format!("observation {id} closed"))
 }
 
 /// Lifts a paused work's pause, as the owner: its cell runs again. The engine closes a round the pause left open, with
@@ -566,16 +574,19 @@ mod tests {
         );
         assert!(pause(&mut db, 1, None).is_err());
         assert!(pause(&mut db, 9, None).is_err());
-        assert_eq!(pause_wake(&mut db).unwrap(), "no wake of the architect goes on");
+        assert_eq!(
+            pause_wake(&mut db, "p").unwrap(),
+            "no wake of the architect of p goes on"
+        );
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, 1, 'architect', 'A1')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'U1', 'p')",
                 [],
             )?;
             Ok(())
         })
         .unwrap();
-        assert_eq!(pause_wake(&mut db).unwrap(), "work 2 pauses");
+        assert_eq!(pause_wake(&mut db, "p").unwrap(), "work 2 pauses");
         assert_eq!(paused(&db, 2).1.as_deref(), Some("owner"));
         // The owner's words, when given, say why.
         resume(&mut db, 1).unwrap();
@@ -592,7 +603,6 @@ mod tests {
             why: None,
             reply: None,
             choice: None,
-            approved: None,
         };
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
         let got: String = db
@@ -628,8 +638,8 @@ mod tests {
         let mut db = setup();
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO architect_matters (kind, what, body, item, work, round, at)
-                 VALUES ('design_card', 'Design card 1 to look at', '{\"design_card\":1}', 1, 1, 1, 1)",
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
+                 VALUES ('p', 'design_card', 'Design card 1 to look at', '{\"design_card\":1}', 1, 1, 1, 1)",
                 [],
             )?;
             Ok(())
@@ -740,17 +750,18 @@ mod tests {
         );
     }
 
-    /// An ask the architect put, on the work of a wake, with its body.
+    /// An ask the architect of project p put, on the work of a wake, with its body.
     fn architect_ask(db: &mut Db, body: Value) -> i64 {
         db.write(Actor::Engine, |tx| {
             let wake: i64 = tx.query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))?;
             if wake == 0 {
                 tx.execute(
-                    "INSERT INTO works (id, item, flow_version, graph, at) VALUES (9, NULL, 1, 'architect', 'A15')",
+                    "INSERT INTO works (id, item, flow_version, graph, at, project)
+                     VALUES (9, NULL, 1, 'architect', 'ASK', 'p')",
                     [],
                 )?;
                 tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'A15', '{}', 'c', 1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'ASK', '{}', 'c', 1)",
                     [],
                 )?;
             }
@@ -760,93 +771,70 @@ mod tests {
         .unwrap()
     }
 
-    /// An answer with the option chosen and the changes approved that `given` names, as the page sends them.
+    /// An answer with the option chosen that `given` names, as the page sends it.
     fn with_reply(text: &str, given: Value) -> Answer {
         Answer {
             text: text.into(),
             why: None,
             reply: None,
             choice: given["choice"].as_str().map(str::to_string),
-            approved: given["approved"]
-                .as_array()
-                .map(|xs| xs.iter().filter_map(Value::as_i64).collect()),
         }
-    }
-
-    fn matters(db: &Db) -> Vec<Value> {
-        let mut st = db
-            .conn()
-            .prepare("SELECT json_object('kind', kind, 'body', json(body), 'answers', answers, 'held', held) FROM architect_matters ORDER BY id")
-            .unwrap();
-        st.query_map([], |r| r.get::<_, String>(0))
-            .unwrap()
-            .map(|x| serde_json::from_str(&x.unwrap()).unwrap())
-            .collect()
     }
 
     // The owner's view of the architect's study chooses one of the options the ask offers, and the answer keeps it.
     #[test]
     fn the_owner_chooses_an_option_of_the_architect_s_study() {
         let mut db = setup();
-        let choices = json!([["satisfied", "Write it"], ["study_on", "More"], ["no_change", "None"]]);
+        let choices = json!([
+            ["satisfied", "Write it"],
+            ["study_on", "More"],
+            ["policy_stays", "None"]
+        ]);
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "work": 9, "cell": "P2", "kind": "study", "study": {}, "choices": choices }),
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "P2", "kind": "study", "study": {},
+                    "choices": choices }),
         );
         assert!(answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "maybe" }))).is_err());
-        answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "study_on" }))).unwrap();
+        answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "policy_stays" }))).unwrap();
         let got: String = db
             .conn()
             .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
             .unwrap();
         let got: Value = serde_json::from_str(&got).unwrap();
-        assert_eq!((&got["choice"], &got["text"]), (&json!("study_on"), &json!("Fine.")));
-        assert!(matters(&db).is_empty());
+        assert_eq!(
+            (&got["choice"], &got["text"]),
+            (&json!("policy_stays"), &json!("Fine."))
+        );
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM architect_matters", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
-    // The owner approves some of the changes the architect collected, saying why not the rest: the approval comes back
-    // to the architect's queue as a matter of its own, and the matters held for them are let go.
+    // An ask an earlier architect put of the changes it collected for approval is not answered: the architect's item
+    // changes are reviewed now.
     #[test]
-    fn the_owner_approves_some_of_the_architect_s_changes() {
+    fn an_ask_of_changes_for_approval_is_closed() {
         let mut db = setup();
-        let changes = json!([
-            { "n": 1, "matter": { "queued": 1 }, "change": { "kind": "hold", "item": 1, "reason": "r" } },
-            { "n": 2, "matter": { "queued": 1 }, "change": { "kind": "release", "item": 1, "reason": "r" } }
-        ]);
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "work": 9, "cell": "A15", "kind": "changes", "changes": changes }),
+            json!({ "from": "architect", "work": 9, "cell": "A15", "kind": "changes", "changes": [] }),
         );
-        db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO architect_matters (kind, what, body, at, held, held_by, handled_work, handled_round)
-                 VALUES ('owner_words', 'w', '{}', 1, 'approval', ?1, 9, 1)",
-                [ask],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        let some =
-            |approved: Value, text: &str| with_reply(text, json!({ "choice": "approve_some", "approved": approved }));
-        assert!(answer(&mut db, ask, &some(json!([1]), " ")).is_err());
-        assert!(answer(&mut db, ask, &some(json!([3]), "No.")).is_err());
-        answer(&mut db, ask, &some(json!([1]), "Not the release yet.")).unwrap();
-        let m = matters(&db);
-        assert_eq!(m[0]["held"], Value::Null);
-        assert_eq!(m[1]["kind"], "owner_approved");
-        assert_eq!(m[1]["body"]["approved"], json!([1]));
-        assert_eq!(m[1]["body"]["why"], "Not the release yet.");
-        assert_eq!(m[1]["body"]["changes"], changes);
+        let e = answer(&mut db, ask, &with_reply("Yes.", json!({ "choice": "approve_all" }))).unwrap_err();
+        assert!(e.contains("no longer asks"), "{e}");
     }
 
-    // The owner's answer to an ask the architect put without waiting comes back to its queue as the owner's words,
-    // saying which held matter it answers.
+    // The owner's answer to an ask that held a matter brings the matter back to its architect's queue, with the cell
+    // that asked to go back to; an ask that held neither a matter nor a wake comes back as the owner's words.
     #[test]
-    fn an_answer_to_an_ask_that_held_a_matter_comes_back_to_the_architect() {
+    fn an_answer_brings_back_the_matter_the_ask_held() {
         let mut db = setup();
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO architect_matters (kind, what, body, at) VALUES ('split', 'w', '{}', 1)",
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at)
+                 VALUES ('p', 'engineer_question', 'split', 'w', '{}', 1)",
                 [],
             )?;
             Ok(())
@@ -854,27 +842,69 @@ mod tests {
         .unwrap();
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "work": 9, "cell": "A14", "kind": "ask", "asked": [], "holds": 1 }),
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "ASK", "kind": "ask", "asked": [],
+                    "holds": [1] }),
         );
         db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE architect_matters SET asked = ?1, resume_cell = 'Q2'", [ask])?;
+            Ok(())
+        })
+        .unwrap();
+        let queued = |db: &Db| -> Vec<(i64, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT matter, answered FROM architect_queue")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert_eq!(queued(&db), Vec::<(i64, i64)>::new());
+        answer(&mut db, ask, &with_reply("Split it in two.", json!({}))).unwrap();
+        assert_eq!(queued(&db), [(1, 1)]);
+        let open = architect_ask(
+            &mut db,
+            json!({ "from": "architect", "work": 9, "cell": "A4", "kind": "open", "choice": { "question": "q" } }),
+        );
+        answer(&mut db, open, &with_reply("Do it.", json!({}))).unwrap();
+        let said: (String, String, String) = db
+            .conn()
+            .query_row(
+                "SELECT project, kind, body ->> 'answer' FROM architect_matters WHERE id = 2",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(said, ("p".into(), "owner_words".into(), "Do it.".into()));
+    }
+
+    // The owner closes an open observation once, saying why.
+    #[test]
+    fn the_owner_closes_an_observation() {
+        let mut db = setup();
+        db.write(Actor::Architect, |tx| {
             tx.execute(
-                "UPDATE architect_matters SET held = 'owner_ask', held_by = ?1, handled_work = 9, handled_round = 1",
-                [ask],
+                "INSERT INTO observations (project, what, source) VALUES ('p', 'A slow parse.', 'A report.')",
+                [],
             )?;
             Ok(())
         })
         .unwrap();
-        let plain = Answer {
-            text: "Split it in two.".into(),
-            why: None,
-            reply: None,
-            choice: None,
-            approved: None,
-        };
-        answer(&mut db, ask, &plain).unwrap();
-        let m = matters(&db);
-        assert_eq!(m[0]["held"], Value::Null);
-        assert_eq!((&m[1]["kind"], &m[1]["answers"]), (&json!("owner_words"), &json!(1)));
-        assert_eq!(m[1]["body"]["answer"], "Split it in two.");
+        assert!(close_observation(&mut db, 1, " ").is_err());
+        assert_eq!(
+            close_observation(&mut db, 1, "Not worth it.").unwrap(),
+            "observation 1 closed"
+        );
+        assert!(close_observation(&mut db, 1, "Again.").is_err());
+        let closed: (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT closed, closed_why FROM observations_all WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(closed, ("owner".into(), "Not worth it.".into()));
     }
 }

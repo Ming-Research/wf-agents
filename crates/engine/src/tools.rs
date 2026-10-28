@@ -1,7 +1,6 @@
-//! The tool cells: the tools agents ask for (cell 13, and the architect's A13), the full CI on the draft (7), the merge
+//! The tool cells: the tools agents ask for (cell 13, and the architect's TOOLS), the full CI on the draft (7), the merge
 //! queue (9) and watching main (10). Each attempt of a tool is a row of tool_runs under the cell's round. A tool that
-//! fails is tried twice more; a refusal is a result, not a failure, and is not tried again. The architect's own tools,
-//! engine_op and db_write, act on the engine and the database at once and are not tried again.
+//! fails is tried twice more; a refusal is a result, not a failure, and is not tried again.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -416,28 +415,12 @@ pub fn describe(req: &Value) -> String {
             format!("query: {cut}{}", if cut.len() < sql.len() { "…" } else { "" })
         }
         "measure" => "measure: does not run in this version of the engine".to_string(),
-        "engine_op" => {
-            let item = req["item"]
-                .as_i64()
-                .map(|i| format!(" on item {i}"))
-                .unwrap_or_default();
-            let card = req["design_card"]
-                .as_i64()
-                .map(|c| format!(" on design card {c}"))
-                .unwrap_or_default();
-            format!("engine_op: {}{item}{card}", text("op"))
-        }
-        "db_write" => format!(
-            "db_write: writes {} changes, if each is one the owner approved",
-            req["changes"].as_array().map_or(0, Vec::len)
-        ),
         other => other.to_string(),
     }
 }
 
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
-/// and merges in what ran before. A wake of the architect is on no item and in no project: it runs what reads and the
-/// architect's own tools.
+/// and merges in what ran before. A wake of an architect is on no item: it runs what reads.
 pub fn run_tools(
     e: &mut Engine,
     w: &Work,
@@ -486,8 +469,6 @@ pub fn run_tools(
             } })),
             ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
             ("query", _) => query(e, round, n, req),
-            ("engine_op", _) => once(e, round, &tool, req, |e| crate::architect::engine_op(e, w, req)),
-            ("db_write", _) => once(e, round, &tool, req, |e| crate::arch_changes::db_write(e, w, req)),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         match got {
@@ -661,34 +642,6 @@ fn ci_before(
     })
 }
 
-/// Runs one of the architect's own tools once, recorded as a row of tool_runs under the round: it acts on the engine
-/// and the database at once, and a refusal is its result.
-fn once(
-    e: &mut Engine,
-    round: RoundId,
-    tool: &str,
-    args: &Value,
-    f: impl FnOnce(&mut Engine) -> Value,
-) -> Result<Value, (Failure, String)> {
-    let now = db::now();
-    e.db.conn()
-        .execute(
-            "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at)
-             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-            params![round.work, round.n, tool, args.to_string(), now],
-        )
-        .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
-    let id = e.db.conn().last_insert_rowid();
-    let result = f(e);
-    e.db.conn()
-        .execute(
-            "UPDATE tool_runs SET result = ?2, ended_at = ?3 WHERE id = ?1",
-            params![id, result.to_string(), db::now()],
-        )
-        .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
-    Ok(result)
-}
-
 fn gh(
     e: &Engine,
     w: &Work,
@@ -712,11 +665,11 @@ fn gh(
     if let Some(why) = gh_refusal(&e.config.config.install.gh.allow, &args) {
         return Ok(json!({ "ran": { "verdict": "not_allowed", "why": why } }));
     }
-    // A work runs gh in its worktree; the architect in its own directory.
+    // A work runs gh in its worktree; an architect in its own directory.
     let dir = match (&w.worktree, project) {
         (Some(wt), _) => wt.clone(),
         (None, Some(p)) => p.checkout.clone(),
-        (None, None) => crate::architect::workdir(&e.data),
+        (None, None) => crate::architect::workdir(&e.data, w.project.as_deref().unwrap_or_default()),
     };
     let (code, out) = attempts(e, round, "gh", req, || {
         let (code, out) = e.github.gh(&dir, &args)?;

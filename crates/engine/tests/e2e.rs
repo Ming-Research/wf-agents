@@ -461,14 +461,26 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     s
 }
 
-/// Keeps the architect from waking for an advance while a test looks at something else: an advance waits in its
-/// queue, due only long after the test, so the engine raises no other.
+/// Keeps project p's architect from waking for slots free while a test looks at something else: a matter of slots
+/// free was handled just now, by a wake over before the test, so the engine raises no other for an hour.
 fn quiet(e: &mut Engine) {
-    let later = db::now() + 10 * 365 * 24 * 3_600_000;
+    let v = e.flow_now;
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "INSERT INTO architect_matters (kind, what, body, at, due) VALUES ('advance', 'not yet', '{}', ?1, ?2)",
-            params![db::now(), later],
+            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+            [v],
+        )?;
+        let wake = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, 1, 'N1', '{}', '{}', 'done', 'c', ?2, ?2)",
+            params![wake, db::now()],
+        )?;
+        tx.execute(
+            "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
+             VALUES ('p', 'slots_free', 'not yet', '{}', ?1, ?2, 1)",
+            params![db::now(), wake],
         )?;
         Ok(())
     })
@@ -1385,7 +1397,6 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         why: None,
         reply: None,
         choice: None,
-        approved: None,
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let first = e.step(None).unwrap();
@@ -2586,48 +2597,47 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect's wakes.
+// The architects' wakes.
 
-/// The architect's sixth question, scripted: it picks the first matter of its queue, or finds nothing to do when the
-/// queue is empty.
+/// The project an architect's round is for, by the directory it works in, `worktrees/architect/<project>`.
+fn project_of(r: &Request) -> String {
+    r.worktree
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The architect's cells a wake would not get through with their first answers, scripted: the pick takes the first
+/// matter of its project's queue.
 fn picks_first(s: &Setup, scripts: &mut BTreeMap<&'static str, Script>) {
     let path = config::database(&s.data);
     scripts.insert(
-        "A6",
-        Box::new(move |_: &Request, _: usize| {
+        "D1",
+        Box::new(move |r: &Request, _: usize| {
             let c = db::open_read(&path).unwrap();
-            let first: Option<(i64, String)> = c
+            let first: i64 = c
                 .query_row(
-                    "SELECT matter, kind FROM architect_queue ORDER BY matter LIMIT 1",
-                    [],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    "SELECT matter FROM architect_queue WHERE project = ?1 ORDER BY matter LIMIT 1",
+                    [project_of(r)],
+                    |x| x.get(0),
                 )
-                .ok();
-            match first {
-                Some((m, kind)) => {
-                    let kind: &'static str = Box::leak(kind.into_boxed_str());
-                    (
-                        vec![("outcome.pick", "picked"), ("outcome.pick.chosen.about", kind)],
-                        vec![("outcome.pick.chosen.queued", json!(m))],
-                    )
-                }
-                None => (vec![("outcome.pick", "nothing_to_do")], Vec::new()),
-            }
+                .unwrap();
+            (Vec::new(), vec![("outcome.pick.matter", json!(first))])
         }),
     );
 }
 
-/// The architect's wakes, oldest first.
+/// The wakes of every architect, oldest first.
 fn wakes(e: &Engine) -> Vec<i64> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT id FROM works WHERE graph = 'architect' ORDER BY id")
+            .prepare("SELECT id FROM works WHERE graph = 'architect' AND ended IS NULL ORDER BY id")
             .unwrap();
     st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
 }
 
-/// The architect's matters but the advance that keeps it quiet, in the order they came: each one's kind, whether it is
-/// in the queue now, and whether it is handled.
+/// The architects' matters but the one that keeps them quiet, in the order they came: each one's kind, whether it is
+/// in a queue now, and whether it is handled.
 fn matters(e: &Engine) -> Vec<(String, bool, bool)> {
     let mut st =
         e.db.conn()
@@ -2661,8 +2671,40 @@ fn wake_done(e: &mut Engine, wake: i64) -> bool {
     e.done(&w).unwrap()
 }
 
-/// Puts an item no work runs on, in no queue; new works are held, as the architect holds them, so that none starts on
-/// it while the test looks at the architect.
+/// The cells a work's rounds were at, in order, each with the row it took.
+fn cells_of(e: &Engine, work: i64) -> Vec<(String, Option<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT cell, transition FROM rounds WHERE work = ?1 ORDER BY n")
+            .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The cells a work's rounds were at, in order.
+fn path_of(e: &Engine, work: i64) -> Vec<String> {
+    cells_of(e, work).into_iter().map(|c| c.0).collect()
+}
+
+/// The message a work's round at a cell was sent, the first or the last.
+fn message_at(e: &Engine, work: i64, cell: &str, last: bool) -> String {
+    let order = if last { "DESC" } else { "" };
+    let input: String =
+        e.db.conn()
+            .query_row(
+                &format!("SELECT input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n {order} LIMIT 1"),
+                params![work, cell],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+    input["message"].as_str().unwrap_or_default().to_string()
+}
+
+/// Puts an item of project p no work runs on, in no queue; new works of p are held, as its architect holds them, so
+/// that none starts on it while the test looks at the architect.
 fn an_item(e: &mut Engine) -> i64 {
     let id =
         e.db.write(Actor::Owner, |tx| {
@@ -2675,17 +2717,172 @@ fn an_item(e: &mut Engine) -> i64 {
         })
         .unwrap();
     e.db.write(Actor::Architect, |tx| {
-        tx.execute("INSERT INTO dispatch_holds (reason, since) VALUES ('architect', 1)", [])?;
+        tx.execute(
+            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'architect', 1)",
+            [],
+        )?;
         Ok(())
     })
     .unwrap();
     id
 }
 
-// An engineer's question to the architect is a matter of its queue, which wakes it; the work waits at its question,
-// holding no slot, until the architect replies with engine_op, and the reply takes the work on from there unchanged.
+/// The owner says something to project p's architect.
+fn say(e: &mut Engine, text: &str) {
+    db::say_to_architect(&mut e.db, "p", None, text).unwrap();
+}
+
+// The owner's words wake project p's architect, whose wake goes once through the whole graph: it wakes, finds its new
+// session has not understood the project, understands it, judges the policy and what runs, takes the lone matter on
+// its path, whose item change is collected; the batch is done, its review finds the change sound, and the engine makes
+// it as the architect; the rethink goes on, nothing is left, and the wake wraps up and ends.
 #[test]
-fn an_engineer_s_question_wakes_the_architect_whose_reply_takes_the_work_on() {
+fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
+    let s = setup("wake");
+    let mut agents = scripts();
+    let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "Parse the input first",
+                         "reason": "Clearer." });
+    let given = change.clone();
+    agents.insert(
+        "O1",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": [given.clone()] }))],
+            )
+        }),
+    );
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.review",
+                    json!([{ "change": 1, "verdict": "ok", "why": "It reads better." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Make the parser's item clearer.");
+    let woke = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(woke.cell.as_deref(), Some("W0"), "{log}");
+    let wake = woke.work.unwrap();
+    let project: Option<String> =
+        e.db.conn()
+            .query_row("SELECT project FROM works WHERE id = ?1", [wake], |r| r.get(0))
+            .unwrap();
+    assert_eq!(project.as_deref(), Some("p"));
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        path_of(&e, wake),
+        [
+            "W0", "W1", "U1", "U2", "U3", "D0", "RT", "O1", "B1", "R1", "C1", "D0", "E1", "E2"
+        ],
+        "{log}"
+    );
+    let rows: Vec<Option<String>> = cells_of(&e, wake).into_iter().map(|c| c.1).collect();
+    assert_eq!(rows[1].as_deref(), Some("not_understood"));
+    assert_eq!(rows[8].as_deref(), Some("review"));
+    assert_eq!(rows[9].as_deref(), Some("ok"));
+    // The change is made, as the architect's, and logged as made with the matter it came from.
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Parse the input first", "{log}");
+    let actor: String =
+        e.db.conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'items' AND json_extract(new_row, '$.title') = ?1",
+                [&title],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(actor, "architect");
+    let (state, logged): (String, String) =
+        e.db.conn()
+            .query_row("SELECT state, change FROM architect_item_changes", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(state, "made");
+    assert_eq!(serde_json::from_str::<Value>(&logged).unwrap(), change);
+    assert_eq!(matters(&e), [("owner_words".to_string(), false, true)], "{log}");
+    // The review ran on its own line, whose session the batch ended.
+    let review: (String, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT line, ended FROM sessions WHERE work = ?1 AND line = 'architect_review'",
+                [wake],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(review.1.is_some(), "{review:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A wake goes on in the session the project's last wake left: one that understood the project in it goes from waking
+// straight to the queue, and does not understand it again.
+#[test]
+fn a_resumed_session_goes_from_waking_to_the_queue() {
+    let s = setup("resumed");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the queue.");
+    let first = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| wake_done(e, first)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    say(&mut e, "Look again.");
+    let second = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| wake_done(e, second)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        path_of(&e, second),
+        ["W0", "W1", "D0", "RT", "O1", "B1", "C1", "D0", "E1", "E2"],
+        "{log}"
+    );
+    let sessions: Vec<(String, String)> = {
+        let mut st = e
+            .db
+            .conn()
+            .prepare(
+                "SELECT started, cli_session FROM sessions WHERE line = 'architect' AND work IN (?1, ?2) ORDER BY id",
+            )
+            .unwrap();
+        st.query_map([first, second], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    assert_eq!(sessions[1].0, "wake");
+    assert_eq!(sessions[0].1, sessions[1].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An engineer's question to its project's architect is a matter of its queue, which wakes it; the work waits at its
+// question, holding no slot. The architect finds the crux, weighs the ways and replies, and the reply takes the work on
+// from there unchanged.
+#[test]
+fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let s = setup("question");
     let mut agents = scripts();
     agents.insert(
@@ -2707,18 +2904,11 @@ fn an_engineer_s_question_wakes_the_architect_whose_reply_takes_the_work_on() {
             (Vec::new(), Vec::new())
         }),
     );
-    picks_first(&s, &mut agents);
     let reply = json!({ "text": "Keep it one work.", "why": "Both changes share their tests." });
     let given = reply.clone();
     agents.insert(
-        "A8",
-        Box::new(move |_: &Request, n: usize| {
-            if n == 1 {
-                let tools = json!([{ "tool": "engine_op", "op": "reply", "item": 1, "reply": given.clone() }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            (Vec::new(), Vec::new())
-        }),
+        "Q2",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", given.clone())])),
     );
     let (mut e, said, item) = start(&s, agents);
     let question = |e: &Engine| -> Option<(Option<String>, Option<i64>)> {
@@ -2733,33 +2923,34 @@ fn an_engineer_s_question_wakes_the_architect_whose_reply_takes_the_work_on() {
     };
     assert!(steps_until(&mut e, 10, |e| question(e).is_some()));
     let log = said.borrow().join("\n");
-    assert_eq!(matters(&e), [("split".to_string(), true, false)], "{log}");
-    let (what, of): (String, i64) =
+    assert_eq!(matters(&e), [("engineer_question".to_string(), true, false)], "{log}");
+    let (detail, project): (String, String) =
         e.db.conn()
             .query_row(
-                "SELECT what, item FROM architect_matters WHERE kind = 'split'",
+                "SELECT detail, project FROM architect_matters WHERE kind = 'engineer_question'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-    assert_eq!(of, item);
-    assert!(what.contains("(split): The work holds two separate changes."), "{what}");
-    // The work waits at its question holding no slot, and the architect wakes.
+    assert_eq!((detail.as_str(), project.as_str()), ("split", "p"));
     assert_eq!(e.free_slots().unwrap(), 1, "{log}");
     let woke = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
     let wake = woke.work.unwrap();
-    assert_eq!(wakes(&e), [wake]);
-    let replied = steps_until(&mut e, 80, |e| {
+    let replied = steps_until(&mut e, 60, |e| {
         question(e).is_some_and(|q| q.1.is_some()) && wake_done(e, wake)
     });
     let log = said.borrow().join("\n");
     assert!(replied, "{log}");
+    let path = path_of(&e, wake);
+    let at = path.iter().position(|c| c == "Q1").expect(&log);
+    assert_eq!(&path[at - 1..at + 3], ["RT", "Q1", "Q2", "B1"], "{log}");
+    // The ways were given the crux by its address in the session, not again.
+    let ways = message_at(&e, wake, "Q2", false);
+    assert!(ways.contains("·Q1·crux"), "{ways}");
+    assert!(ways.contains("What is asked is whether to split the work"), "{ways}");
     let (output, _) = question(&e).unwrap();
     let output: Value = serde_json::from_str(&output.unwrap()).unwrap();
     assert_eq!(output, json!({ "reply": reply }));
-    // The reply took the work from its question to choosing the way on.
     let (work, _, _) = state(&e, item).unwrap();
     let (took, next): (String, String) =
         e.db.conn()
@@ -2771,143 +2962,478 @@ fn an_engineer_s_question_wakes_the_architect_whose_reply_takes_the_work_on() {
             )
             .unwrap();
     assert_eq!((took.as_str(), next.as_str()), ("answered", "11"), "{log}");
-    assert_eq!(matters(&e), [("split".to_string(), false, true)], "{log}");
-    assert_eq!(wakes(&e), [wake], "{log}");
+    assert_eq!(matters(&e), [("engineer_question".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Each side report is a matter of the architect's queue, queued once and due at once: one that comes while no wake runs
-// wakes the architect, urgent or not; one marked urgent that comes while a wake runs is given to that wake at the top
-// of its next round, and waits in the queue as well, for the wake to handle.
+// The review of a batch finds an item change to fix: the revision hands in the whole set again, the review looks at it
+// again, and the revised change is made; what was handed in first is kept as revised, not made.
 #[test]
-fn side_reports_are_due_at_once_and_an_urgent_one_reaches_the_wake_that_runs() {
+fn an_item_change_the_review_rejects_is_revised_and_then_made() {
+    let s = setup("revise");
+    let mut agents = scripts();
+    agents.insert(
+        "O1",
+        Box::new(|_: &Request, _: usize| {
+            let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "parser", "reason": "r" });
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": [change] }))],
+            )
+        }),
+    );
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let row = if n == 1 {
+                json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
+                        "what": "The title is no action.", "how": "Write it as one." })
+            } else {
+                json!({ "change": 1, "verdict": "ok", "why": "Now it is an action." })
+            };
+            (Vec::new(), vec![("outcome.review", json!([row]))])
+        }),
+    );
+    let path = config::database(&s.data);
+    agents.insert(
+        "X1",
+        Box::new(move |_: &Request, _: usize| {
+            let c = db::open_read(&path).unwrap();
+            let matter: i64 = c
+                .query_row(
+                    "SELECT matter FROM architect_item_changes WHERE state = 'collected'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let change = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "Write the parser",
+                                 "reason": "An action, as the review asked." });
+            (
+                Vec::new(),
+                vec![("outcome.changes", json!([{ "matter": matter, "change": change }]))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Name the parser's item.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, wake);
+    let at = path.iter().position(|c| c == "R1").expect(&log);
+    assert_eq!(&path[at..at + 4], ["R1", "X1", "R1", "C1"], "{log}");
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Write the parser", "{log}");
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["revised", "made"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An ask of the owner from a cell on a matter's path holds only that matter: the wake goes on with the next and ends;
+// the owner's answer puts the matter back in the queue, which wakes the architect, and it goes back to the cell that
+// asked, which is given the answer.
+#[test]
+fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked() {
+    let s = setup("ask-holds");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "O1",
+        Box::new(|r: &Request, _: usize| {
+            if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
+                return (
+                    vec![
+                        ("outcome", "ask"),
+                        ("outcome.ask", "owner"),
+                        ("outcome.ask.points[].kind", "other"),
+                    ],
+                    vec![(
+                        "outcome.ask.points[].what",
+                        json!("Should the release wait for the parser?"),
+                    )],
+                );
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Hold the release?");
+    say(&mut e, "Look at the queue.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, wake);
+    let asked = path.iter().position(|c| c == "ASK").expect(&log);
+    assert_eq!(
+        &path[asked - 1..asked + 6],
+        ["O1", "ASK", "B1", "D0", "RT", "O1", "B1"],
+        "{log}"
+    );
+    assert_eq!(cells_of(&e, wake)[asked].1.as_deref(), Some("held"));
+    // The held matter is out of the queue, not handled, waiting for the ask; the other is handled.
+    let held: (i64, Option<i64>, Option<String>, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT id, asked, resume_cell, handled_round FROM architect_matters WHERE what LIKE '%release%'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+    let ask = held.1.expect(&log);
+    assert_eq!((held.2.as_deref(), held.3), (Some("O1"), None), "{log}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, false),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    // The owner answers: the matter is back, a wake starts, and the matter goes back to the cell that asked.
+    let yes = api::Answer {
+        text: "Yes, hold it.".into(),
+        why: None,
+        reply: None,
+        choice: None,
+    };
+    api::answer(&mut e.db, ask, &yes).unwrap();
+    let again = e.step(None).unwrap().work.unwrap();
+    assert_ne!(again, wake);
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, again)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, again);
+    let at = path.iter().position(|c| c == "RT").expect(&log);
+    assert_eq!(&path[at..at + 3], ["RT", "O1", "B1"], "{log}");
+    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_O1"));
+    let answered = message_at(&e, again, "O1", false);
+    assert!(answered.contains("Yes, hold it."), "{answered}");
+    let handled: Option<i64> =
+        e.db.conn()
+            .query_row(
+                "SELECT handled_work FROM architect_matters WHERE id = ?1",
+                [held.0],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(handled, Some(again), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A cell on a matter's path has the project's open observations searched, by the observer at its own level and line,
+// and goes on with the candidates: here a report taken in is merged into the observation found, reported once more.
+#[test]
+fn the_search_of_observations_hands_back_candidates() {
+    let s = setup("search");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let levels = "[agents.levels.cheap]\ndesc = \"searching\"\ncli = \"claude\"\nmodel = \"m-cheap\"\n\
+                  [agents]\nobserver = \"cheap\"\n";
+    write(&s.data, "install.toml", &format!("{install}\n{levels}"));
+    git(&s.data, &["commit", "-q", "-am", "the observer's level"]);
+    let mut agents = scripts();
+    agents.insert(
+        "I2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let search = json!({ "look_for": "A slow parse of large files.", "tags": [], "purpose": "same" });
+                return (vec![("outcome", "search")], vec![("outcome.search", search)]);
+            }
+            let merge = json!({ "kind": "merge", "into": 1, "seen": "Seen again in the parser.", "refs": [],
+                                "reason": "The same slowness." });
+            (
+                vec![("outcome.take.way", "merged")],
+                vec![("outcome.effects", json!({ "observation_changes": [merge] }))],
+            )
+        }),
+    );
+    agents.insert(
+        "S1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.candidates",
+                    json!([{ "id": 1, "why": "It records the same slowness." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing large files is slow.', 'A report.')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    // A side report of a work of the project, as the engine queues one.
+    e.db.write(Actor::Engine, |tx| {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "report".into(),
+            detail: Some("other".into()),
+            what: "A side report: the parser is slow on large files.".into(),
+            body: json!({ "report": { "kind": "other", "what": "The parser is slow on large files.", "urgent": false } }),
+            item: Some(1),
+            raised: None,
+        };
+        db::queue_matter(tx, &m)
+    })
+    .unwrap();
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, wake);
+    let at = path.iter().position(|c| c == "S1").expect(&log);
+    assert_eq!(&path[at - 2..at + 3], ["I1", "I2", "S1", "I2", "B1"], "{log}");
+    let (line, model): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT s.line, r.model FROM rounds r JOIN sessions s ON s.id = r.session
+                 WHERE r.work = ?1 AND r.cell = 'S1'",
+                [wake],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((line.as_str(), model.as_str()), ("observer", "m-cheap"));
+    let back = message_at(&e, wake, "I2", true);
+    assert!(back.contains("It records the same slowness."), "{back}");
+    let times: (i64, String) =
+        e.db.conn()
+            .query_row("SELECT times_reported, refs FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(times.0, 2, "{log}");
+    assert!(times.1.contains("Seen again in the parser."), "{}", times.1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// When the architect judges the policy may no longer govern, it is set again before anything else: new works of the
+// project are held while a study is made for the owner; the owner says the policy stays, the hold is let go, and the
+// wake goes on to judge what runs.
+#[test]
+fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
+    let s = setup("policy-stays");
+    let mut agents = scripts();
+    agents.insert(
+        "U2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return (vec![("outcome.verdict", "set_again")], Vec::new());
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    say(&mut e, "Is the policy still right?");
+    let wake = e.step(None).unwrap().work.unwrap();
+    let asked = |e: &mut Engine| -> Option<i64> {
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM owner_asks WHERE work = ?1 AND json_extract(body, '$.kind') = 'study'",
+                [wake],
+                |r| r.get(0),
+            )
+            .ok()
+    };
+    assert!(
+        steps_until(&mut e, 20, |e| asked(e).is_some()),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(path_of(&e, wake), ["W0", "W1", "U1", "U2", "P1", "P2"], "{log}");
+    let holds = |e: &Engine| -> Vec<(String, String)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT project, reason FROM dispatch_holds ORDER BY reason")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(holds(&e), [("p".to_string(), "policy".to_string())]);
+    let stays = api::Answer {
+        text: "Keep it.".into(),
+        why: None,
+        reply: None,
+        choice: Some("policy_stays".into()),
+    };
+    let ask = asked(&mut e).unwrap();
+    api::answer(&mut e.db, ask, &stays).unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| wake_done(e, wake)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let rows = cells_of(&e, wake);
+    let at = rows.iter().position(|c| c.0 == "P2" && c.1.is_some()).expect(&log);
+    assert_eq!(rows[at].1.as_deref(), Some("policy_stays"), "{log}");
+    assert_eq!(rows[at + 1].0, "U3", "{log}");
+    assert_eq!(holds(&e), Vec::<(String, String)>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Each project has its architect: a message from project p's architect is a matter of project q's architect's queue,
+// which wakes q's architect in a wake of its own; q's answer comes back to p's queue as a message.
+#[test]
+fn two_projects_architects_send_each_other_messages() {
+    let s = setup("two-architects");
+    let q = s.root.join("q-checkout");
+    git(
+        &s.root,
+        &["clone", "-q", &s.origin.to_string_lossy(), &q.to_string_lossy()],
+    );
+    let p_file = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let checkout = s.root.join("checkout");
+    write(
+        &s.data,
+        "projects/q.toml",
+        &p_file
+            .replace("o/p", "o/q")
+            .replace(&checkout.display().to_string(), &q.display().to_string()),
+    );
+    git(&s.data, &["add", "-A"]);
+    git(&s.data, &["commit", "-q", "-m", "a second project"]);
+    let mut agents = scripts();
+    agents.insert(
+        "O1",
+        Box::new(|_: &Request, _: usize| {
+            let message = json!({ "project": "q", "text": "Does q still need the old format?" });
+            (Vec::new(), vec![("outcome.effects", json!({ "messages": [message] }))])
+        }),
+    );
+    agents.insert(
+        "M1",
+        Box::new(|r: &Request, _: usize| {
+            if project_of(r) == "q" {
+                return (Vec::new(), vec![("outcome.answer.reply", json!("No, drop it."))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('q', 'architect', 1)",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Ask q about the old format.");
+    let projects = |e: &Engine| -> Vec<(i64, String)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT id, project FROM works WHERE graph = 'architect' AND ended IS NULL ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let done_all = |e: &mut Engine| {
+        let ws = projects(e);
+        ws.len() >= 3 && ws.iter().all(|(w, _)| wake_done(e, *w))
+    };
+    assert!(steps_until(&mut e, 120, done_all), "{}", said.borrow().join("\n"));
+    let log = said.borrow().join("\n");
+    let ws = projects(&e);
+    let names: Vec<&str> = ws.iter().map(|w| w.1.as_str()).collect();
+    assert_eq!(names, ["p", "q", "p"], "{log}");
+    assert!(path_of(&e, ws[1].0).contains(&"M1".to_string()), "{log}");
+    let messages: Vec<(String, String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT project, detail, body ->> 'from' FROM architect_matters WHERE kind = 'other_architect'
+                     ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(
+        messages,
+        [
+            ("q".to_string(), "message".to_string(), "p".to_string()),
+            ("p".to_string(), "reply".to_string(), "q".to_string())
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Each side report is a matter of the kind report in its project's architect's queue, queued once, which wakes the
+// architect; the queue marks one urgent.
+#[test]
+fn side_reports_come_to_the_architect_as_reports() {
     let s = setup("side-reports");
     let mut agents = scripts();
-    // A cell's first round hands in the report, and its later rounds none.
     let reporting = |r: Value| -> Script {
         Box::new(move |_: &Request, n: usize| {
             let reports = if n == 1 { json!([r.clone()]) } else { json!([]) };
             (Vec::new(), vec![("side_reports", reports)])
         })
     };
-    let later = "It needs the timing machine later.";
     agents.insert(
         "1",
-        reporting(json!({ "kind": "machine_or_permission_later", "what": later, "urgent": false })),
-    );
-    agents.insert(
-        "2",
         reporting(json!({ "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true })),
     );
-    picks_first(&s, &mut agents);
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
     e.step(work).unwrap();
     let log = said.borrow().join("\n");
-    // The report not urgent is due at once, and wakes the architect, as no wake runs.
-    assert_eq!(matters(&e), [("other_question".to_string(), true, false)], "{log}");
-    let due: Option<i64> =
+    assert_eq!(matters(&e), [("report".to_string(), true, false)], "{log}");
+    let (detail, urgent): (String, i64) =
         e.db.conn()
-            .query_row(
-                "SELECT due FROM architect_matters WHERE kind = 'other_question'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT detail, urgent FROM architect_queue", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
-    assert_eq!(due, None);
+    assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
     let woke = e.step(work).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
-    let wake = woke.work.unwrap();
-    // While the wake runs, an urgent report comes: it is queued, and the wake's next round of its line is given it.
-    let came = |e: &mut Engine| -> Option<i64> {
-        e.db.conn()
-            .query_row("SELECT at FROM architect_matters WHERE kind = 'duplicate'", [], |r| {
-                r.get(0)
-            })
-            .ok()
-    };
-    assert!(
-        steps_until(&mut e, 40, |e| came(e).is_some()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let at = came(&mut e).unwrap();
-    assert!(!wake_done(&mut e, wake), "{}", said.borrow().join("\n"));
-    let given = |e: &mut Engine| -> Option<String> {
-        let input: String =
-            e.db.conn()
-                .query_row(
-                    "SELECT r.input FROM rounds r JOIN sessions s ON s.id = r.session
-                 WHERE r.work = ?1 AND s.line = 'architect' AND r.started_at >= ?2 ORDER BY r.n LIMIT 1",
-                    [wake, at],
-                    |r| r.get(0),
-                )
-                .ok()?;
-        let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
-        input["message"].as_str().map(str::to_string)
-    };
-    assert!(
-        steps_until(&mut e, 40, |e| given(e).is_some()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let message = given(&mut e).unwrap();
-    let section = message
-        .split("\n### ")
-        .find(|x| x.starts_with(&format!("R{wake}-")) && x.contains("·engine·urgent_side_reports"))
-        .and_then(|x| x.split("\n## ").next())
-        .unwrap_or_default();
-    assert!(section.contains("Item 7 does the same."), "{message}");
-    assert!(!section.contains(later), "{message}");
-    // The wake handles both, each once.
-    assert!(
-        steps_until(&mut e, 80, |e| wake_done(e, wake)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    assert_eq!(
-        matters(&e),
-        [
-            ("other_question".to_string(), false, true),
-            ("duplicate".to_string(), false, true)
-        ],
-        "{log}"
-    );
-    assert_eq!(wakes(&e), [wake], "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The owner's words wake the architect; a next look it sets at its wrap-up comes to its queue when the wake ends, a
-// look at a time once that time has come and a look at an item once its work ends, and the one due wakes it again.
-#[test]
-fn the_owner_s_words_wake_the_architect_and_a_next_look_wakes_it_again_when_due() {
-    let s = setup("next-look");
-    let mut agents = scripts();
-    picks_first(&s, &mut agents);
-    agents.insert(
-        "A10",
-        Box::new(|_: &Request, n: usize| {
-            let looks = if n == 1 {
-                json!([
-                    { "when": { "kind": "at", "time": "2020-01-01T00:00Z" }, "what": "See whether the parser landed." },
-                    { "when": { "kind": "item_done", "item": 1 }, "what": "Look at the item once its work ends." }
-                ])
-            } else {
-                json!([])
-            };
-            (Vec::new(), vec![("outcome.next_look", looks)])
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    assert_eq!(e.step(None).unwrap().work, None);
-    db::say_to_architect(&mut e.db, "Put the parser first. It blocks the rest.").unwrap();
-    let woke = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("W0"), "{log}");
     let wake = woke.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| wake_done(e, wake)),
@@ -2915,36 +3441,16 @@ fn the_owner_s_words_wake_the_architect_and_a_next_look_wakes_it_again_when_due(
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
-    assert_eq!(
-        matters(&e),
-        [
-            ("owner_words".to_string(), false, true),
-            ("next_look".to_string(), true, false),
-            ("next_look".to_string(), false, false)
-        ],
-        "{log}"
-    );
-    let (due, due_item): (Option<i64>, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT max(due), max(due_item) FROM architect_matters WHERE kind = 'next_look'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert_eq!((due, due_item), (Some(1_577_836_800_000), Some(1)));
-    let again = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("A0"), "{log}");
-    assert_eq!(wakes(&e).len(), 2, "{log}");
+    assert!(path_of(&e, wake).contains(&"I1".to_string()), "{log}");
+    assert_eq!(matters(&e), [("report".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A design card a work hands in comes to the architect's queue, which wakes it. The architect does not rule on it: it
-// looks at whether the card holds and the approaches it chose are reasonable, and tells the work's engineer with an
-// interjection what does not hold. The card's rulings are the owner's alone.
+// A design card a work hands in comes to its project's architect's queue. The architect does not rule on it: it looks
+// at whether the card holds, and when it does not, the engine tells the work's engineer what is wrong. The card's
+// rulings are the owner's alone.
 #[test]
-fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_owner() {
+fn a_design_card_the_architect_finds_unsound_is_told_to_the_engineer() {
     let s = setup("architect-card");
     let mut agents = scripts();
     agents.insert(
@@ -2971,16 +3477,14 @@ fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_ow
             )
         }),
     );
-    picks_first(&s, &mut agents);
     let look = "Decision 1 chose an approach that does not hold in the whole: the parser already does this.";
     agents.insert(
-        "A8",
-        Box::new(move |_: &Request, n: usize| {
-            if n == 1 {
-                let tools = json!([{ "tool": "engine_op", "op": "interject", "item": 1, "say": look }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            (Vec::new(), Vec::new())
+        "K1",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                vec![("outcome.card", "unsound")],
+                vec![("outcome.card.wrong", json!(look))],
+            )
         }),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -3006,68 +3510,48 @@ fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_ow
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(said_to, look);
-    // The architect's look rules nothing: the card waits for the owner, whose ruling is the only one it holds.
-    let card = |e: &Engine| -> (i64, String, Value) {
-        let (id, status, rulings): (i64, String, String) =
-            e.db.conn()
-                .query_row("SELECT id, status, rulings FROM design_cards", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })
-                .unwrap();
-        (id, status, serde_json::from_str(&rulings).unwrap())
-    };
-    let (id, status, rulings) = card(&e);
-    assert_eq!((status.as_str(), rulings), ("open", json!([])), "{log}");
-    let confirm = api::Ruling {
-        decisions: vec![api::DecisionRuling {
-            decision: 1,
-            verdict: "confirm".into(),
-            text: None,
-            option: None,
-        }],
-    };
-    api::rule(&mut e.db, id, &confirm).unwrap();
-    let (_, status, rulings) = card(&e);
-    assert_eq!(status, "ruled");
-    let by: Vec<&Value> = rulings.as_array().unwrap().iter().map(|r| &r["by"]).collect();
-    assert_eq!(by, [&json!("owner")]);
+    assert!(said_to.ends_with(look), "{said_to}");
+    let (status, rulings): (String, String) =
+        e.db.conn()
+            .query_row("SELECT status, rulings FROM design_cards", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!((status.as_str(), rulings.as_str()), ("open", "[]"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect stops a work with engine_op: the engine pauses it, with a reason that says the architect stopped it and
-// why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
+// The architect pauses a work in its effects: the engine pauses it, with a reason that says the architect stopped it
+// and why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
 // release of it: the architect is told in the owner's words.
 #[test]
 fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
     let mut agents = scripts();
-    picks_first(&s, &mut agents);
     agents.insert(
-        "A8",
+        "O1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
-                let tools =
-                    json!([{ "tool": "engine_op", "op": "pause_work", "item": 1, "why": "It waits for the parser." }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+                let pause = json!({ "kind": "pause_work", "item": 1, "reason": "It waits for the parser." });
+                return (Vec::new(), vec![("outcome.effects", json!({ "actions": [pause] }))]);
             }
             (Vec::new(), Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
     let work = e.step(None).unwrap().work.unwrap();
-    db::say_to_architect(&mut e.db, "Stop the feature until the parser is in.").unwrap();
+    say(&mut e, "Stop the feature until the parser is in.");
     let woke = e.step(Some(work)).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("W0"), "{log}");
     let wake = woke.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
-    assert!(steps_until(&mut e, 80, stopped), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 40, stopped), "{}", said.borrow().join("\n"));
     let why = format!("{}: It waits for the parser.", db::STOPPED_BY_ARCHITECT);
     assert_eq!(state(&e, item).unwrap().2, Some(why.clone()));
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
     assert!(
-        steps_until(&mut e, 80, |e| wake_done(e, wake)),
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
         "{}",
         said.borrow().join("\n")
     );
@@ -3091,23 +3575,12 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
         told,
         format!("I started work {work}, which you had stopped (It waits for the parser): it goes on.")
     );
-    let rounds_of = |e: &mut Engine| -> i64 {
-        e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE work = ?1", [work], |r| r.get(0))
-            .unwrap()
-    };
-    let before = rounds_of(&mut e);
-    assert!(
-        steps_until(&mut e, 10, |e| rounds_of(e) > before),
-        "{}",
-        said.borrow().join("\n")
-    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect runs at the level the installation names for it, and so does the new architect that reads a policy,
-// on no line: a wake's round and that reading run with the named level's model, not the top level's, at the effort
-// their cell declares whatever the model, and record the level in their call.
+// The architect runs at the level the installation names for it, and so do the review of its item changes and the new
+// architect that reads a policy, on no line: their rounds run with the named level's model, not the top level's, at
+// the effort their cell declares whatever the model, and record the level in their call.
 #[test]
 fn the_architect_runs_at_the_level_the_installation_names() {
     let s = setup("architect-level");
@@ -3117,11 +3590,8 @@ fn the_architect_runs_at_the_level_the_installation_names() {
                   [agents]\narchitect = \"2\"\n";
     write(&s.data, "install.toml", &format!("{install}\n{levels}"));
     git(&s.data, &["commit", "-q", "-am", "the architect's level"]);
-    let mut agents = scripts();
-    picks_first(&s, &mut agents);
-    let (mut e, said) = engine(&s, agents);
+    let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    // The round, its model and its call, of a cell of a wake.
     let ran = |e: &Engine, wake: i64, cell: &str| -> Option<(String, Value)> {
         let (model, input): (String, String) =
             e.db.conn()
@@ -3134,7 +3604,6 @@ fn the_architect_runs_at_the_level_the_installation_names() {
         let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
         Some((model, input["call"].clone()))
     };
-    // What a round ran at: its model, the level its call records, and the model and effort its command line gives.
     let at_level = |model: &str, call: &Value| -> (String, Value, Option<String>, Option<String>) {
         let command: Vec<String> = call["command"]
             .as_array()
@@ -3155,32 +3624,31 @@ fn the_architect_runs_at_the_level_the_installation_names() {
             after("--effort"),
         )
     };
+    say(&mut e, "Look at the queue.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| ran(e, wake, "U1").is_some()),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (model, call) = ran(&e, wake, "U1").unwrap();
     let want = (
         "m-two".to_string(),
         json!("2"),
         Some("m-two".to_string()),
-        Some("medium".to_string()),
+        Some("high".to_string()),
     );
-    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
-    let wake = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 10, |e| ran(e, wake, "A1").is_some()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let (model, call) = ran(&e, wake, "A1").unwrap();
     assert_eq!(at_level(&model, &call), want);
     assert!(
-        steps_until(&mut e, 60, |e| wake_done(e, wake)),
+        steps_until(&mut e, 40, |e| wake_done(e, wake)),
         "{}",
         said.borrow().join("\n")
     );
-    // A wake at the new architect's reading of a policy, which the owner steps.
     let reading =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) SELECT NULL, flow_version, graph, 'P5' FROM works
-                 WHERE id = ?1",
+                "INSERT INTO works (item, flow_version, graph, at, project)
+                 SELECT NULL, flow_version, graph, 'P5', project FROM works WHERE id = ?1",
                 [wake],
             )?;
             Ok(tx.last_insert_rowid())
@@ -3189,51 +3657,50 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     e.step_work(reading).unwrap();
     let log = said.borrow().join("\n");
     let (model, call) = ran(&e, reading, "P5").expect(&log);
-    let want = (want.0, want.1, want.2, Some("high".to_string()));
     assert_eq!(at_level(&model, &call), want, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// While fewer items are ready to start than there are slots, the engine queues an advance for the architect, which
-// wakes it; once one is handled, no other comes for an hour.
+// While slots are free and nothing of a project is ready to start, the engine queues a matter of slots free for its
+// architect, which wakes it; once one is handled, no other comes for an hour.
 #[test]
-fn an_advance_wakes_the_architect_at_most_once_an_hour_while_too_few_items_are_ready() {
-    let s = setup("advance");
-    let mut agents = scripts();
-    picks_first(&s, &mut agents);
-    let (mut e, said) = engine(&s, agents);
+fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
+    let s = setup("slots-free");
+    let (mut e, said) = engine(&s, scripts());
     let woke = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("A0"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("W0"), "{log}");
     let wake = woke.work.unwrap();
     let body: String =
         e.db.conn()
-            .query_row("SELECT body FROM architect_matters WHERE kind = 'advance'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT body FROM architect_matters WHERE kind = 'slots_free'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-    assert_eq!(body, r#"{"slots":1,"ready":0}"#);
+    assert_eq!(body, r#"{"free":1}"#);
     assert!(
         steps_until(&mut e, 40, |e| wake_done(e, wake)),
         "{}",
         said.borrow().join("\n")
     );
+    assert!(path_of(&e, wake).contains(&"N1".to_string()));
     assert_eq!(e.step(None).unwrap().work, None);
-    let advances = |e: &Engine| -> i64 {
+    let count = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM architect_matters WHERE kind = 'advance'",
+                "SELECT count(*) FROM architect_matters WHERE kind = 'slots_free'",
                 [],
                 |r| r.get(0),
             )
             .unwrap()
     };
-    assert_eq!(advances(&e), 1);
-    // An hour after it was handled, another.
+    assert_eq!(count(&e), 1);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE rounds SET ended_at = ended_at - 7200000
-             WHERE (work, n) IN (SELECT handled_work, handled_round FROM architect_matters WHERE kind = 'advance')",
+             WHERE (work, n) IN (SELECT handled_work, handled_round FROM architect_matters WHERE kind = 'slots_free')",
             [],
         )?;
         Ok(())
@@ -3241,13 +3708,13 @@ fn an_advance_wakes_the_architect_at_most_once_an_hour_while_too_few_items_are_r
     .unwrap();
     let again = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("A0"), "{log}");
-    assert_eq!(advances(&e), 2);
+    assert_eq!(again.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A dispatch hold stops new works from starting from the queue, and the works running go on; once it is released,
-// new works start again.
+// A hold of a project's new starts stops new works of it from starting from the queue, and the works running go on;
+// once it is released, new works start again.
 #[test]
 fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     let s = setup("dispatch-hold");
@@ -3258,7 +3725,10 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     let hold = |e: &mut Engine, on: bool| {
         e.db.write(Actor::Architect, |tx| {
             if on {
-                tx.execute("INSERT INTO dispatch_holds (reason, since) VALUES ('architect', 1)", [])?;
+                tx.execute(
+                    "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'architect', 1)",
+                    [],
+                )?;
             } else {
                 tx.execute("DELETE FROM dispatch_holds", [])?;
             }
@@ -3295,31 +3765,30 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// With every work paused, the owner steps the architect: the first step starts a wake, paused by the owner, and runs
-// its first round; each later step runs the wake's next round, as a step of the wake by its work id does, and the wake
-// stays paused in the owner's hands. With nothing to wake for, a step runs nothing.
+// With every work paused, the owner steps a project's architect: the first step starts a wake, paused by the owner,
+// and runs its first round; each later step runs the wake's next round, as a step of the wake by its work id does, and
+// the wake stays paused in the owner's hands. With nothing to wake for, a step runs nothing.
 #[test]
 fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     let s = setup("step-architect");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    assert_eq!(e.step_architect().unwrap().work, None);
-    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
-    let first = e.step_architect().unwrap();
+    assert_eq!(e.step_architect("p").unwrap().work, None);
+    say(&mut e, "Look at the queue.");
+    let first = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("A0"), 1), "{log}");
+    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("W0"), 1), "{log}");
     let wake = first.work.unwrap();
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
-    // Paused, the wake takes no step by itself, and no other wake starts.
     assert_eq!(e.step(None).unwrap().work, None);
     let second = e.step_work(wake).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("A1"), 1), "{log}");
-    let third = e.step_architect().unwrap();
+    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("W1"), 1), "{log}");
+    let third = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(wake), Some("A2"), 1),
+        (Some(wake), Some("U1"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
@@ -3327,110 +3796,9 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The changes the architect collects go to the owner in one ask at its wrap-up, holding the matter they belong to; the
-// owner approves some, and the approval comes back as a matter of its own: db_write writes a change approved, and
-// refuses one that was not, writing nothing.
-#[test]
-fn db_write_writes_the_changes_approved_and_refuses_the_rest() {
-    let s = setup("db-write");
-    let mut agents = scripts();
-    picks_first(&s, &mut agents);
-    let edit = json!({ "kind": "edit_item", "item": 1, "part": "title", "text": "Parse the input first", "reason": "Clearer." });
-    let hold = json!({ "kind": "hold", "item": 1, "reason": "Not now." });
-    let (e1, h1) = (edit.clone(), hold.clone());
-    agents.insert(
-        "A8",
-        Box::new(move |_: &Request, n: usize| match n {
-            1 => (Vec::new(), vec![("outcome.changes", json!([e1.clone(), h1.clone()]))]),
-            2 => (
-                vec![("outcome", "tools")],
-                vec![(
-                    "outcome.tools",
-                    json!([{ "tool": "db_write", "changes": [h1.clone()] }]),
-                )],
-            ),
-            3 => (
-                vec![("outcome", "tools")],
-                vec![(
-                    "outcome.tools",
-                    json!([{ "tool": "db_write", "changes": [e1.clone()] }]),
-                )],
-            ),
-            _ => (Vec::new(), Vec::new()),
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    db::say_to_architect(&mut e.db, "Make the parser's item clearer.").unwrap();
-    let wake = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| wake_done(e, wake)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    // The changes wait for the owner in one ask, and hold the owner's words they belong to.
-    let (ask, body): (i64, String) =
-        e.db.conn()
-            .query_row("SELECT id, body FROM owner_asks WHERE work = ?1", [wake], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-    let body: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(body["kind"], "changes", "{log}");
-    assert_eq!(body["changes"][0]["change"], edit);
-    assert_eq!(body["changes"][1]["change"], hold);
-    let held: (Option<String>, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT held, held_by FROM architect_matters WHERE kind = 'owner_words'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert_eq!(held, (Some("approval".to_string()), Some(ask)), "{log}");
-    let approve = api::Answer {
-        text: "The item is not held yet.".into(),
-        why: None,
-        reply: None,
-        choice: Some("approve_some".into()),
-        approved: Some(vec![1]),
-    };
-    api::answer(&mut e.db, ask, &approve).unwrap();
-    let again = e.step(None).unwrap();
-    assert_eq!(again.cell.as_deref(), Some("A0"));
-    let second = again.work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| wake_done(e, second)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    let results: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT json_extract(result, '$.written.verdict') AS verdict FROM tool_runs WHERE tool = 'db_write' ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["verdict"].as_str().unwrap_or_default().to_string())
-    .collect();
-    assert_eq!(results, ["refused", "written"], "{log}");
-    let (title, held): (String, Option<String>) =
-        e.db.conn()
-            .query_row("SELECT title, held FROM items WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-    assert_eq!((title.as_str(), held), ("Parse the input first", None), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A work that delivered a report ends with its what to do next, which reaches the architect as one matter of its own,
-// due at once: the text as written, the report's paths under research/ and the commit the work merged; a work that
-// handed in no what to do next queues none.
+// A work that delivered a report ends with its what to do next, which reaches its project's architect as a report of
+// its own: the text as written, the report's paths under research/ and the commit the work merged; a work that handed
+// in no what to do next queues none.
 #[test]
 fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let s = setup("report-followup");
@@ -3441,7 +3809,6 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let merged = git(&checkout, &["rev-parse", "HEAD"]).trim().to_string();
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    // A work of a report at its end, with the round that handed in what to do next, or none, and the one that merged.
     let at_end = |e: &mut Engine, followup: Option<&str>| -> i64 {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -3472,19 +3839,22 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
         })
         .unwrap()
     };
-    // A matter's item, work, round and body.
-    type Queued = (Option<i64>, Option<i64>, Option<i64>, Value);
+    type Queued = (String, Option<i64>, Option<i64>, Option<i64>, Value);
     let followups = |e: &Engine| -> Vec<Queued> {
         let mut st =
             e.db.conn()
-                .prepare("SELECT item, work, round, body FROM architect_matters WHERE kind = 'report_followup'")
+                .prepare(
+                    "SELECT project, item, work, round, body FROM architect_matters
+                     WHERE kind = 'report' AND detail = 'followup'",
+                )
                 .unwrap();
         st.query_map([], |r| {
             Ok((
                 r.get(0)?,
                 r.get(1)?,
                 r.get(2)?,
-                serde_json::from_str(&r.get::<_, String>(3)?).unwrap(),
+                r.get(3)?,
+                serde_json::from_str(&r.get::<_, String>(4)?).unwrap(),
             ))
         })
         .unwrap()
@@ -3501,6 +3871,7 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     assert_eq!(
         followups(&e),
         [(
+            "p".to_string(),
             Some(item),
             Some(with),
             Some(1),
@@ -4086,7 +4457,7 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Before the owner approves a new policy, P11 asks of the draft the question A3 asks of the policy in force: one that
+// Before the owner approves a new policy, P11 asks of the draft the question U2 asks of the policy in force: one that
 // holds goes on to the owner's approval, and one that would need setting again at once goes back to correct the text.
 #[test]
 fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
@@ -4103,7 +4474,7 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
         let wake =
             e.db.write(Actor::Engine, |tx| {
                 tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, ?1, 'architect', 'P11')",
+                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'P11', 'p')",
                     [v],
                 )?;
                 Ok(tx.last_insert_rowid())
@@ -4125,7 +4496,7 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
     }
 }
 
-// The owner's Start, Pause and Step of a work and of the architect, beside the global pause and start.
+// The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
 /// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked
 /// for handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then
@@ -4135,21 +4506,25 @@ fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped
     for w in c.take_new_sessions() {
         e.sessions.ask_new(w);
     }
-    let (done, architect) = e.release_started(&asked.releasing, asked.architect_releasing).unwrap();
-    c.released(&done, architect);
+    let (done, architects) = e
+        .release_started(&asked.releasing, &asked.architects_releasing)
+        .unwrap();
+    c.released(&done, &architects);
     match asked.next() {
         api::Next::Step(w) => {
             let s = e.step_work(w).unwrap();
             c.stepped(Some(w));
             s
         }
-        api::Next::Architect => {
-            let s = e.step_architect().unwrap();
+        api::Next::Architect(p) => {
+            let s = e.step_architect(&p).unwrap();
             c.stepped(s.work);
             s
         }
         api::Next::Pass => e.step(after).unwrap(),
-        api::Next::Started => e.step_started(after, &asked.started, asked.architect_started).unwrap(),
+        api::Next::Started => e
+            .step_started(after, &asked.started, &asked.architects_started)
+            .unwrap(),
         api::Next::Wait => engine::Stepped::default(),
     }
 }
@@ -4170,7 +4545,7 @@ fn turns(e: &mut Engine, c: &api::Control, n: usize) -> Vec<i64> {
 
 /// The owner's Pause of a work, as the page sends it: the work's own pause written as the owner's, its Start over.
 fn owner_pauses(e: &mut Engine, c: &api::Control, work: i64) {
-    c.pause(Some(work));
+    c.pause(&api::Fresh::Work(work));
     api::pause(&mut e.db, work, None).unwrap();
 }
 
@@ -4213,7 +4588,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     // Paused again: nothing moves, until the owner starts one work, which alone goes on.
     c.set_paused(true);
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
-    c.start(Some(one), false);
+    c.start(api::Fresh::Work(one), false);
     let log = said.borrow().join("\n");
     assert_eq!(turns(&mut e, &c, 3), [one, one, one], "{log}");
     // A later global pause makes it follow the global state again.
@@ -4226,7 +4601,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     assert!(!moved.is_empty() && !moved.contains(&two), "{moved:?}");
     assert_eq!(paused_by(&e, two).as_deref(), Some("owner"));
     // Its Start lifts its pause, as the owner, and it goes on.
-    c.start(Some(two), false);
+    c.start(api::Fresh::Work(two), false);
     let moved = turns(&mut e, &c, 4);
     let log = said.borrow().join("\n");
     assert!(moved.contains(&two), "{moved:?}\n{log}");
@@ -4280,7 +4655,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     let log = said.borrow().join("\n");
     assert_ne!(second, first, "{log}");
     c.set_paused(true);
-    c.start(Some(first), false);
+    c.start(api::Fresh::Work(first), false);
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     assert_eq!(paused_by(&e, first).as_deref(), Some("owner"));
     assert!(c.asked().releasing.contains(&first));
@@ -4311,7 +4686,7 @@ fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
     })
     .unwrap();
     c.set_paused(true);
-    c.start(Some(work), false);
+    c.start(api::Fresh::Work(work), false);
     let moved = turns(&mut e, &c, 1);
     let log = said.borrow().join("\n");
     assert_eq!(moved, [work], "{log}");
@@ -4342,9 +4717,9 @@ fn the_architect_the_owner_starts_wakes_and_goes_on_while_every_work_is_paused()
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let c = api::Control::default();
-    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
+    say(&mut e, "Look at the queue.");
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
-    c.start(None, false);
+    c.start(api::Fresh::Architect("p".into()), false);
     let moved = turns(&mut e, &c, 3);
     let log = said.borrow().join("\n");
     assert_eq!(moved.len(), 3, "{log}");
@@ -4352,19 +4727,19 @@ fn the_architect_the_owner_starts_wakes_and_goes_on_while_every_work_is_paused()
     assert!(moved.iter().all(|w| *w == wake), "{moved:?}");
     assert_eq!(paused_by(&e, wake), None);
     // Paused, the wake takes no step, and no other wake starts.
-    c.pause(None);
-    api::pause_wake(&mut e.db).unwrap();
+    c.pause(&api::Fresh::Architect("p".into()));
+    api::pause_wake(&mut e.db, "p").unwrap();
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
     // Started again, its pause is lifted; a round asked for leaves it paused by the owner.
-    c.start(None, false);
+    c.start(api::Fresh::Architect("p".into()), false);
     assert_eq!(turns(&mut e, &c, 1), [wake]);
     assert_eq!(paused_by(&e, wake), None);
-    c.ask_step_architect(false).unwrap();
+    c.ask_step_architect("p", false).unwrap();
     let stepped = turn(&mut e, &c, None);
     assert_eq!(stepped.work, Some(wake));
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
-    assert!(!c.asked().architect_started);
+    assert!(c.asked().architects_started.is_empty());
     assert_eq!(wakes(&e), [wake]);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -4399,7 +4774,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
     // Started as it is, the work's next round goes on in that session; started in a new session, the next starts one.
-    c.start(Some(work), false);
+    c.start(api::Fresh::Work(work), false);
     let n = agent_rounds(&e, item).len();
     for _ in 0..10 {
         if agent_rounds(&e, item).len() > n {
@@ -4410,7 +4785,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
     owner_pauses(&mut e, &c, work);
-    c.start(Some(work), true);
+    c.start(api::Fresh::Work(work), true);
     let n = agent_rounds(&e, item).len();
     for _ in 0..10 {
         if agent_rounds(&e, item).len() > n {
@@ -4434,16 +4809,17 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let c = api::Control::default();
-    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
-    c.start(None, false);
-    let wake = turns(&mut e, &c, 2)[0];
+    say(&mut e, "Look at the queue.");
+    c.start(api::Fresh::Architect("p".into()), false);
+    // Waking and finding the session has not understood the project take the engine's own steps; then the first round.
+    let wake = turns(&mut e, &c, 3)[0];
     let log = said.borrow().join("\n");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
-    c.pause(None);
-    c.ask_step_architect(true).unwrap();
+    c.pause(&api::Fresh::Architect("p".into()));
+    c.ask_step_architect("p", true).unwrap();
     turn(&mut e, &c, None);
-    c.ask_step_architect(false).unwrap();
+    c.ask_step_architect("p", false).unwrap();
     turn(&mut e, &c, None);
     let log = said.borrow().join("\n");
     let lines = line_sessions(&e, wake, "architect");
@@ -4476,7 +4852,7 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     let paused = |warm: bool, runs: &[i64]| engine::GlobalPause {
         warm,
         runs: runs.iter().copied().collect(),
-        architect: false,
+        architects: Default::default(),
     };
     assert_eq!(e.keep_warm(due, Some(&paused(false, &[]))).unwrap(), 0);
     assert_eq!(e.keep_warm(due, Some(&paused(true, &[work]))).unwrap(), 0);

@@ -24,6 +24,8 @@ pub struct Work {
     pub ended: Option<String>,
     /// Who paused it, `owner` or `engine`, while it is paused.
     pub paused_by: Option<String>,
+    /// For a wake of the architect, the project whose architect it is.
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +63,7 @@ impl Work {
         let mut w = conn
             .query_row(
                 "SELECT id, item, flow_version, graph, at, resume_at, waiting, recorded, machine, worktree, branch, pr,
-                        pushed_head, paused, ended, paused_by
+                        pushed_head, paused, ended, paused_by, project
                  FROM works WHERE id = ?1",
                 [id],
                 |r| {
@@ -88,6 +90,7 @@ impl Work {
                         paused: r.get(13)?,
                         ended: r.get(14)?,
                         paused_by: r.get(15)?,
+                        project: r.get(16)?,
                     })
                 },
             )

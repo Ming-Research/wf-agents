@@ -149,6 +149,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
+        .route("/api/v1/observations/{id}/close", post(close_observation))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -302,7 +303,7 @@ async fn start_work(
         })
     })
     .await?;
-    app.control.start(Some(id), r.new_session);
+    app.control.start(api::Fresh::Work(id), r.new_session);
     tell_status(&app);
     Ok(Json(api::Done { done }))
 }
@@ -489,9 +490,51 @@ async fn item(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::I
     read(&app, move |c, a| api::item(c, &a.flows, id)).await.map(Json)
 }
 
-/// The architect, as its tab shows it.
-async fn architect(State(app): State<App>) -> Result<Json<api::Architect>, Fail> {
-    read(&app, |c, a| api::architect(c, &a.flows)).await.map(Json)
+/// Which project's architect a request is about: the one it names, or the configuration's one project.
+#[derive(Deserialize)]
+struct OfProject {
+    project: Option<String>,
+}
+
+/// The project a request names, or the configuration's one project, with the configuration as committed.
+fn project_of(app: &App, q: &OfProject) -> Result<(String, config::Config), Fail> {
+    let c = config::committed(&app.data)
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .config;
+    let project = api::project_named(&c, q.project.as_deref()).map_err(|e| Fail::new(StatusCode::NOT_FOUND, e))?;
+    Ok((project, c))
+}
+
+/// A project's architect, as its tab shows it; with no project named, the configuration's first, so that the page
+/// opens on one and offers the others.
+async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Architect>, Fail> {
+    let first = OfProject {
+        project: q.project.clone().or_else(|| {
+            config::committed(&app.data)
+                .ok()
+                .and_then(|c| c.config.projects.keys().next().cloned())
+        }),
+    };
+    let (project, c) = project_of(&app, &first)?;
+    let projects: Vec<String> = c.projects.keys().cloned().collect();
+    let tags: Vec<api::Tag> = c
+        .projects
+        .get(&project)
+        .map(|p| {
+            p.observation_tags
+                .iter()
+                .map(|t| api::Tag {
+                    name: t.name.clone(),
+                    desc: t.desc.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    read(&app, move |conn, a| {
+        api::architect(conn, &a.flows, &project, projects, tags)
+    })
+    .await
+    .map(Json)
 }
 
 #[derive(Deserialize)]
@@ -552,42 +595,70 @@ async fn rule(
     decide(&app, move |db| api::rule(db, id, &r)).await
 }
 
-/// What the owner says to the architect.
+/// What the owner says to an architect, and the item it is about, if any.
 #[derive(Deserialize)]
 struct Said {
     text: String,
+    #[serde(default)]
+    item: Option<i64>,
 }
 
-/// Says something to the architect, as the owner, as the command line does: it comes to the architect's queue, and
-/// the engine is woken, so that a wake starts when works go on.
-async fn say_to_architect(State(app): State<App>, Json(s): Json<Said>) -> Result<Json<api::Done>, Fail> {
-    decide(&app, move |db| db::say_to_architect(db, &s.text)).await
+/// Says something to a project's architect, as the owner, as the command line does: it comes to its queue, and the
+/// engine is woken, so that a wake starts when works go on.
+async fn say_to_architect(
+    State(app): State<App>,
+    Query(q): Query<OfProject>,
+    Json(s): Json<Said>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, _) = project_of(&app, &q)?;
+    decide(&app, move |db| db::say_to_architect(db, &project, s.item, &s.text)).await
 }
 
-/// Runs one round of the architect: the next round of the wake that runs, or, when none runs and its queue would wake
-/// it, a wake started paused by the owner and its first round; in a new session for its wake as the owner chose.
-async fn step_architect(State(app): State<App>, Json(r): Json<api::RunAsk>) -> Result<StatusCode, Fail> {
+/// Runs one round of a project's architect: the next round of its wake that runs, or, when none runs and its queue
+/// would wake it, a wake started paused by the owner and its first round; in a new session for its wake as the owner
+/// chose.
+async fn step_architect(
+    State(app): State<App>,
+    Query(q): Query<OfProject>,
+    Json(r): Json<api::RunAsk>,
+) -> Result<StatusCode, Fail> {
+    let (project, _) = project_of(&app, &q)?;
     app.control
-        .ask_step_architect(r.new_session)
+        .ask_step_architect(&project, r.new_session)
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
 }
 
-/// Starts the architect, as the owner, as a work is started: its wake goes on, and one starts when a matter is due,
-/// whatever the global state; its next round resumes its session or starts a new one for its wake as the owner chose.
-async fn start_architect(State(app): State<App>, Json(r): Json<api::RunAsk>) -> Json<api::Done> {
-    app.control.start(None, r.new_session);
+/// Starts a project's architect, as the owner, as a work is started: its wake goes on, and one starts when its queue
+/// has a matter, whatever the global state; its next round resumes its session or starts a new one for its wake as the
+/// owner chose.
+async fn start_architect(
+    State(app): State<App>,
+    Query(q): Query<OfProject>,
+    Json(r): Json<api::RunAsk>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, _) = project_of(&app, &q)?;
+    app.control.start(api::Fresh::Architect(project.clone()), r.new_session);
     tell_status(&app);
-    Json(api::Done {
-        done: "the architect goes on".into(),
-    })
+    Ok(Json(api::Done {
+        done: format!("the architect of {project} goes on"),
+    }))
+}
+
+/// Closes an observation, as the owner, saying why.
+async fn close_observation(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(c): Json<api::CloseObservation>,
+) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::close_observation(db, id, &c.why)).await
 }
 
 /// Pauses a work, as the owner, as the command line does: a round of it under way ends first, and it stays paused,
 /// whatever the global state, until the owner starts it. The owner's Start of it is over, and with it the lifting of
 /// its pause that Start asked, so a work still paused stays so.
 async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
-    app.control.pause(Some(id));
+    app.control.pause(&api::Fresh::Work(id));
     tell_status(&app);
     decide(&app, move |db| match api::pause(db, id, None) {
         Err(e) if e.ends_with("is paused already") => Ok(format!("work {id} stays paused")),
@@ -596,12 +667,13 @@ async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::
     .await
 }
 
-/// Pauses the architect, as the owner: the wake that runs is paused as a work is, and the owner's Start of the
+/// Pauses a project's architect, as the owner: its wake that runs is paused as a work is, and the owner's Start of the
 /// architect is over.
-async fn pause_architect(State(app): State<App>) -> Result<Json<api::Done>, Fail> {
-    app.control.pause(None);
+async fn pause_architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Done>, Fail> {
+    let (project, _) = project_of(&app, &q)?;
+    app.control.pause(&api::Fresh::Architect(project.clone()));
     tell_status(&app);
-    decide(&app, api::pause_wake).await
+    decide(&app, move |db| api::pause_wake(db, &project)).await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

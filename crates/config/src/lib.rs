@@ -108,9 +108,14 @@ pub struct Agents {
     /// How many subagents a round may start for chores.
     #[serde(default)]
     pub subagents: Subagents,
-    /// The level the architect runs at, by its name among the levels; the top level when none is named.
+    /// The level the architect runs at, by its name among the levels, and the review of its item changes; the top level
+    /// when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architect: Option<String>,
+    /// The level the search of a project's observations runs at, by its name among the levels; the lowest level when
+    /// none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observer: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
@@ -362,6 +367,20 @@ pub struct Project {
     /// `CONSTITUTION.md`; none when the project has none. The architect is given its text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
+    /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with
+    /// these only. The owner sets them; none, and observations carry no tag.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observation_tags: Vec<ObservationTag>,
+}
+
+/// A tag a project's observations may carry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservationTag {
+    /// Its name, as observations carry it.
+    pub name: String,
+    /// What it covers, in one line.
+    pub desc: String,
 }
 
 fn default_main() -> String {
@@ -743,6 +762,11 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.architect names no level: {a}"));
         }
+        if let Some(o) = &self.install.agents.observer
+            && !self.install.agents.levels.contains_key(o)
+        {
+            problems.push(format!("install.toml: agents.observer names no level: {o}"));
+        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -766,6 +790,16 @@ impl Config {
             for o in &p.other_projects {
                 if !self.projects.contains_key(o) {
                     problems.push(format!("projects/{name}.toml: no such project: {o}"));
+                }
+            }
+            let mut tags = BTreeSet::new();
+            for t in &p.observation_tags {
+                if t.name.trim().is_empty() || t.name.trim() != t.name || !tags.insert(t.name.as_str()) {
+                    problems.push(format!(
+                        "projects/{name}.toml: observation_tags: a tag with no name, spaces around it, or a name twice: \
+                         {:?}",
+                        t.name
+                    ));
                 }
             }
         }
@@ -844,12 +878,24 @@ impl Config {
         names
     }
 
-    /// The level the architect runs at, and the new architects that read a policy: the one the installation names,
-    /// or else the top level.
+    /// The level the architect runs at, with the review of its item changes and the new architects that read a
+    /// policy: the one the installation names, or else the top level.
     pub fn architect_level(&self) -> String {
         match &self.install.agents.architect {
             Some(a) => a.clone(),
             None => self.levels_in_order().last().map(|n| n.to_string()).unwrap_or_default(),
+        }
+    }
+
+    /// The level the search of a project's observations runs at: the one the installation names, or else the lowest.
+    pub fn observer_level(&self) -> String {
+        match &self.install.agents.observer {
+            Some(o) => o.clone(),
+            None => self
+                .levels_in_order()
+                .first()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
         }
     }
 
@@ -1192,10 +1238,14 @@ asks = 9
         assert_eq!(c.level_of_line("1", "advisor"), "2");
         assert_eq!(c.level_of_line("1", "engineer"), "1");
         assert_eq!(c.level_of_line("10", "advisor"), "10");
-        // The architect runs at the top level unless the installation names another.
+        // The architect runs at the top level unless the installation names another, and the search of observations
+        // at the lowest.
         assert_eq!(c.architect_level(), "10");
         c.install.agents.architect = Some("2".into());
         assert_eq!(c.architect_level(), "2");
+        assert_eq!(c.observer_level(), "1");
+        c.install.agents.observer = Some("2".into());
+        assert_eq!(c.observer_level(), "2");
         // An item may be at any level unless the installation names the highest; its advisor may still run above it.
         assert_eq!(c.item_level("10"), Ok(()));
         c.install.items.highest_level = Some("2".into());
@@ -1282,6 +1332,35 @@ asks = 9
         assert!(
             e.to_string()
                 .contains("projects/q.toml: constitution is not a path in the project's checkout: /q/CONSTITUTION.md"),
+            "{e}"
+        );
+    }
+
+    // A project's tags for observations each have a name of their own, and the observer's level is one of the levels.
+    #[test]
+    fn the_observation_tags_and_the_observer_s_level_point_somewhere() {
+        let tagged = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nobservation_tags = [\
+                      { name = \"perf\", desc = \"How fast it runs\" }, { name = \"docs\", desc = \"What it says\" }]";
+        let mut m = files(&[("projects/q.toml", tagged)]);
+        let named = format!("{INSTALL}\n[agents]\nobserver = \"senior\"\n");
+        m.0.insert("install.toml", Box::leak(named.into_boxed_str()));
+        let c = read(&m).unwrap();
+        let names: Vec<&str> = c.projects["q"]
+            .observation_tags
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(names, ["perf", "docs"]);
+        assert_eq!(c.observer_level(), "senior");
+        let twice = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nobservation_tags = [\
+                     { name = \"perf\", desc = \"a\" }, { name = \"perf\", desc = \"b\" }]";
+        let mut m = files(&[("projects/q.toml", twice)]);
+        let unnamed = format!("{INSTALL}\n[agents]\nobserver = \"9\"\n");
+        m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
+        let e = read(&m).unwrap_err().to_string();
+        assert!(e.contains("agents.observer names no level: 9"), "{e}");
+        assert!(
+            e.contains("projects/q.toml: observation_tags: a tag with no name"),
             "{e}"
         );
     }

@@ -80,12 +80,9 @@ enum Command {
         #[arg(long)]
         reply: Option<String>,
         /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of
-        /// those the ask lists; for its changes, approve_all, approve_some or approve_none.
+        /// those the ask lists.
         #[arg(long)]
         choice: Option<String>,
-        /// For the architect's changes approved in part, the number of each change approved.
-        #[arg(long, value_delimiter = ',')]
-        approved: Vec<i64>,
     },
     /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
     DesignCards {
@@ -117,7 +114,7 @@ enum Command {
         #[arg(long, default_value = "engineer")]
         line: String,
     },
-    /// The architect: what the owner says to it.
+    /// A project's architect: what the owner says to it.
     #[command(subcommand)]
     Architect(ArchitectCommand),
     /// Pauses a work, as the owner: a round of it under way ends first, and it stays paused, whatever the global state,
@@ -229,8 +226,17 @@ enum ItemCommand {
 
 #[derive(Subcommand)]
 enum ArchitectCommand {
-    /// Says something to the architect: it comes to its queue as the owner's words, and wakes it when works go on.
-    Say { text: String },
+    /// Says something to a project's architect: it comes to its queue as the owner's words, and wakes it when works go
+    /// on.
+    Say {
+        text: String,
+        /// The project whose architect it is for; it may be left out when the configuration has one project.
+        #[arg(long)]
+        project: Option<String>,
+        /// The item the words are about, if any.
+        #[arg(long)]
+        item: Option<i64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -445,13 +451,11 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             why,
             reply,
             choice,
-            approved,
         } => {
             let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            let approved = (!approved.is_empty()).then_some(approved);
             print(owner::answer(
                 d,
                 owner::Answer {
@@ -460,11 +464,12 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     why,
                     reply,
                     choice,
-                    approved,
                 },
             ))
         }
-        Command::Architect(ArchitectCommand::Say { text }) => print(owner::say_to_architect(d, &text)),
+        Command::Architect(ArchitectCommand::Say { text, project, item }) => {
+            print(owner::say_to_architect(d, project.as_deref(), item, &text))
+        }
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
@@ -523,7 +528,7 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         keep_warm: true,
         started: Vec::new(),
         releasing: Vec::new(),
-        architect_started: false,
+        architects_started: Vec::new(),
         running: None,
         stepping: None,
         last_step: last.cloned(),
@@ -639,9 +644,9 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         // What a work's next round would be, for the page that asked: built between steps, nothing run.
         for (work, fresh, answer) in control.take_previews() {
             // Shown in a new session, the round is composed as the owner's ask of one would have it.
-            let asked_before = e.sessions.asked_new(work, false);
+            let asked_before = e.sessions.asked_new(work, None);
             if fresh && !asked_before {
-                e.sessions.ask_new(Some(work));
+                e.sessions.ask_new(api::Fresh::Work(work));
             }
             let next = engine::next_round(&mut e, work).map(|n| api::NextRound {
                 work,
@@ -667,15 +672,15 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             e.sessions.ask_new(work);
         }
         e.reload_config();
-        match e.release_started(&asked.releasing, asked.architect_releasing) {
-            Ok((done, architect)) => control.released(&done, architect),
+        match e.release_started(&asked.releasing, &asked.architects_releasing) {
+            Ok((done, architects)) => control.released(&done, &architects),
             Err(x) => (e.say)(&format!("lifting the pause of the works the owner started: {x}")),
         }
         // The sessions of works that wait are kept warm between steps, never beside a round.
         let pause = asked.paused.then(|| engine::GlobalPause {
             warm: asked.keep_warm,
             runs: asked.started.clone(),
-            architect: asked.architect_started,
+            architects: asked.architects_started.clone(),
         });
         if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
             (e.say)(&format!("keeping waiting sessions warm: {x}"));
@@ -702,11 +707,11 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 });
                 control.stepped(Some(work));
             }
-            api::Next::Architect => {
-                let s = e.step_architect()?;
+            api::Next::Architect(project) => {
+                let s = e.step_architect(&project)?;
                 let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
                 (e.say)(&format!(
-                    "the architect's round, as the owner asked: work {}, rounds {}",
+                    "the round of the architect of {project}, as the owner asked: work {}, rounds {}",
                     s.work.map_or_else(|| "none".to_string(), |w| w.to_string()),
                     names.join(", ")
                 ));
@@ -729,7 +734,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 after = s.work;
             }
             api::Next::Started => {
-                let s = e.step_started(after, &asked.started, asked.architect_started)?;
+                let s = e.step_started(after, &asked.started, &asked.architects_started)?;
                 if s.work.is_none() {
                     control.wait(&asked, idle);
                 }

@@ -31,7 +31,8 @@ fn wake(conn: &Connection, work: i64) -> bool {
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
 /// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
-/// (its matters, what stops new works, and a wake with its rounds and asks) makes the architect's event too.
+/// (its matters, what stops new works, the item changes its batches made, the observations, and a wake with its rounds
+/// and asks) makes the architect's event too.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -65,7 +66,9 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
             "flow_versions" => Some(Event::Flow { version: id }),
-            "architect_matters" | "dispatch_holds" => Some(Event::Architect),
+            "architect_matters" | "dispatch_holds" | "architect_item_changes" | "observations" => {
+                Some(Event::Architect)
+            }
             _ => None,
         };
         let of = match &event {
@@ -138,8 +141,8 @@ mod tests {
         );
     }
 
-    // A wake's round names the wake and the architect's tab; the architect's matters and what stops new works name the
-    // tab alone, once.
+    // A wake's round names the wake and the architect's tab; the architect's matters, what stops new works and the
+    // observations name the tab alone, once.
     #[test]
     fn what_the_architect_tab_shows_names_it_too() {
         let mut db = Db::in_memory().unwrap();
@@ -165,6 +168,7 @@ mod tests {
             touched("architect_matters", 1),
             touched("dispatch_holds", 1),
             touched("architect_matters", 2),
+            touched("observations", 1),
         ];
         assert_eq!(
             events(db.conn(), &rows),

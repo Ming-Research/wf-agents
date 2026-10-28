@@ -173,8 +173,6 @@ pub struct Answer {
     pub reply: Option<Value>,
     /// For an ask of the architect's that offers options, the option chosen.
     pub choice: Option<String>,
-    /// For the architect's changes approved in part, the number of each change approved.
-    pub approved: Option<Vec<i64>>,
 }
 
 /// Answers an ask of the owner, as the page does.
@@ -185,7 +183,6 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         why: a.why,
         reply: a.reply,
         choice: a.choice,
-        approved: a.approved,
     };
     api::answer(&mut db, a.ask, &given)
 }
@@ -256,10 +253,12 @@ pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
     api::rule(&mut db, r.design_card, &given)
 }
 
-/// Says something to the architect, as the page does.
-pub fn say_to_architect(data: &Path, text: &str) -> Result<String, String> {
+/// Says something to a project's architect, as the page does: the project named, or the configuration's one project.
+pub fn say_to_architect(data: &Path, project: Option<&str>, item: Option<i64>, text: &str) -> Result<String, String> {
+    let committed = config::committed(data).map_err(|e| e.to_string())?;
+    let project = api::project_named(&committed.config, project)?;
     let mut db = open(data)?;
-    db::say_to_architect(&mut db, text)
+    db::say_to_architect(&mut db, &project, item, text)
 }
 
 pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {

@@ -82,7 +82,11 @@ impl Ctx {
     fn about(&self) -> String {
         match &self.item {
             Some(i) => format!("work {} (item {}: {})", self.work.id, i.id, i.title),
-            None => format!("work {} (a wake of the architect)", self.work.id),
+            None => format!(
+                "work {} (a wake of the architect of {})",
+                self.work.id,
+                self.work.project.as_deref().unwrap_or("no project")
+            ),
         }
     }
 
@@ -170,15 +174,17 @@ fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: 
     Ok(tx.last_insert_rowid())
 }
 
-/// Queues a new design card for the architect to look at: whether it holds and the approaches it chose are reasonable.
-/// The owner alone rules on it.
+/// Queues a new design card for the architect of the work's project to look at: whether it holds and the approaches
+/// it chose are reasonable. The owner alone rules on it.
 fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundId) -> Result<(), String> {
+    let Some(item) = &ctx.item else { return Ok(()) };
     let what = format!("Design card {card} of {} to look at", ctx.about());
     let m = Matter {
+        project: item.project.clone(),
         kind: "design_card".into(),
         what,
         body: json!({ "design_card": card }),
-        item: ctx.item.as_ref().map(|i| i.id),
+        item: Some(item.id),
         raised: Some((raised.work, raised.n)),
         ..Matter::default()
     };
@@ -471,9 +477,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "set_aside_checks" => {}
         "wake_architect" => {
-            // Each side report is one matter for the architect, queued once and due at once, which wakes the
-            // architect when no wake runs; one marked urgent reaches a wake that runs through its input of urgent
-            // side reports, at the top of its next round.
+            // Each side report is one matter of the kind report for the architect of the work's project, queued once,
+            // which wakes it when no wake of it runs; its queue marks one urgent.
+            let Some(item) = &ctx.item else { return Ok(()) };
             let reports = ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default();
             for (index, r) in reports.iter().enumerate() {
                 let queued: i64 = tx
@@ -487,11 +493,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 if queued > 0 {
                     continue;
                 }
-                let kind = match r["kind"].as_str() {
-                    Some("duplicate") => "duplicate",
-                    Some("out_of_scope_defect") => "out_of_scope_defect",
-                    _ => "other_question",
-                };
                 let urgent = r["urgent"] == true;
                 let what = format!(
                     "A side report from {} at cell {}: {}",
@@ -500,12 +501,13 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     db::one_sentence(r["what"].as_str().unwrap_or_default())
                 );
                 let m = Matter {
-                    kind: kind.into(),
+                    project: item.project.clone(),
+                    kind: "report".into(),
+                    detail: r["kind"].as_str().map(str::to_string),
                     what,
                     body: json!({ "report": r, "index": index, "cell": ctx.cell.id, "urgent": urgent }),
-                    item: ctx.item.as_ref().map(|i| i.id),
+                    item: Some(item.id),
                     raised: Some((ctx.round.work, ctx.round.n)),
-                    ..Matter::default()
                 };
                 queue_matter(tx, &m).map_err(sql)?;
             }

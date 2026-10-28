@@ -17,7 +17,7 @@ pub use rusqlite;
 
 mod matters;
 
-pub use matters::{Matter, lift_pause, one_sentence, queue_matter, say_to_architect};
+pub use matters::{Matter, lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect};
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
@@ -45,6 +45,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0017.sql"),
     include_str!("../../../db/migrations/0018.sql"),
     include_str!("../../../db/migrations/0019.sql"),
+    include_str!("../../../db/migrations/0020.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1428,8 +1429,8 @@ mod tests {
     }
 
     // Taken to version 14, a database gives the architect a look at each design card not replaced that the owner has
-    // not confirmed, and one matter for the side reports handed in before, to look through them all; a database with
-    // no side report gets no such matter.
+    // not confirmed, and one matter for the side reports handed in before, to look through them all, a report since
+    // version 20; a database with no side report gets no such matter.
     #[test]
     fn the_architect_is_given_the_unconfirmed_cards_and_the_side_reports_handed_in_before() {
         let mut old = at_version(13);
@@ -1487,10 +1488,7 @@ mod tests {
             [
                 ("design_card", "Design card 1 of work 1 to look at"),
                 ("design_card", "Design card 4 of work 1 to look at"),
-                (
-                    "other_question",
-                    "Look through the 2 side reports handed in before you ran"
-                ),
+                ("report", "Look through the 2 side reports handed in before you ran"),
             ]
         );
         let body: serde_json::Value = serde_json::from_str(&matters[2].2).unwrap();
@@ -1590,6 +1588,133 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    // Taken to version 20, a database of one project gives its architect's wakes that project, ends the wake still open
+    // at a cell of the old graph with its round and answers the asks only that wake waited for or that asked to approve
+    // changes; a matter not handled takes the kind of the new graph with its old kind as its detail, one held for
+    // approval is back in the queue, one held by an ask still waiting stays held, to go back to the cell that decides
+    // it, and one handled stays as it was; the architect's hold on new starts is the project's.
+    #[test]
+    fn each_project_has_its_architect_on_the_new_graph() {
+        let mut old = at_version(19);
+        old.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '15')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'architect', 'A5')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, ended) VALUES (1, 'architect', 'A12', 'done')",
+                [],
+            )?;
+            for (work, cell, ended) in [(1, "15", Some(1)), (2, "A5", None), (3, "A3", Some(1))] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                     VALUES (?1, 1, ?2, '{}', 'c', 1, ?3)",
+                    params![work, cell, ended],
+                )?;
+            }
+            for body in [
+                r#"{"from":"architect","kind":"changes"}"#,
+                r#"{"from":"architect","holds":[3]}"#,
+                r#"{"from":"architect"}"#,
+            ] {
+                tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 1, ?1)", [body])?;
+            }
+            // Each matter's kind, the engineer's work that raised it, how it is held and by which ask, and the wake
+            // that handled it.
+            type Old<'a> = (&'a str, Option<i64>, Option<&'a str>, Option<i64>, Option<i64>);
+            let matters: [Old; 4] = [
+                ("split", Some(1), None, None, None),
+                ("tidy_board", None, Some("approval"), None, Some(3)),
+                ("tool_failed", None, Some("owner_ask"), Some(2), Some(2)),
+                ("advance", None, None, None, Some(3)),
+            ];
+            for (kind, work, held, held_by, handled) in matters {
+                tx.execute(
+                    "INSERT INTO architect_matters (kind, what, body, item, work, round, at, held, held_by,
+                       handled_work, handled_round)
+                     VALUES (?1, 'w', '{}', 1, ?2, ?2, 1, ?3, ?4, ?5, ?6)",
+                    params![kind, work, held, held_by, handled, handled.map(|_| 1)],
+                )?;
+            }
+            tx.execute("INSERT INTO dispatch_holds (reason, since) VALUES ('architect', 1)", [])?;
+            tx.execute("INSERT INTO dispatch_holds (reason, since) VALUES ('tidying', 1)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let conn = old.conn();
+        let works: Vec<(Option<String>, Option<String>)> = {
+            let mut st = conn.prepare("SELECT project, ended FROM works ORDER BY id").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert_eq!(works[0], (None, None));
+        assert!(works[1].0.as_deref() == Some("p") && works[1].1.as_deref().is_some_and(|e| e.starts_with("stopped:")));
+        assert_eq!(works[2], (Some("p".into()), Some("done".into())));
+        let ended: Option<i64> = conn
+            .query_row("SELECT ended_at FROM rounds WHERE work = 2", [], |r| r.get(0))
+            .unwrap();
+        assert!(ended.is_some());
+        let answered: Vec<bool> = {
+            let mut st = conn
+                .prepare("SELECT answer IS NOT NULL FROM owner_asks ORDER BY id")
+                .unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert_eq!(answered, [true, false, true]);
+        type Matter = (String, Option<String>, Option<i64>, Option<String>, Option<i64>);
+        let matters: Vec<Matter> = {
+            let mut st = conn
+                .prepare("SELECT kind, detail, asked, resume_cell, handled_round FROM architect_matters ORDER BY id")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        let m = |kind: &str, detail: Option<&str>, asked: Option<i64>, cell: Option<&str>, handled: Option<i64>| {
+            (
+                kind.to_string(),
+                detail.map(str::to_string),
+                asked,
+                cell.map(str::to_string),
+                handled,
+            )
+        };
+        assert_eq!(
+            matters,
+            [
+                m("engineer_question", Some("split"), None, None, None),
+                m("set_straight", Some("tidy_board"), None, None, None),
+                m("failure", Some("tool_failed"), Some(2), Some("F1"), None),
+                m("advance", None, None, None, Some(1)),
+            ]
+        );
+        let queue: Vec<i64> = {
+            let mut st = conn
+                .prepare("SELECT matter FROM architect_queue WHERE project = 'p'")
+                .unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert_eq!(queue, [1, 2]);
+        let holds: Vec<(String, String)> = {
+            let mut st = conn.prepare("SELECT project, reason FROM dispatch_holds").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert_eq!(holds, [("p".to_string(), "architect".to_string())]);
     }
 
     // Taken to version 19, a database has no plan: every item is ranked among its project's items by the order it was

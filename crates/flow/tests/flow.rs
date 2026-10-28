@@ -29,13 +29,15 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-// The architect's graph compiles with no finding, as the design the owner approved before this repository drew it, with
-// P11 the owner added between P8 and P9: as many cells, rows and states.
+// The architect's graph compiles with no finding, as the design the owner approved: its wake (W0, W1, U1 to U3), the
+// queue (D0) and each matter's path, the review of a batch of item changes (B1, R1, X1, C1), the wrap-up (E1, E2), the
+// owner's ask (ASK), the tools (TOOLS), the observer (S1) and the study of a new policy (P1 to P11): as many cells, rows
+// and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (27, 87, 534));
+    assert_eq!((s.cells, s.rows, s.states), (38, 133, 146));
 }
 
 // The rounds section reaches the compiled flow with every kind of failed run, and gives every agent's cell, and only

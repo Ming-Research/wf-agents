@@ -95,10 +95,10 @@ started: Array<number>,
  */
 releasing: Array<number>, 
 /**
- * Whether the owner started the architect since every work was last paused: its wakes go on whatever the global
- * state.
+ * The projects whose architect the owner started since every work was last paused: its wakes go on whatever the
+ * global state.
  */
-architect_started: boolean, 
+architects_started: Array<string>, 
 /**
  * The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
  * before the pause, unless the owner asked for it.
@@ -196,7 +196,7 @@ export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", des
  */
 export type WorkSummary = { id: number, 
 /**
- * The item worked on, its title and its project; none for a work on no item.
+ * The item worked on, its title and its project; for a wake of an architect, no item and the architect's project.
  */
 item: number | null, title: string | null, project: string | null, 
 /**
@@ -444,9 +444,10 @@ read_at: number | null,
  */
 ask: number | null, ask_kinds: Array<AskKind>, 
 /**
- * Whether it came of a wake of the architect: told by one of its rounds, or the engine's notice of one.
+ * For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
+ * architect's project; none otherwise.
  */
-architect: boolean, };
+architect: string | null, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -468,13 +469,9 @@ why?: string,
 reply?: JsonValue, 
 /**
  * For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
- * the ask lists; for its changes, approve_all, approve_some or approve_none.
+ * the ask lists.
  */
-choice?: string, 
-/**
- * For the architect's changes approved in part, the number of each change approved.
- */
-approved?: Array<number>, };
+choice?: string, };
 
 /**
  * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
@@ -878,21 +875,29 @@ models: { [key in string]: string }, highest_level: string | null, architect: st
 export type NewLevel = { level: string, };
 
 /**
- * The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy it works by,
- * and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+ * A project's architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the item changes
+ * its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations. A
+ * wake is a work of the architect's graph for the project, on no item.
  */
 export type Architect = { 
+/**
+ * The project whose architect it is.
+ */
+project: string, 
+/**
+ * Every project of the configuration, each of which has its architect.
+ */
+projects: Array<string>, 
 /**
  * Its wakes, newest first.
  */
 wakes: Array<Wake>, 
 /**
- * The matters it has not handled: those due and not held, in the order they came; then those held; then those
- * not due yet, the soonest first.
+ * The matters it has not handled: those in its queue, in the order they came; then those an ask of the owner holds.
  */
 queue: Array<Matter>, 
 /**
- * What stops new works from starting, oldest first.
+ * What stops the project's new works from starting, oldest first.
  */
 holds: Array<DispatchHold>, 
 /**
@@ -900,21 +905,33 @@ holds: Array<DispatchHold>,
  */
 asks: Array<OwnerAsk>, 
 /**
- * Its log over its latest fifty wakes, newest first: each answer to whether what runs fits, and each matter it
- * picked, with what it made of it.
+ * Its log over its latest fifty wakes, newest first: its judgments of the whole, and each matter it took with
+ * what each round of its path answered.
  */
 log: Array<LogEntry>, 
 /**
- * The policy in force; none before the first takes effect.
+ * The item changes its batches made or dropped, newest first.
+ */
+changes: Array<ItemChange>, 
+/**
+ * The policy in force for the project; none before the first takes effect.
  */
 policy: PolicyInForce | null, 
 /**
  * The policy a wake is setting now; none while no wake sets one.
  */
-setting: PolicySetting | null, understanding: Understanding, };
+setting: PolicySetting | null, understanding: Understanding, 
+/**
+ * The project's observations: the open ones first, then those closed, each newest first.
+ */
+observations: Array<Observation>, 
+/**
+ * The project's tags for observations, each with what it covers.
+ */
+tags: Array<Tag>, };
 
 /**
- * One wake of the architect.
+ * One wake of an architect.
  */
 export type Wake = { work: WorkSummary, 
 /**
@@ -926,31 +943,36 @@ woke_for: Array<Queued>,
  */
 handled: number, 
 /**
- * The matter it handles now, as its last pick chose it, until it records that matter; none when it handles none,
- * or is over.
+ * The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
+ * when it handles none, or is over.
  */
-handling: JsonValue | null, };
+handling: number | null, };
 
 /**
- * A matter as the architect's queue gave it to a wake.
+ * A matter as an architect's queue gave it to a wake.
  */
-export type Queued = { matter: number, kind: string, what: string, item: number | null, };
+export type Queued = { matter: number, kind: string, detail: string | null, what: string, item: number | null, };
 
 /**
- * A matter for the architect that it has not handled.
+ * A matter for an architect that it has not handled.
  */
 export type Matter = { id: number, 
 /**
- * Its kind, one of the flow's kinds of matter for the architect.
+ * Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
+ * other_architect or slots_free.
  */
 kind: string, 
+/**
+ * What more its kind says, such as an engineer's question's own kind.
+ */
+detail: string | null, 
 /**
  * What it is, in one sentence, as the engine wrote it.
  */
 what: string, 
 /**
- * Who raised it: `work`, a round of a work; `architect`, a round of its own; `owner`, the owner's words or
- * answer; `engine`, the engine.
+ * Who raised it: `work`, a round of a work; `architect`, a round of an architect's; `owner`, the owner's words;
+ * `engine`, the engine.
  */
 source: string, 
 /**
@@ -962,42 +984,107 @@ item: number | null, title: string | null,
  */
 work: number | null, round: number | null, 
 /**
- * When it came, and when it is due: none for a matter due at once.
+ * When it came.
  */
-at: number, due: number | null, 
+at: number, 
 /**
- * For a matter due once an item's work ends: that item.
+ * The ask of the owner that holds it until answered, and the cell it goes back to with the answer.
  */
-due_item: number | null, 
+asked: number | null, resume_cell: string | null, 
 /**
- * Why it waits though picked (`owner_ask`, `approval`), and the ask of the owner that holds it.
+ * Whether the owner answered that ask, so that it is back in the queue, for the cell that asked.
  */
-held: string | null, held_by: number | null, 
+answered: boolean, 
 /**
- * For a matter due and not held: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
- * `none`), and how long since it was due, in milliseconds.
+ * For a matter in the queue: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
+ * `none`), and how long since it came, in milliseconds.
  */
 waits: string | null, waited_ms: number | null, 
 /**
- * For the owner's answer to an ask that held a matter: that matter.
+ * Whether the report it holds was marked urgent.
  */
-answers: number | null, };
+urgent: boolean, };
 
 /**
- * What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
- * `policy`, while a new policy is set; since when; and for the architect's own hold, why, as it said it.
+ * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
+ * architect sets it straight; `policy`, while a new policy is set; since when; and for the architect's own hold, why,
+ * as it said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
 /**
- * What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.
+ * What a round of an architect handed back: its wake, its number in the wake, its cell, when it ended, and its answer.
  */
-export type Said = { work: number, round: number, at: number | null, value: JsonValue, };
+export type Said = { work: number, round: number, cell: string, at: number | null, value: JsonValue, };
 
 /**
- * One entry of the architect's log, by the wake and the round it starts at.
+ * One entry of an architect's log, by the wake and the round it starts at.
  */
-export type LogEntry = { "kind": "fit", work: number, round: number, at: number | null, fit: JsonValue, } | { "kind": "matter", work: number, round: number, at: number | null, pick: JsonValue, crux: Said | null, judgments: Array<Said>, looks: Array<Said>, recorded: number | null, };
+export type LogEntry = { "kind": "judgment", work: number, round: number, cell: string, at: number | null, value: JsonValue, } | { "kind": "matter", work: number, round: number, at: number | null, matter: number, matter_kind: string, what: string, rounds: Array<Said>, closed: number | null, };
+
+/**
+ * An item change an architect's batch made or dropped, with the matter it came from.
+ */
+export type ItemChange = { id: number, 
+/**
+ * The round that handed it in: its wake and its number.
+ */
+work: number, round: number, matter: number, 
+/**
+ * The change as handed in, with its reason.
+ */
+change: JsonValue, 
+/**
+ * made, or dropped when the review still found it wrong at its third look.
+ */
+state: string, 
+/**
+ * What it made, such as the item it created; for one dropped, what the review found.
+ */
+outcome: JsonValue | null, };
+
+/**
+ * One of a project's observations: something worth doing that no item does yet.
+ */
+export type Observation = { id: number, 
+/**
+ * What it is, why it is worth doing, and what happens if it is not done.
+ */
+what: string, 
+/**
+ * Its tags, from the project's set.
+ */
+tags: Array<string>, 
+/**
+ * Who found it, in what situation, and the matter it came from.
+ */
+source: string, times_reported: number, 
+/**
+ * What it refers to: PRs, branches, design cards, the owner's words.
+ */
+refs: Array<string>, 
+/**
+ * The item that took it in, which closes it once its work merges.
+ */
+folded_into: number | null, 
+/**
+ * Why it was closed (outdated, folded, owner or other), in a word and in a sentence; none while it is open.
+ */
+closed: string | null, closed_why: string | null, 
+/**
+ * When it was recorded, and last changed.
+ */
+created: number | null, updated: number | null, };
+
+/**
+ * A tag a project's observations may carry, with what it covers.
+ */
+export type Tag = { name: string, desc: string, };
+
+/**
+ * What the owner sends to close an observation: why.
+ */
+export type CloseObservation = { why: string, };
 
 /**
  * The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
@@ -1021,20 +1108,19 @@ export type Draft = { round: number, policy: JsonValue, probes: JsonValue, readi
 export type Reading = { round: number, reading: JsonValue, verdict: JsonValue, };
 
 /**
- * Where things stand, as the architect last wrote it: the state of things at its latest first question, what its
- * wrap-ups learned since, oldest first, and its latest check against the constitution with the mismatches with its
- * earlier judgments.
+ * Where the project stands, as its architect last wrote it: its latest understanding (the state of things, the
+ * direction, the mismatches and what is unclear), what its wrap-ups learned since and the notes written since, oldest
+ * first, and its latest check of the policy against the constitution.
  */
-export type Understanding = { state: Said | null, learned: Array<JsonValue>, against: Said | null, 
+export type Understanding = { state: Said | null, learned: Array<JsonValue>, notes: Array<JsonValue>, against: Said | null, 
 /**
- * Every version of the state of things, newest first: each wake's first question's answer, with what that
- * wake's wrap-up learned.
+ * Every version of the understanding, newest first, each with what the wrap-ups after it learned.
  */
 versions: Array<StateVersion>, };
 
 /**
- * One version of the state of things: what a wake's first question answered, by the wake and its round, with what
- * the wrap-up of that wake learned.
+ * One version of the understanding: what an understanding round answered, by the wake and its round, with what the
+ * wrap-ups after it, before the next version, learned.
  */
 export type StateVersion = { work: number, round: number, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
 
@@ -1550,6 +1636,10 @@ export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { 
  * The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
  */
 pauses: boolean, interject: boolean, main: boolean, 
+/**
+ * The row goes on without answering the cells that wait for an answer, which get it later another way.
+ */
+drops?: boolean, 
 /**
  * A row every agent's cell has.
  */

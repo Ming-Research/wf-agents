@@ -13,12 +13,12 @@ use crate::{ARCHITECT, Engine, values};
 
 /// The owner's global pause, while it holds, as keeping sessions warm reads it: whether the owner keeps the sessions of
 /// waiting works warm meanwhile (the switch beside the pause, on at first), the works the owner started, which run on
-/// despite it, and whether the owner started the architect, whose wakes then do.
+/// despite it, and the projects whose architect the owner started, whose wakes then do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GlobalPause {
     pub warm: bool,
     pub runs: BTreeSet<i64>,
-    pub architect: bool,
+    pub architects: BTreeSet<String>,
 }
 
 /// The agents' cells a work's next round may be at, from where it stands: the cell itself when it is an agent's, else
@@ -136,17 +136,20 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
         if w.flow_version != e.flow_now || e.done(&w)? {
             continue;
         }
-        if e.sessions.asked_new(w.id, w.graph == ARCHITECT) {
+        let wake = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
+        if e.sessions.asked_new(w.id, wake) {
             continue;
         }
         let g = e.graph_of(&w)?;
         let waited = match waited_on(e, &w, &g)? {
             Some(x) => x,
-            None if pause.is_some_and(|p| !p.runs.contains(&id) && !(p.architect && w.graph == ARCHITECT)) => Waited {
-                cell: w.pos.at.clone(),
-                on: "pause".to_string(),
-                what: "the owner paused every work".to_string(),
-            },
+            None if pause.is_some_and(|p| !p.runs.contains(&id) && !wake.is_some_and(|x| p.architects.contains(x))) => {
+                Waited {
+                    cell: w.pos.at.clone(),
+                    on: "pause".to_string(),
+                    what: "the owner paused every work".to_string(),
+                }
+            }
             None => continue,
         };
         let Some(next) = next_cells(&g, &w.pos) else {

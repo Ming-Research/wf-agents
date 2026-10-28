@@ -171,10 +171,10 @@ pub fn begin(conn: &Connection, work: i64, line: &str, cli: &str, cli_session: &
     Ok(())
 }
 
-/// A wake of the architect goes on in the CLI session the last wake left, unless a new policy ended it: its line's
-/// session is a row of this wake's with the same CLI session, which the next round of the line resumes. The first wake,
-/// and the first after a new policy took effect, start a new one at their first round; so does a wake that comes back
-/// to its start after its new policy ended its session.
+/// A wake of a project's architect goes on in the CLI session the project's last wake left, unless a new policy ended
+/// it: its line's session is a row of this wake's with the same CLI session, which the next round of the line resumes.
+/// The project's first wake, and the first after a new policy took effect, start a new one at their first round; so
+/// does a wake that comes back to its start after its new policy ended its session.
 pub fn wake(conn: &Connection, work: i64) -> Result<(), String> {
     let had: i64 = conn
         .query_row(
@@ -189,7 +189,9 @@ pub fn wake(conn: &Connection, work: i64) -> Result<(), String> {
     let last: Option<(String, String, Option<i64>)> = conn
         .query_row(
             "SELECT s.cli, s.cli_session, s.ended FROM sessions s JOIN works x ON x.id = s.work
-             WHERE x.graph = 'architect' AND s.line = 'architect' AND s.work < ?1 ORDER BY s.id DESC LIMIT 1",
+             WHERE x.graph = 'architect' AND s.line = 'architect' AND s.work < ?1
+               AND x.project = (SELECT project FROM works WHERE id = ?1)
+             ORDER BY s.id DESC LIMIT 1",
             [work],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -225,7 +227,7 @@ pub fn end(conn: &Connection, session: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// Ends the session a work's line has going on: a new policy ends the architect's.
+/// Ends the session a work's line has going on: a new policy ends the architect's, and a batch made ends its review's.
 pub fn end_line(conn: &Connection, work: i64, line: &str) -> Result<(), String> {
     conn.execute(
         "UPDATE sessions SET ended = ?3 WHERE work = ?1 AND line = ?2 AND ended IS NULL",

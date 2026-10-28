@@ -30,6 +30,13 @@ pub use choose::{Plan, Start};
 pub use held::Held;
 pub use round::{Round, RoundId};
 
+/// Whose next round the owner asked to start a new session: a work's, or a project's architect's.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Fresh {
+    Work(i64),
+    Architect(String),
+}
+
 /// The session manager as the engine holds it: the command line its agents run in, each CLI's version as it reported
 /// it, and the new sessions the owner asked for that have not started yet.
 pub struct Manager {
@@ -37,8 +44,8 @@ pub struct Manager {
     versions: BTreeMap<String, String>,
     /// The works whose next agent's round starts a new session, as the owner asked with its Start or Step.
     asked: BTreeSet<i64>,
-    /// Whether the architect's next round starts a new session for its wake, as the owner asked.
-    asked_wake: bool,
+    /// The projects whose architect's next round starts a new session for its wake, as the owner asked.
+    asked_wake: BTreeSet<String>,
 }
 
 impl Manager {
@@ -47,35 +54,37 @@ impl Manager {
             agents,
             versions: BTreeMap::new(),
             asked: BTreeSet::new(),
-            asked_wake: false,
+            asked_wake: BTreeSet::new(),
         }
     }
 
-    /// Asks that a work's next agent's round start a new session for its cell's line, or with none, that the
-    /// architect's next round start one for its wake: the owner chose a new session with Start or Step.
-    pub fn ask_new(&mut self, work: Option<i64>) {
-        match work {
-            Some(w) => {
+    /// Asks that a work's next agent's round start a new session for its cell's line, or that a project's architect's
+    /// next round start one for its wake: the owner chose a new session with Start or Step.
+    pub fn ask_new(&mut self, fresh: Fresh) {
+        match fresh {
+            Fresh::Work(w) => {
                 self.asked.insert(w);
             }
-            None => self.asked_wake = true,
+            Fresh::Architect(p) => {
+                self.asked_wake.insert(p);
+            }
         }
     }
 
-    /// Whether the owner asked that a work's next agent's round start a new session; `wake` says the work is a wake of
-    /// the architect, for which the owner's ask is the architect's.
-    pub fn asked_new(&self, work: i64, wake: bool) -> bool {
-        self.asked.contains(&work) || (wake && self.asked_wake)
+    /// Whether the owner asked that a work's next agent's round start a new session; `wake` names the project of a
+    /// work that is a wake of its architect, for which the owner's ask is that architect's.
+    pub fn asked_new(&self, work: i64, wake: Option<&str>) -> bool {
+        self.asked.contains(&work) || wake.is_some_and(|p| self.asked_wake.contains(p))
     }
 
     /// Where a work's next round at a cell runs ([`choose::plan`]), unless the owner asked for a new session, which it
     /// then starts, recorded as the owner's; the session the line had going on ends as at any new session, and is
-    /// otherwise left as it is.
+    /// otherwise left as it is. `wake` names the project of a wake of its architect.
     pub fn plan(
         &self,
         conn: &Connection,
         work: i64,
-        wake: bool,
+        wake: Option<&str>,
         cell: &CompiledCell,
         limit: u64,
         on: &str,
@@ -93,10 +102,10 @@ impl Manager {
     }
 
     /// The new session the owner asked for started: the work's next rounds go on in it.
-    pub fn met(&mut self, work: i64, wake: bool) {
+    pub fn met(&mut self, work: i64, wake: Option<&str>) {
         self.asked.remove(&work);
-        if wake {
-            self.asked_wake = false;
+        if let Some(p) = wake {
+            self.asked_wake.remove(p);
         }
     }
 

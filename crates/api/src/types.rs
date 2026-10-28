@@ -78,9 +78,9 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
-    /// Whether the owner started the architect since every work was last paused: its wakes go on whatever the global
-    /// state.
-    pub architect_started: bool,
+    /// The projects whose architect the owner started since every work was last paused: its wakes go on whatever the
+    /// global state.
+    pub architects_started: Vec<String>,
     /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
     /// before the pause, unless the owner asked for it.
     pub running: Option<i64>,
@@ -218,7 +218,7 @@ pub enum Waits {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct WorkSummary {
     pub id: i64,
-    /// The item worked on, its title and its project; none for a work on no item.
+    /// The item worked on, its title and its project; for a wake of an architect, no item and the architect's project.
     pub item: Option<i64>,
     pub title: Option<String>,
     pub project: Option<String>,
@@ -430,8 +430,9 @@ pub struct OwnerMessage {
     /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
     pub ask: Option<i64>,
     pub ask_kinds: Vec<AskKind>,
-    /// Whether it came of a wake of the architect: told by one of its rounds, or the engine's notice of one.
-    pub architect: bool,
+    /// For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
+    /// architect's project; none otherwise.
+    pub architect: Option<String>,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -459,14 +460,10 @@ pub struct Answer {
     #[ts(optional)]
     pub reply: Option<Value>,
     /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
-    /// the ask lists; for its changes, approve_all, approve_some or approve_none.
+    /// the ask lists.
     #[serde(default)]
     #[ts(optional)]
     pub choice: Option<String>,
-    /// For the architect's changes approved in part, the number of each change approved.
-    #[serde(default)]
-    #[ts(optional)]
-    pub approved: Option<Vec<i64>>,
 }
 
 /// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
@@ -855,30 +852,40 @@ pub struct Shown {
     pub value: Value,
 }
 
-/// The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy it works by,
-/// and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+/// A project's architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the item changes
+/// its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations. A
+/// wake is a work of the architect's graph for the project, on no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
+    /// The project whose architect it is.
+    pub project: String,
+    /// Every project of the configuration, each of which has its architect.
+    pub projects: Vec<String>,
     /// Its wakes, newest first.
     pub wakes: Vec<Wake>,
-    /// The matters it has not handled: those due and not held, in the order they came; then those held; then those
-    /// not due yet, the soonest first.
+    /// The matters it has not handled: those in its queue, in the order they came; then those an ask of the owner holds.
     pub queue: Vec<Matter>,
-    /// What stops new works from starting, oldest first.
+    /// What stops the project's new works from starting, oldest first.
     pub holds: Vec<DispatchHold>,
     /// What its wakes asked the owner, oldest first.
     pub asks: Vec<OwnerAsk>,
-    /// Its log over its latest fifty wakes, newest first: each answer to whether what runs fits, and each matter it
-    /// picked, with what it made of it.
+    /// Its log over its latest fifty wakes, newest first: its judgments of the whole, and each matter it took with
+    /// what each round of its path answered.
     pub log: Vec<LogEntry>,
-    /// The policy in force; none before the first takes effect.
+    /// The item changes its batches made or dropped, newest first.
+    pub changes: Vec<ItemChange>,
+    /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
     /// The policy a wake is setting now; none while no wake sets one.
     pub setting: Option<PolicySetting>,
     pub understanding: Understanding,
+    /// The project's observations: the open ones first, then those closed, each newest first.
+    pub observations: Vec<Observation>,
+    /// The project's tags for observations, each with what it covers.
+    pub tags: Vec<Tag>,
 }
 
-/// One wake of the architect.
+/// One wake of an architect.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Wake {
     pub work: WorkSummary,
@@ -886,30 +893,34 @@ pub struct Wake {
     pub woke_for: Vec<Queued>,
     /// How many matters it handled.
     pub handled: i64,
-    /// The matter it handles now, as its last pick chose it, until it records that matter; none when it handles none,
-    /// or is over.
-    pub handling: Option<Value>,
+    /// The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
+    /// when it handles none, or is over.
+    pub handling: Option<i64>,
 }
 
-/// A matter as the architect's queue gave it to a wake.
+/// A matter as an architect's queue gave it to a wake.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Queued {
     pub matter: i64,
     pub kind: String,
+    pub detail: Option<String>,
     pub what: String,
     pub item: Option<i64>,
 }
 
-/// A matter for the architect that it has not handled.
+/// A matter for an architect that it has not handled.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Matter {
     pub id: i64,
-    /// Its kind, one of the flow's kinds of matter for the architect.
+    /// Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
+    /// other_architect or slots_free.
     pub kind: String,
+    /// What more its kind says, such as an engineer's question's own kind.
+    pub detail: Option<String>,
     /// What it is, in one sentence, as the engine wrote it.
     pub what: String,
-    /// Who raised it: `work`, a round of a work; `architect`, a round of its own; `owner`, the owner's words or
-    /// answer; `engine`, the engine.
+    /// Who raised it: `work`, a round of a work; `architect`, a round of an architect's; `owner`, the owner's words;
+    /// `engine`, the engine.
     pub source: String,
     /// The item it concerns, and the item's title.
     pub item: Option<i64>,
@@ -917,24 +928,24 @@ pub struct Matter {
     /// The round that raised it, by its work and its number in the work.
     pub work: Option<i64>,
     pub round: Option<i64>,
-    /// When it came, and when it is due: none for a matter due at once.
+    /// When it came.
     pub at: i64,
-    pub due: Option<i64>,
-    /// For a matter due once an item's work ends: that item.
-    pub due_item: Option<i64>,
-    /// Why it waits though picked (`owner_ask`, `approval`), and the ask of the owner that holds it.
-    pub held: Option<String>,
-    pub held_by: Option<i64>,
-    /// For a matter due and not held: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
-    /// `none`), and how long since it was due, in milliseconds.
+    /// The ask of the owner that holds it until answered, and the cell it goes back to with the answer.
+    pub asked: Option<i64>,
+    pub resume_cell: Option<String>,
+    /// Whether the owner answered that ask, so that it is back in the queue, for the cell that asked.
+    pub answered: bool,
+    /// For a matter in the queue: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
+    /// `none`), and how long since it came, in milliseconds.
     pub waits: Option<String>,
     pub waited_ms: Option<i64>,
-    /// For the owner's answer to an ask that held a matter: that matter.
-    pub answers: Option<i64>,
+    /// Whether the report it holds was marked urgent.
+    pub urgent: bool,
 }
 
-/// What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
-/// `policy`, while a new policy is set; since when; and for the architect's own hold, why, as it said it.
+/// What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
+/// architect sets it straight; `policy`, while a new policy is set; since when; and for the architect's own hold, why,
+/// as it said it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DispatchHold {
     pub reason: String,
@@ -942,39 +953,94 @@ pub struct DispatchHold {
     pub why: Option<String>,
 }
 
-/// What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.
+/// What a round of an architect handed back: its wake, its number in the wake, its cell, when it ended, and its answer.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Said {
     pub work: i64,
     pub round: i64,
+    pub cell: String,
     pub at: Option<i64>,
     pub value: Value,
 }
 
-/// One entry of the architect's log, by the wake and the round it starts at.
+/// One entry of an architect's log, by the wake and the round it starts at.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LogEntry {
-    /// Its answer to whether what runs and what starts next fit.
-    Fit {
+    /// A judgment of the whole: understanding the project (U1), whether the policy is right (U2), whether what runs fits
+    /// (U3), the review of a batch's item changes and their revision (R1, X1), a rethink after a batch (C1), a wrap-up
+    /// (E1).
+    Judgment {
         work: i64,
         round: i64,
+        cell: String,
         at: Option<i64>,
-        fit: Value,
+        value: Value,
     },
-    /// A matter it picked: the pick (the ranked list and the one chosen), the crux, each judgment and each second look
-    /// at it in order (a second look that does not stand sends it back to be judged again), and the round that
-    /// recorded it; none for one it did not record, such as one that needed a new policy.
+    /// A matter taken: its number and kind, what it is, each round of its path in order with what it answered, and the
+    /// round that closed it; none for one an ask of the owner holds, or still in hand.
     Matter {
         work: i64,
         round: i64,
         at: Option<i64>,
-        pick: Value,
-        crux: Option<Said>,
-        judgments: Vec<Said>,
-        looks: Vec<Said>,
-        recorded: Option<i64>,
+        matter: i64,
+        matter_kind: String,
+        what: String,
+        rounds: Vec<Said>,
+        closed: Option<i64>,
     },
+}
+
+/// An item change an architect's batch made or dropped, with the matter it came from.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ItemChange {
+    pub id: i64,
+    /// The round that handed it in: its wake and its number.
+    pub work: i64,
+    pub round: i64,
+    pub matter: i64,
+    /// The change as handed in, with its reason.
+    pub change: Value,
+    /// made, or dropped when the review still found it wrong at its third look.
+    pub state: String,
+    /// What it made, such as the item it created; for one dropped, what the review found.
+    pub outcome: Option<Value>,
+}
+
+/// One of a project's observations: something worth doing that no item does yet.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Observation {
+    pub id: i64,
+    /// What it is, why it is worth doing, and what happens if it is not done.
+    pub what: String,
+    /// Its tags, from the project's set.
+    pub tags: Vec<String>,
+    /// Who found it, in what situation, and the matter it came from.
+    pub source: String,
+    pub times_reported: i64,
+    /// What it refers to: PRs, branches, design cards, the owner's words.
+    pub refs: Vec<String>,
+    /// The item that took it in, which closes it once its work merges.
+    pub folded_into: Option<i64>,
+    /// Why it was closed (outdated, folded, owner or other), in a word and in a sentence; none while it is open.
+    pub closed: Option<String>,
+    pub closed_why: Option<String>,
+    /// When it was recorded, and last changed.
+    pub created: Option<i64>,
+    pub updated: Option<i64>,
+}
+
+/// A tag a project's observations may carry, with what it covers.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Tag {
+    pub name: String,
+    pub desc: String,
+}
+
+/// What the owner sends to close an observation: why.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct CloseObservation {
+    pub why: String,
 }
 
 /// The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
@@ -1012,21 +1078,21 @@ pub struct Reading {
     pub verdict: Value,
 }
 
-/// Where things stand, as the architect last wrote it: the state of things at its latest first question, what its
-/// wrap-ups learned since, oldest first, and its latest check against the constitution with the mismatches with its
-/// earlier judgments.
+/// Where the project stands, as its architect last wrote it: its latest understanding (the state of things, the
+/// direction, the mismatches and what is unclear), what its wrap-ups learned since and the notes written since, oldest
+/// first, and its latest check of the policy against the constitution.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Understanding {
     pub state: Option<Said>,
     pub learned: Vec<Value>,
+    pub notes: Vec<Value>,
     pub against: Option<Said>,
-    /// Every version of the state of things, newest first: each wake's first question's answer, with what that
-    /// wake's wrap-up learned.
+    /// Every version of the understanding, newest first, each with what the wrap-ups after it learned.
     pub versions: Vec<StateVersion>,
 }
 
-/// One version of the state of things: what a wake's first question answered, by the wake and its round, with what
-/// the wrap-up of that wake learned.
+/// One version of the understanding: what an understanding round answered, by the wake and its round, with what the
+/// wrap-ups after it, before the next version, learned.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StateVersion {
     pub work: i64,

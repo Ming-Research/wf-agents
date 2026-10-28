@@ -25,7 +25,7 @@
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
-//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:architect` for where the architect works),
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:architect` for where an architect works),
 //! `format:common`, `format:<cell>` and `inputs:<cell>`. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
@@ -354,9 +354,12 @@ impl Context<'_> {
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
         // of each setting the formats and the rules name is written beside its name, and the kinds of question the
-        // project cannot meet are left out of the formats. A wake of the architect is on no project.
-        let named = item.map(|i| i.project.as_str()).unwrap_or_default();
-        let project = item.and_then(|i| e.config.config.projects.get(&i.project));
+        // project cannot meet are left out of the formats. A wake of an architect is for its project.
+        let named = item
+            .map(|i| i.project.as_str())
+            .or(w.project.as_deref())
+            .unwrap_or_default();
+        let project = e.config.config.projects.get(named);
         let gone = kinds_left_out(g, project);
         // The forms every return of the session's line shares: only those some cell of the line has.
         let common = common_format_of(g, &sessions::format_cells(g, c), &gone);
@@ -372,21 +375,9 @@ impl Context<'_> {
         if !numbered.is_empty() {
             m.give(format!("inputs:{}", c.id), Value::String(numbered));
         }
-        // A project's own rules; the architect, over every project, is given each project's.
+        // A project's own rules, the architect's of its project included.
         let mut rules = Vec::new();
-        let mut own: Vec<String> = Vec::new();
-        match project {
-            Some(p) => own.extend(p.rules.iter().cloned()),
-            None => {
-                for p in e.config.config.projects.values() {
-                    for r in &p.rules {
-                        if !own.contains(r) {
-                            own.push(r.clone());
-                        }
-                    }
-                }
-            }
-        }
+        let own: Vec<String> = project.map(|p| p.rules.clone()).unwrap_or_default();
         for name in own {
             let Some(text) = e.config.config.rules.get(&name) else {
                 continue;
@@ -401,12 +392,12 @@ impl Context<'_> {
                 rules.push(m.give(format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        // A line the configuration keeps from changing anything only reads the worktree. The architect works in a
-        // directory of its own, with every project's checkout to read.
+        // A line the configuration keeps from changing anything only reads the worktree. An architect works in a
+        // directory of its own, with its project's checkout to read.
         let line = crate::line_of(g, c);
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
         let workspace = if g.name == ARCHITECT {
-            Some(m.give("work:architect".into(), Value::String(architect_workspace(e))))
+            Some(m.give("work:architect".into(), Value::String(architect_workspace(e, named))))
         } else {
             workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
@@ -573,20 +564,30 @@ impl Writer {
     }
 }
 
-/// Where the architect works, what `work:architect` gives: a directory of its own, in which it only reads, and every
-/// project's checkout, which it may read, each with the branch the flow calls main there.
-fn architect_workspace(e: &Engine) -> String {
-    let dir = crate::architect::workdir(&e.data);
+/// Where a project's architect works, what `work:architect` gives: a directory of its own, in which it only reads, and
+/// its project's checkout, which it may read, with the branch the flow calls main there. Other projects it reads with
+/// the query tool.
+fn architect_workspace(e: &Engine, project: &str) -> String {
+    let dir = crate::architect::workdir(&e.data, project);
     let mut out = format!(
-        "Your working directory is {}, a directory of your own: you only read, and change and commit nothing, there or \
-         anywhere. You may read each project's checkout:",
+        "You are the architect of the project {project}. Your working directory is {}, a directory of your own: you \
+         only read, and change and commit nothing, there or anywhere.",
         dir.display()
     );
-    for (name, p) in &e.config.config.projects {
+    if let Some(p) = e.config.config.projects.get(project) {
         out.push_str(&format!(
-            "\n- {name}: {}, whose main is the branch {}",
+            " You may read the project's checkout, {}, whose main is the branch {}.",
             p.checkout.display(),
             p.main
+        ));
+    }
+    let others: Vec<&String> = e.config.config.projects.keys().filter(|n| *n != project).collect();
+    if !others.is_empty() {
+        let names: Vec<&str> = others.iter().map(|n| n.as_str()).collect();
+        out.push_str(&format!(
+            " The other projects ({}) have architects of their own: read their items with the query tool, and tell \
+             their architects what they must know with a message.",
+            names.join(", ")
         ));
     }
     out

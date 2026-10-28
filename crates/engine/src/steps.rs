@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, actions, architect, checks, git, tools, values};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -163,7 +163,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 })
                 .map_err(sql)?;
             if why == sessions::Start::Owner {
-                e.sessions.met(w.id, g.name == ARCHITECT);
+                e.sessions.met(w.id, w.project.as_deref());
             }
             (id, None, fresh)
         }
@@ -198,20 +198,20 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ];
         words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
     });
-    // A work runs in its worktree; the architect in a directory of its own, with every project's checkout to read.
+    // A work runs in its worktree; a project's architect in a directory of its own, with its project's checkout to
+    // read.
     let wt = match (&w.worktree, &project) {
         (Some(wt), _) => wt.clone(),
         (None, Some(p)) => p.checkout.clone(),
-        (None, None) => architect::made_workdir(&e.data)?,
+        (None, None) => architect::made_workdir(&e.data, architect::project_of(w)?)?,
     };
     let mut readable = readable_dirs(e);
     if g.name == ARCHITECT {
         readable.extend(
-            e.config
-                .config
-                .projects
-                .values()
-                .filter_map(|p| std::fs::canonicalize(&p.checkout).ok()),
+            w.project
+                .as_ref()
+                .and_then(|p| e.config.config.projects.get(p))
+                .and_then(|p| std::fs::canonicalize(&p.checkout).ok()),
         );
     }
     let req = Request {
@@ -371,8 +371,9 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
 }
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
-/// advisor, which is the engineer with a higher model; for the architect, and the new architects that read a policy,
-/// the level the installation names for the architect.
+/// advisor, which is the engineer with a higher model; for the architect, the review of its item changes and the new
+/// architects that read a policy, the level the installation names for the architect; for the search of
+/// observations, the level it names for the observer.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -381,6 +382,7 @@ pub fn level_of(
 ) -> Result<(String, config::Level, config::Cli), String> {
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
+        None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -427,9 +429,8 @@ fn compose(
     let line = sessions::choose::line_of(cell);
     let model = level_of(e, g, cell, item)?.1.model;
     let limit = e.config.config.install.agents.context_limit;
-    let mut plan = e
-        .sessions
-        .plan(e.db.conn(), w.id, g.name == ARCHITECT, cell, limit, &model)?;
+    let wake = w.project.as_deref().filter(|_| g.name == ARCHITECT);
+    let mut plan = e.sessions.plan(e.db.conn(), w.id, wake, cell, limit, &model)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
@@ -719,6 +720,12 @@ pub fn finish(
     let next = g.step(&w.pos, row)?;
     let mut moved = w.clone();
     moved.pos = next;
+    // What an architect's round does is the architect's; every other step the engine's.
+    let actor = if g.name == ARCHITECT && cell.kind == "agent" {
+        Actor::Architect
+    } else {
+        Actor::Engine
+    };
     let ctx = actions::Ctx {
         work: w.clone(),
         item: e.subject(w).ok().flatten(),
@@ -745,7 +752,7 @@ pub fn finish(
         ..ended
     };
     let mut done: Vec<String> = Vec::new();
-    e.db.write(Actor::Engine, |tx| {
+    e.db.write(actor, |tx| {
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
         if let Some(h) = &head_after {
             tx.execute(
@@ -900,17 +907,12 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_wake") => json!({}),
         Some("wake") => architect::wake(e, w)?,
-        Some("submit_changes") => architect::submit_changes(e, w, &cell.id, round)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };
     if cell.rows.is_empty() {
-        if step.as_deref() == Some("end_wake") {
-            // The wake ends with the next looks it set queued for the architect.
-            let looks = architect::next_looks(&gathered, round);
-            return finish_end(e, w, round, output, &|tx| architect::queue_looks(tx, &looks));
-        }
         let output = if step.as_deref() == Some("end_work") {
             end_work(e, w)?
         } else {
@@ -1021,7 +1023,9 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
         .filter(|f| f.starts_with("research/"))
         .collect();
     Ok(Some(db::Matter {
-        kind: "report_followup".into(),
+        project: item.project.clone(),
+        kind: "report".into(),
+        detail: Some("followup".into()),
         what: format!(
             "What to do next after the report of item {} ({}): {}",
             item.id,
@@ -1031,7 +1035,6 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
         body: json!({ "followup": followup, "reports": reports, "commit": commit }),
         item: Some(item.id),
         raised: Some((w.id, round)),
-        ..db::Matter::default()
     }))
 }
 

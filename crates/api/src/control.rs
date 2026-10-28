@@ -1,13 +1,13 @@
 //! What the owner asks of the running engine, shared by the interface's handlers and the engine's loop, with the signal
 //! that wakes the loop at once when the owner asks: whether every work is paused and whether waiting sessions are kept
-//! warm meanwhile, the works and the architect the owner started, the round of one work or of the architect and
-//! whether it starts a new session, and what a round would be; and the work whose round the engine runs now, which the
-//! page shows.
+//! warm meanwhile, the works and the projects' architects the owner started, the round of one work or of a project's
+//! architect and whether it starts a new session, and what a round would be; and the work whose round the engine runs
+//! now, which the page shows.
 //!
 //! Each work follows the global pause and start, unless the owner started it or paused it, and the later of the two
 //! wins: the global pause stops every work and makes those the owner started follow it again, a work's Start runs it
 //! whatever the global state, and a work's own pause, which the database keeps, holds until the owner starts it again.
-//! The architect's wakes are taken the same way.
+//! Each project's architect's wakes are taken the same way.
 
 use std::collections::BTreeSet;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -15,6 +15,8 @@ use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crate::{NextRound, Status};
+
+pub use sessions::Fresh;
 
 /// What the owner has asked, as the loop last saw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,16 +32,17 @@ pub struct Asked {
     /// The works the owner started whose own pause the engine is still to lift, as the owner: a work on an item holds no
     /// slot while it is paused, so its pause is lifted once its machine has a slot free.
     pub releasing: BTreeSet<i64>,
-    /// Whether the owner started the architect since every work was last paused: its wakes go on, and one starts when a
-    /// matter is due, whatever the global state.
-    pub architect_started: bool,
-    /// Whether the engine is still to lift, as the owner, the pause of the wake that runs, which the owner started.
-    pub architect_releasing: bool,
+    /// The projects whose architect the owner started since every work was last paused: its wakes go on, and one starts
+    /// when its queue has a matter, whatever the global state.
+    pub architects_started: BTreeSet<String>,
+    /// The projects whose architect's wake that runs the engine is still to lift the pause of, as the owner, who
+    /// started it.
+    pub architects_releasing: BTreeSet<String>,
     /// The work whose round the owner asked for, until the loop has taken it.
     pub step: Option<i64>,
-    /// Whether the owner asked for the architect's round, until the loop has taken it: the next round of the wake that
-    /// runs, or a wake started paused and its first round when the architect's queue would wake it.
-    pub architect: bool,
+    /// The project whose architect's round the owner asked for, until the loop has taken it: the next round of its wake
+    /// that runs, or a wake started paused and its first round when its queue would wake it.
+    pub architect: Option<String>,
     /// How many times the owner asked what a work's next round would be: each ask wakes the loop.
     pub previews: u64,
     /// How many times the owner decided something the engine reads, such as an answer or a ruling: each wakes the
@@ -48,16 +51,15 @@ pub struct Asked {
 }
 
 /// What the loop does next.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Next {
     /// The round of the one work the owner asked for, first.
     Step(i64),
-    /// The architect's round the owner asked for.
-    Architect,
+    /// The round of a project's architect the owner asked for.
+    Architect(String),
     /// One step of the works that go on by themselves.
     Pass,
-    /// While every work is paused, one step of the works the owner started, and of the architect when the owner
-    /// started it.
+    /// While every work is paused, one step of the works the owner started, and of the architects the owner started.
     Started,
     /// Nothing, until the owner asks for something or the idle time passes.
     Wait,
@@ -65,19 +67,19 @@ pub enum Next {
 
 impl Asked {
     pub fn next(&self) -> Next {
-        match (self.step, self.paused) {
-            (Some(w), _) => Next::Step(w),
-            (None, _) if self.architect => Next::Architect,
-            (None, false) => Next::Pass,
-            (None, true) if !self.started.is_empty() || self.architect_started => Next::Started,
-            (None, true) => Next::Wait,
+        match (self.step, self.paused, &self.architect) {
+            (Some(w), _, _) => Next::Step(w),
+            (None, _, Some(p)) => Next::Architect(p.clone()),
+            (None, false, None) => Next::Pass,
+            (None, true, None) if !self.started.is_empty() || !self.architects_started.is_empty() => Next::Started,
+            (None, true, None) => Next::Wait,
         }
     }
 
     /// Whether the owner's global pause holds a work back now: every work is paused and the owner did not start it
-    /// since; `wake` says the work is a wake of the architect.
-    pub fn holds(&self, work: i64, wake: bool) -> bool {
-        self.paused && !self.started.contains(&work) && !(wake && self.architect_started)
+    /// since; `wake` names the project of a work that is a wake of its architect.
+    pub fn holds(&self, work: i64, wake: Option<&str>) -> bool {
+        self.paused && !self.started.contains(&work) && !wake.is_some_and(|p| self.architects_started.contains(p))
     }
 }
 
@@ -89,8 +91,8 @@ pub struct Control {
     changed: Condvar,
     previews: Mutex<Vec<Preview>>,
     /// The new sessions the owner asked for with a Start or a round, until the loop has handed them to the session
-    /// manager: a work's, or with none the architect's.
-    fresh: Mutex<Vec<Option<i64>>>,
+    /// manager: a work's, or a project's architect's.
+    fresh: Mutex<Vec<Fresh>>,
     /// The work the engine is taking a step of now.
     running: Mutex<Option<i64>>,
 }
@@ -108,10 +110,10 @@ impl Default for Control {
                 keep_warm: true,
                 started: BTreeSet::new(),
                 releasing: BTreeSet::new(),
-                architect_started: false,
-                architect_releasing: false,
+                architects_started: BTreeSet::new(),
+                architects_releasing: BTreeSet::new(),
                 step: None,
-                architect: false,
+                architect: None,
                 previews: 0,
                 woken: 0,
             }),
@@ -129,14 +131,14 @@ impl Control {
     }
 
     /// Pauses every work, or lets them go on: a round under way ends first, and nothing starts after it. Pausing makes
-    /// the works and the architect the owner started follow the global state again; letting them go on lifts no work's
+    /// the works and the architects the owner started follow the global state again; letting them go on lifts no work's
     /// own pause.
     pub fn set_paused(&self, paused: bool) {
         let mut a = lock(&self.asked);
         a.paused = paused;
         if paused {
             a.started.clear();
-            a.architect_started = false;
+            a.architects_started.clear();
         }
         drop(a);
         self.changed.notify_all();
@@ -148,59 +150,59 @@ impl Control {
         self.changed.notify_all();
     }
 
-    /// The owner's Start of a work, or with none of the architect: it goes on whatever the global state, its own pause
+    /// The owner's Start of a work or of a project's architect: it goes on whatever the global state, its own pause
     /// lifted; its next round starts a new session when `new_session`.
-    pub fn start(&self, work: Option<i64>, new_session: bool) {
+    pub fn start(&self, which: Fresh, new_session: bool) {
         let mut a = lock(&self.asked);
         if new_session {
-            lock(&self.fresh).push(work);
+            lock(&self.fresh).push(which.clone());
         }
-        match work {
-            Some(w) => {
+        match which {
+            Fresh::Work(w) => {
                 a.started.insert(w);
                 a.releasing.insert(w);
             }
-            None => {
-                a.architect_started = true;
-                a.architect_releasing = true;
+            Fresh::Architect(p) => {
+                a.architects_started.insert(p.clone());
+                a.architects_releasing.insert(p);
             }
         }
         drop(a);
         self.changed.notify_all();
     }
 
-    /// The owner's Pause of a work, or with none of the architect, whose own pause the database keeps: the owner's Start
+    /// The owner's Pause of a work or of a project's architect, whose own pause the database keeps: the owner's Start
     /// of it is over, and so is the lifting of its pause that Start asked.
-    pub fn pause(&self, work: Option<i64>) {
+    pub fn pause(&self, which: &Fresh) {
         let mut a = lock(&self.asked);
-        match work {
-            Some(w) => {
-                a.started.remove(&w);
-                a.releasing.remove(&w);
+        match which {
+            Fresh::Work(w) => {
+                a.started.remove(w);
+                a.releasing.remove(w);
             }
-            None => {
-                a.architect_started = false;
-                a.architect_releasing = false;
+            Fresh::Architect(p) => {
+                a.architects_started.remove(p);
+                a.architects_releasing.remove(p);
             }
         }
         drop(a);
         self.changed.notify_all();
     }
 
-    /// The engine lifted, or found nothing to lift of, the pauses of these works the owner started, and of the
-    /// architect's wake when `architect`.
-    pub fn released(&self, works: &[i64], architect: bool) {
+    /// The engine lifted, or found nothing to lift of, the pauses of these works the owner started, and of the wakes of
+    /// these projects' architects.
+    pub fn released(&self, works: &[i64], architects: &[String]) {
         let mut a = lock(&self.asked);
         for w in works {
             a.releasing.remove(w);
         }
-        if architect {
-            a.architect_releasing = false;
+        for p in architects {
+            a.architects_releasing.remove(p);
         }
     }
 
     /// The new sessions asked for that the loop has not handed on yet.
-    pub fn take_new_sessions(&self) -> Vec<Option<i64>> {
+    pub fn take_new_sessions(&self) -> Vec<Fresh> {
         std::mem::take(&mut *lock(&self.fresh))
     }
 
@@ -211,11 +213,13 @@ impl Control {
         if let Some(w) = a.step {
             return Err(format!("the round of work {w} asked for before is still under way"));
         }
-        if a.architect {
-            return Err("the architect's round asked for before is still under way".into());
+        if let Some(p) = &a.architect {
+            return Err(format!(
+                "the round of the architect of {p} asked for before is still under way"
+            ));
         }
         if new_session {
-            lock(&self.fresh).push(Some(work));
+            lock(&self.fresh).push(Fresh::Work(work));
         }
         a.step = Some(work);
         drop(a);
@@ -223,21 +227,23 @@ impl Control {
         Ok(())
     }
 
-    /// Asks for the architect's round: the next round of the wake that runs, or, when none runs and its queue would
-    /// wake it, a wake started paused by the owner and its first round; in a new session for its wake when
+    /// Asks for the round of a project's architect: the next round of its wake that runs, or, when none runs and its
+    /// queue would wake it, a wake started paused by the owner and its first round; in a new session for its wake when
     /// `new_session`; only once the round asked for before has been taken.
-    pub fn ask_step_architect(&self, new_session: bool) -> Result<(), String> {
+    pub fn ask_step_architect(&self, project: &str, new_session: bool) -> Result<(), String> {
         let mut a = lock(&self.asked);
         if let Some(w) = a.step {
             return Err(format!("the round of work {w} asked for before is still under way"));
         }
-        if a.architect {
-            return Err("the architect's round asked for before is still under way".into());
+        if let Some(p) = &a.architect {
+            return Err(format!(
+                "the round of the architect of {p} asked for before is still under way"
+            ));
         }
         if new_session {
-            lock(&self.fresh).push(None);
+            lock(&self.fresh).push(Fresh::Architect(project.to_string()));
         }
-        a.architect = true;
+        a.architect = Some(project.to_string());
         drop(a);
         self.changed.notify_all();
         Ok(())
@@ -251,12 +257,11 @@ impl Control {
             a.started.remove(&w);
             a.releasing.remove(&w);
         }
-        if a.architect {
-            a.architect_started = false;
-            a.architect_releasing = false;
+        if let Some(p) = a.architect.take() {
+            a.architects_started.remove(&p);
+            a.architects_releasing.remove(&p);
         }
         a.step = None;
-        a.architect = false;
         drop(a);
         self.changed.notify_all();
     }
@@ -274,7 +279,7 @@ impl Control {
         s.keep_warm = a.keep_warm;
         s.started = a.started.iter().copied().collect();
         s.releasing = a.releasing.iter().copied().collect();
-        s.architect_started = a.architect_started;
+        s.architects_started = a.architects_started.iter().cloned().collect();
         s.stepping = a.step;
         s.running = *lock(&self.running);
         s
@@ -329,10 +334,10 @@ mod tests {
         c.stepped(Some(4));
         c.set_paused(true);
         assert_eq!(c.asked().next(), Next::Wait);
-        // The architect's round is asked for the same way, while every work is paused, once at a time.
-        c.ask_step_architect(false).unwrap();
-        assert!(c.ask_step_architect(false).is_err() && c.ask_step(5, false).is_err());
-        assert_eq!(c.asked().next(), Next::Architect);
+        // A project's architect's round is asked for the same way, while every work is paused, once at a time.
+        c.ask_step_architect("p", false).unwrap();
+        assert!(c.ask_step_architect("q", false).is_err() && c.ask_step(5, false).is_err());
+        assert_eq!(c.asked().next(), Next::Architect("p".into()));
         c.stepped(None);
         assert_eq!(c.asked().next(), Next::Wait);
         assert!(c.take_new_sessions().is_empty());
@@ -343,30 +348,30 @@ mod tests {
     #[test]
     fn a_work_the_owner_started_goes_on_until_a_later_pause() {
         let c = Control::default();
-        c.start(Some(3), false);
+        c.start(Fresh::Work(3), false);
         let a = c.asked();
         assert_eq!(a.next(), Next::Started);
-        assert!(!a.holds(3, false) && a.holds(4, false) && a.holds(9, true));
+        assert!(!a.holds(3, None) && a.holds(4, None) && a.holds(9, Some("p")));
         assert_eq!(a.releasing, BTreeSet::from([3]));
-        c.released(&[3], false);
+        c.released(&[3], &[]);
         assert!(c.asked().releasing.is_empty() && c.asked().started.contains(&3));
-        c.pause(Some(3));
+        c.pause(&Fresh::Work(3));
         assert_eq!(c.asked().next(), Next::Wait);
-        c.start(Some(3), false);
-        c.start(None, false);
-        assert!(!c.asked().holds(9, true));
+        c.start(Fresh::Work(3), false);
+        c.start(Fresh::Architect("p".into()), false);
+        assert!(!c.asked().holds(9, Some("p")) && c.asked().holds(9, Some("q")));
         // Every work paused again: the works the owner started follow it; a pause still to lift stays asked.
         c.set_paused(true);
         let a = c.asked();
         assert_eq!(a.next(), Next::Wait);
-        assert!(a.started.is_empty() && !a.architect_started && a.releasing.contains(&3));
+        assert!(a.started.is_empty() && a.architects_started.is_empty() && a.releasing.contains(&3));
         // Letting every work go on runs every work but those paused by themselves, which the database says.
         c.set_paused(false);
         assert_eq!(c.asked().next(), Next::Pass);
-        assert!(!c.asked().holds(4, false));
+        assert!(!c.asked().holds(4, None));
         // A round the owner asked for leaves the work paused by the owner: its Start is over.
         c.set_paused(true);
-        c.start(Some(5), false);
+        c.start(Fresh::Work(5), false);
         c.ask_step(5, false).unwrap();
         c.stepped(Some(5));
         assert!(!c.asked().started.contains(&5) && !c.asked().releasing.contains(&5));
@@ -379,13 +384,16 @@ mod tests {
         let c = Control::default();
         c.ask_step(3, true).unwrap();
         assert!(c.ask_step(4, true).is_err());
-        assert_eq!(c.take_new_sessions(), vec![Some(3)]);
+        assert_eq!(c.take_new_sessions(), vec![Fresh::Work(3)]);
         assert!(c.take_new_sessions().is_empty());
         c.stepped(Some(3));
-        c.ask_step_architect(true).unwrap();
-        c.start(Some(7), true);
-        c.start(Some(8), false);
-        assert_eq!(c.take_new_sessions(), vec![None, Some(7)]);
+        c.ask_step_architect("p", true).unwrap();
+        c.start(Fresh::Work(7), true);
+        c.start(Fresh::Work(8), false);
+        assert_eq!(
+            c.take_new_sessions(),
+            vec![Fresh::Architect("p".into()), Fresh::Work(7)]
+        );
     }
 
     #[test]
@@ -396,7 +404,7 @@ mod tests {
             keep_warm: false,
             started: Vec::new(),
             releasing: Vec::new(),
-            architect_started: false,
+            architects_started: Vec::new(),
             running: None,
             stepping: None,
             last_step: None,
@@ -412,10 +420,13 @@ mod tests {
         let s = c.status(base.clone());
         assert!(s.paused && s.keep_warm);
         assert_eq!((s.running, s.stepping), (None, None));
-        c.start(Some(4), false);
-        c.start(None, false);
+        c.start(Fresh::Work(4), false);
+        c.start(Fresh::Architect("p".into()), false);
         let s = c.status(base.clone());
-        assert_eq!((s.started, s.releasing, s.architect_started), (vec![4], vec![4], true));
+        assert_eq!(
+            (s.started, s.releasing, s.architects_started),
+            (vec![4], vec![4], vec!["p".to_string()])
+        );
         c.set_paused(false);
         c.set_keep_warm(false);
         c.set_running(Some(5));
@@ -456,8 +467,8 @@ mod tests {
             |c| c.wake(),
             |c| c.set_paused(false),
             |c| c.set_keep_warm(false),
-            |c| c.start(Some(9), false),
-            |c| c.pause(Some(9)),
+            |c| c.start(Fresh::Work(9), false),
+            |c| c.pause(&Fresh::Work(9)),
         ];
         for ask in asks {
             let seen = c.asked();

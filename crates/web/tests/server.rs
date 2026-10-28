@@ -15,10 +15,39 @@ struct Server {
     dir: PathBuf,
 }
 
+/// A configuration of one project, p, committed in the data directory, which the architect's routes read.
+fn configure(dir: &std::path::Path) {
+    let install = "[owner]\nlanguage = \"English\"\n[items]\ntitle_max = 40\n[machines]\nworkstation = \"here\"\n\
+                   heavy = \"builds\"\npoll_interval = 60\n[machines.hosts.here]\nslots = 1\n[agents.clis.claude]\n\
+                   kind = \"claude\"\ncommand = \"claude\"\n[agents.levels.l]\ndesc = \"all\"\ncli = \"claude\"\n\
+                   model = \"m\"\n[gh]\nallow = []\n[query]\nmax_rows = 10\ntimeout_ms = 1000\n";
+    let project = "repo = \"o/p\"\ncheckout = \"/p\"\ndesign_goal = \"simple\"\ndesign_paths = [\"design/\"]\n\
+                   test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
+                   [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
+    std::fs::create_dir_all(dir.join("projects")).unwrap();
+    std::fs::write(dir.join("install.toml"), install).unwrap();
+    std::fs::write(dir.join("projects/p.toml"), project).unwrap();
+    std::fs::write(dir.join(".gitignore"), "db/\n").unwrap();
+    for args in [
+        &["init", "-q"][..],
+        &["add", "-A"],
+        &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"],
+    ] {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(ok.success(), "git {args:?}");
+    }
+}
+
 fn serve(name: &str) -> Server {
     let dir = std::env::temp_dir().join(format!("wf-agents-web-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("db")).unwrap();
+    configure(&dir);
     let path = dir.join("db/wf-agents.sqlite");
     db::Db::create(&path).unwrap();
     let bus = Arc::new(Bus::new(5));
@@ -173,7 +202,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         .0,
         202
     );
-    assert_eq!(s.control.take_new_sessions(), vec![Some(4)]);
+    assert_eq!(s.control.take_new_sessions(), vec![api::Fresh::Work(4)]);
     s.control.stepped(Some(4));
     // The switch that keeps waiting sessions warm is the owner's, written so.
     let (status, done) = post(
@@ -195,7 +224,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     );
     assert_eq!(status, 200, "{done}");
     assert!(s.control.asked().started.contains(&2) && s.control.asked().releasing.contains(&2));
-    assert_eq!(s.control.take_new_sessions(), vec![Some(2)]);
+    assert_eq!(s.control.take_new_sessions(), vec![api::Fresh::Work(2)]);
     assert_eq!(post(s.port, "/api/v1/works/9/start", "{}", "application/json").0, 404);
     // Its Pause ends its Start; the engine's pause stays.
     let (status, done) = post(s.port, "/api/v1/works/2/pause", "{}", "application/json");
@@ -211,7 +240,8 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     assert!(!s.control.asked().paused);
     assert_eq!(paused_by(&db, 1).as_deref(), Some("owner"));
     assert_eq!(paused_by(&db, 2).as_deref(), Some("engine"));
-    // The architect is started and paused the same way.
+    // A project's architect is started and paused the same way; the configuration's one project is the default, and a
+    // project there is not is refused.
     let (status, done) = post(
         s.port,
         "/api/v1/architect/start",
@@ -219,11 +249,23 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         "application/json",
     );
     assert_eq!(status, 200, "{done}");
-    assert!(s.control.asked().architect_started);
-    assert_eq!(s.control.take_new_sessions(), vec![None]);
-    let (status, done) = post(s.port, "/api/v1/architect/pause", "{}", "application/json");
+    assert!(s.control.asked().architects_started.contains("p"));
+    assert_eq!(s.control.take_new_sessions(), vec![api::Fresh::Architect("p".into())]);
+    let (status, done) = post(s.port, "/api/v1/architect/pause?project=p", "{}", "application/json");
     assert_eq!(status, 200, "{done}");
-    assert!(!s.control.asked().architect_started);
+    assert!(s.control.asked().architects_started.is_empty());
+    assert_eq!(
+        post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
+        404
+    );
+    // The architect's tab names its project, every project and the project's tags for observations.
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
+    assert_eq!(status, 200, "{tab}");
+    assert!(
+        tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#) && tab.contains(r#""name":"perf""#),
+        "{tab}"
+    );
     // A work that does not go on by itself is stepped while the others go on; the status says what the owner asked.
     assert_eq!(post(s.port, "/api/v1/works/2/step", "{}", "application/json").0, 202);
     let here = format!("127.0.0.1:{}", s.port);
@@ -262,7 +304,7 @@ fn status() -> api::Status {
         keep_warm: true,
         started: Vec::new(),
         releasing: Vec::new(),
-        architect_started: false,
+        architects_started: Vec::new(),
         running: None,
         stepping: None,
         last_step: None,

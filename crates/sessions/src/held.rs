@@ -48,12 +48,35 @@ fn recorded(input: &Value) -> Vec<Recorded> {
 const GUIDE_ADDRESS: &str = "·engine·project_guide";
 const GUIDE_INPUT: &str = "engine·project_guide";
 
-/// Which input of the standard context an address is a version of: the project guide, whose versions have addresses
-/// of their own, or a return format, a list of inputs, a rule, a setting or the worktree, whose versions share one;
-/// none for an address of anything else.
+/// What the engine computes for the architect's cells that is standard context: large and much the same from round to
+/// round, so that its line's session is given it once and after that only what changed in it.
+const ARCHITECT_STANDARD: [&str; 9] = [
+    "constitution",
+    "guide",
+    "policy",
+    "policy_signals",
+    "board",
+    "numbers",
+    "observations_overview",
+    "observation_tags",
+    "queue",
+];
+
+/// Which input of the standard context an address is a version of: the project guide and what the engine computes as
+/// the architect's standard context, whose versions have addresses of their own, or a return format, a list of
+/// inputs, a rule, a setting or the worktree, whose versions share one; none for an address of anything else.
 pub fn standard(address: &str) -> Option<&str> {
     if address.ends_with(GUIDE_ADDRESS) {
         return Some(GUIDE_INPUT);
+    }
+    if let Some(at) = address.find("·engine·")
+        && round_of(address).is_some()
+    {
+        let input = &address[at + '·'.len_utf8()..];
+        let name = &input["engine·".len()..];
+        if ARCHITECT_STANDARD.contains(&name) {
+            return Some(input);
+        }
     }
     ["format:", "inputs:", "rule:", "config:", "work:"]
         .iter()
@@ -231,6 +254,18 @@ mod tests {
         assert_eq!(round_of("rule:ground"), None);
         // An address written before rounds were named by their work names no round.
         assert_eq!(round_of("R28·4·end.test_changes[added]"), None);
+    }
+
+    // What the engine computes as the architect's standard context is known by its input, whichever round gave it; what
+    // else the engine computes for a round is not standard context.
+    #[test]
+    fn the_architect_s_standard_context_is_known_by_its_input() {
+        assert_eq!(standard("R3-4·engine·board"), Some("engine·board"));
+        assert_eq!(standard("R3-9·engine·queue"), Some("engine·queue"));
+        assert_eq!(standard("R3-4·engine·batch"), None);
+        assert_eq!(standard("x·engine·board"), None);
+        assert_eq!(standard("R3-4·engine·project_guide"), Some("engine·project_guide"));
+        assert_eq!(standard("rule:ground"), Some("rule:ground"));
     }
 
     // A session holds what it was given, referred to and handed back since its last compaction, and nothing from a

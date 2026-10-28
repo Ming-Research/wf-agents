@@ -1,15 +1,14 @@
-//! The changes to the database the architect collects, the flow's `arch_changes`: what makes them valid, which the
-//! eighth question's return is checked against, and writing those the owner approved, which the tool db_write does in
-//! one transaction.
+//! The changes to the items a project's architect hands in, the flow's `item_change`: what makes them valid, which the
+//! effects of an answer and a revision of a batch are checked against, and making a batch of them once its review
+//! finds them sound, in the transaction of the review's round.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 use crate::Engine;
-use crate::work::{Work, query_json};
+use crate::work::query_json;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -114,12 +113,14 @@ fn locked_conditions(conn: &Connection, item: i64) -> BTreeSet<String> {
         .collect()
 }
 
-/// Whether the changes the architect collected are valid: every change has its reason; an item created has what it
-/// needs and a key no other change uses; a split gives each acceptance condition of the item split to one new item at
-/// most, one of its locked conditions when its acceptance is locked; every item a change names is there, or made by an
-/// earlier change; an item is moved first, last, under another item, or next to another item of its own project; and
-/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
-pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
+/// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
+/// created is of the project and has what it needs and a key no other change uses; a split gives each acceptance
+/// condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked;
+/// every item a change names is there, or made by an earlier change, and an item it changes is of the project (an item
+/// of the project may depend on another project's); an item is moved first, last, under another item, or next to
+/// another item of its own project; observations folded in are the project's and open; and after them the items'
+/// dependencies close no cycle. Otherwise why not, every reason at once.
+pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
     let mut problems: Vec<String> = Vec::new();
@@ -133,7 +134,7 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
             bad("it has no reason".into());
         }
         let item = |k: &str, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
-            let id = number(&c[k]);
+            let id = number(&c[k]).or_else(|| c[k].as_str().and_then(|key| s.keys.get(key.trim()).copied()));
             match id {
                 Some(id) if s.items.contains_key(&id) => Some(id),
                 _ => {
@@ -141,6 +142,15 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                     None
                 }
             }
+        };
+        // An item a change changes is of the project; one it only waits for may be another's.
+        let own = |k: &str, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
+            let id = item(k, s, bad)?;
+            if s.items.get(&id).map(String::as_str) != Some(project) {
+                bad(format!("item {id} is not of {project}: its architect changes it"));
+                return None;
+            }
+            Some(id)
         };
         match text(c, "kind") {
             "create_item" => {
@@ -153,8 +163,11 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                         bad(format!("it has no {k}"));
                     }
                 }
-                if !cfg.projects.contains_key(text(c, "project")) {
-                    bad(format!("there is no project {}", text(c, "project")));
+                if text(c, "project") != project {
+                    bad(format!(
+                        "it is of {}, and you make items of {project} only",
+                        text(c, "project")
+                    ));
                 }
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
@@ -201,7 +214,7 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 s.keys.insert(key, id);
             }
             "add_dependency" => {
-                if let (Some(a), Some(b)) = (item("item", &s, &mut bad), item("on", &s, &mut bad)) {
+                if let (Some(a), Some(b)) = (own("item", &s, &mut bad), item("on", &s, &mut bad)) {
                     if a == b {
                         bad("an item does not depend on itself".into());
                     }
@@ -209,7 +222,7 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
             }
             "move" => {
-                if let Some(a) = item("item", &s, &mut bad) {
+                if let Some(a) = own("item", &s, &mut bad) {
                     let to = &c["to"];
                     let other = number(&to["item"]).filter(|b| s.items.contains_key(b) && *b != a);
                     match text(to, "place") {
@@ -237,7 +250,7 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
             }
             "merge" => {
-                if let Some(keep) = item("keep", &s, &mut bad) {
+                if let Some(keep) = own("keep", &s, &mut bad) {
                     let absorbed: Vec<i64> = items(c.get("absorbed")).iter().filter_map(number).collect();
                     for a in absorbed {
                         if a == keep || !s.items.contains_key(&a) {
@@ -256,16 +269,16 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
             }
             "cancel" | "hold" | "release" | "edit_acceptance" => {
-                item("item", &s, &mut bad);
+                own("item", &s, &mut bad);
             }
             "edit_item" => {
-                item("item", &s, &mut bad);
+                own("item", &s, &mut bad);
                 if text(c, "text").trim().is_empty() {
                     bad("it changes the text to nothing".into());
                 }
             }
             "set_level" => {
-                item("item", &s, &mut bad);
+                own("item", &s, &mut bad);
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
                 }
@@ -274,8 +287,8 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                 }
             }
             "add_known_red_check" => {
-                if !cfg.projects.contains_key(text(c, "project")) {
-                    bad(format!("there is no project {}", text(c, "project")));
+                if text(c, "project") != project {
+                    bad(format!("{} is not this project, {project}", text(c, "project")));
                 }
                 let fix = match number(&c["fix_item"]) {
                     Some(i) => s.items.contains_key(&i),
@@ -293,6 +306,23 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
                     bad(format!("{} is no known red check of {}", k.1, k.0));
                 }
             }
+            "fold_observations" => {
+                own("item", &s, &mut bad);
+                for o in items(c.get("observations")) {
+                    let id = number(&o).unwrap_or_default();
+                    let open: i64 =
+                        e.db.conn()
+                            .query_row(
+                                "SELECT count(*) FROM observations_open WHERE id = ?1 AND project = ?2",
+                                params![id, project],
+                                |r| r.get(0),
+                            )
+                            .map_err(sql)?;
+                    if open == 0 {
+                        bad(format!("{o} is no open observation of {project}"));
+                    }
+                }
+            }
             other => bad(format!("there is no kind of change {other}")),
         }
     }
@@ -306,57 +336,8 @@ pub fn validate(e: &Engine, changes: &[Value]) -> Result<(), String> {
     }
 }
 
-/// A change in a few words, for a reason it was refused.
-fn short(c: &Value) -> String {
-    let t = c.to_string();
-    if t.chars().count() > 200 {
-        format!("{}…", t.chars().take(200).collect::<String>())
-    } else {
-        t
-    }
-}
-
-/// Writes the changes handed in, when every one is a change the owner approved and that is not written yet, word for
-/// word, and they are valid: all in one transaction, each item created given its number. Otherwise nothing is written,
-/// and why is said.
-pub fn db_write(e: &mut Engine, _w: &Work, req: &Value) -> Value {
-    let refused = |why: String| json!({ "written": { "verdict": "refused", "why": why } });
-    let handed = items(req.get("changes"));
-    if handed.is_empty() {
-        return refused("no change was handed in".into());
-    }
-    let mut open = match crate::architect::approved_unwritten(e.db.conn()) {
-        Ok(x) => x,
-        Err(why) => return refused(why),
-    };
-    for (i, c) in handed.iter().enumerate() {
-        match open.iter().position(|x| x == c) {
-            Some(k) => {
-                open.remove(k);
-            }
-            None => {
-                return refused(format!(
-                    "change {} is not one the owner approved and that is not written yet, word for word: {}",
-                    i + 1,
-                    short(c)
-                ));
-            }
-        }
-    }
-    if let Err(why) = validate(e, &handed) {
-        return refused(why);
-    }
-    match e
-        .db
-        .write(Actor::Architect, |tx| write_all(tx, &handed).map_err(db::Error::Abort))
-    {
-        Ok(created) => json!({ "written": { "verdict": "written", "created": created } }),
-        Err(why) => refused(why.to_string()),
-    }
-}
-
 /// Writes every change, in order, and gives what was created: each item, by its key, with its number.
-fn write_all(tx: &Transaction<'_>, changes: &[Value]) -> Result<Vec<Value>, String> {
+pub fn write_all(tx: &Transaction<'_>, changes: &[Value]) -> Result<Vec<Value>, String> {
     let mut keys: BTreeMap<String, i64> = BTreeMap::new();
     let mut created = Vec::new();
     for c in changes {
@@ -368,7 +349,7 @@ fn write_all(tx: &Transaction<'_>, changes: &[Value]) -> Result<Vec<Value>, Stri
 /// The item a change names by its number, or by the key an earlier change created it under.
 fn item_of(v: &Value, keys: &BTreeMap<String, i64>) -> Result<i64, String> {
     number(v)
-        .or_else(|| v.as_str().and_then(|k| keys.get(k).copied()))
+        .or_else(|| v.as_str().and_then(|k| keys.get(k.trim()).copied()))
         .ok_or_else(|| format!("there is no item {v}"))
 }
 
@@ -436,8 +417,8 @@ fn write_one(
                 };
                 depend(tx, parent, id, &needs)?;
             }
-            keys.insert(text(c, "key").to_string(), id);
-            created.push(json!({ "key": text(c, "key"), "id": id.to_string() }));
+            keys.insert(text(c, "key").trim().to_string(), id);
+            created.push(json!({ "key": text(c, "key").trim(), "id": id.to_string() }));
         }
         "add_dependency" => depend(tx, item_of(&c["item"], keys)?, item_of(&c["on"], keys)?, reason)?,
         "move" => {
@@ -553,6 +534,16 @@ fn write_one(
             )
             .map_err(sql)?;
         }
+        "fold_observations" => {
+            let item = item_of(&c["item"], keys)?;
+            for o in items(c.get("observations")) {
+                tx.execute(
+                    "UPDATE observations SET folded_into = ?2 WHERE id = ?1",
+                    params![number(&o).unwrap_or_default(), item],
+                )
+                .map_err(sql)?;
+            }
+        }
         other => return Err(format!("there is no kind of change {other}")),
     }
     Ok(())
@@ -603,7 +594,7 @@ fn placed(order: &[i64], item: i64, place: &str, other: Option<i64>) -> Result<V
 
 #[cfg(test)]
 mod tests {
-    use db::Db;
+    use db::{Actor, Db};
 
     use super::*;
 

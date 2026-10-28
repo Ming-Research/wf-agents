@@ -186,8 +186,8 @@ pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<V
         .collect())
 }
 
-/// Gathers every input of a cell. A wake of the architect is on no item, so an input read for the item or its project
-/// has nothing for it.
+/// Gathers every input of a cell. A wake of the architect is on no item but for a project, so an input read for the
+/// item has nothing for it, and one read for the project is its project's.
 pub fn gather(
     e: &Engine,
     w: &Work,
@@ -276,8 +276,13 @@ fn source(
             value: Value::String(v.clone()),
         }),
         Src::Db { relation, .. } if relation == HISTORY => None,
-        // What is read for the item or its project has nothing for a work on no item.
-        Src::Db { by: Some(col), .. } if col != "work" && item.is_none() => None,
+        // What is read for the item has nothing for a work on no item; what is read for the project, for a work on no
+        // item, is the wake's project's.
+        Src::Db { by: Some(col), .. }
+            if col != "work" && item.is_none() && (col != "project" || w.project.is_none()) =>
+        {
+            None
+        }
         Src::Db { relation, by } => {
             let rows = db_rows(e, w, item, relation, by.as_deref())?;
             // The interjections an agent is given are those for its own line.
@@ -296,6 +301,8 @@ fn source(
                 })
             }
         }
+        // What the cell before this one on a matter's path answered is a place of that round's return.
+        Src::Engine(n) if n == crate::architect::BEFORE => crate::architect::before(e, w, g)?,
         Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,
@@ -395,8 +402,8 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
     out
 }
 
-/// The rows of a table or view for the item, work or project at hand; none of the item's or the project's for a work on
-/// no item.
+/// The rows of a table or view for the item, work or project at hand: for a wake of an architect, which is on no item,
+/// none of the item's, and its own project's.
 pub fn db_rows(
     e: &Engine,
     w: &Work,
@@ -408,11 +415,12 @@ pub fn db_rows(
     match by {
         None => work::query_json(conn, &format!("SELECT * FROM {relation}"), &[], ROWS),
         Some(col) => {
-            let key: Box<dyn ToSql> = match (col, item) {
-                ("work", _) => Box::new(w.id),
-                (_, None) => return Ok(Vec::new()),
-                ("item", Some(i)) => Box::new(i.id),
-                (_, Some(i)) => Box::new(i.project.clone()),
+            let key: Box<dyn ToSql> = match (col, item, &w.project) {
+                ("work", _, _) => Box::new(w.id),
+                ("project", None, Some(p)) => Box::new(p.clone()),
+                (_, None, _) => return Ok(Vec::new()),
+                ("item", Some(i), _) => Box::new(i.id),
+                (_, Some(i), _) => Box::new(i.project.clone()),
             };
             work::query_json(
                 conn,
