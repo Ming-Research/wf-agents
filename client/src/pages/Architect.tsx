@@ -7,8 +7,8 @@
 // fills the window with the wake shown placed on it as a work is (the wake going on, else the latest, else the bare
 // graph), and the column docked at its right holds the architect's panel on top and what is open on the chart below
 // it. The panel's tabs: its asks of the owner, those waiting first with their forms; its queue, the matters waiting for
-// it, then those held and those not due yet; its decisions, newest first; the policy in force, the one being set and the
-// plan; where things stand as it understands them; and the rounds of the wake shown.
+// it, then those held and those not due yet; its decisions, newest first; the policy in force and the one being set;
+// where things stand as it understands them; and the rounds of the wake shown.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -38,7 +38,6 @@ import { ArchitectAsk, askKindWords } from './ArchitectAsk';
 import {
   LogEntryView,
   type OpenRound,
-  PlanView,
   PolicyText,
   ProbesView,
   ReadingView,
@@ -456,7 +455,7 @@ function Asks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
 }
 
 /// The policy: the one being set, while a wake sets one (the latest study, the text with its probes and the readings
-/// of it); the policy in force, with when it took effect; and the plan that carries it out.
+/// of it); and the policy in force, with when it took effect.
 function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
   const s = a.setting;
   const p = a.policy;
@@ -504,10 +503,6 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
           ) : null}
         </div>
         {p !== null ? <PolicyText value={p.policy} /> : <p className="muted">{t('policy_none')}</p>}
-      </section>
-      <section className="arch-part">
-        <div className="decision-label">{t('plan_title')}</div>
-        <PlanView segments={a.plan.segments} gates={a.plan.gates} budgets={a.plan.budgets} />
       </section>
     </>
   );

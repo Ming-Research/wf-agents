@@ -145,8 +145,7 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
-    /// What the architect's tab shows changed: its queue, what stops new works, the plan, or a wake, its rounds or
-    /// its asks.
+    /// What the architect's tab shows changed: its queue, what stops new works, or a wake, its rounds or its asks.
     Architect,
     /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
     /// reports it: a tool it uses, or what it says.
@@ -856,8 +855,8 @@ pub struct Shown {
     pub value: Value,
 }
 
-/// The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy and the plan
-/// it works by, and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+/// The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy it works by,
+/// and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
     /// Its wakes, newest first.
@@ -877,7 +876,6 @@ pub struct Architect {
     /// The policy a wake is setting now; none while no wake sets one.
     pub setting: Option<PolicySetting>,
     pub understanding: Understanding,
-    pub plan: Plan,
 }
 
 /// One wake of the architect.
@@ -1036,55 +1034,6 @@ pub struct StateVersion {
     pub at: Option<i64>,
     pub state: Value,
     pub learned: Vec<Value>,
-}
-
-/// The plan: its segments in the order works start from them, its gates and its budgets.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Plan {
-    pub segments: Vec<PlanSegment>,
-    pub gates: Vec<PlanGate>,
-    pub budgets: Vec<PlanBudget>,
-}
-
-/// A segment of the plan, with the items that hang on it.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct PlanSegment {
-    pub key: String,
-    pub project: String,
-    pub title: String,
-    /// The stage of the policy it belongs to, by the stage's number, or maintenance.
-    pub stage: String,
-    pub delivers: String,
-    pub done_when: String,
-    /// The segments that must be done first, by key.
-    pub after: Value,
-    pub assumptions: Value,
-    pub indicators: Value,
-    pub size: String,
-    /// Until when or what it is deferred.
-    pub deferred: Option<String>,
-    /// The items that hang on it, each with its title, whether it is cancelled or held, and the cell its latest work
-    /// is at.
-    pub items: Value,
-}
-
-/// A gate of the plan: which segments may touch what it governs.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct PlanGate {
-    pub name: String,
-    pub basis: String,
-    pub what: String,
-    pub segments: Value,
-}
-
-/// A budget of the plan: what is measured, the whole line and how it is shared out among the segments.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct PlanBudget {
-    pub name: String,
-    pub basis: String,
-    pub measure: String,
-    pub line: String,
-    pub split: Value,
 }
 
 /// What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings

@@ -1,12 +1,12 @@
 // What the architect hands back, each drawn by its shape in the flow's formats: the policy, the study of a new one,
 // its probes and the readings of it by a new architect; the changes it collects for the owner's approval; its answer to
 // whether what runs fits; a matter it handled, with the crux, the judgment as the options compared, the changes and the
-// second look; the state of things and the check against the constitution; the plan. A value not of the shape expected
-// is shown as labelled text, never as a tree of JSON.
+// second look; the state of things and the check against the constitution. A value not of the shape expected is shown
+// as labelled text, never as a tree of JSON.
 
 import { type ReactNode, useState } from 'react';
 
-import type { JsonValue, LogEntry, PlanBudget, PlanGate, PlanSegment, Said, Understanding } from '../api';
+import type { JsonValue, LogEntry, Said, Understanding } from '../api';
 import { againstInOrder, LINE_FIELDS, stateChanges } from '../architect';
 import { time } from '../format';
 import { Field, Fold, OptionBoxes } from '../item/Shapes';
@@ -716,110 +716,6 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
             </div>
           ) : null}
         </section>
-      ) : null}
-    </>
-  );
-}
-
-/// One segment of the plan, folded under its key, title and stage: what it delivers, when it is done, what must come
-/// first, what it rests on, what to watch, its size and its items with the cell each one's work is at.
-function SegmentView({ s }: { s: PlanSegment }) {
-  const items = objs(s.items);
-  const assumptions = objs(s.assumptions);
-  return (
-    <details className="boxed">
-      <summary>
-        <span className="work-item-head">
-          <code>{s.key}</code>
-          <strong>{s.title}</strong>
-          <span className="muted">
-            {t('segment_stage', { stage: s.stage })} · {s.project} · {t('segment_items', { n: items.length })}
-          </span>
-          {s.deferred !== null ? <span className="badge">{t('segment_deferred', { until: s.deferred })}</span> : null}
-        </span>
-      </summary>
-      <div className="shape">
-        <Field label={t('segment_delivers')} value={s.delivers} />
-        <Field label={t('segment_done_when')} value={s.done_when} />
-        <Texts label={t('segment_after')} value={s.after} />
-        {assumptions.length > 0 ? (
-          <div className="field">
-            <span className="decision-label">{t('segment_assumptions')}</span>
-            <ul className="arch-list">
-              {assumptions.map((a, i) => (
-                <li key={i}>
-                  <MarkdownInline text={str(a.holds)} />{' '}
-                  <span className="muted">· {t('segment_wrong_if', { what: str(a.wrong_if) })}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <Texts label={t('segment_indicators')} value={s.indicators} />
-        <Field label={t('segment_size')} value={s.size} />
-        {items.length > 0 ? (
-          <ul className="arch-list">
-            {items.map((x, i) => (
-              <li key={i}>
-                <Link to={`/items/${str(x.item)}`}>
-                  #{str(x.item)} {str(x.title)}
-                </Link>
-                {x.at !== null && x.at !== undefined ? <span className="muted"> · {t('segment_item_at', { cell: str(x.at) })}</span> : null}
-                {x.held !== null && x.held !== undefined ? <span className="badge">{t('segment_item_held')}</span> : null}
-                {x.cancelled !== null && x.cancelled !== undefined ? (
-                  <span className="badge">{t('segment_item_cancelled')}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </details>
-  );
-}
-
-/// The plan: its segments in the order works start from them, then its gates and budgets, folded.
-export function PlanView({ segments, gates, budgets }: { segments: PlanSegment[]; gates: PlanGate[]; budgets: PlanBudget[] }) {
-  if (segments.length === 0 && gates.length === 0 && budgets.length === 0) {
-    return <p className="muted">{t('plan_none')}</p>;
-  }
-  return (
-    <>
-      {segments.map((s) => (
-        <SegmentView key={s.key} s={s} />
-      ))}
-      {gates.length > 0 ? (
-        <Fold title={t('plan_gates', { n: gates.length })}>
-          <ul className="arch-list">
-            {gates.map((g) => (
-              <li key={g.name}>
-                <strong>{g.name}</strong> <span className="muted">· {words(g.what)}</span>
-                <Field label={t('plan_basis')} value={g.basis} />
-                <Texts label={t('plan_gate_segments')} value={g.segments} />
-              </li>
-            ))}
-          </ul>
-        </Fold>
-      ) : null}
-      {budgets.length > 0 ? (
-        <Fold title={t('plan_budgets', { n: budgets.length })}>
-          <ul className="arch-list">
-            {budgets.map((b) => (
-              <li key={b.name}>
-                <strong>{b.name}</strong> <span className="muted">· {b.line}</span>
-                <Field label={t('plan_measure')} value={b.measure} />
-                <Field label={t('plan_basis')} value={b.basis} />
-                <ul className="arch-list">
-                  {objs(b.split).map((x, i) => (
-                    <li key={i}>
-                      <code>{str(x.segment)}</code> {str(x.amount)}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </Fold>
       ) : null}
     </>
   );

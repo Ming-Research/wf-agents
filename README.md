@@ -71,5 +71,5 @@ with git and compiled, nothing written), its graphs side by side, and compares t
 flow is reviewed there.
 
 The Architect view shows the architect's wakes on its graph, its asks of the owner with their forms, its queue, its
-decisions, the policy and the plan, and where things stand as it understands them; its line holds the architect's
-Start, Pause and Step, and what the owner says to it.
+decisions, the policy, and where things stand as it understands them; its line holds the architect's Start, Pause and
+Step, and what the owner says to it.

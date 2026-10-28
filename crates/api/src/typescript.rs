@@ -83,10 +83,6 @@ pub fn typescript() -> String {
         decl::<Reading>(&cfg),
         decl::<Understanding>(&cfg),
         decl::<StateVersion>(&cfg),
-        decl::<Plan>(&cfg),
-        decl::<PlanSegment>(&cfg),
-        decl::<PlanGate>(&cfg),
-        decl::<PlanBudget>(&cfg),
         decl::<Spend>(&cfg),
         decl::<ApiError>(&cfg),
         // The flow page.

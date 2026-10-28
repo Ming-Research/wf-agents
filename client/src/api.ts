@@ -878,8 +878,8 @@ models: { [key in string]: string }, highest_level: string | null, architect: st
 export type NewLevel = { level: string, };
 
 /**
- * The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy and the plan
- * it works by, and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
+ * The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy it works by,
+ * and where things stand as it last wrote it. A wake is a work of the architect's graph, on no item.
  */
 export type Architect = { 
 /**
@@ -911,7 +911,7 @@ policy: PolicyInForce | null,
 /**
  * The policy a wake is setting now; none while no wake sets one.
  */
-setting: PolicySetting | null, understanding: Understanding, plan: Plan, };
+setting: PolicySetting | null, understanding: Understanding, };
 
 /**
  * One wake of the architect.
@@ -1037,43 +1037,6 @@ versions: Array<StateVersion>, };
  * the wrap-up of that wake learned.
  */
 export type StateVersion = { work: number, round: number, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
-
-/**
- * The plan: its segments in the order works start from them, its gates and its budgets.
- */
-export type Plan = { segments: Array<PlanSegment>, gates: Array<PlanGate>, budgets: Array<PlanBudget>, };
-
-/**
- * A segment of the plan, with the items that hang on it.
- */
-export type PlanSegment = { key: string, project: string, title: string, 
-/**
- * The stage of the policy it belongs to, by the stage's number, or maintenance.
- */
-stage: string, delivers: string, done_when: string, 
-/**
- * The segments that must be done first, by key.
- */
-after: JsonValue, assumptions: JsonValue, indicators: JsonValue, size: string, 
-/**
- * Until when or what it is deferred.
- */
-deferred: string | null, 
-/**
- * The items that hang on it, each with its title, whether it is cancelled or held, and the cell its latest work
- * is at.
- */
-items: JsonValue, };
-
-/**
- * A gate of the plan: which segments may touch what it governs.
- */
-export type PlanGate = { name: string, basis: string, what: string, segments: JsonValue, };
-
-/**
- * A budget of the plan: what is measured, the whole line and how it is shared out among the segments.
- */
-export type PlanBudget = { name: string, basis: string, measure: string, line: string, split: JsonValue, };
 
 /**
  * What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings

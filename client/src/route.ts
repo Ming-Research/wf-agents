@@ -21,8 +21,8 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
-/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its decisions, the policy and
-/// the plan, where things stand as it understands them, or the rounds of the wake shown.
+/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its decisions, the policy,
+/// where things stand as it understands them, or the rounds of the wake shown.
 export const ARCHITECT_TABS = ['asks', 'queue', 'decisions', 'policy', 'understanding', 'rounds'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
 

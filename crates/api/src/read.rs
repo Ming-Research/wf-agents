@@ -17,10 +17,9 @@ use crate::view;
 use crate::{
     Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail,
     ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk,
-    OwnerMessage, PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow,
-    Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens,
-    RunningRound, Said, Session, Shown, Spend, StateVersion, ToolRun, Understanding, Waits, Wake, WorkDetail,
-    WorkSession, WorkState, WorkSummary,
+    OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement,
+    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session,
+    Shown, Spend, StateVersion, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1674,7 +1673,6 @@ pub fn architect(conn: &Connection, flows: &Flows) -> Result<Architect> {
         policy: policy(conn)?,
         setting,
         understanding: understanding(conn)?,
-        plan: plan(conn)?,
     })
 }
 
@@ -2003,66 +2001,6 @@ fn understanding(conn: &Connection) -> Result<Understanding> {
         learned,
         against,
         versions,
-    })
-}
-
-/// A column of JSON, as its value; none as null.
-fn json_col(r: &Row<'_>, i: usize) -> rusqlite::Result<Value> {
-    Ok(json(r.get(i)?).unwrap_or(Value::Null))
-}
-
-/// The plan: its segments in the order works start from them, its gates and its budgets.
-fn plan(conn: &Connection) -> Result<Plan> {
-    let mut st = conn.prepare(
-        "SELECT segment, project, title, stage, delivers, done_when, after, assumptions, indicators, size, deferred,
-                items
-         FROM plan",
-    )?;
-    let segments = st
-        .query_map([], |r| {
-            Ok(PlanSegment {
-                key: r.get(0)?,
-                project: r.get(1)?,
-                title: r.get(2)?,
-                stage: r.get(3)?,
-                delivers: r.get(4)?,
-                done_when: r.get(5)?,
-                after: json_col(r, 6)?,
-                assumptions: json_col(r, 7)?,
-                indicators: json_col(r, 8)?,
-                size: r.get(9)?,
-                deferred: r.get(10)?,
-                items: json_col(r, 11)?,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut st = conn.prepare("SELECT name, basis, what, segments FROM plan_gates ORDER BY name")?;
-    let gates = st
-        .query_map([], |r| {
-            Ok(PlanGate {
-                name: r.get(0)?,
-                basis: r.get(1)?,
-                what: r.get(2)?,
-                segments: json_col(r, 3)?,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut st = conn.prepare("SELECT name, basis, measure, line, split FROM plan_budgets ORDER BY name")?;
-    let budgets = st
-        .query_map([], |r| {
-            Ok(PlanBudget {
-                name: r.get(0)?,
-                basis: r.get(1)?,
-                measure: r.get(2)?,
-                line: r.get(3)?,
-                split: json_col(r, 4)?,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    Ok(Plan {
-        segments,
-        gates,
-        budgets,
     })
 }
 
@@ -2612,7 +2550,7 @@ mod tests {
     }
 
     /// Two wakes of the architect: one over, which handled an engineer's question, and one at the owner's reading of
-    /// the study of a new policy; the matters it has not handled, a hold on new works and a segment of the plan.
+    /// the study of a new policy; the matters it has not handled and a hold on new works.
     fn architect_setup(name: &str) -> Setup {
         let mut s = setup(name);
         let queued = json!({ "inputs": [{ "from": [{ "db": "architect_queue" }], "value": [
@@ -2738,12 +2676,6 @@ mod tests {
                 &[],
             )?;
             run("INSERT INTO dispatch_holds (reason, since) VALUES ('policy', 300)", &[])?;
-            run(
-                "INSERT INTO plan_segments (key, project, title, stage, delivers, done_when, assumptions, indicators,
-                 size, position) VALUES ('s1', 'p', 'Deliver', '1', 'd', 'w', '[]', '[]', 'small', 1.0)",
-                &[],
-            )?;
-            run("UPDATE items SET segment = 's1' WHERE id = 2", &[])?;
             run("INSERT INTO owner_messages (work, round, text) VALUES (2, 9, 'Learned L'), (1, 2, 'told')", &[])?;
             Ok(())
         })
@@ -2769,7 +2701,7 @@ mod tests {
     }
 
     // The tab's read: the wakes newest first, with what woke each and what it handled; the queue, what is due first;
-    // the hold; the asks; the log newest first; the policy being set; where things stand; the plan.
+    // the hold; the asks; the log newest first; the policy being set; where things stand.
     #[test]
     fn the_architect_says_its_wakes_queue_log_policy_and_understanding() {
         let s = architect_setup("architect");
@@ -2855,10 +2787,5 @@ mod tests {
         assert_eq!(u.learned, [json!("L")]);
         assert_eq!(u.against.as_ref().map(|x| (x.work, x.round)), Some((3, 2)));
         assert_eq!(u.against.as_ref().unwrap().value["against"][0]["status"], "broken");
-
-        assert_eq!(a.plan.segments.len(), 1);
-        assert_eq!(a.plan.segments[0].key, "s1");
-        assert_eq!(a.plan.segments[0].items[0]["item"], 2);
-        assert!(a.plan.gates.is_empty() && a.plan.budgets.is_empty());
     }
 }
