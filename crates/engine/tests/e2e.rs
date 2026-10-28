@@ -1884,7 +1884,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     // The formats name the owner's language; the engine writes the configured one beside it.
     assert!(m.contains("`owner.language` (English)"), "{m}");
     assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
-    assert!(m.contains("- items: A piece of work to do"), "{m}");
+    assert!(m.contains("- items (id, project, title, "), "{m}");
     assert!(!m.contains("CREATE TABLE"), "{m}");
     let design = &rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
     let acceptance = format!("{design}·2a·acceptance");
