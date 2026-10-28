@@ -132,6 +132,12 @@ function Legend({ g, legend }: { g: CompiledGraph; legend: FlowChartProps['legen
             </li>
             <li>
               <Swatch>
+                <path className="fc-edge fc-edge-lit" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-lit)" />
+              </Swatch>
+              {t('legend_lit')}
+            </li>
+            <li>
+              <Swatch>
                 <path className="fc-edge fc-edge-quiet" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-quiet)" />
               </Swatch>
               {t('legend_not_taken')}

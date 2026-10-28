@@ -152,6 +152,8 @@ export type Marks = {
   /// When two flows are compared: the cells added and changed.
   added: Set<string>;
   changed: Set<string>;
+  /// On a work's page, with a round chosen: the arrows it came in by and left by.
+  lit?: Set<string>;
 };
 
 function CellShape({ n, cell, box, lines, marks }: {
@@ -334,13 +336,15 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
   const kindOf = (e: ChartEdge) => {
     const n = marks.taken?.get(e.id) ?? 0;
     if (hot.has(e.id)) return 'hot';
+    if (marks.lit?.has(e.id)) return 'lit';
     if (e.kind === 'rule' || e.kind === 'interjection') return 'rule';
     if (n > 0) return 'taken';
     if (marks.taken) return 'quiet';
     return e.main ? 'main' : 'plain';
   };
-  // The arrows lit up are drawn last, over the others.
-  const edges = [...chart.edges].sort((a, b) => Number(hot.has(a.id)) - Number(hot.has(b.id)));
+  // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen.
+  const over = (e: ChartEdge) => (hot.has(e.id) ? 2 : marks.lit?.has(e.id) ? 1 : 0);
+  const edges = [...chart.edges].sort((a, b) => over(a) - over(b));
   const b = laid.bounds;
   const pad = 24;
   return (
@@ -356,7 +360,7 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
       onPointerLeave={() => setHover(null)}
     >
       <defs>
-        {['plain', 'main', 'taken', 'rule', 'quiet', 'hot'].map((k) => (
+        {['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'lit'].map((k) => (
           <marker
             key={k}
             id={`fc-arrow-${k}`}
@@ -420,6 +424,7 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered }: DrawProps) {
           e.main ? 'fc-label-main' : '',
           n > 0 ? 'fc-label-taken' : '',
           hot.has(e.id) ? 'fc-label-hot' : '',
+          marks.lit?.has(e.id) ? 'fc-label-lit' : '',
         ].join(' ');
         return (
           <g key={`l:${e.id}`} className={cls} data-edge={e.id}>

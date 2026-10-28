@@ -422,6 +422,7 @@ const messages = {
   legend_sent_back: 'how many of those returns were sent back',
   legend_failed: 'how many of those runs failed or were cut off',
   legend_taken: 'a row the work took; ×2 on its label: taken twice',
+  legend_lit: 'the rows the round chosen in the rounds list came in by and left by, flowing the way the work went',
   legend_not_taken: 'a row the work has not taken',
   legend_unvisited: 'a cell the work has not reached',
   legend_added: 'a cell added',

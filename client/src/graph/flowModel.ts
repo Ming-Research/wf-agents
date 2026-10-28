@@ -306,9 +306,10 @@ export function overlays(rounds: RoundSummary[], at: string | null, now: Now): M
   return out;
 }
 
-/// How many times the work took each arrow of the chart: a round that took a row counts on every arrow that draws
-/// that row of its cell.
-export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<string, number> {
+/// The arrows of the chart that draw the row each round took, by the round's place among the work's rounds: every
+/// arrow that draws that row of its cell, an arrow to one of several cells the row can lead to only when the work
+/// went there.
+function rowArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): (at: number) => string[] {
   const rowOf = new Map<string, number>();
   for (const cell of g.cells) cell.rows.forEach((r, i) => rowOf.set(`${cell.id}\u0000${r.name}`, i));
   const byRow = new Map<string, ChartEdge[]>();
@@ -320,24 +321,43 @@ export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<s
     }
   }
   const nodes = new Map(c.nodes.map((n) => [n.id, n]));
-  const out = new Map<string, number>();
-  rounds.forEach((r, n) => {
-    if (r.cell === null || r.transition === null) return;
+  return (at) => {
+    const r = rounds[at];
+    if (r === undefined || r.cell === null || r.transition === null) return [];
     const i = rowOf.get(`${r.cell}\u0000${r.transition}`);
-    if (i === undefined) return;
+    if (i === undefined) return [];
     // The cells the work went to next: the next one, or the one after it when the next goes straight back.
     const next = rounds
-      .slice(n + 1)
+      .slice(at + 1)
       .filter((x) => x.cell !== null)
       .slice(0, 2)
       .map((x) => x.cell);
-    for (const e of byRow.get(`${r.cell}\u0000${i}`) ?? []) {
-      // An arrow to one of several cells a row can lead to counts only when the work went there.
-      const into = nodes.get(e.target);
-      const lands = into?.kind === 'cell' ? into.cell : into?.kind === 'out' ? into.other : null;
-      const there = e.kind === 'shared' || lands === null || next.length === 0 || next.includes(lands);
-      if (there) out.set(e.id, (out.get(e.id) ?? 0) + 1);
-    }
+    return (byRow.get(`${r.cell}\u0000${i}`) ?? [])
+      .filter((e) => {
+        const into = nodes.get(e.target);
+        const lands = into?.kind === 'cell' ? into.cell : into?.kind === 'out' ? into.other : null;
+        return e.kind === 'shared' || lands === null || next.length === 0 || next.includes(lands);
+      })
+      .map((e) => e.id);
+  };
+}
+
+/// How many times the work took each arrow of the chart: a round that took a row counts on every arrow that draws
+/// that row of its cell.
+export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<string, number> {
+  const arrows = rowArrows(c, g, rounds);
+  const out = new Map<string, number>();
+  rounds.forEach((_, at) => {
+    for (const id of arrows(at)) out.set(id, (out.get(id) ?? 0) + 1);
   });
   return out;
+}
+
+/// The arrows a round came in by and left by: those of the row the round before it took, and of the row it took
+/// itself; only the way in for a round that has taken no row yet.
+export function roundArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[], n: number): Set<string> {
+  const at = rounds.findIndex((r) => r.n === n);
+  if (at < 0) return new Set();
+  const arrows = rowArrows(c, g, rounds);
+  return new Set([...(at > 0 ? arrows(at - 1) : []), ...arrows(at)]);
 }

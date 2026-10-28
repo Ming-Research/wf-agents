@@ -25,7 +25,7 @@ import { controls, course, Loaded, OutcomeBadge } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
-import { overlays, taken, chart } from '../graph/flowModel';
+import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
 import { postJson } from '../http';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
@@ -619,6 +619,7 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
       marks={{
         overlays: overlays(d.rounds, d.work.at, { running: c.running !== null, held: held(c, d.work) }),
         taken: taken(model, g, d.rounds),
+        lit: r.round !== null ? roundArrows(model, g, d.rounds, r.round) : undefined,
         added: new Set(),
         changed: new Set(),
       }}

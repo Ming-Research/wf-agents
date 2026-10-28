@@ -8,7 +8,7 @@ import { conditionsWords, conditionWords, targetWords, valuesWords } from './flo
 import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
-import { ASKING, chart, MAIN, overlays, partsOf, related, runs, sharedRows, taken } from './graph/flowModel';
+import { ASKING, chart, MAIN, overlays, partsOf, related, roundArrows, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
@@ -408,6 +408,10 @@ describe('the chart of a flow', () => {
     expect(w.get('c:a->k:a')).toBe(1);
     expect(w.get('c:a->c:b')).toBe(1);
     expect(w.get('c:b->c:z')).toBeUndefined();
+    // A round chosen lights the arrows it came in by and left by; one that has taken no row yet, only the way in.
+    expect(roundArrows(c, graph, rounds, 2)).toEqual(new Set(['c:s->c:a', 'c:a->k:a']));
+    expect(roundArrows(c, graph, rounds, 6)).toEqual(new Set(['c:a->c:b']));
+    expect(roundArrows(c, graph, rounds, 7)).toEqual(new Set());
   });
 });
 

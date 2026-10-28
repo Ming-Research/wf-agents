@@ -987,6 +987,7 @@ ul.linked {
   --fc-arrow-main: #4b5563;
   --fc-taken: #2f6fdf;
   --fc-hot: #e8590c;
+  --fc-lit: #d6177a;
   --fc-no: #dbe6fb;
   --fc-no-line: #9db8ee;
   --fc-no-text: #1f4fa8;
@@ -1032,6 +1033,7 @@ ul.linked {
     --fc-arrow-main: #c4c8cf;
     --fc-taken: #6ea0f5;
     --fc-hot: #ff8a4c;
+    --fc-lit: #ff5fae;
     --fc-no: #23365a;
     --fc-no-line: #4a6aa8;
     --fc-no-text: #c4d7fa;
@@ -1396,6 +1398,28 @@ svg.fc {
   stroke-width: 2.6;
 }
 
+/* The arrows the round chosen in the rounds list came in by and left by: wide, their dashes flowing the way the work
+   went; still for who asks for less motion. */
+.fc-edge-lit {
+  stroke: var(--fc-lit);
+  stroke-width: 4;
+  stroke-dasharray: 10 6;
+  animation: fc-flow 0.9s linear infinite;
+}
+
+@keyframes fc-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-edge-lit {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+
 /* Arrows are thin: a wider line no one sees takes the pointer. */
 .fc-hit {
   fill: none;
@@ -1433,6 +1457,10 @@ svg.fc {
   fill: var(--fc-hot);
 }
 
+.fc-head-lit path {
+  fill: var(--fc-lit);
+}
+
 .fc-label rect {
   fill: var(--fc-label);
 }
@@ -1452,6 +1480,11 @@ svg.fc {
 
 .fc-label-hot rect {
   fill: var(--fc-hot);
+}
+
+.fc-label-lit text {
+  fill: var(--fc-lit);
+  font-weight: 700;
 }
 
 /* A row's number: a badge of one size, its digits plain. */
