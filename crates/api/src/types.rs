@@ -225,7 +225,7 @@ pub struct WorkSummary {
     pub sent_back: i64,
     pub failed: i64,
     pub running: Option<RunningRound>,
-    /// What its rounds cost, as the command lines reported it, in US dollars.
+    /// What its rounds and the keep-warm pings of its sessions cost, as the command lines reported it, in US dollars.
     pub cost_usd: f64,
     /// Its asks of the owner still waiting for an answer.
     pub open_asks: i64,
@@ -277,6 +277,12 @@ pub struct RoundSummary {
     pub not_asked: Option<String>,
     /// For an agent's round, where it spent its tokens, from its usage record.
     pub tokens: Option<RoundTokens>,
+    /// The session it ran in, by its row; none for the engine's own steps, tool cells and the owner.
+    pub session: Option<i64>,
+    /// When it started a new session: why, as the session manager recorded it: line, the line's first session in the
+    /// work (or a cell on no line, whose session is its own); cell, a cell the line starts a new session at; limit, the
+    /// line's session before was past the context limit.
+    pub new_session: Option<String>,
 }
 
 /// Where an agent's round spent its tokens, as its usage record gives them, and how large its context was, which
@@ -506,6 +512,10 @@ pub struct WorkDetail {
     /// What its agents told the owner, and what the engine told the owner of it, oldest first.
     pub messages: Vec<OwnerMessage>,
     pub interjections: Vec<Interjection>,
+    /// The sessions its lines ran in, oldest first.
+    pub sessions: Vec<WorkSession>,
+    /// The keep-warm pings sent to its sessions while it waited, oldest first.
+    pub pings: Vec<Ping>,
 }
 
 /// The session of a line, as the command line knows it.
@@ -514,6 +524,41 @@ pub struct Session {
     pub line: String,
     pub cli: String,
     pub cli_session: String,
+}
+
+/// A session one of a work's lines ran in.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkSession {
+    pub id: i64,
+    pub line: String,
+    /// Why it started: line, cell, limit, or wake (a wake of the architect going on in the CLI session the last wake
+    /// left).
+    pub started: String,
+    /// When it ended, so that the line's next round started a new one; none while it goes on.
+    pub ended: Option<i64>,
+}
+
+/// A keep-warm ping: a minimal message the session manager sent a session while its work waited, so that the
+/// session's prompt cache was read instead of expiring. A ping means the work waited over an hour.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Ping {
+    pub id: i64,
+    pub session: i64,
+    pub line: String,
+    /// The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
+    pub cell: String,
+    pub on: String,
+    pub what: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub model: Option<String>,
+    /// What it cost, as the command line reported it; none for one that failed or runs.
+    pub cost_usd: Option<f64>,
+    /// Tokens read from the cache, and written to it.
+    pub read: i64,
+    pub written: i64,
+    /// Why it failed, when it did.
+    pub error: Option<String>,
 }
 
 /// One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it

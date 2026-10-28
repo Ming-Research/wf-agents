@@ -48,6 +48,8 @@ pub fn typescript() -> String {
         decl::<Interjection>(&cfg),
         decl::<WorkDetail>(&cfg),
         decl::<Session>(&cfg),
+        decl::<WorkSession>(&cfg),
+        decl::<Ping>(&cfg),
         decl::<RoundInput>(&cfg),
         decl::<RoundConditional>(&cfg),
         decl::<KeptFile>(&cfg),

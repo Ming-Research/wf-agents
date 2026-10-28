@@ -246,6 +246,8 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
     progress: null,
     not_asked: null,
     tokens: null,
+    session: null,
+    new_session: null,
   };
 }
 
@@ -859,6 +861,62 @@ describe("a work's usage", () => {
     expect(u.sessions.map((s) => [s.line, s.context, s.points.length])).toEqual([['engineer', 250_000, 2]]);
     expect(u.tools).toEqual([{ cell: 't', title: 'Run tools', ms: 60_000, runs: 1 }]);
     expect(u.kinds !== null && Math.round(u.kinds.read)).toBe(200_000);
+  });
+
+  it('lists each session of a line with why it started, and counts the keep-warm pings in the cost', () => {
+    const tokensOf = (context_end: number): RoundTokens => ({
+      steps: 1,
+      input: 0,
+      read: 0,
+      written_5m: 0,
+      written_1h: 0,
+      output: 0,
+      thinking: 0,
+      context_end,
+      window: null,
+      context_before: null,
+      level: null,
+      effort: null,
+      others: [],
+    });
+    const agent = (n: number, session: number, context: number, cost: number, new_session: string | null): RoundSummary => ({
+      ...round(n, 'a', 'took', 'done'),
+      line: 'engineer',
+      model: 'm',
+      cost_usd: cost,
+      tokens: tokensOf(context),
+      session,
+      new_session,
+    });
+    const rounds = [agent(1, 1, 300_000, 1, 'line'), agent(2, 1, 520_000, 2, null), agent(3, 2, 40_000, 0.5, 'limit')];
+    const sessions = [
+      { id: 1, line: 'engineer', started: 'line', ended: 3 },
+      { id: 2, line: 'engineer', started: 'limit', ended: null },
+    ];
+    const ping = {
+      id: 1,
+      session: 1,
+      line: 'engineer',
+      cell: '16',
+      on: 'owner',
+      what: "the owner's answer to ask 3",
+      started_at: 2,
+      ended_at: 3,
+      model: 'm',
+      cost_usd: 0.05,
+      read: 520_000,
+      written: 20,
+      error: null,
+    };
+    const u = usageOf(rounds, new Map([['a', { kind: 'agent', title: 'Implement' }]]), 0, sessions, [ping]);
+    expect(u.sessions.map((s) => [s.id, s.nth, s.started, s.rounds, s.context, s.before, s.pings])).toEqual([
+      [1, 1, 'line', 2, 520_000, null, 1],
+      [2, 2, 'limit', 1, 40_000, 520_000, 0],
+    ]);
+    expect(u.sessions[0].cost).toBeCloseTo(3.05);
+    expect([u.pings.length, u.pings[0].nth]).toEqual([1, 1]);
+    expect(u.pingCost).toBeCloseTo(0.05);
+    expect(u.cost).toBeCloseTo(3.55);
   });
 });
 

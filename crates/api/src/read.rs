@@ -17,9 +17,9 @@ use crate::view;
 use crate::{
     Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail,
     ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk, OwnerMessage,
-    PausedBy, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
+    PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
     Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Said, Session, Shown, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkState, WorkSummary,
+    Said, Session, Shown, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,6 +330,7 @@ fn summary(
     g: Option<&CompiledGraph>,
     open: (i64, i64),
     (waits, answered): (Option<Waits>, Option<i64>),
+    pinged: f64,
 ) -> WorkSummary {
     let cell = g.and_then(|g| g.cell(&w.at));
     // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at,
@@ -384,7 +385,7 @@ fn summary(
                 cell: r.cell.clone(),
                 started_at: r.started_at,
             }),
-        cost_usd: rounds.iter().filter_map(|r| r.cost).sum(),
+        cost_usd: rounds.iter().filter_map(|r| r.cost).sum::<f64>() + pinged,
         open_asks: open.0,
         open_design_cards: open.1,
     }
@@ -426,6 +427,15 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
         conn,
         "SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work",
     )?;
+    // What each work's keep-warm pings cost, which is the work's.
+    let pinged: HashMap<i64, f64> = {
+        let mut st = conn.prepare(
+            "SELECT s.work, sum(coalesce(json_extract(p.usage, '$.cost_usd'), 0)) FROM pings p
+             JOIN sessions s ON s.id = p.session GROUP BY s.work",
+        )?;
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
     for (w, rounds) in work_rows(conn, filter, args)? {
@@ -442,7 +452,8 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
         } else {
             waits(conn, &w, &rounds, g.as_ref())?
         };
-        let s = summary(&w, &rounds, g.as_ref(), open, waits);
+        let pinged = pinged.get(&w.id).copied().unwrap_or(0.0);
+        let s = summary(&w, &rounds, g.as_ref(), open, waits, pinged);
         out.push((w, s));
     }
     Ok(out)
@@ -462,7 +473,10 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        json_extract(r.output, '$.progress'),
        r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
        json_extract(r.input, '$.engine.not_applicable'), r.session, json_extract(r.input, '$.call.level'),
-       json_extract(r.input, '$.call.command')
+       json_extract(r.input, '$.call.command'),
+       CASE WHEN s.started <> 'wake'
+         AND r.n = (SELECT min(x.n) FROM rounds x WHERE x.work = r.work AND x.session = r.session)
+       THEN s.started END
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
@@ -547,6 +561,8 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         progress: text(r, 11)?,
         not_asked: r.get(21)?,
         tokens: round_tokens(json(r.get(20)?).as_ref()).map(|t| RoundTokens { level, effort, ..t }),
+        session: r.get(22)?,
+        new_session: r.get(25)?,
     })
 }
 
@@ -796,7 +812,53 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         asks: asks(conn, "WHERE a.work = ?1", &[id])?,
         messages,
         interjections: interjections(conn, "WHERE work = ?1", &[id])?,
+        sessions: work_sessions(conn, id)?,
+        pings: pings(conn, id)?,
     })
+}
+
+/// The sessions a work's lines ran in, oldest first.
+fn work_sessions(conn: &Connection, work: i64) -> Result<Vec<WorkSession>> {
+    let mut st = conn.prepare("SELECT id, line, started, ended FROM sessions WHERE work = ?1 ORDER BY id")?;
+    let rows = st.query_map([work], |r| {
+        Ok(WorkSession {
+            id: r.get(0)?,
+            line: r.get(1)?,
+            started: r.get(2)?,
+            ended: r.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The keep-warm pings sent to a work's sessions, oldest first.
+fn pings(conn: &Connection, work: i64) -> Result<Vec<Ping>> {
+    let mut st = conn.prepare(
+        "SELECT p.id, p.session, s.line, json_extract(p.waited, '$.cell'), json_extract(p.waited, '$.on'),
+                json_extract(p.waited, '$.what'), p.started_at, p.ended_at, p.model,
+                json_extract(p.usage, '$.cost_usd'),
+                coalesce(json_extract(p.usage, '$.usage.cache_read_input_tokens'), 0),
+                coalesce(json_extract(p.usage, '$.usage.cache_creation_input_tokens'), 0), p.error
+         FROM pings p JOIN sessions s ON s.id = p.session WHERE s.work = ?1 ORDER BY p.id",
+    )?;
+    let rows = st.query_map([work], |r| {
+        Ok(Ping {
+            id: r.get(0)?,
+            session: r.get(1)?,
+            line: r.get(2)?,
+            cell: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            on: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            what: r.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            started_at: r.get(6)?,
+            ended_at: r.get(7)?,
+            model: r.get(8)?,
+            cost_usd: r.get(9)?,
+            read: r.get(10)?,
+            written: r.get(11)?,
+            error: r.get(12)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// The directories under the data directory whose files the interface serves.
@@ -2050,6 +2112,13 @@ mod tests {
                 "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 waits.', 45), (NULL, 'Halted.', 46)",
                 [],
             )?;
+            tx.execute(
+                "INSERT INTO pings (session, waited, usage, started_at, ended_at) VALUES (1,
+                   '{\"cell\":\"1\",\"on\":\"pause\",\"what\":\"to look\"}',
+                   '{\"cost_usd\":0.25,\"usage\":{\"cache_read_input_tokens\":9000,\"cache_creation_input_tokens\":20}}',
+                   41, 42)",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();
@@ -2062,7 +2131,8 @@ mod tests {
         assert_eq!(w.at_title.as_deref(), Some(cell.title.as_str()));
         assert_eq!(w.stage, cell.stage);
         assert_eq!((w.rounds, w.sent_back, w.failed), (3, 1, 0));
-        assert_eq!((w.started_at, w.last_at, w.cost_usd), (Some(10), Some(50), 0.5));
+        // The work's cost counts the keep-warm pings of its sessions.
+        assert_eq!((w.started_at, w.last_at, w.cost_usd), (Some(10), Some(50), 0.75));
         assert_eq!(w.running.as_ref().map(|r| r.n), Some(3));
 
         let d = work(s.db.conn(), &cache, 1).unwrap();
@@ -2076,6 +2146,27 @@ mod tests {
         assert_eq!(back.line.as_deref(), Some("engineer"));
         assert_eq!(back.progress.as_deref(), Some("looked"));
         assert_eq!((back.cost_usd, back.tool_runs), (Some(0.5), 1));
+        // The first round of a session says it started it, and why; the work lists its sessions and their pings.
+        assert_eq!((back.session, back.new_session.as_deref()), (Some(1), Some("line")));
+        assert_eq!(
+            (d.rounds[2].session, d.rounds[2].new_session.as_deref()),
+            (Some(1), None)
+        );
+        assert_eq!(
+            d.sessions,
+            [WorkSession {
+                id: 1,
+                line: "engineer".into(),
+                started: "line".into(),
+                ended: None
+            }]
+        );
+        let p = &d.pings[0];
+        assert_eq!(
+            (p.line.as_str(), p.cell.as_str(), p.on.as_str(), p.what.as_str()),
+            ("engineer", "1", "pause", "to look")
+        );
+        assert_eq!((p.cost_usd, p.read, p.written), (Some(0.25), 9000, 20));
         // What its agents and the engine told the owner of it, oldest first; a notice of no work is not its.
         let told: Vec<(bool, &str)> = d.messages.iter().map(|m| (m.engine, m.text.as_str())).collect();
         assert_eq!(told, [(false, "told"), (true, "Work 1 waits.")]);

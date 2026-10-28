@@ -369,8 +369,23 @@ function RoundLink({ f, work, n }: { f: Flow | null; work: number; n: number }) 
   );
 }
 
+/// Why a round started a new session, in a few words; none for a round that went on in its line's session.
+function newSession(r: RoundSummary): string | null {
+  switch (r.new_session) {
+    case 'cell':
+      return t('run_new_session_cell', { cell: r.cell ?? '' });
+    case 'limit':
+      return t('run_new_session_limit');
+    case 'line':
+      return r.line !== null && r.line === r.cell ? t('run_new_session_own') : t('run_new_session_line');
+    default:
+      return null;
+  }
+}
+
 /// Who did the round's work and how it ran, in a few words: for an agent its line, level, model, effort, whether it
-/// started or continued its line's session, its time and cost; else the tools, the engine's step or the owner.
+/// started a new session and why, or continued its line's session, its time and cost; else the tools, the engine's
+/// step or the owner.
 function runWords(d: RoundDetail, cell: CompiledCell | undefined): string {
   const r = d.round;
   const took = r.ended_at !== null ? duration(r.ended_at - r.started_at) : t('rp_running_for', { time: duration(Date.now() - r.started_at) });
@@ -382,7 +397,7 @@ function runWords(d: RoundDetail, cell: CompiledCell | undefined): string {
       d.level !== null ? t('run_level', { level: d.level }) : null,
       r.model !== null ? modelName(r.model) : null,
       d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
-      'started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null,
+      newSession(r) ?? ('started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null),
       r.compactions > 0 ? t('run_compacted') : null,
       took,
       r.cost_usd !== null ? cost(r.cost_usd) : null,

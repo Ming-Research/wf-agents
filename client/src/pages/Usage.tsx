@@ -1,7 +1,8 @@
 // A work's usage tab, as the owner's approved mock drew it from work 9: tiles of its cost, time, rounds, tokens and
 // compactions; where its time went, as one stacked bar and as a timeline of its wall time with a block per round; its
-// models, each at the level and effort it ran at; where its cost went, by kind of token and by cell; its sessions, with
-// each one's context after each round; and how long each tool ran. Every mark says what it is on hovering; labels are
+// models, each at the level and effort it ran at; where its cost went, by kind of token and by cell; its sessions, each
+// with why it started and its context after each round; the keep-warm pings sent to them while the work waited; and
+// how long each tool ran. Every mark says what it is on hovering; labels are
 // in HTML so that they keep their size as the charts shrink with the panel; colours come from the page's tokens, in
 // light and dark alike.
 
@@ -11,7 +12,7 @@ import type { CompiledGraph, WorkDetail } from '../api';
 import { cost, duration, roundName } from '../format';
 import { tokens } from '../round';
 import { t } from '../text';
-import { type Usage as UsageData, usageOf } from '../usage';
+import { type SessionRow, type Usage as UsageData, usageOf } from '../usage';
 import { modelName } from './RoundView';
 
 const pct = (x: number, total: number) => (total > 0 ? (100 * x) / total : 0);
@@ -115,6 +116,27 @@ function Timeline({ u, work }: { u: UsageData; work: number }) {
 
 const LINE_COLOURS = ['var(--us-1)', 'var(--us-2)', 'var(--us-3)', 'var(--us-4)'];
 
+/// A session as the tab names it: its line, and its number among the line's when the line had more than one.
+function sessionName(u: UsageData, s: { line: string; nth: number }): string {
+  return u.sessions.filter((x) => x.line === s.line).length > 1 ? `${s.line} ${s.nth}` : s.line;
+}
+
+/// Why a session started, in a few words.
+function startedText(s: SessionRow): string {
+  switch (s.started) {
+    case 'cell':
+      return t('us_started_cell', { cell: s.cell ?? '' });
+    case 'limit':
+      return s.before !== null ? t('us_started_limit_at', { n: tokens(s.before) }) : t('us_started_limit');
+    case 'wake':
+      return t('us_started_wake');
+    case 'line':
+      return s.cell !== null && s.line === s.cell ? t('us_started_own') : t('us_started_line');
+    default:
+      return '';
+  }
+}
+
 /// Each session's context after each of its rounds, a line per session labelled at its end, a compaction marked
 /// where one happened; the scale and the labels in HTML over the drawing.
 function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour: (line: string) => string }) {
@@ -141,7 +163,7 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
           <line key={v} x1={left} x2={W - right} y1={Y(v)} y2={Y(v)} className="us-grid" />
         ))}
         {u.sessions.map((s) => (
-          <g key={s.line}>
+          <g key={s.id ?? s.line}>
             {s.points.length > 1 ? (
               <polyline
                 fill="none"
@@ -158,7 +180,7 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
                 r={p.compacted ? 6 : 4}
                 fill={colour(s.line)}
                 className={p.compacted ? 'us-point us-compacted' : 'us-point'}
-                data-tip={`${roundName(work, p.n)} · ${s.line} · ${t('us_context_tip', { n: tokens(p.context) })}${p.compacted ? ` · ${t('us_compacted')}` : ''}`}
+                data-tip={`${roundName(work, p.n)} · ${sessionName(u, s)} · ${t('us_context_tip', { n: tokens(p.context) })}${p.compacted ? ` · ${t('us_compacted')}` : ''}`}
               />
             ))}
           </g>
@@ -174,11 +196,11 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
         if (p === undefined) return null;
         return (
           <span
-            key={s.line}
+            key={s.id ?? s.line}
             className="us-end-label"
             style={{ left: `${(100 * (X(p.n) + 8)) / W}%`, top: `${(100 * Y(p.context)) / H}%`, color: colour(s.line) }}
           >
-            {s.line}
+            {sessionName(u, s)}
           </span>
         );
       })}
@@ -216,9 +238,9 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
   const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, { kind: c.kind, title: c.title }]));
-  const u = usageOf(d.rounds, cells, Date.now());
+  const u = usageOf(d.rounds, cells, Date.now(), d.sessions, d.pings);
   const work = d.work.id;
-  const lines = u.sessions.map((s) => s.line);
+  const lines = [...new Set(u.sessions.map((s) => s.line))];
   const colour = (line: string) => LINE_COLOURS[Math.max(lines.indexOf(line), 0) % LINE_COLOURS.length];
   const move = (e: MouseEvent<HTMLDivElement>) => {
     const at = (e.target as Element).closest('[data-tip]');
@@ -235,7 +257,15 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
   return (
     <div className="us" onMouseMove={move} onMouseLeave={() => setTip(null)}>
       <div className="us-tiles">
-        <Tile k={t('us_cost')} v={cost(u.cost)} s={t('us_agent_rounds', { n: u.agentRounds })} />
+        <Tile
+          k={t('us_cost')}
+          v={cost(u.cost)}
+          s={
+            u.pings.length > 0
+              ? t('us_agent_rounds_pings', { n: u.agentRounds, pings: u.pings.length, cost: cost(u.pingCost) })
+              : t('us_agent_rounds', { n: u.agentRounds })
+          }
+        />
         <Tile k={t('us_time')} v={duration(u.wall)} s={t('us_running', { time: duration(u.time.model + u.time.tool + u.time.engine) })} />
         <Tile k={t('us_rounds')} v={String(u.rounds)} s={t('us_sent_back', { n: u.sentBack })} />
         <Tile k={t('us_read')} v={tokens(readAll)} s={t('us_from_cache', { share: share(tk.read, readAll) })} />
@@ -347,6 +377,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           <thead>
             <tr>
               <th>{t('us_col_line')}</th>
+              <th>{t('us_col_started')}</th>
               <th>{t('us_col_rounds')}</th>
               <th>{t('us_col_turns')}</th>
               <th>{t('us_col_time')}</th>
@@ -357,11 +388,12 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           </thead>
           <tbody>
             {u.sessions.map((s) => (
-              <tr key={s.line}>
+              <tr key={s.id ?? s.line}>
                 <td>
                   <i className="us-swatch" style={{ background: colour(s.line) }} />
-                  <b>{s.line}</b>
+                  <b>{sessionName(u, s)}</b>
                 </td>
+                <td>{startedText(s)}</td>
                 <td className="num">{s.rounds}</td>
                 <td className="num">{s.turns}</td>
                 <td className="num">{duration(s.ms)}</td>
@@ -372,6 +404,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
                 <td className="num">{s.compactions}</td>
                 <td className="num">
                   <b>{cost(s.cost)}</b>
+                  {s.pings > 0 ? <div className="us-sub">{t('us_with_pings', { n: s.pings })}</div> : null}
                 </td>
               </tr>
             ))}
@@ -380,6 +413,42 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
         <p className="us-note us-gap">{t('us_context_title')}</p>
         <ContextChart u={u} work={work} colour={colour} />
       </Section>
+      {u.pings.length > 0 ? (
+        <Section title={t('us_pings_title')} note={t('us_pings_note')}>
+          <table className="us-table">
+            <thead>
+              <tr>
+                <th>{t('us_col_when')}</th>
+                <th>{t('us_col_session')}</th>
+                <th>{t('us_col_waited')}</th>
+                <th>{t('us_col_read')}</th>
+                <th>{t('us_col_written')}</th>
+                <th>{t('us_col_cost')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {u.pings.map((p) => (
+                <tr key={p.id}>
+                  <td>{clock(p.started_at)}</td>
+                  <td>
+                    <i className="us-swatch" style={{ background: colour(p.line) }} />
+                    {sessionName(u, p)}
+                  </td>
+                  <td>
+                    {t('us_waited', { cell: p.cell, on: p.on, what: p.what })}
+                    {p.error !== null ? <div className="us-sub">{t('us_ping_failed', { why: p.error })}</div> : null}
+                  </td>
+                  <td className="num">{tokens(p.read)}</td>
+                  <td className="num">{tokens(p.written)}</td>
+                  <td className="num">
+                    <b>{p.cost_usd !== null ? cost(p.cost_usd) : ''}</b>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      ) : null}
       {u.tools.length > 0 ? (
         <Section title={t('us_tools_title')} note={t('us_tools_note')}>
           <Bars

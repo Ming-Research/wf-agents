@@ -163,6 +163,8 @@ function round(n: number, at: string, transition: string | null, extra: Partial<
     progress: null,
     not_asked: null,
     tokens: null,
+    session: null,
+    new_session: null,
     ...extra,
   };
 }

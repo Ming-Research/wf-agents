@@ -1,10 +1,11 @@
-// What a work's usage tab reads from its rounds, apart from how it draws it: where its time went, what each model
-// and each session did and cost, where the cost went by kind of token and by cell, and how long each tool ran. Each
-// round's level is the one it recorded, never the configuration's now; a round's subagents are the models whose count
-// grew in its session during it; the cost by kind of token is weighed by the models' prices as each round's cost line
-// is; and the time no round ran is one block, since nothing records why a work stood still.
+// What a work's usage tab reads from its rounds, its sessions and their keep-warm pings, apart from how it draws it:
+// where its time went, what each model and each session did and cost, where the cost went by kind of token and by
+// cell, how long each tool ran, and what each ping cost and where the work waited. Each round's level is the one it
+// recorded, never the configuration's now; a round's subagents are the models whose count grew in its session during
+// it; the cost by kind of token is weighed by the models' prices as each round's cost line is; the work's cost counts
+// its pings; and the time no round ran is one block, since nothing records why a work stood still.
 
-import type { RoundSummary } from './api';
+import type { Ping, RoundSummary, WorkSession } from './api';
 import { costParts, type CostParts } from './round';
 
 /// What a cell is, as the usage tab names and sorts it.
@@ -35,23 +36,41 @@ export type ModelRow = {
 };
 
 export type SessionRow = {
+  /// The session's row; none for rounds recorded without one.
+  id: number | null;
   line: string;
+  /// Its place among its line's sessions, from 1.
+  nth: number;
+  /// Why it started, as the session manager recorded it: line, cell, limit or wake; none when not recorded.
+  started: string | null;
+  /// The cell of its first round.
+  cell: string | null;
+  /// For one started past the limit: the context the line's session before had at its end.
+  before: number | null;
   rounds: number;
   turns: number;
   ms: number;
   context: number | null;
   window: number | null;
   compactions: number;
+  /// What its rounds and its keep-warm pings cost.
   cost: number;
+  pings: number;
   points: Array<{ n: number; context: number; compacted: boolean }>;
 };
+
+/// A keep-warm ping, with the session it went to as the sessions are numbered by line.
+export type PingRow = Ping & { nth: number };
 
 export type Usage = {
   start: number;
   end: number;
   wall: number;
   time: { model: number; tool: number; engine: number; idle: number };
+  /// What its rounds and its keep-warm pings cost.
   cost: number;
+  /// What its keep-warm pings cost.
+  pingCost: number;
   agentRounds: number;
   rounds: number;
   sentBack: number;
@@ -65,13 +84,21 @@ export type Usage = {
   kinds: CostParts | null;
   cells: Array<{ cell: string; title: string; cost: number; rounds: number }>;
   sessions: SessionRow[];
+  pings: PingRow[];
   tools: Array<{ cell: string; title: string; ms: number; runs: number }>;
 };
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
-/// A work's usage, from its rounds in order, with what each cell is; `now` ends a round still running.
-export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, now: number): Usage {
+/// A work's usage, from its rounds in order, with what each cell is, its sessions and their keep-warm pings; `now`
+/// ends a round still running.
+export function usageOf(
+  rounds: RoundSummary[],
+  cells: Map<string, CellInfo>,
+  now: number,
+  workSessions: WorkSession[] = [],
+  pings: Ping[] = [],
+): Usage {
   const end = (r: RoundSummary) => r.ended_at ?? now;
   const start = rounds.length > 0 ? Math.min(...rounds.map((r) => r.started_at)) : now;
   const last = rounds.length > 0 ? Math.max(...rounds.map(end)) : now;
@@ -100,6 +127,15 @@ export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, no
   let priced = false;
   const byCell = new Map<string, { cell: string; title: string; cost: number; rounds: number }>();
   const sessions = new Map<string, SessionRow>();
+  // Each session's place among its line's, by the order they started.
+  const nth = new Map<number, number>();
+  const perLine = new Map<string, number>();
+  for (const w of workSessions) {
+    const k = (perLine.get(w.line) ?? 0) + 1;
+    perLine.set(w.line, k);
+    nth.set(w.id, k);
+  }
+  const started = new Map(workSessions.map((w) => [w.id, w.started]));
   for (const r of agent) {
     const x = r.tokens;
     if (x === null) continue;
@@ -143,7 +179,24 @@ export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, no
     c.rounds += 1;
     byCell.set(cell, c);
     const line = r.line ?? '';
-    const s = sessions.get(line) ?? { line, rounds: 0, turns: 0, ms: 0, context: null, window: null, compactions: 0, cost: 0, points: [] };
+    const key = r.session !== null ? String(r.session) : `line ${line}`;
+    const s = sessions.get(key) ?? {
+      id: r.session,
+      line,
+      nth: r.session !== null ? (nth.get(r.session) ?? 1) : 1,
+      started: r.session !== null ? (started.get(r.session) ?? null) : null,
+      cell: r.cell,
+      before: null,
+      rounds: 0,
+      turns: 0,
+      ms: 0,
+      context: null,
+      window: null,
+      compactions: 0,
+      cost: 0,
+      pings: 0,
+      points: [],
+    };
     s.rounds += 1;
     s.turns += x.steps;
     s.ms += end(r) - r.started_at;
@@ -154,8 +207,23 @@ export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, no
       s.points.push({ n: r.n, context: x.context_end, compacted: r.compactions > 0 });
     }
     s.window = x.window ?? s.window;
-    sessions.set(line, s);
+    sessions.set(key, s);
   }
+  // A session started past the limit says how large the line's session before it had grown.
+  const rows = [...sessions.values()].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+  for (const s of rows) {
+    if (s.started !== 'limit') continue;
+    const prior = rows.filter((x) => x.line === s.line && (x.id ?? 0) < (s.id ?? 0)).pop();
+    s.before = prior?.context ?? null;
+  }
+  const bySession = new Map(rows.filter((s) => s.id !== null).map((s) => [s.id as number, s]));
+  for (const p of pings) {
+    const s = bySession.get(p.session);
+    if (s === undefined) continue;
+    s.pings += 1;
+    s.cost += p.cost_usd ?? 0;
+  }
+  const pingCost = sum(pings.map((p) => p.cost_usd ?? 0));
   const tools = new Map<string, { cell: string; title: string; ms: number; runs: number }>();
   for (const r of rounds) {
     if (doer(r, cells) !== 'tool' || r.cell === null) continue;
@@ -169,7 +237,8 @@ export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, no
     end: last,
     wall,
     time,
-    cost: sum(agent.map((r) => r.cost_usd ?? 0)),
+    cost: sum(agent.map((r) => r.cost_usd ?? 0)) + pingCost,
+    pingCost,
     agentRounds: agent.length,
     rounds: rounds.length,
     sentBack: rounds.filter((r) => r.outcome === 'sent_back').length,
@@ -187,7 +256,8 @@ export function usageOf(rounds: RoundSummary[], cells: Map<string, CellInfo>, no
     subagents: [...subagents.entries()].map(([model, ns]) => ({ model, rounds: ns })),
     kinds: priced ? kinds : null,
     cells: [...byCell.values()].sort((a, b) => b.cost - a.cost),
-    sessions: [...sessions.values()].sort((a, b) => b.cost - a.cost),
+    sessions: rows,
+    pings: pings.map((p) => ({ ...p, nth: nth.get(p.session) ?? 1 })),
     tools: [...tools.values()].sort((a, b) => b.ms - a.ms),
   };
 }

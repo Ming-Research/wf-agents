@@ -437,7 +437,8 @@ pub fn counters(data: &Path, work: i64) -> Result<String, String> {
     )
 }
 
-/// What went wrong or ran long: returns sent back, compactions, counters past the project's limits, works paused.
+/// What went wrong or ran long: returns sent back, compactions, counters past the project's limits, works paused, and
+/// the keep-warm pings, each a wait of over an hour, with where the work waited and for what.
 pub fn anomalies(data: &Path) -> Result<String, String> {
     let c = config::committed(data).map_err(sql)?.config;
     let db = open(data)?;
@@ -493,24 +494,55 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
         )?,
         100,
     ));
+    out.push_str("\nKeep-warm pings, each a wait of over an hour:\n");
+    out.push_str(&table(
+        &query_json(
+            db.conn(),
+            "SELECT s.work, s.line, json_extract(p.waited, '$.cell') AS cell, json_extract(p.waited, '$.on') AS waited_on,
+                    json_extract(p.waited, '$.what') AS what, p.started_at AS at,
+                    round(json_extract(p.usage, '$.cost_usd'), 4) AS cost_usd, p.error
+             FROM pings p JOIN sessions s ON s.id = p.session ORDER BY s.work, p.id",
+            &[],
+            10_000,
+        )?,
+        100,
+    ));
     Ok(out)
 }
 
-/// Time and cost of each work, and of its rounds by cell.
+/// Time and cost of each work, its keep-warm pings counted, and of its rounds by cell, with its pings apart.
 pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
     match work {
-        Some(w) => show(
-            data,
-            "SELECT cell, count(*) AS rounds, sum(ended_at - started_at) / 1000 AS secs,
-                    round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)), 2) AS cost_usd
-             FROM rounds WHERE work = ?1 GROUP BY cell ORDER BY min(n)",
-            &[&w],
-            40,
-        ),
+        Some(w) => {
+            let mut out = show(
+                data,
+                "SELECT cell, count(*) AS rounds, sum(ended_at - started_at) / 1000 AS secs,
+                        round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)), 2) AS cost_usd
+                 FROM rounds WHERE work = ?1 GROUP BY cell ORDER BY min(n)",
+                &[&w],
+                40,
+            )?;
+            let db = open(data)?;
+            let (pings, cost): (i64, f64) = db
+                .conn()
+                .query_row(
+                    "SELECT count(*), coalesce(sum(json_extract(p.usage, '$.cost_usd')), 0) FROM pings p
+                     JOIN sessions s ON s.id = p.session WHERE s.work = ?1",
+                    [w],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .map_err(sql)?;
+            if pings > 0 {
+                out.push_str(&format!("keep-warm pings\t{pings}\t\t{cost:.2}\n"));
+            }
+            Ok(out)
+        }
         None => show(
             data,
             "SELECT work, count(*) AS rounds, (max(coalesce(ended_at, started_at)) - min(started_at)) / 1000 AS secs,
-                    round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)), 2) AS cost_usd
+                    round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)) + coalesce((SELECT
+                      sum(json_extract(p.usage, '$.cost_usd')) FROM pings p JOIN sessions s ON s.id = p.session
+                      WHERE s.work = rounds.work), 0), 2) AS cost_usd
              FROM rounds GROUP BY work ORDER BY work",
             &[],
             40,
