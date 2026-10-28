@@ -61,6 +61,7 @@ dependencies = [
  "flow",
  "serde",
  "serde_json",
+ "sessions",
  "ts-rs",
 ]
 

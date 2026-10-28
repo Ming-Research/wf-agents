@@ -139,6 +139,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect", get(architect))
         .route("/api/v1/messages", get(messages))
         .route("/api/v1/spend", get(spend))
+        .route("/api/v1/settings", get(settings).post(save_settings))
+        .route("/api/v1/items/{id}/level", post(set_level))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
@@ -450,6 +452,30 @@ struct Which {
 
 async fn messages(State(app): State<App>, Query(q): Query<Which>) -> Result<Json<Vec<api::OwnerMessage>>, Fail> {
     read(&app, move |c, _| api::messages(c, q.all)).await.map(Json)
+}
+
+/// The settings the owner keeps on the page, as the configuration's last commit has them.
+async fn settings(State(app): State<App>) -> Result<Json<api::Settings>, Fail> {
+    read(&app, |_, a| api::settings(&a.data).map_err(api::Error::Failed))
+        .await
+        .map(Json)
+}
+
+/// Writes a change to the settings into the installation's file and commits it, as the owner; the engine takes it from
+/// its next round. A change the configuration would refuse is refused before anything is written.
+async fn save_settings(State(app): State<App>, Json(c): Json<api::SettingsChange>) -> Result<Json<api::Done>, Fail> {
+    let data = Arc::clone(&app.data);
+    decide(&app, move |_| api::save_settings(&data, &c)).await
+}
+
+/// Puts an item at another tier, as the owner.
+async fn set_level(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(l): Json<api::NewLevel>,
+) -> Result<Json<api::Done>, Fail> {
+    let data = Arc::clone(&app.data);
+    decide(&app, move |db| api::set_level(db, &data, id, &l.level)).await
 }
 
 /// What the agents spent, by day, model and line, across every work.

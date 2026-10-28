@@ -760,6 +760,63 @@ pub struct ItemDetail {
     pub asks: Vec<OwnerAsk>,
     /// What the rounds of its works handed back that their flow versions show on the item, oldest first.
     pub shown: Vec<Shown>,
+    /// Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
+    pub level_changes: Vec<LevelChange>,
+}
+
+/// A change of an item's tier, as its history keeps it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct LevelChange {
+    pub at: i64,
+    /// owner, architect or engine.
+    pub by: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// The settings the owner keeps on the page, as the configuration's last commit has them: each tier's model, the
+/// highest tier an item may be at (its advisor runs one tier above), the architect's tier, and the session manager's
+/// settings.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Settings {
+    /// Each tier, in order.
+    pub tiers: Vec<Tier>,
+    /// The highest tier an item may be at; none, any.
+    pub highest_level: Option<String>,
+    /// The tier the architect runs at.
+    pub architect: String,
+    /// The context, in tokens, past which a line's session is replaced at its next round.
+    pub context_limit: i64,
+    /// Keep-warm, which is not configuration: how many minutes after a waiting session's last call it is pinged, and
+    /// at most how many times in one wait.
+    pub keep_warm_minutes: i64,
+    pub keep_warm_most: i64,
+    /// The configuration commit they are read from.
+    pub commit: String,
+}
+
+/// A tier: its name, the model it runs, and what work it is for.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Tier {
+    pub name: String,
+    pub model: String,
+    pub desc: String,
+}
+
+/// A change to the settings the owner makes on the page: each value given takes the place of the one there.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct SettingsChange {
+    /// A model for each tier changed, by the tier's name.
+    pub models: BTreeMap<String, String>,
+    pub highest_level: Option<String>,
+    pub architect: Option<String>,
+    pub context_limit: Option<i64>,
+}
+
+/// An item's new tier, as the owner sets it on the item's page.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct NewLevel {
+    pub level: String,
 }
 
 /// A value a round handed back that the flow shows on the item the work is on: the owner reads it there.

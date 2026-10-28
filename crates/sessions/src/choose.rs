@@ -18,6 +18,8 @@ pub enum Start {
     Cell,
     /// The context of the line's session was past the configuration's limit.
     Limit,
+    /// The line's rounds run on another model than its session's, whose prompt cache holds nothing of it.
+    Model,
     /// A wake of the architect goes on in the CLI session the last wake left.
     Wake,
 }
@@ -28,6 +30,7 @@ impl Start {
             Start::Line => "line",
             Start::Cell => "cell",
             Start::Limit => "limit",
+            Start::Model => "model",
             Start::Wake => "wake",
         }
     }
@@ -77,9 +80,18 @@ fn rewrites(rounds: &[Round], cell: &str) -> bool {
     })
 }
 
-/// Where the work's next round at a cell runs, with the configuration's limit of a session's context in tokens. It
-/// reads only: [`open`] starts a new session.
-pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64) -> Result<Plan, String> {
+/// The model a session's rounds ran on: the one its latest round that ran the command line gave it.
+pub fn model(rounds: &[Round]) -> Option<String> {
+    rounds.iter().rev().find_map(|r| {
+        let command = r.input["call"]["command"].as_array()?;
+        let at = command.iter().position(|a| a == "--model")?;
+        command.get(at + 1)?.as_str().map(str::to_string)
+    })
+}
+
+/// Where the work's next round at a cell runs, on the model given, with the configuration's limit of a session's context
+/// in tokens. It reads only: [`open`] starts a new session.
+pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &str) -> Result<Plan, String> {
     let Some(line) = &cell.line else {
         return Ok(Plan::New(Start::Line));
     };
@@ -107,10 +119,16 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64) -> Re
         }
     }
     let (rounds, held) = held::of_session(conn, &cli_session)?;
-    // A return sent back is rewritten in the session that wrote it; the limit takes effect at the round after.
-    let over = context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX));
-    if over && !rewrites(&rounds, &cell.id) {
-        return Ok(Plan::New(Start::Limit));
+    // A return sent back is rewritten in the session that wrote it; the limit and a new model take effect at the round
+    // after. A model's prompt cache holds nothing of a session another model ran, so a session on another model would
+    // be written again whole: a new one is given only what its cell needs.
+    if !rewrites(&rounds, &cell.id) {
+        if context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
+            return Ok(Plan::New(Start::Limit));
+        }
+        if model(&rounds).is_some_and(|m| m != on) {
+            return Ok(Plan::New(Start::Model));
+        }
     }
     let resume = rounds.iter().any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
     Ok(Plan::Going {

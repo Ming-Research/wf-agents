@@ -167,6 +167,8 @@ function startedText(s: SessionRow): string {
       return s.before !== null ? t('us_started_limit_at', { n: tokens(s.before) }) : t('us_started_limit');
     case 'wake':
       return t('us_started_wake');
+    case 'model':
+      return t('us_started_model');
     case 'line':
       return s.cell !== null && s.line === s.cell ? t('us_started_own') : t('us_started_line');
     default:

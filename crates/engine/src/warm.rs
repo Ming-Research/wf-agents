@@ -130,7 +130,16 @@ pub fn keep_warm(e: &mut Engine, now: i64) -> Result<usize, String> {
         };
         let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
         let limit = e.config.config.install.agents.context_limit;
-        let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, now)? else {
+        // The model the next round runs on: a session on another one starts anew, and is not kept warm.
+        let item = e.subject(&w)?;
+        let Some(model) = cells
+            .first()
+            .and_then(|c| crate::steps::level_of(e, &g, c, item.as_ref()).ok())
+            .map(|(_, l, _)| l.model)
+        else {
+            continue;
+        };
+        let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, &model, now)? else {
             continue;
         };
         (e.say)(&format!(

@@ -3954,3 +3954,48 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     assert_eq!(input["engine"]["interjections"], json!([1]), "{input}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// When the model a line's rounds run on changes, as when the owner moves the item to another tier, the line's next
+// round starts a new session: a model's prompt cache holds nothing of a session another model ran, so the session would
+// be written again whole, and a new one is given only what its cell needs.
+#[test]
+fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
+    let s = setup("model");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let other = "[agents.levels.m]\ndesc = \"another tier\"\ncli = \"claude\"\nmodel = \"m-other\"\n";
+    write(&s.data, "install.toml", &format!("{install}\n{other}"));
+    git(&s.data, &["commit", "-q", "-am", "another tier"]);
+    let (mut e, said, item) = start(&s, scripts());
+    agent_rounds_to(&mut e, item, 2);
+    let (work, _, _) = state(&e, item).unwrap();
+    // The owner moves the item to the other tier on its page: the change is the owner's, in the item's history.
+    let done = api::set_level(&mut e.db, &s.data, item, "m").unwrap();
+    assert_eq!(done, format!("item {item} is at tier m"));
+    let by: String =
+        e.db.conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'items' AND json_extract(new_row, '$.level') = 'm'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(by, "owner");
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        line_sessions(&e, work, "engineer"),
+        [
+            ("line".to_string(), true, "1,1a".to_string()),
+            ("model".to_string(), false, "2".to_string())
+        ],
+        "{log}"
+    );
+    let model: String =
+        e.db.conn()
+            .query_row("SELECT model FROM rounds WHERE work = ?1 AND cell = '2'", [work], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(model, "m-other");
+    let _ = std::fs::remove_dir_all(&s.root);
+}

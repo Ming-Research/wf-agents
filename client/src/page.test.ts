@@ -28,6 +28,8 @@ import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, foldLabel, messageParts, placeSchema, preview, shape, spent, tokens, valueMeanings } from './round';
+import { settingsChange, settingsProblems } from './pages/Settings';
+import { tiersAllowed } from './pages/Item';
 import { spendTable } from './spend';
 import { gapsOf, usageOf } from './usage';
 
@@ -945,6 +947,41 @@ describe('what the agents spent across every work', () => {
       ['2026-10-26', 7, 3],
     ]);
     expect(s.total).toBe(9.5);
+  });
+});
+
+describe('the settings on the page', () => {
+  const settings = {
+    tiers: [
+      { name: '1', model: 'claude-haiku-5-5', desc: 'small' },
+      { name: '2', model: 'claude-sonnet-5-5', desc: 'known' },
+      { name: '3', model: 'claude-opus-5-5', desc: 'new' },
+      { name: '4', model: 'claude-fable-5-1', desc: 'advisor' },
+    ],
+    highest_level: '3',
+    architect: '3',
+    context_limit: 500_000,
+    keep_warm_minutes: 55,
+    keep_warm_most: 39,
+    commit: 'abcdef0123',
+  };
+
+  it('sends only what changed and refuses what it can tell is wrong', () => {
+    const models = { '1': 'claude-haiku-5-5', '2': 'claude-sonnet-5-5', '3': 'claude-opus-5-5', '4': 'claude-opus-5-5' };
+    expect(settingsChange(settings, models, '3', '3', '500000')).toEqual({
+      models: { '4': 'claude-opus-5-5' },
+      highest_level: null,
+      architect: null,
+      context_limit: null,
+    });
+    expect(settingsChange(settings, models, '2', '2', '400000').context_limit).toBe(400_000);
+    expect(settingsProblems({ ...models, '2': ' ' }, '0')).toEqual(['Tier 2 needs a model.', 'The size limit is a number of tokens above 0.']);
+    expect(settingsProblems(models, '500000')).toEqual([]);
+  });
+
+  it('offers an item no tier above the highest', () => {
+    expect(tiersAllowed(settings)).toEqual(['1', '2', '3']);
+    expect(tiersAllowed({ ...settings, highest_level: null })).toEqual(['1', '2', '3', '4']);
   });
 });
 

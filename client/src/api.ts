@@ -768,7 +768,11 @@ imported_from: string | null, imported_branch: string | null, imported_pr: numbe
 /**
  * What the rounds of its works handed back that their flow versions show on the item, oldest first.
  */
-shown: Array<Shown>, };
+shown: Array<Shown>, 
+/**
+ * Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
+ */
+level_changes: Array<LevelChange>, };
 
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
@@ -782,6 +786,66 @@ round: number, cell: string,
  * The path of the return it is at, as the flow writes it.
  */
 path: string, value: JsonValue, };
+
+/**
+ * A change of an item's tier, as its history keeps it.
+ */
+export type LevelChange = { at: number, 
+/**
+ * owner, architect or engine.
+ */
+by: string, from: string, to: string, };
+
+/**
+ * The settings the owner keeps on the page, as the configuration's last commit has them: each tier's model, the
+ * highest tier an item may be at (its advisor runs one tier above), the architect's tier, and the session manager's
+ * settings.
+ */
+export type Settings = { 
+/**
+ * Each tier, in order.
+ */
+tiers: Array<Tier>, 
+/**
+ * The highest tier an item may be at; none, any.
+ */
+highest_level: string | null, 
+/**
+ * The tier the architect runs at.
+ */
+architect: string, 
+/**
+ * The context, in tokens, past which a line's session is replaced at its next round.
+ */
+context_limit: number, 
+/**
+ * Keep-warm, which is not configuration: how many minutes after a waiting session's last call it is pinged, and
+ * at most how many times in one wait.
+ */
+keep_warm_minutes: number, keep_warm_most: number, 
+/**
+ * The configuration commit they are read from.
+ */
+commit: string, };
+
+/**
+ * A tier: its name, the model it runs, and what work it is for.
+ */
+export type Tier = { name: string, model: string, desc: string, };
+
+/**
+ * A change to the settings the owner makes on the page: each value given takes the place of the one there.
+ */
+export type SettingsChange = { 
+/**
+ * A model for each tier changed, by the tier's name.
+ */
+models: { [key in string]: string }, highest_level: string | null, architect: string | null, context_limit: number | null, };
+
+/**
+ * An item's new tier, as the owner sets it on the item's page.
+ */
+export type NewLevel = { level: string, };
 
 /**
  * The architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the policy and the plan

@@ -534,6 +534,89 @@ pub fn working(dir: &Path) -> Result<Config, Error> {
     read(&Tree(dir))
 }
 
+/// The committed files with `install.toml` read from a text instead.
+struct WithInstall<'a> {
+    commit: Commit<'a>,
+    install: &'a str,
+}
+
+impl Files for WithInstall<'_> {
+    fn read(&self, path: &str) -> Result<Option<String>, String> {
+        if path == INSTALL_FILE {
+            return Ok(Some(self.install.to_string()));
+        }
+        self.commit.read(path)
+    }
+
+    fn list(&self, dir: &str) -> Result<Vec<String>, String> {
+        self.commit.list(dir)
+    }
+}
+
+/// The TOML the configuration is written in, for what writes a setting into it.
+pub use toml;
+
+/// The installation's file in the data directory.
+pub const INSTALL_FILE: &str = "install.toml";
+
+/// Reads the configuration as the data directory's last commit has it, with `install.toml` as the text given: what a
+/// change to the installation would make it, before the change is written.
+pub fn with_install(dir: &Path, install: &str) -> Result<Config, Error> {
+    let commit = git(dir, &["rev-parse", "--verify", "HEAD"])
+        .map_err(fail)?
+        .trim()
+        .to_string();
+    let files = git(dir, &["ls-tree", "-r", "--name-only", &commit]).map_err(fail)?;
+    let files = files.lines().map(str::to_string).collect();
+    read(&WithInstall {
+        commit: Commit { dir, commit, files },
+        install,
+    })
+}
+
+/// A TOML text with one setting set, everything else as it was, comments included: the line of `key` in the table
+/// `[table]` replaced, or added just under the table's heading when the table has no such line, or the table added at
+/// the end when the text has none. A value of none takes the setting's line out.
+pub fn set_setting(text: &str, table: &str, key: &str, value: Option<&toml::Value>) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let heading = format!("[{table}]");
+    let start = lines.iter().position(|l| l.trim() == heading);
+    let line = value.map(|v| format!("{key} = {v}"));
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    match start {
+        None => {
+            if let Some(l) = line {
+                if out.last().is_some_and(|x| !x.trim().is_empty()) {
+                    out.push(String::new());
+                }
+                out.push(heading);
+                out.push(l);
+            }
+        }
+        Some(h) => {
+            let end = lines[h + 1..]
+                .iter()
+                .position(|l| l.trim_start().starts_with('['))
+                .map_or(lines.len(), |i| h + 1 + i);
+            let names = |l: &str| {
+                l.split_once('=')
+                    .is_some_and(|(k, _)| k.trim() == key && !l.trim_start().starts_with('#'))
+            };
+            match (lines[h + 1..end].iter().position(|l| names(l)), line) {
+                (Some(i), Some(l)) => out[h + 1 + i] = l,
+                (Some(i), None) => {
+                    out.remove(h + 1 + i);
+                }
+                (None, Some(l)) => out.insert(h + 1, l),
+                (None, None) => {}
+            }
+        }
+    }
+    let mut s = out.join("\n");
+    s.push('\n');
+    s
+}
+
 fn parse(files: &dyn Files, path: &str) -> Result<Option<toml::Table>, String> {
     match files.read(path)? {
         None => Ok(None),
@@ -1122,6 +1205,30 @@ asks = 9
             Err("level 10 is above 2, the highest an item may be at (items.highest_level)".into())
         );
         assert_eq!(c.level_of_line("2", "advisor"), "10");
+    }
+
+    // A setting is set in its line, added under its table's heading, or taken out, and every other line, comments
+    // included, stays as it was.
+    #[test]
+    fn a_setting_is_set_where_it_is_and_the_rest_stays() {
+        let text =
+            "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"\n";
+        let model = toml::Value::String("b".into());
+        assert_eq!(
+            set_setting(text, "agents.levels.4", "model", Some(&model)),
+            "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"b\"\n"
+        );
+        let three = toml::Value::String("3".into());
+        let added = set_setting(text, "items", "highest_level", Some(&three));
+        assert_eq!(
+            added,
+            "# The installation.\n[items]\nhighest_level = \"3\"\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"\n"
+        );
+        assert_eq!(set_setting(&added, "items", "highest_level", None), text);
+        assert!(
+            set_setting(text, "agents", "context_limit", Some(&toml::Value::Integer(400_000)))
+                .ends_with("model = \"a\"\n\n[agents]\ncontext_limit = 400000\n")
+        );
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

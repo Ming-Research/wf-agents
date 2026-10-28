@@ -16,10 +16,11 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemDetail,
-    ItemLink, ItemState, ItemSummary, Items, KeptFile, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
-    Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Said, Session, Shown, Spend, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
+    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter, NamedText, OwnerAsk,
+    OwnerMessage, PausedBy, Ping, Plan, PlanBudget, PlanGate, PlanSegment, PolicyInForce, PolicySetting, ProjectNow,
+    Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens,
+    RunningRound, Said, Session, Shown, Spend, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
+    WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1525,8 +1526,28 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         design_cards: design_cards(conn, flows, "WHERE w.item = ?1", &[id])?,
         asks: asks(conn, "WHERE w.item = ?1", &[id])?,
         shown: shown(conn, flows, id)?,
+        level_changes: level_changes(conn, id)?,
         item: summary,
     })
+}
+
+/// Each time an item's tier changed after it was made, oldest first, as `changes` keeps it.
+fn level_changes(conn: &Connection, item: i64) -> Result<Vec<LevelChange>> {
+    let mut st = conn.prepare(
+        "SELECT at, actor, json_extract(old_row, '$.level'), json_extract(new_row, '$.level') FROM changes
+         WHERE table_name = 'items' AND json_extract(row_key, '$.id') = ?1 AND old_row IS NOT NULL AND new_row IS NOT NULL
+           AND json_extract(old_row, '$.level') <> json_extract(new_row, '$.level')
+         ORDER BY id",
+    )?;
+    let rows = st.query_map([item], |r| {
+        Ok(LevelChange {
+            at: r.get(0)?,
+            by: r.get(1)?,
+            from: r.get(2)?,
+            to: r.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// The values at a path of a return, as an input gives them: a shape named in brackets keeps only what is of that

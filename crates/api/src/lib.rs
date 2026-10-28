@@ -15,6 +15,7 @@ mod events;
 mod marks;
 mod owner;
 mod read;
+mod settings;
 mod source;
 mod types;
 mod typescript;
@@ -30,6 +31,7 @@ pub use read::{
     Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, messages, round,
     spend, version_of, work, works,
 };
+pub use settings::{save_settings, set_level, settings};
 pub use source::{Sources, refs};
 pub use types::*;
 pub use typescript::typescript;

@@ -4,19 +4,58 @@
 // cards, answered asks, its works. Each block names the round it came from. What the works hand back is drawn by its
 // shape in the flow's formats; a field the page does not know is shown as labelled text.
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
-import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown } from '../api';
+import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Settings, Shown } from '../api';
 import { Facts, ItemBadge, Loaded, Section, WorkBadge } from '../components';
 import { cost, roundName, time } from '../format';
 import { Acceptance, Approaches, Deviation, Design, Field, Fold, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str } from '../labelled';
-import { useResource } from '../live';
+import { postJson } from '../http';
+import { reread, useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { Link, workHref } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
+
+/// The tiers an item may be put at: those up to the highest an item may be at, in order.
+export function tiersAllowed(s: Settings): string[] {
+  const names = s.tiers.map((x) => x.name);
+  const top = s.highest_level === null ? -1 : names.indexOf(s.highest_level);
+  return top < 0 ? names : names.slice(0, top + 1);
+}
+
+/// The item's tier, which the owner changes here: a tier above the highest an item may be at is not offered. Its works
+/// run at the new tier from their next round.
+function Tier({ id, level }: { id: number; level: string }) {
+  const s = useResource<Settings>('settings', '/api/v1/settings');
+  const [error, setError] = useState<string | null>(null);
+  const allowed = s.data !== undefined ? tiersAllowed(s.data) : [];
+  const options = allowed.includes(level) ? allowed : [...allowed, level];
+  return (
+    <span>
+      {t('col_level')}{' '}
+      <select
+        value={level}
+        onChange={(e) => {
+          setError(null);
+          postJson(`/api/v1/items/${id}/level`, { level: e.target.value }).then(
+            () => reread(`item:${id}`, 'items'),
+            (x: unknown) => setError(x instanceof Error ? x.message : String(x)),
+          );
+        }}
+      >
+        {options.map((n) => (
+          <option key={n} value={n} disabled={!allowed.includes(n)}>
+            {n}
+          </option>
+        ))}
+      </select>
+      {error !== null ? <span className="bad"> {error}</span> : null}
+    </span>
+  );
+}
 
 /// Where a value shown on the item came from: the round and the cell, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
@@ -380,15 +419,18 @@ function Detail({ d }: { d: ItemDetail }) {
         </h1>
         <div className="head-facts">
           <span>{i.project}</span>
-          <span>
-            {t('col_level')} {i.level}
-          </span>
+          <Tier id={i.id} level={i.level} />
           <span>
             {t('col_deliver')} {i.deliver}
           </span>
           {i.pr !== null ? <span>PR #{i.pr}</span> : null}
         </div>
         {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
+        {d.level_changes.map((c, k) => (
+          <div key={k} className="muted">
+            {t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) })}
+          </div>
+        ))}
       </header>
       {cards.length > 0 || asks.length > 0 ? (
         <Section title={t('needs_you')}>

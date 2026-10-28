@@ -7,6 +7,7 @@ import { Architect } from './pages/Architect';
 import { Flow } from './pages/Flow';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
+import { Settings } from './pages/Settings';
 import { Spend } from './pages/Spend';
 import { Works } from './pages/Works';
 import { Link, useRoute } from './route';
@@ -33,6 +34,7 @@ export function App() {
         {route.page === 'architect' ? <Architect route={route} /> : null}
         {route.page === 'messages' ? <Messages /> : null}
         {route.page === 'spend' ? <Spend /> : null}
+        {route.page === 'settings' ? <Settings /> : null}
         {route.page === 'flow' ? <Flow route={route} /> : null}
         {route.page === 'missing' ? (
           <div className="page">

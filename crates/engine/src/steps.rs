@@ -108,19 +108,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
-    // The advisor runs one level above the item's: it is the engineer, with a higher model. The architect, and the new
-    // architects that read a policy, run at the level the installation names for the architect.
     let line_of_cell = crate::line_of(g, cell);
-    let level_name = match &item {
-        Some(i) => e.config.config.level_of_line(&i.level, &line_of_cell),
-        None => e.config.config.architect_level(),
-    };
-    let (level, cli) = e
-        .config
-        .config
-        .level(&level_name)
-        .map(|(l, c)| (l.clone(), c.clone()))
-        .ok_or_else(|| format!("work {}: no such level in the configuration: {level_name}", w.id))?;
+    let (level_name, level, cli) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();
     let Composed {
         line,
@@ -377,6 +366,28 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     call
 }
 
+/// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
+/// advisor, which is the engineer with a higher model; for the architect, and the new architects that read a policy,
+/// the level the installation names for the architect.
+pub fn level_of(
+    e: &Engine,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Result<(String, config::Level, config::Cli), String> {
+    let name = match item {
+        Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
+        None => e.config.config.architect_level(),
+    };
+    let (level, cli) = e
+        .config
+        .config
+        .level(&name)
+        .map(|(l, c)| (l.clone(), c.clone()))
+        .ok_or_else(|| format!("no such level in the configuration: {name}"))?;
+    Ok((name, level, cli))
+}
+
 /// What an agent's round at a cell is built from, and the message it is sent.
 struct Composed {
     /// The line the session is on: the cell's, or for a cell on no line the cell itself, whose session is its own.
@@ -410,7 +421,9 @@ fn compose(
     item: Option<&Item>,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
-    let mut plan = sessions::choose::plan(e.db.conn(), w.id, cell, e.config.config.install.agents.context_limit)?;
+    let model = level_of(e, g, cell, item)?.1.model;
+    let limit = e.config.config.install.agents.context_limit;
+    let mut plan = sessions::choose::plan(e.db.conn(), w.id, cell, limit, &model)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
