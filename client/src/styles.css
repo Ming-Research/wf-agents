@@ -3788,6 +3788,8 @@ details.dc[open] > summary::before,
   color: var(--panel);
   font-size: 12px;
   pointer-events: none;
+}
+
 .ask-tried {
   margin-top: 4px;
 }
