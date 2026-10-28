@@ -2576,7 +2576,7 @@
       "name": "query",
       "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, design cards, rulings and the like. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition",
-      "tables": "The tables and views it reads, each with the first line of what it holds. To read one in full, with its columns and what each holds, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
+      "tables": "The tables and views it reads, each with its columns and the first line of what it holds. To read one in full, with what each column holds, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
         {
           "name": "sql",
@@ -9490,6 +9490,9 @@
             "An option the owner chose is written as its content, not only by its name. The design and the acceptance say the same thing, and their numbers agree. Each field reads on its own: full names, every PR linked, the background a reader needs.",
             "Say each thing once, in the field it belongs to, and not in prose what a code comment says. Be concise without losing what matters: the most important first; never cut what the owner needs to understand and decide.",
             "Code examples: only the lines the point needs; explain a name used but not defined in a comment. One comment per line, on its own line above the line it explains, about 80 characters at most; at the line that goes wrong, say what should hold, what happens and why. Before and after are two blocks, each with comments. Follow the language's syntax and format, saying so when a form cannot compile before the implementation. A tool's error text comes from the repository or a real run in CI, never from memory; otherwise describe it in words. The fence names the language; output, logs and errors take no label and no comments."
+          ],
+          "once": [
+            "effects"
           ]
         },
         "rows": [

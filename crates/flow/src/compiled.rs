@@ -67,6 +67,10 @@ pub struct CompiledGraph {
     /// How every agent's return is written, which the forms every return shares say once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub write: Vec<String>,
+    /// Fields of agents' own answers that several cells hand in alike, which the forms every return shares give once
+    /// and each cell's own format refers to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub once: Vec<String>,
     /// What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
     /// version stored before the flow said it in this form, which runs by the section of the flow built into the
     /// engine.
@@ -709,6 +713,23 @@ fn described(cell: &str, f: &Field, path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The schema of an agent's cell's own answer, the form of its return that holds no field of the forms every return
+/// shares; none for a cell that is no agent's.
+pub fn own_answer<'c>(cell: &'c CompiledCell, within: &str) -> Option<&'c Value> {
+    let alts = cell
+        .schema
+        .as_ref()?
+        .get("properties")?
+        .get(within)?
+        .get("anyOf")?
+        .as_array()?;
+    cell.forms
+        .iter()
+        .zip(alts)
+        .find(|(f, _)| f.field.is_none())
+        .map(|(_, a)| a)
+}
+
 pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), String> {
     let schemas = Schemas {
         text: &g.source.enum_text,
@@ -796,6 +817,22 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         });
     }
     let f = g.flow;
+    // A field given once is one that several cells' own answers hold alike.
+    let within = &f.agent_common.returns.within.name;
+    for name in &f.agent_common.returns.once {
+        let held: Vec<&Value> = cells
+            .iter()
+            .filter_map(|c| own_answer(c, within)?.get("properties")?.get(name))
+            .collect();
+        ensure!(
+            held.len() > 1,
+            "a field given once is in fewer than two cells' own answers: {name}"
+        );
+        ensure!(
+            held.iter().all(|x| *x == held[0]),
+            "a field given once is not alike in every cell's own answer: {name}"
+        );
+    }
     let stats = Stats {
         graph: f.name.clone(),
         cells: g.cells.len(),
@@ -840,6 +877,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             })
             .collect(),
         write: f.agent_common.returns.write.clone(),
+        once: f.agent_common.returns.once.clone(),
         rounds: match &f.rounds {
             Some(r) => Some(rounds(r, &cells)?),
             None => None,

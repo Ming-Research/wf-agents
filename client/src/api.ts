@@ -1487,6 +1487,11 @@ ask_needs?: Array<AskNeed>,
  */
 write?: Array<string>, 
 /**
+ * Fields of agents' own answers that several cells hand in alike, which the forms every return shares give once
+ * and each cell's own format refers to.
+ */
+once?: Array<string>, 
+/**
  * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
  * version stored before the flow said it in this form, which runs by the section of the flow built into the
  * engine.

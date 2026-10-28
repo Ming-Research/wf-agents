@@ -758,8 +758,8 @@ mod tests {
         f.graph(crate::ENGINEER).unwrap().clone()
     }
 
-    // The forms every return shares hold every tool and every role any cell has, and show a return's shape; a cell's
-    // own format names the ones it has.
+    // The forms every return shares hold every tool and every role any cell has, and show a return's shape and the
+    // columns of every table the query tool reads; a cell's own format names the ones it has.
     #[test]
     fn the_common_format_holds_every_alternative_and_a_cell_says_which_it_has() {
         let g = graph();
@@ -780,6 +780,8 @@ mod tests {
             common.contains(r#"`{"outcome": {…}, "side_reports": […], "tell_owner": […], "progress": "…"}`"#),
             "{common}"
         );
+        // The query tool lists each table and view with its columns.
+        assert!(common.contains("- items (id, project, title, "), "{common}");
         // The kinds of ask, the same under every role asked, are written once.
         assert_eq!(
             common.matches("The existing architecture or design has a flaw").count(),

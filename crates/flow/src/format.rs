@@ -79,7 +79,7 @@ pub struct Tool {
     /// What the engine does to run it.
     pub runs: String,
     /// For a tool that reads the database: what leads the index of the tables and views it reads, which the
-    /// compiler adds to its description, one line for each with the first line of what it holds.
+    /// compiler adds to its description, one line for each with its columns and the first line of what it holds.
     pub tables: Option<String>,
     /// What the agent hands in.
     #[serde(rename = "in")]
@@ -430,6 +430,10 @@ pub struct Returns {
     /// how a field the owner reads is written.
     #[serde(default)]
     pub write: Vec<String>,
+    /// Fields of the cells' own answers that several cells hand in alike: the forms every return shares give each
+    /// once, and a cell's own format refers to it there.
+    #[serde(default)]
+    pub once: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -641,11 +641,19 @@ pub fn open_read(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// What agents are told about the database: each table and view they can read, by its name, with the first sentence
-/// of the comment that says what it holds, in the order the schema defines them. An agent reads a definition in full,
-/// its comments included, with [`DEFINITION`] through the query tool.
-pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
-    described(conn, first_sentence)
+/// What agents are told about the database: each table and view they can read, by its name, with its columns' names
+/// and the first sentence of the comment that says what it holds, in the order the schema defines them. An agent
+/// reads a definition in full, its comments included, with [`DEFINITION`] through the query tool.
+pub fn index(conn: &Connection) -> rusqlite::Result<Vec<(String, Vec<String>, String)>> {
+    let mut cols = conn.prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")?;
+    let mut out = Vec::new();
+    for (name, first) in described(conn, first_sentence)? {
+        let columns = cols
+            .query_map([&name], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        out.push((name, columns, first));
+    }
+    Ok(out)
 }
 
 /// Each table and view agents can read, by its name, with the whole first comment of its definition: what it holds,
@@ -691,7 +699,7 @@ fn first_sentence(sql: &str) -> String {
 }
 
 /// What [`index`] gives for a schema, from the schema loaded into a database in memory.
-pub fn index_of(schema: &str) -> rusqlite::Result<Vec<(String, String)>> {
+pub fn index_of(schema: &str) -> rusqlite::Result<Vec<(String, Vec<String>, String)>> {
     let db = Connection::open_in_memory()?;
     db.execute_batch(schema)?;
     index(&db)
@@ -1045,15 +1053,18 @@ mod tests {
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
         assert!(slow.query_row(forever, [], |r| r.get::<_, i64>(0)).is_err());
-        // The index names each table and view with the first sentence of its description, whole however many lines
-        // it takes; the query it points to gives the whole definition with its comments.
+        // The index names each table and view with its columns and the first sentence of its description, whole
+        // however many lines it takes; the query it points to gives the whole definition with its comments.
         let index = index(db.conn()).unwrap();
-        let names: Vec<&str> = index.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = index.iter().map(|(n, _, _)| n.as_str()).collect();
         assert!(names.contains(&"items") && names.contains(&"ready_items"));
         assert!(!names.contains(&"sessions"));
-        let (_, first) = index.iter().find(|(n, _)| n == "items").unwrap();
+        let (_, columns, first) = index.iter().find(|(n, _, _)| n == "items").unwrap();
         assert_eq!(first, "A piece of work to do, as its creator wrote it.");
-        for (n, first) in &index {
+        assert_eq!(columns[..3], ["id", "project", "title"]);
+        let (_, columns, _) = index.iter().find(|(n, _, _)| n == "ready_items").unwrap();
+        assert!(columns.contains(&"position".to_string()), "{columns:?}");
+        for (n, _, first) in &index {
             assert!(first.ends_with('.') && !first.contains(". "), "{n}: {first}");
         }
         assert_eq!(

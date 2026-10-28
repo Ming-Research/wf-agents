@@ -40,6 +40,39 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert_eq!((s.cells, s.rows, s.states), (38, 133, 146));
 }
 
+// A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
+// return shares, and each of those cells' own format refers to it there; a line none of whose cells holds it is not
+// given it. A part given once must be in two cells' own answers or more.
+#[test]
+fn a_part_several_cells_hold_alike_is_given_once() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let t1 = flow::formats::cell_format(g, g.cell("T1").unwrap(), &[]);
+    assert!(
+        t1.contains(r#""effects":{"$ref":"format:common#/$defs/effects"}"#),
+        "{t1}"
+    );
+    assert!(!t1.contains("item_changes"), "{t1}");
+    let line = |id: &str| -> Vec<&flow::CompiledCell> {
+        let line = &g.cell(id).unwrap().line;
+        g.cells
+            .iter()
+            .filter(|x| x.kind == "agent" && &x.line == line)
+            .collect()
+    };
+    let architect = flow::formats::common_format_of(g, &line("T1"), &[]);
+    assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
+    let review = flow::formats::common_format_of(g, &line("R1"), &[]);
+    assert!(!review.contains(r#""item_changes""#), "{review}");
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains("a field given once is in fewer than two cells' own answers: settled"),
+        "{e}"
+    );
+}
+
 // The rounds section reaches the compiled flow with every kind of failed run, and gives every agent's cell, and only
 // an agent's, a shared row back to itself for a return sent back, for so many in a row, and for each kind; a row of
 // the flow's own cannot switch on what only those rows do, nor take one of their names.

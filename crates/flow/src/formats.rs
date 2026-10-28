@@ -339,10 +339,37 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
     }
     let mut schema = lean(&Value::Object(schema));
     without_kinds(&mut schema, gone);
+    let mut schema = once(schema);
+    // The parts of the cells' own answers given once: each as the first of the cells that holds it has it.
+    let shared: Vec<(&String, Value)> = g
+        .once
+        .iter()
+        .filter_map(|name| {
+            let part = cells
+                .iter()
+                .find_map(|c| crate::compiled::own_answer(c, &g.within)?.get("properties")?.get(name))?;
+            let mut part = lean(part);
+            without_kinds(&mut part, gone);
+            Some((name, part))
+        })
+        .collect();
+    if !shared.is_empty() {
+        let names: Vec<String> = shared.iter().map(|(n, _)| (*n).clone()).collect();
+        parts.push(format!(
+            "A part several cells' own answers hold alike is given once, here under `$defs`: {}. `format:<cell>` refers \
+             to it as `format:common#/$defs/<name>`.",
+            quoted(&names)
+        ));
+        if let Value::Object(o) = &mut schema {
+            let defs = o.entry("$defs").or_insert_with(|| json!({}));
+            for (name, part) in shared {
+                defs[name.as_str()] = part;
+            }
+        }
+    }
     parts.push(format!(
         "Each field, as JSON Schema; no object holds fields it does not list, and a part used in more than one place \
-         is under `$defs`:\n\n{}",
-        once(schema)
+         is under `$defs`:\n\n{schema}"
     ));
     parts.join("\n\n")
 }
@@ -382,6 +409,12 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell, gone: &[&AskNeed]) ->
     }
     let mut own = lean(&own);
     without_kinds(&mut own, gone);
+    // A part given once in the forms every return shares is referred to there.
+    for name in &g.once {
+        if let Some(part) = own.get_mut("properties").and_then(|p| p.get_mut(name)) {
+            *part = json!({ "$ref": format!("format:common#/$defs/{name}") });
+        }
+    }
     format!(
         "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema; instead of it, a return of this cell may \
          hold these forms of `format:common`: {others}.\n\n{json}",
