@@ -179,8 +179,8 @@ export function usageOf(
     c.rounds += 1;
     byCell.set(cell, c);
     const line = r.line ?? '';
-    const key = r.session !== null ? String(r.session) : `line ${line}`;
-    const s = sessions.get(key) ?? {
+    const session = r.session !== null ? String(r.session) : `line ${line}`;
+    const s = sessions.get(session) ?? {
       id: r.session,
       line,
       nth: r.session !== null ? (nth.get(r.session) ?? 1) : 1,
@@ -207,7 +207,7 @@ export function usageOf(
       s.points.push({ n: r.n, context: x.context_end, compacted: r.compactions > 0 });
     }
     s.window = x.window ?? s.window;
-    sessions.set(key, s);
+    sessions.set(session, s);
   }
   // A session started past the limit says how large the line's session before it had grown.
   const rows = [...sessions.values()].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
