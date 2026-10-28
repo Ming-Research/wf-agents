@@ -401,20 +401,23 @@ export function FlowChart(props: FlowChartProps) {
               const { g } = graphs[i];
               return (
                 <div key={g.name} className="fc-sheet" data-sheet={i} style={{ left: placed.x[i] }}>
-                  {several ? (
-                    <div className="fc-sheet-name" style={{ height: placed.top }}>
-                      {t('chart_graph', { graph: g.name })}
-                    </div>
-                  ) : null}
-                  <FlowSvg
-                    g={g}
-                    chart={models[i]}
-                    laid={l}
-                    lines={measured[i].lines}
-                    marks={marks[i] ?? NO_MARKS}
-                    numbered={numbered}
-                    defs={i === 0}
-                  />
+                  <div className="fc-sheet-body" style={{ marginTop: placed.top }}>
+                    {several ? (
+                      <>
+                        <div className="fc-sheet-frame" />
+                        <div className="fc-sheet-name">{t('chart_graph', { graph: g.name })}</div>
+                      </>
+                    ) : null}
+                    <FlowSvg
+                      g={g}
+                      chart={models[i]}
+                      laid={l}
+                      lines={measured[i].lines}
+                      marks={marks[i] ?? NO_MARKS}
+                      numbered={numbered}
+                      defs={i === 0}
+                    />
+                  </div>
                 </div>
               );
             })}

@@ -3842,7 +3842,8 @@ details.dc[open] > summary::before,
   margin-top: 4px;
 }
 
-/* Several graphs on one chart, side by side, each under its name. */
+/* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's
+   top edge at the left, so that the name plainly belongs to its graph. */
 
 .fc-sheets {
   position: relative;
@@ -3853,14 +3854,33 @@ details.dc[open] > summary::before,
   top: 0;
 }
 
+.fc-sheet-body {
+  position: relative;
+}
+
+.fc-sheet-body > svg {
+  display: block;
+}
+
+.fc-sheet-frame {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed color-mix(in srgb, var(--muted) 55%, transparent);
+  border-radius: 14px;
+  pointer-events: none;
+}
+
 .fc-sheet-name {
-  display: flex;
-  align-items: flex-end;
-  padding: 0 24px 6px;
+  position: absolute;
+  top: 0;
+  left: 20px;
+  padding: 0 10px;
+  background: var(--bg);
+  color: var(--muted);
   font-size: 18px;
   font-weight: 600;
-  color: var(--muted);
   white-space: nowrap;
+  transform: translateY(-50%);
 }
 
 .diff-graph {
