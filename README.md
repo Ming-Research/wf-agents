@@ -50,10 +50,12 @@ Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude c
 
 ## The architect
 
-The architect runs at the level `install.toml` names under `[agents]` as `architect` (such as `architect = "4"`), the
-top level when it names none. Each project's file names its constitution, a path in the project's checkout, such as
-`constitution = "CONSTITUTION.md"`; the architect is given the text of every project's constitution, and checks each
-project against it article by article (the level-two headings that start with "Article").
+Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
+(such as `architect = "4"`), the top level when it names none; its search of observations runs at the level named as
+`observer`, `1` when none is named. Each project's file names its constitution, a path in the project's checkout, such
+as `constitution = "CONSTITUTION.md"`, which its architect checks the project against article by article (the
+level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
+`observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 
 ## The owner's page
 
@@ -70,6 +72,7 @@ The flow page shows a stored flow version, or `flow/flow.json` as it is at a git
 with git and compiled, nothing written), its graphs side by side, and compares two of them, so that a change to the
 flow is reviewed there.
 
-The Architect view shows the architect's wakes on its graph, its asks of the owner with their forms, its queue, its
-decisions, the policy, and where things stand as it understands them; its line holds the architect's Start, Pause and
-Step, and what the owner says to it.
+The Architect view shows a project's architect, with a switch to another project's when there are several: its wakes
+on its graph, its asks of the owner with their forms, its queue, its log, the item changes its batches made, the
+project's observations (by tag, searchable, each closed by the owner with why), the policy, and where things stand as
+it understands them; its line holds the architect's Start, Pause and Step, and what the owner says to it.
