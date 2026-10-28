@@ -934,14 +934,16 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
                 return Err(format!("work {} on item {i} is not stopped by the architect", work.id));
             }
             e.db.write(Actor::Architect, |tx| {
-                tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work.id])?;
+                tx.execute(
+                    "UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1",
+                    [work.id],
+                )?;
                 Ok(())
             })
             .map_err(sql)
         }
-        "hold_dispatch" => e
-            .db
-            .write(Actor::Architect, |tx| {
+        "hold_dispatch" => {
+            e.db.write(Actor::Architect, |tx| {
                 tx.execute(
                     "INSERT INTO dispatch_holds (reason, since, why) VALUES ('architect', ?1, ?2)
                      ON CONFLICT (reason) DO UPDATE SET why = coalesce(excluded.why, why)",
@@ -949,11 +951,11 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
                 )?;
                 Ok(())
             })
-            .map_err(sql),
+            .map_err(sql)
+        }
         "release_dispatch" => {
-            let n = e
-                .db
-                .write(Actor::Architect, |tx| {
+            let n =
+                e.db.write(Actor::Architect, |tx| {
                     Ok(tx.execute("DELETE FROM dispatch_holds WHERE reason = 'architect'", [])?)
                 })
                 .map_err(sql)?;
@@ -974,7 +976,8 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
             let asking = g
                 .cell(&work.pos.at)
                 .is_some_and(|c| c.step.as_deref() == Some("ask_architect"));
-            let open = work::open_round(e.db.conn(), work.id)?.filter(|r| asking && r.cell.as_deref() == Some(work.pos.at.as_str()));
+            let open = work::open_round(e.db.conn(), work.id)?
+                .filter(|r| asking && r.cell.as_deref() == Some(work.pos.at.as_str()));
             let Some(r) = open else {
                 return Err(format!("work {} on item {i} does not wait for your reply", work.id));
             };
