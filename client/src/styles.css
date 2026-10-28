@@ -2832,12 +2832,23 @@ p.rp-note {
   top: -18px;
   left: 8px;
   padding: 1px 8px;
+  border: 0;
   border-radius: 6px 6px 0 0;
   background: var(--accent);
   color: var(--panel);
+  font: inherit;
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+/* A box folded down to its label: the label on the box's top edge. */
+.rp-box-folded {
+  padding: 0;
+  border-width: 1.5px 0 0;
+  border-radius: 0;
+  background: none;
 }
 
 .rp-box-out > .rp-box-label {

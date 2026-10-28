@@ -214,12 +214,16 @@ function Message({ text }: { text: string }) {
   );
 }
 
-/// What the agent, the tools or the engine's step got or gave, in a box under its label.
+/// What the agent, the tools or the engine's step got or gave, in a box under its label; open at first, a click on
+/// the label folds it down to the label, and another opens it again.
 function Box({ label, kind, children }: { label: string; kind: 'in' | 'out'; children: ReactNode }) {
+  const [open, setOpen] = useState(true);
   return (
-    <div className={`rp-box rp-box-${kind}`}>
-      <span className="rp-box-label">{label}</span>
-      <div className="rp-box-body">{children}</div>
+    <div className={`rp-box rp-box-${kind}${open ? '' : ' rp-box-folded'}`}>
+      <button type="button" className="rp-box-label" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} {label}
+      </button>
+      {open ? <div className="rp-box-body">{children}</div> : null}
     </div>
   );
 }
