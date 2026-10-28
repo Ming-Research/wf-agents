@@ -952,7 +952,7 @@ observations: Array<Observation>,
 /**
  * The project's tags for observations, each with what it covers.
  */
-tags: Array<Tag>,
+tags: Array<Tag>, 
 /**
  * The owner's conversation with it, oldest first: the owner's words to it, what its rounds told the owner, and its
  * asks of the owner with the owner's answers.
@@ -962,22 +962,22 @@ conversation: Array<ConversationEntry>, };
 /**
  * One entry of the owner's conversation with a project's architect.
  */
-export type ConversationEntry = {
+export type ConversationEntry = { 
 /**
  * words: the owner's words to the architect, said on the page, on an item or to a wake, or the owner letting a
  * work it had stopped go on; told: what a round of the architect told the owner; ask: an ask of the owner the
  * architect put, in the words of the notice that told of it; answer: the owner's answer to one.
  */
-kind: string, text: string, at: number,
+kind: string, text: string, at: number, 
 /**
  * For the owner's words: whether they still wait for the architect, not handled or handed in yet; for an ask:
  * whether it waits for the owner's answer.
  */
-waiting: boolean,
+waiting: boolean, 
 /**
  * For what the architect told or asked: its wake and round.
  */
-work: number | null, round: number | null,
+work: number | null, round: number | null, 
 /**
  * For an ask and its answer: the ask.
  */
