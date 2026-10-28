@@ -27,7 +27,7 @@ export { words };
 
 /// What the owner decided has been written: everything it shows is read again.
 export function decided() {
-  reread('works', 'work:*', 'items', 'item:*', 'round:*', 'architect');
+  reread('works', 'work:*', 'items', 'item:*', 'round:*', 'architect', 'messages');
 }
 
 /// Brings an element of the page into view, opening whatever folds it; false when the page does not have it.
