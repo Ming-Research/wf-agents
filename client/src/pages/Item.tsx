@@ -7,7 +7,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Settings, Shown } from '../api';
-import { Facts, ItemBadge, Loaded, Section, WorkBadge } from '../components';
+import { DependencyKind, Facts, ItemBadge, Loaded, Section, WorkBadge } from '../components';
 import { cost, roundName, time } from '../format';
 import { Acceptance, Approaches, Deviation, Design, Field, Fold, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
@@ -317,7 +317,7 @@ function Linked({ list }: { list: LinkedItem[] }) {
           <Link to={`/items/${l.item.id}`}>
             #{l.item.id} {l.item.title}
           </Link>{' '}
-          <ItemBadge state={l.item.state} />
+          <ItemBadge state={l.item.state} /> <DependencyKind kind={l.kind} />
           <div className="muted">{l.needs}</div>
         </li>
       ))}
@@ -426,6 +426,11 @@ function Detail({ d }: { d: ItemDetail }) {
           {i.pr !== null ? <span>PR #{i.pr}</span> : null}
         </div>
         {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
+        {i.blocked_by.length > 0 ? (
+          <div className="muted">
+            {t('item_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+          </div>
+        ) : null}
         {d.level_changes.map((c, k) => (
           <div key={k} className="muted">
             {t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) })}

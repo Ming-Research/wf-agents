@@ -25,11 +25,17 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     open_asks: 0,
     open_design_cards: 0,
     pr: null,
+    blocked_by: [],
     ...extra,
   };
 }
 
-const link = (from: number, to: number): ItemLink => ({ item: from, depends_on: to, needs: '' });
+const link = (from: number, to: number, kind = 'parallel'): ItemLink => ({
+  item: from,
+  depends_on: to,
+  needs: '',
+  kind,
+});
 
 /// A tree as lines: the item's number, indented by depth, a link to where it is shown in full marked `->`.
 function lines(rows: TreeRow[], depth = 0): string[] {
@@ -49,10 +55,20 @@ describe('the tree of items', () => {
     item(5, 'new'),
     item(6, 'queued', { queued: 1 }),
   ];
-  const links = [link(1, 2), link(1, 3), link(4, 3), link(3, 5)];
+  const links = [link(1, 2), link(1, 3, 'blocking'), link(4, 3), link(3, 5)];
 
   it('puts what nothing waits for at the top, and what an item depends on under it', () => {
     expect(lines(tree(items, links))).toEqual(['1', '  3', '    5', '  2', '6', '4', '  ->3']);
+  });
+
+  it('gives each item under another the kind of the dependency', () => {
+    const rows = tree(items, links);
+    const first = rows.find((r) => r.item.id === 1);
+    expect(first?.kind).toBeNull();
+    expect(first?.children.map((c) => [c.item.id, c.kind])).toEqual([
+      [3, 'blocking'],
+      [2, 'parallel'],
+    ]);
   });
 
   it('shows an item several depend on in full under the first only', () => {

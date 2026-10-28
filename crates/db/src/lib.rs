@@ -49,6 +49,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0021.sql"),
     include_str!("../../../db/migrations/0022.sql"),
     include_str!("../../../db/migrations/0023.sql"),
+    include_str!("../../../db/migrations/0024.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -592,8 +593,9 @@ fn triggers(conn: &Connection, table: &str) -> rusqlite::Result<String> {
     ))
 }
 
-/// Makes `item` depend on `depends_on`, unless `depends_on` already depends on `item`, directly or not.
-pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &str) -> Result<()> {
+/// Makes `item` depend on `depends_on` by a dependency of the kind given, `blocking` or `parallel`, unless `depends_on`
+/// already depends on `item`, directly or not.
+pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &str, kind: &str) -> Result<()> {
     let cycle: bool = tx.query_row(
         "WITH RECURSIVE reach(id) AS (SELECT ?1 UNION SELECT l.depends_on FROM item_links l JOIN reach ON l.item = reach.id)
          SELECT count(*) > 0 FROM reach WHERE id = ?2",
@@ -604,8 +606,8 @@ pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &
         return Err(Error::Cycle { item, depends_on });
     }
     tx.execute(
-        "INSERT INTO item_links (item, depends_on, needs) VALUES (?1, ?2, ?3)",
-        params![item, depends_on, needs],
+        "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (?1, ?2, ?3, ?4)",
+        params![item, depends_on, needs, kind],
     )?;
     Ok(())
 }
@@ -1029,9 +1031,9 @@ mod tests {
             let a = item(tx, "a")?;
             let b = item(tx, "b")?;
             let c = item(tx, "c")?;
-            add_dependency(tx, a, b, "b's part")?;
-            add_dependency(tx, b, c, "c's part")?;
-            add_dependency(tx, c, a, "a's part")
+            add_dependency(tx, a, b, "b's part", "blocking")?;
+            add_dependency(tx, b, c, "c's part", "parallel")?;
+            add_dependency(tx, c, a, "a's part", "parallel")
         });
         assert!(matches!(e, Err(Error::Cycle { item: 3, depends_on: 1 })), "{e:?}");
         let n: i64 = db
@@ -1039,6 +1041,50 @@ mod tests {
             .query_row("SELECT count(*) FROM item_links", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    // An item that depends on another by a blocking dependency is not ready to start, queued by the owner or not, until
+    // the other is merged; one that depends on it by a parallel dependency is ready at once.
+    #[test]
+    fn a_blocking_dependency_keeps_an_item_from_starting_until_the_other_merges() {
+        let mut db = Db::in_memory().unwrap();
+        let ready = |db: &Db| names(db.conn(), "SELECT title FROM ready_items ORDER BY item").unwrap();
+        let (_, _, library) = db
+            .write(Actor::Owner, |tx| {
+                let parser = item(tx, "parser")?;
+                let checker = item(tx, "checker")?;
+                let library = item(tx, "library")?;
+                add_dependency(tx, parser, library, "its lexer", "blocking")?;
+                add_dependency(tx, checker, library, "its types", "parallel")?;
+                tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [parser])?;
+                Ok((parser, checker, library))
+            })
+            .unwrap();
+        assert_eq!(ready(&db), ["checker", "library"]);
+        assert_eq!(
+            names(db.conn(), "SELECT needs FROM item_blocked_by").unwrap(),
+            ["its lexer"]
+        );
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '20')",
+                [library],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 1, '9', '{}', '{}', 'merged', 'c', 1, 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(ready(&db), ["parser", "checker"]);
+        assert!(
+            names(db.conn(), "SELECT needs FROM item_blocked_by")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     // Agents read the tables and views they may, and cannot write or read a hidden table.

@@ -186,7 +186,8 @@ struct AddItem {
     /// The agent level, as the configuration names it.
     #[arg(long)]
     level: String,
-    /// An item it depends on and what it needs of it, as N:what.
+    /// An item it depends on, the dependency's kind and what it needs of it, as N:blocking:what (it does not start until
+    /// N is merged) or N:parallel:what (it may start before).
     #[arg(long = "depends-on")]
     depends_on: Vec<String>,
     /// Puts it last in the dispatch queue.
@@ -215,6 +216,9 @@ enum ItemCommand {
         on: i64,
         #[arg(long)]
         needs: String,
+        /// blocking: the item does not start until the other is merged; parallel: it may start before.
+        #[arg(long, value_parser = ["blocking", "parallel"])]
+        kind: String,
     },
     /// Cancels an item, and ends its work.
     Cancel {
@@ -394,13 +398,20 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             } = *add;
             let mut deps = Vec::new();
             for x in depends_on {
-                let (n, needs) = x
-                    .split_once(':')
-                    .ok_or_else(|| format!("--depends-on is N:what it needs: {x}"))?;
-                deps.push((
-                    n.trim().parse::<i64>().map_err(|e| format!("{n}: {e}"))?,
-                    needs.trim().to_string(),
-                ));
+                let shape = || format!("--depends-on is N:blocking:what or N:parallel:what it needs: {x}");
+                let mut parts = x.splitn(3, ':');
+                let (Some(n), Some(kind), Some(needs)) = (parts.next(), parts.next(), parts.next()) else {
+                    return Err(shape());
+                };
+                let kind = kind.trim();
+                if !matches!(kind, "blocking" | "parallel") {
+                    return Err(shape());
+                }
+                deps.push(owner::Dependency {
+                    on: n.trim().parse::<i64>().map_err(|e| format!("{n}: {e}"))?,
+                    kind: kind.to_string(),
+                    needs: needs.trim().to_string(),
+                });
             }
             let id = owner::add_item(
                 d,
@@ -425,7 +436,9 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             Ok(())
         }
         Command::Item(ItemCommand::List) => print(owner::items(d)),
-        Command::Item(ItemCommand::Depend { item, on, needs }) => owner::depend(d, item, on, &needs),
+        Command::Item(ItemCommand::Depend { item, on, needs, kind }) => {
+            owner::depend(d, item, &owner::Dependency { on, kind, needs })
+        }
         Command::Item(ItemCommand::Cancel { item, why }) => owner::cancel(d, item, &why),
         Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),
         Command::Queue(QueueCommand::Put {

@@ -177,6 +177,17 @@ export function ItemBadge({ state }: { state: ItemState }) {
   return <span className={`badge item-${state}`}>{t(`item_${state}`)}</span>;
 }
 
+/// The kind of a dependency in a word, blocking or parallel, with what it means; nothing for none.
+export function DependencyKind({ kind }: { kind: string | null }) {
+  if (kind === null) return null;
+  const blocking = kind === 'blocking';
+  return (
+    <span className="muted" title={t(blocking ? 'dependency_blocking_title' : 'dependency_parallel_title')}>
+      {t(blocking ? 'dependency_blocking' : 'dependency_parallel')}
+    </span>
+  );
+}
+
 export function OutcomeBadge({ outcome }: { outcome: RoundOutcome }) {
   return <span className={`badge outcome-${outcome}`}>{t(`outcome_${outcome}`)}</span>;
 }

@@ -44,7 +44,7 @@ fixes = 5
 /// The commands that open the database with nothing checked before, each as the owner types it.
 const UNCHECKED: [&str; 18] = [
     "item list",
-    "item depend 2 1 --needs x",
+    "item depend 2 1 --needs x --kind blocking",
     "item cancel 1 --why x",
     "queue list",
     "queue put 1",

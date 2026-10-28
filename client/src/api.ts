@@ -762,7 +762,12 @@ open_asks: number, open_design_cards: number,
 /**
  * Its pull request: that of its latest work that has one, or the one it was imported with.
  */
-pr: number | null, };
+pr: number | null, 
+/**
+ * The items not merged yet that it depends on by a blocking dependency, which keep it from starting; empty while a
+ * work on it goes on, or it is done or cancelled.
+ */
+blocked_by: Array<number>, };
 
 /**
  * A dependency: `item` cannot finish until `depends_on` is done.
@@ -771,7 +776,11 @@ export type ItemLink = { item: number, depends_on: number,
 /**
  * What `item` needs `depends_on` to hand in.
  */
-needs: string, };
+needs: string, 
+/**
+ * blocking: `item` does not start until `depends_on` is merged; parallel: it may start before.
+ */
+kind: string, };
 
 /**
  * Every item, and the dependencies between them.
@@ -779,9 +788,9 @@ needs: string, };
 export type Items = { items: Array<ItemSummary>, links: Array<ItemLink>, };
 
 /**
- * An item on the other end of a dependency, with what the dependency needs.
+ * An item on the other end of a dependency, with what the dependency needs and its kind, blocking or parallel.
  */
-export type LinkedItem = { item: ItemSummary, needs: string, };
+export type LinkedItem = { item: ItemSummary, needs: string, kind: string, };
 
 /**
  * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards

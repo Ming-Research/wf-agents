@@ -1434,6 +1434,13 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
             out
         });
     }
+    // The unmerged items each item depends on by a blocking dependency, which keep it from starting.
+    let mut blocked: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut st = conn.prepare("SELECT item, depends_on FROM item_blocked_by ORDER BY item, depends_on")?;
+    for row in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+        let (item, on) = row?;
+        blocked.entry(item).or_default().push(on);
+    }
     let mut st = conn.prepare(
         "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
@@ -1445,13 +1452,17 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
             let queued: Option<f64> = r.get(6)?;
             let imported_pr: Option<i64> = r.get(7)?;
             let w = latest.get(&id).copied();
+            let state = item_state(cancelled.is_some(), queued.is_some(), w);
+            // Only an item that would start but for them is held back by them.
+            let waiting = matches!(state, ItemState::New | ItemState::Queued | ItemState::Stopped);
+            let blocked_by = blocked.get(&id).filter(|_| waiting).cloned().unwrap_or_default();
             Ok(ItemSummary {
                 id,
                 project: r.get(1)?,
                 title: r.get(2)?,
                 deliver: r.get(3)?,
                 level: r.get(4)?,
-                state: item_state(cancelled.is_some(), queued.is_some(), w),
+                state,
                 cancelled,
                 queued,
                 work: w.map(|w| w.id),
@@ -1464,16 +1475,18 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 open_asks: w.map_or(0, |w| w.open_asks),
                 open_design_cards: w.map_or(0, |w| w.open_design_cards),
                 pr: prs.get(&id).copied().or(imported_pr),
+                blocked_by,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut st = conn.prepare("SELECT item, depends_on, needs FROM item_links ORDER BY item, depends_on")?;
+    let mut st = conn.prepare("SELECT item, depends_on, needs, kind FROM item_links ORDER BY item, depends_on")?;
     let links = st
         .query_map([], |r| {
             Ok(ItemLink {
                 item: r.get(0)?,
                 depends_on: r.get(1)?,
                 needs: r.get(2)?,
+                kind: r.get(3)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -1512,10 +1525,11 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         [id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
-    let linked = |other: i64, needs: &str| {
+    let linked = |other: i64, l: &ItemLink| {
         by_id.get(&other).map(|i| LinkedItem {
             item: (*i).clone(),
-            needs: needs.to_string(),
+            needs: l.needs.clone(),
+            kind: l.kind.clone(),
         })
     };
     Ok(ItemDetail {
@@ -1529,13 +1543,13 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
             .links
             .iter()
             .filter(|l| l.item == id)
-            .filter_map(|l| linked(l.depends_on, &l.needs))
+            .filter_map(|l| linked(l.depends_on, l))
             .collect(),
         depended_on_by: all
             .links
             .iter()
             .filter(|l| l.depends_on == id)
-            .filter_map(|l| linked(l.item, &l.needs))
+            .filter_map(|l| linked(l.item, l))
             .collect(),
         works: works.into_iter().filter(|w| w.item == Some(id)).collect(),
         imported_from,
@@ -2222,7 +2236,10 @@ mod tests {
                     &[&title],
                 )?;
             }
-            run("INSERT INTO item_links (item, depends_on, needs) VALUES (1, 2, 'its schema')", &[])?;
+            run(
+                "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (1, 2, 'its schema', 'blocking')",
+                &[],
+            )?;
             run("INSERT INTO dispatch_queue (item, position) VALUES (2, 1.0)", &[])?;
             run("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", &[])?;
             run("INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'engineer', 'claude', 's1')", &[])?;
@@ -2543,16 +2560,20 @@ mod tests {
 
     #[test]
     fn items_say_where_they_stand_and_what_they_depend_on() {
-        let s = setup("items");
+        let mut s = setup("items");
         let cache = Flows::default();
         let all = items(s.db.conn(), &cache).unwrap();
         let states: Vec<ItemState> = all.items.iter().map(|i| i.state).collect();
         assert_eq!(states, [ItemState::Working, ItemState::Queued]);
         assert_eq!(all.items[0].at.as_deref(), Some("1"));
         assert_eq!(all.links.len(), 1);
+        assert_eq!(all.links[0].kind, "blocking");
+        // A work that runs goes on whatever it depends on: nothing holds it back.
+        assert!(all.items[0].blocked_by.is_empty());
         let first = item(s.db.conn(), &cache, 1).unwrap();
         assert_eq!(first.depends_on[0].item.id, 2);
         assert_eq!(first.depends_on[0].needs, "its schema");
+        assert_eq!(first.depends_on[0].kind, "blocking");
         assert_eq!(first.works.len(), 1);
         let second = item(s.db.conn(), &cache, 2).unwrap();
         assert_eq!(second.depended_on_by[0].item.id, 1);
@@ -2563,6 +2584,22 @@ mod tests {
         assert_eq!(all.items[0].stages[..2], ["queued", "research"]);
         assert!(all.items[1].stage.is_none() && all.items[1].stages.is_empty());
         assert_eq!((all.items[0].open_asks, all.items[0].open_design_cards), (0, 0));
+        // An item that would start but for an unmerged item it depends on by a blocking dependency waits for it.
+        s.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Third', 'x', 'y', 'change', '1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (3, 2, 'its parser', 'blocking')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let all = items(s.db.conn(), &cache).unwrap();
+        assert_eq!(all.items[2].state, ItemState::New);
+        assert_eq!(all.items[2].blocked_by, [2]);
     }
 
     // A replaced design card names the one that replaced it, with the round that handed that one in, its cell and

@@ -8,7 +8,7 @@ Decision: Cell 0 takes over what exists: an item worked on here before takes ove
 
 Decision: An item imported from outside this flow holds the facts the import records: where it came from, its branch and that branch's pull request; nothing else is assumed of an item, and how items are imported is decided apart.
 
-Decision: An item leaves the dispatch queue when a work starts on it, and an item may be queued again once its works ended: an item is ready when it is not cancelled or held, has no work running, and is queued or not done, instead of only items never worked on, because an item must be able to have a new work, and the queue holds what waits to start.
+Decision: An item leaves the dispatch queue when a work starts on it, and an item may be queued again once its works ended: an item is ready when it is not cancelled or held, has no work running, waits for no unmerged item it depends on by a blocking dependency, and is queued or not done, instead of only items never worked on, because an item must be able to have a new work, and the queue holds what waits to start.
 
 Rejected:
 - A mark on the item of something to take over, set by whatever stopped the work: rejected because the work that exists (an earlier work, a branch, a pull request) says what there is, and a mark could disagree with it.

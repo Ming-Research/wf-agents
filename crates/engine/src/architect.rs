@@ -395,9 +395,10 @@ pub fn held_by_batches(conn: &Connection) -> Result<BTreeSet<i64>, String> {
     let mut ids = BTreeSet::new();
     for r in rows {
         let c = &r["change"];
-        for k in ["item", "keep", "under"] {
+        for k in ["item", "keep"] {
             ids_of(&c[k], &mut ids);
         }
+        ids_of(&c["under"]["item"], &mut ids);
         if c["to"]["place"] == "under" {
             ids_of(&c["to"]["item"], &mut ids);
         }
@@ -1343,10 +1344,10 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
             .map(|(r, _)| text(&r.3["key"]).trim().to_string())
             .collect();
         let names_gone = |c: &Value| {
-            ["item", "on", "under", "keep", "fix_item"]
+            ["item", "on", "keep", "fix_item"]
                 .iter()
                 .map(|k| c[*k].clone())
-                .chain(std::iter::once(c["to"]["item"].clone()))
+                .chain([c["under"]["item"].clone(), c["to"]["item"].clone()])
                 .chain(items(c.get("absorbed")))
                 .any(|v| v.as_str().is_some_and(|s| gone.contains(s.trim())))
         };
@@ -2201,10 +2202,12 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 }
 
 /// A project's items running and queued, each by its number, with its rank, its cell and stage, what it waits for and
-/// who waits for it, since when its work runs and what it spent, or why its last work stopped, as one queued again;
-/// the release items, each an item nothing depends on with items under it, with the items under it; and the
-/// dependencies with other projects' items. A work at a cell of no stage, which asks or runs tools for another, is at
-/// the stage of the cell it stopped at, or else of the innermost cell that waits for it with one.
+/// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, or why its last
+/// work stopped, as one queued again, and for one with no work running, the items not merged yet that it waits for by
+/// a blocking dependency before it starts; the release items, each an item nothing depends on with items under it, with
+/// the items under it; and the dependencies with other projects' items. A work at a cell of no stage, which asks or
+/// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
+/// with one.
 fn board(e: &Engine, project: &str) -> Result<Value, String> {
     let g = engineer_graph(e);
     let end = g.map(|g| g.end.clone()).unwrap_or_default();
@@ -2212,9 +2215,13 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
         e.db.conn(),
         "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.resume_at, w.waiting,
                 w.paused, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
-                (SELECT json_group_array(l.depends_on) FROM item_links l WHERE l.item = i.id) AS waits_for,
-                (SELECT json_group_array(l.item) FROM item_links l WHERE l.depends_on = i.id) AS waited_by,
-                EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready
+                (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
+                  AS waits_for,
+                (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
+                  AS waited_by,
+                EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready,
+                (SELECT json_group_array('#' || b.depends_on) FROM item_blocked_by b WHERE b.item = i.id)
+                  AS blocked_by
          FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
          WHERE i.project = ?1 AND i.cancelled IS NULL
          ORDER BY i.rank NULLS LAST, i.id",
@@ -2241,6 +2248,10 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
             r["waits"] = json!(work_waits(e, work, &at)?);
             r["since"] = json!(r["since"].as_i64().map(utc_minute));
             r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
+            // A work that runs goes on whatever it depends on.
+            if let Some(o) = r.as_object_mut() {
+                o.remove("blocked_by");
+            }
         } else if let Some(o) = r.as_object_mut() {
             for k in ["work", "at", "paused", "since"] {
                 o.remove(k);
@@ -2257,7 +2268,7 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
         r["ready"] = json!(r["ready"] == 1);
         if let Some(o) = r.as_object_mut() {
             o.remove("item");
-            o.retain(|_, v| !v.is_null() && *v != json!([]));
+            o.retain(|_, v| !v.is_null() && *v != json!([]) && *v != json!({}));
         }
         out.insert(format!("#{id}"), r);
         if out.len() >= ROWS {
@@ -2302,13 +2313,13 @@ fn releases(e: &Engine, project: &str, open: &BTreeSet<i64>) -> Result<Value, St
     Ok(Value::Object(out))
 }
 
-/// The dependencies between a project's items and other projects' items: what its items wait for there, and what
-/// waits there for its items.
+/// The dependencies between a project's items and other projects' items, each with its kind: what its items wait for
+/// there, and what waits there for its items.
 fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let waits_for = query_json(
         conn,
-        "SELECT l.item, l.depends_on AS on_item, d.project, d.title, l.needs,
+        "SELECT l.item, l.depends_on AS on_item, l.kind, d.project, d.title, l.needs,
                 (SELECT w.at FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS at, d.cancelled
          FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
          WHERE i.project = ?1 AND d.project <> ?1 ORDER BY l.item, l.depends_on",
@@ -2317,7 +2328,7 @@ fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
     )?;
     let waited_by = query_json(
         conn,
-        "SELECT l.depends_on AS item, l.item AS by_item, i.project, i.title, l.needs
+        "SELECT l.depends_on AS item, l.item AS by_item, l.kind, i.project, i.title, l.needs
          FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
          WHERE d.project = ?1 AND i.project <> ?1 ORDER BY l.depends_on, l.item",
         &[&project],
@@ -2973,8 +2984,8 @@ fn named_items(text: &str, ids: &mut BTreeSet<i64>) {
     }
 }
 
-/// One item in full: as its creator wrote it, its locked acceptance, its dependencies, who waits for it, its design
-/// cards, and its latest work's cell, state and what it waits for.
+/// One item in full: as its creator wrote it, its locked acceptance, its dependencies and who waits for it, each with
+/// the dependency's kind, its design cards, and its latest work's cell, state and what it waits for.
 fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(body) = query_json(conn, "SELECT * FROM item_body WHERE item = ?1", &[&item], 1)?
@@ -2991,11 +3002,12 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         ),
         (
             "depends_on",
-            "SELECT depends_on, needs, title, cancelled, at, pr FROM item_dependencies WHERE item = ?1",
+            "SELECT depends_on, kind, needs, title, cancelled, at, pr FROM item_dependencies WHERE item = ?1",
         ),
         (
             "waited_by",
-            "SELECT l.item, i.title, l.needs FROM item_links l JOIN items i ON i.id = l.item WHERE l.depends_on = ?1",
+            "SELECT l.item, l.kind, i.title, l.needs FROM item_links l JOIN items i ON i.id = l.item
+             WHERE l.depends_on = ?1",
         ),
         (
             "design_cards",
@@ -3289,7 +3301,8 @@ fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
     Ok(Value::Array(out))
 }
 
-/// The items the batch's changes touch, each with its rank, who waits for it and what it waits for.
+/// The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each by the kind of
+/// its dependency.
 fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let rows = collected(conn, w.id)?;
@@ -3298,9 +3311,10 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     }
     let mut item_ids: BTreeSet<i64> = BTreeSet::new();
     for (_, _, _, c) in &rows {
-        for k in ["item", "on", "keep", "under", "fix_item"] {
+        for k in ["item", "on", "keep", "fix_item"] {
             ids_of(&c[k], &mut item_ids);
         }
+        ids_of(&c["under"]["item"], &mut item_ids);
         ids_of(&c["to"]["item"], &mut item_ids);
         for a in items(c.get("absorbed")) {
             ids_of(&a, &mut item_ids);
@@ -3311,8 +3325,10 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         if let Some(r) = query_json(
             conn,
             "SELECT i.project, i.title, i.rank, i.cancelled, i.held,
-                    (SELECT json_group_array(l.item) FROM item_links l WHERE l.depends_on = i.id) AS waited_by,
-                    (SELECT json_group_array(l.depends_on) FROM item_links l WHERE l.item = i.id) AS waits_for,
+                    (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
+                      AS waited_by,
+                    (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
+                      AS waits_for,
                     (SELECT w.at FROM works w WHERE w.item = i.id ORDER BY w.id DESC LIMIT 1) AS at
              FROM items i WHERE i.id = ?1",
             &[id],

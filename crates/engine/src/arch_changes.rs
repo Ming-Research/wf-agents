@@ -118,13 +118,22 @@ fn locked_conditions(conn: &Connection, item: i64) -> BTreeSet<String> {
         .collect()
 }
 
+/// Whether a dependency a change makes has its kind, blocking or parallel; otherwise says so.
+fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
+    if !matches!(kind.as_str(), Some("blocking" | "parallel")) {
+        bad(format!(
+            "the dependency it makes is of no kind, blocking or parallel: {kind}"
+        ));
+    }
+}
+
 /// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
 /// created is of the project and has what it needs and a key no other change uses; a split gives each acceptance
 /// condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked;
 /// every item a change names is there, or made by an earlier change, and an item it changes is of the project (an item
-/// of the project may depend on another project's); an item is moved first, last, under another item, or next to
-/// another item of its own project; observations folded in are the project's and open; and after them the items'
-/// dependencies close no cycle. Otherwise why not, every reason at once.
+/// of the project may depend on another project's); every dependency a change makes has its kind; an item is moved
+/// first, last, under another item, or next to another item of its own project; observations folded in are the
+/// project's and open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
@@ -138,18 +147,18 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
         if text(c, "reason").trim().is_empty() {
             bad("it has no reason".into());
         }
-        let item = |k: &str, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
-            match known(&c[k], s) {
+        let item = |v: &Value, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
+            match known(v, s) {
                 Some(id) if s.items.contains_key(&id) => Some(id),
                 _ => {
-                    bad(format!("there is no item {}", c[k]));
+                    bad(format!("there is no item {v}"));
                     None
                 }
             }
         };
         // An item a change changes is of the project; one it only waits for may be another's.
-        let own = |k: &str, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
-            let id = item(k, s, bad)?;
+        let own = |v: &Value, s: &State, bad: &mut dyn FnMut(String)| -> Option<i64> {
+            let id = item(v, s, bad)?;
             if s.items.get(&id).map(String::as_str) != Some(project) {
                 bad(format!("item {id} is not of {project}: its architect changes it"));
                 return None;
@@ -185,16 +194,17 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 let id = next_new;
                 next_new -= 1;
                 let under = c.get("under").filter(|v| !v.is_null());
-                if under.is_some()
-                    && let Some(parent) = item("under", &s, &mut bad)
-                {
-                    s.links.insert((parent, id));
+                if let Some(u) = under {
+                    dependency(&u["dependency"], &mut bad);
+                    if let Some(parent) = item(&u["item"], &s, &mut bad) {
+                        s.links.insert((parent, id));
+                    }
                 }
                 // A split gives each acceptance condition of the item split to one new item at most; the rest stay
                 // with that item.
                 let takes = texts(c, "takes");
                 if !takes.is_empty() {
-                    match under.and_then(number).filter(|split| *split > 0) {
+                    match under.and_then(|u| number(&u["item"])).filter(|split| *split > 0) {
                         None => bad("it takes acceptance conditions, but it is split from no item".into()),
                         Some(split) => {
                             let locked = locked_conditions(e.db.conn(), split);
@@ -215,7 +225,8 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 s.keys.insert(key, id);
             }
             "add_dependency" => {
-                if let (Some(a), Some(b)) = (own("item", &s, &mut bad), item("on", &s, &mut bad)) {
+                dependency(&c["dependency"], &mut bad);
+                if let (Some(a), Some(b)) = (own(&c["item"], &s, &mut bad), item(&c["on"], &s, &mut bad)) {
                     if a == b {
                         bad("an item does not depend on itself".into());
                     }
@@ -223,7 +234,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 }
             }
             "move" => {
-                if let Some(a) = own("item", &s, &mut bad) {
+                if let Some(a) = own(&c["item"], &s, &mut bad) {
                     let to = &c["to"];
                     let other = known(&to["item"], &s).filter(|b| s.items.contains_key(b) && *b != a);
                     match text(to, "place") {
@@ -238,6 +249,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                         }
                         "under" => match other {
                             Some(b) => {
+                                dependency(&to["dependency"], &mut bad);
                                 s.links.retain(|(_, d)| *d != a);
                                 s.links.insert((b, a));
                             }
@@ -251,7 +263,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 }
             }
             "merge" => {
-                if let Some(keep) = own("keep", &s, &mut bad) {
+                if let Some(keep) = own(&c["keep"], &s, &mut bad) {
                     for v in items(c.get("absorbed")) {
                         let Some(a) = known(&v, &s).filter(|a| *a != keep && s.items.contains_key(a)) else {
                             bad(format!("item {v} is not another item to merge into item {keep}"));
@@ -269,16 +281,16 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 }
             }
             "cancel" | "hold" | "release" | "edit_acceptance" => {
-                own("item", &s, &mut bad);
+                own(&c["item"], &s, &mut bad);
             }
             "edit_item" => {
-                own("item", &s, &mut bad);
+                own(&c["item"], &s, &mut bad);
                 if text(c, "text").trim().is_empty() {
                     bad("it changes the text to nothing".into());
                 }
             }
             "set_level" => {
-                own("item", &s, &mut bad);
+                own(&c["item"], &s, &mut bad);
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
                 }
@@ -307,7 +319,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 }
             }
             "fold_observations" => {
-                own("item", &s, &mut bad);
+                own(&c["item"], &s, &mut bad);
                 for o in items(c.get("observations")) {
                     let id = number(&o).unwrap_or_default();
                     let open: i64 =
@@ -367,8 +379,8 @@ fn cancel(tx: &Transaction<'_>, item: i64, why: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Makes one item depend on another, unless it does already.
-fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str) -> Result<(), String> {
+/// Makes one item depend on another by a dependency of the kind given, unless it does already.
+fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str, kind: &str) -> Result<(), String> {
     let has: Option<i64> = tx
         .query_row(
             "SELECT 1 FROM item_links WHERE item = ?1 AND depends_on = ?2",
@@ -378,7 +390,7 @@ fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str) -> Result<(), S
         .optional()
         .map_err(sql)?;
     if has.is_none() && item != on {
-        db::add_dependency(tx, item, on, needs).map_err(sql)?;
+        db::add_dependency(tx, item, on, needs, kind).map_err(sql)?;
     }
     Ok(())
 }
@@ -409,19 +421,25 @@ fn write_one(
             .map_err(sql)?;
             let id = tx.last_insert_rowid();
             if !c["under"].is_null() {
-                let parent = item_of(&c["under"], keys)?;
+                let parent = item_of(&c["under"]["item"], keys)?;
                 let takes = texts(c, "takes");
                 let needs = if takes.is_empty() {
                     text(c, "title").to_string()
                 } else {
                     format!("{} (its acceptance conditions {})", text(c, "title"), takes.join(", "))
                 };
-                depend(tx, parent, id, &needs)?;
+                depend(tx, parent, id, &needs, text(&c["under"], "dependency"))?;
             }
             keys.insert(text(c, "key").trim().to_string(), id);
             created.push(json!({ "key": text(c, "key").trim(), "id": id.to_string() }));
         }
-        "add_dependency" => depend(tx, item_of(&c["item"], keys)?, item_of(&c["on"], keys)?, reason)?,
+        "add_dependency" => depend(
+            tx,
+            item_of(&c["item"], keys)?,
+            item_of(&c["on"], keys)?,
+            reason,
+            text(c, "dependency"),
+        )?,
         "move" => {
             let item = item_of(&c["item"], keys)?;
             let to = &c["to"];
@@ -430,7 +448,7 @@ fn write_one(
                     let under = item_of(&to["item"], keys)?;
                     tx.execute("DELETE FROM item_links WHERE depends_on = ?1", [item])
                         .map_err(sql)?;
-                    depend(tx, under, item, reason)?;
+                    depend(tx, under, item, reason, text(to, "dependency"))?;
                 }
                 place => {
                     let other = match place {
@@ -447,20 +465,26 @@ fn write_one(
                 let a = item_of(&a, keys)?;
                 let dependents = query_json(
                     tx,
-                    "SELECT item, needs FROM item_links WHERE depends_on = ?1",
+                    "SELECT item, needs, kind FROM item_links WHERE depends_on = ?1",
                     &[&a],
                     100_000,
                 )?;
                 let parts = query_json(
                     tx,
-                    "SELECT depends_on, needs FROM item_links WHERE item = ?1",
+                    "SELECT depends_on, needs, kind FROM item_links WHERE item = ?1",
                     &[&a],
                     100_000,
                 )?;
                 tx.execute("DELETE FROM item_links WHERE item = ?1 OR depends_on = ?1", [a])
                     .map_err(sql)?;
                 for d in dependents {
-                    depend(tx, d["item"].as_i64().unwrap_or_default(), keep, text(&d, "needs"))?;
+                    depend(
+                        tx,
+                        d["item"].as_i64().unwrap_or_default(),
+                        keep,
+                        text(&d, "needs"),
+                        text(&d, "kind"),
+                    )?;
                 }
                 for p in parts {
                     depend(
@@ -468,6 +492,7 @@ fn write_one(
                         keep,
                         p["depends_on"].as_i64().unwrap_or_default(),
                         text(&p, "needs"),
+                        text(&p, "kind"),
                     )?;
                 }
                 cancel(tx, a, &format!("merged into item {keep}: {reason}"))?;
@@ -659,11 +684,14 @@ mod tests {
             ranks(&db),
             [(1, Some(3)), (2, Some(1)), (3, Some(2)), (4, Some(4)), (5, Some(1))]
         );
-        moved(&mut db, json!({ "place": "under", "item": 1 }));
+        moved(
+            &mut db,
+            json!({ "place": "under", "item": 1, "dependency": "blocking" }),
+        );
         let links: i64 = db
             .conn()
             .query_row(
-                "SELECT count(*) FROM item_links WHERE item = 1 AND depends_on = 5",
+                "SELECT count(*) FROM item_links WHERE item = 1 AND depends_on = 5 AND kind = 'blocking'",
                 [],
                 |r| r.get(0),
             )

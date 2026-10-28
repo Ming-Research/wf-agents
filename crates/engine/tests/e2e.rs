@@ -5001,7 +5001,8 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
         )?;
         record_round(tx, wake, 1, "O1", &json!({}), "done")?;
         let m = a_matter(tx, "Order the items.", None, json!({}))?;
-        let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "reason": "r" });
+        let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "dependency": "blocking",
+                             "reason": "r" });
         tx.execute(
             "INSERT INTO architect_item_changes (work, round, matter, change, state)
              VALUES (?1, 1, ?2, ?3, 'collected')",
@@ -5019,6 +5020,26 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     .unwrap();
     let started = e.step(None).unwrap();
     assert_eq!(started.started_item, Some(item), "{}", said.borrow().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An item that depends on another by a blocking dependency does not start, though the owner queued it first, while the
+// other is not merged: the other starts instead.
+#[test]
+fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
+    let s = setup("blocking");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let library = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, library, "its lexer", "blocking")?;
+        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [parser])?;
+        Ok(())
+    })
+    .unwrap();
+    let started = e.step(None).unwrap();
+    assert_eq!(started.started_item, Some(library), "{}", said.borrow().join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

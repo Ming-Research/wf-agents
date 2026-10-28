@@ -624,6 +624,19 @@
         ]
       ]
     },
+    "dependency_kind": {
+      "type": "enum",
+      "values": [
+        [
+          "blocking",
+          "The item does not start until the other is merged: it needs what the other delivers to begin, such as a module or a library"
+        ],
+        [
+          "parallel",
+          "The item may start before the other is merged, and waits for it where it needs it: before it merges, or where a reply has it stop"
+        ]
+      ]
+    },
     "design_card": {
       "name": "design_card",
       "type": "list",
@@ -1147,7 +1160,7 @@
           "type": "list",
           "optional": true,
           "min": 1,
-          "desc": "Items that work must stop and wait for now: until they deliver, it cannot go on; for instance, it needs a feature added to the compiler first. Items it only has to wait for before merging do not go here: a dependency is enough, and the engine waits for them before merging. Leave it out if it need not stop",
+          "desc": "Items that work must stop and wait for now: until they deliver, it cannot go on; for instance, it needs a feature added to the compiler first. Items it only has to wait for before merging do not go here: a parallel dependency is enough, and the engine waits for them before merging. Leave it out if it need not stop",
           "item": {
             "type": "obj",
             "fields": [
@@ -1570,9 +1583,21 @@
             },
             {
               "name": "under",
-              "type": "text",
-              "desc": "The item it is split from: its number, or the key of an item an earlier change of this batch creates; it then depends on this one; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
-              "optional": true
+              "type": "obj",
+              "desc": "The item it is split from, which then depends on it; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
+              "optional": true,
+              "fields": [
+                {
+                  "name": "item",
+                  "type": "text",
+                  "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                },
+                {
+                  "$ref": "dependency_kind",
+                  "name": "dependency",
+                  "desc": "How that item depends on it"
+                }
+              ]
             },
             {
               "name": "problem",
@@ -1630,6 +1655,11 @@
               "name": "on",
               "type": "text",
               "desc": "The item it waits for: its number, or the key of an item an earlier change of this batch creates"
+            },
+            {
+              "$ref": "dependency_kind",
+              "name": "dependency",
+              "desc": "How it waits"
             }
           ]
         },
@@ -1688,6 +1718,11 @@
                       "name": "item",
                       "type": "text",
                       "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                    },
+                    {
+                      "$ref": "dependency_kind",
+                      "name": "dependency",
+                      "desc": "How that item depends on it"
                     }
                   ]
                 }
@@ -2665,7 +2700,7 @@
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
-      "record_waits": "Records the items the architect's reply has this work wait for. The engineer's session is kept, and the work holds no slot while it waits.",
+      "record_waits": "Records the items the architect's reply has this work wait for, as parallel dependencies, since the work already runs. The engineer's session is kept, and the work holds no slot while it waits.",
       "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
       "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
@@ -2729,7 +2764,7 @@
       "failed_probes_gone": "No probe a new architect answered wrongly, as the judgment of its reading lists them, is among the probes.",
       "reading_complete": "Every point of the policy is restated, and every probe is answered.",
       "picked_pickable": "The matter picked is one of those that can be picked now.",
-      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
+      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "review_covers_changes": "There is exactly one row for each change of the batch, by its number.",
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
@@ -2748,7 +2783,7 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
       "since_last_wake": "What happened in the project since its last wake: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the first wake, the same over the last week.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for, who waits for it, how long it has run and what it spent, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run and what it spent, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
       "numbers": "The numbers the engine measures for the project, each as the wake started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -2767,9 +2802,9 @@
       "draft_text": "The text of the policy being set, as the round that last wrote or corrected it handed it in.",
       "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
-      "cross_project": "The dependencies between the project's items and other projects' items.",
+      "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
-      "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for."
+      "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel."
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -3823,7 +3858,7 @@
               ]
             },
             {
-              "what": "Where this work sits in the whole. Above: from its parent up to the root, the first paragraph of each one's problem and why, and their ruled design cards. Beside: its siblings under the same parent, with a one-line conclusion for those done, how far those running got, and only the title for those not started. Around: the items just before and after it in its parent's plan. Whom it waits for and how far they are; who waits for it and for what",
+              "what": "Where this work sits in the whole. Above: from its parent up to the root, the first paragraph of each one's problem and why, and their ruled design cards. Beside: its siblings under the same parent, with a one-line conclusion for those done, how far those running got, and only the title for those not started. Around: the items just before and after it in its parent's plan. Whom it waits for, blocking or parallel, and how far they are; who waits for it and for what",
               "from": [
                 {
                   "db": "item_context",
@@ -6673,7 +6708,7 @@
               "maybe": true
             },
             {
-              "what": "How far the items depended on are; the rulings on the design card, a verdict on each decision, with the version of the change to the design tree the owner confirmed; and the change to the design tree in the commit to merge",
+              "what": "How far the items depended on are, each blocking or parallel; the rulings on the design card, a verdict on each decision, with the version of the change to the design tree the owner confirmed; and the change to the design tree in the commit to merge",
               "from": [
                 {
                   "db": "item_dependencies",
@@ -9186,7 +9221,7 @@
             "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
             "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
             "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
-            "The engineers' work: look at a work where it meets the whole: whether it still serves its point of the policy; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
+            "The engineers' work: look at a work where it meets the whole: whether it still serves its point of the policy; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
             "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
             "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
             "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
@@ -9209,7 +9244,7 @@
           "text": [
             "An item says what to do as an action (its title), the problem in one sentence with a smallest example, why it is worth doing (the cost of not doing it, and who waits), and its acceptance, one condition per row, each clearly true or false.",
             "An item is worth an engineer, a branch, a CI run and a merge: one too small joins another; one with parts that could each merge alone is split. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change.",
-            "A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. A dependency says what the item needs the other to deliver.",
+            "A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. A dependency says what the item needs the other to deliver, and its kind: blocking when the item cannot start before the other is merged, as when it needs a module or a library the other makes; parallel when it can start and wait where it needs the other. A blocking dependency added later does not stop a work already running.",
             "One decision per change, its reason saying what it is for and what follows if it is not made; where a change cannot stand without another, such as one that refers to an item these changes create, its reason says which. An item is cancelled only when its work is not to be done, saying where its work went."
           ],
           "lines": [
@@ -9735,7 +9770,7 @@
               ]
             },
             {
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -10035,7 +10070,7 @@
               ]
             },
             {
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -10263,7 +10298,7 @@
               "maybe": true
             },
             {
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for) and the items queued (rank, dependencies, ready or not, what each waits for); the release items with the items under them; the dependencies with other projects' items",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the release items with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -10350,7 +10385,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: by the constitution and the policy, do the works running and the items queued fit. Look for a direction that drifted, an item that should be split, dependencies that are wrong, duplicates, an order that is wrong, something the policy needs that no item does, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason.",
+            "This round answers one thing only: by the constitution and the policy, do the works running and the items queued fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, something the policy needs that no item does, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason.",
             "Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Each fix says where, what kind, what is wrong and on what grounds, and how you mean to fix it: the engine queues each as a matter of yours, picked before others, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
           ],
           "out": [
@@ -11241,8 +11276,8 @@
           ],
           "prompt": [
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
-            "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made.",
-            "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. Hold an item that should not start yet, and put an item others need before them.",
+            "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made.",
+            "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
             "What the constitution, the policy or what goes outside decides, ask the owner: this question then waits for the answer, and you go on with other matters."
           ],
           "out": [
@@ -11281,7 +11316,7 @@
                 "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is, keep the one further along and with more waiting for it, and merge the others into it; when the one merged away is the asking work's, what is useful on its branch goes to the one kept, by an interjection."
               ],
               "depends_on_other_item": [
-                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a dependency is enough. If what it waits for has no item yet: in this project, create it and place it where it should start; in another project, ask that project's architect with a message, and have the work wait."
+                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a parallel dependency is enough. If what it waits for has no item yet: in this project, create it and place it where it should start; in another project, ask that project's architect with a message, and have the work wait."
               ],
               "out_of_scope_defect": [
                 "What is asked is a defect that blocks that work but does not belong to it. Create an item to fix it, and place it where it should start; in another project, tell that project's architect with a message. If the work cannot go on until it is fixed, list it in waits; if it is not blocked, it carries on as usual. Do not let the work get around the defect."
@@ -12001,7 +12036,7 @@
               ]
             },
             {
-              "what": "The dependencies between this project's items and other projects' items",
+              "what": "The dependencies between this project's items and other projects' items, each blocking or parallel",
               "from": [
                 {
                   "engine": "cross_project"
@@ -12090,7 +12125,7 @@
               ]
             },
             {
-              "what": "The items queued, with rank, and why each is not ready: held, waiting for what it depends on, or done; the release items with the items under them",
+              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the release items with the items under them",
               "from": [
                 {
                   "engine": "board"
@@ -12275,7 +12310,7 @@
               ]
             },
             {
-              "what": "The items the changes touch, as they are now: rank, dependencies, who waits for them and what they wait for",
+              "what": "The items the changes touch, as they are now: rank, dependencies, who waits for them and what they wait for, each blocking or parallel",
               "from": [
                 {
                   "engine": "changes_touch"
@@ -12310,7 +12345,7 @@
             }
           ],
           "prompt": [
-            "This round reviews every item change of the batch together, before any is made, without hurrying to a conclusion. Answer four things of each: does it duplicate an existing item, touching the same code not counting; do its place and its dependencies stand among who waits for whom, and does it block more urgent works; does it rest on a conclusion deduced and not checked, an inference that decides the direction to be checked first by an item; does it fit the constitution and the policy, and is it written as items are written. Hand in one row per change: ok, or fix, saying what is wrong and how to fix it."
+            "This round reviews every item change of the batch together, before any is made, without hurrying to a conclusion. Answer four things of each: does it duplicate an existing item, touching the same code not counting; do its place and its dependencies, blocking or parallel, stand among who waits for whom, and does it block more urgent works; does it rest on a conclusion deduced and not checked, an inference that decides the direction to be checked first by an item; does it fit the constitution and the policy, and is it written as items are written. Hand in one row per change: ok, or fix, saying what is wrong and how to fix it."
           ],
           "out": [
             {

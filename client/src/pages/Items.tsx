@@ -1,12 +1,13 @@
 // The items: on the left, each project's items as a tree of what depends on what, with chips that show or hide the
 // items in each state; on the right, the item picked, in place. The split between them is dragged, and kept in this
 // browser. A row says the item's state by the colour of its edge, its number and title, what it needs from the owner,
-// its work's stage as a bar behind it, how many of what it depends on are done, and its place in the queue.
+// the items it waits for before it starts, the kind of the dependency by which the item above depends on it, its
+// work's stage as a bar behind it, how many of what it depends on are done, and its place in the queue.
 
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { Loaded } from '../components';
+import { DependencyKind, Loaded } from '../components';
 import { depsDone, stageShare, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
@@ -64,6 +65,9 @@ function Row({ row, depth, data, place, selected, folded, onFold }: RowProps) {
       >
         <span className="tree-fold" />
         <span className="muted">↳ #{i.id}</span> <span className="tree-title muted">{i.title}</span>
+        <span className="tree-facts">
+          <DependencyKind kind={row.kind} />
+        </span>
       </div>
     );
   }
@@ -100,7 +104,13 @@ function Row({ row, depth, data, place, selected, folded, onFold }: RowProps) {
           <span className="chip warn">{t('open_design_cards_chip', { n: i.open_design_cards })}</span>
         ) : null}
         {i.open_asks > 0 ? <span className="chip warn">{t('open_asks_chip', { n: i.open_asks })}</span> : null}
+        {i.blocked_by.length > 0 ? (
+          <span className="chip waits" title={t('items_blocked_title')}>
+            {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+          </span>
+        ) : null}
         <span className="tree-facts">
+          <DependencyKind kind={row.kind} />
           {share !== null && i.stage !== null ? (
             <span
               className="muted"

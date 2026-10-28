@@ -463,8 +463,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     )
                     .optional()
                     .map_err(sql)?;
+                // The work started before what it waits for: a parallel dependency, which stops no start.
                 if exists.is_none() {
-                    db::add_dependency(tx, item, key, x["delivers"].as_str().unwrap_or_default()).map_err(sql)?;
+                    let needs = x["delivers"].as_str().unwrap_or_default();
+                    db::add_dependency(tx, item, key, needs, "parallel").map_err(sql)?;
                 }
             }
         }

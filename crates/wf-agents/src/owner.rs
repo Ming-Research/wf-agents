@@ -23,11 +23,19 @@ pub struct NewItem {
     pub approach: Option<String>,
     pub deliver: String,
     pub level: String,
-    /// Items it depends on, each with what it needs of it.
-    pub depends_on: Vec<(i64, String)>,
+    /// Items it depends on.
+    pub depends_on: Vec<Dependency>,
     /// Puts it last in the dispatch queue.
     pub queue: bool,
     pub imported: Imported,
+}
+
+/// An item another depends on, the kind of the dependency and what the other needs of it.
+pub struct Dependency {
+    pub on: i64,
+    /// blocking: the other does not start until this one is merged; parallel: it may start before.
+    pub kind: String,
+    pub needs: String,
 }
 
 /// What an import knows of work done on an item outside this flow; all none for an item made here.
@@ -80,8 +88,8 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
             ],
         )?;
         let id = tx.last_insert_rowid();
-        for (d, needs) in &x.depends_on {
-            db::add_dependency(tx, id, *d, needs)?;
+        for d in &x.depends_on {
+            db::add_dependency(tx, id, d.on, &d.needs, &d.kind)?;
         }
         if x.queue {
             let last: f64 = tx.query_row("SELECT coalesce(max(position), 0) FROM dispatch_queue", [], |r| {
@@ -97,9 +105,9 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
     .map_err(sql)
 }
 
-pub fn depend(data: &Path, item: i64, on: i64, needs: &str) -> Result<(), String> {
+pub fn depend(data: &Path, item: i64, d: &Dependency) -> Result<(), String> {
     open(data)?
-        .write(Actor::Owner, |tx| db::add_dependency(tx, item, on, needs))
+        .write(Actor::Owner, |tx| db::add_dependency(tx, item, d.on, &d.needs, &d.kind))
         .map_err(sql)
 }
 
@@ -323,7 +331,8 @@ pub fn items(data: &Path) -> Result<String, String> {
         data,
         "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled,
                 (SELECT position FROM dispatch_queue q WHERE q.item = i.id) AS queued,
-                (SELECT group_concat(depends_on) FROM item_links l WHERE l.item = i.id) AS depends_on,
+                (SELECT group_concat(depends_on || ' ' || kind, ', ') FROM item_links l WHERE l.item = i.id)
+                  AS depends_on,
                 (SELECT max(w.id) FROM works w WHERE w.item = i.id) AS work
          FROM items i ORDER BY i.id",
         &[],

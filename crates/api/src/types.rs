@@ -743,6 +743,9 @@ pub struct ItemSummary {
     pub open_design_cards: i64,
     /// Its pull request: that of its latest work that has one, or the one it was imported with.
     pub pr: Option<i64>,
+    /// The items not merged yet that it depends on by a blocking dependency, which keep it from starting; empty while a
+    /// work on it goes on, or it is done or cancelled.
+    pub blocked_by: Vec<i64>,
 }
 
 /// A dependency: `item` cannot finish until `depends_on` is done.
@@ -752,6 +755,8 @@ pub struct ItemLink {
     pub depends_on: i64,
     /// What `item` needs `depends_on` to hand in.
     pub needs: String,
+    /// blocking: `item` does not start until `depends_on` is merged; parallel: it may start before.
+    pub kind: String,
 }
 
 /// Every item, and the dependencies between them.
@@ -761,11 +766,12 @@ pub struct Items {
     pub links: Vec<ItemLink>,
 }
 
-/// An item on the other end of a dependency, with what the dependency needs.
+/// An item on the other end of a dependency, with what the dependency needs and its kind, blocking or parallel.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct LinkedItem {
     pub item: ItemSummary,
     pub needs: String,
+    pub kind: String,
 }
 
 /// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
