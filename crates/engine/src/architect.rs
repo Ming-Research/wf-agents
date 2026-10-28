@@ -898,6 +898,8 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
     let item = req["item"].as_i64();
     let need_item = || item.ok_or_else(|| "this operation needs the item's number".to_string());
     let say = req["say"].as_str().map(str::trim).filter(|s| !s.is_empty());
+    // Why a work is paused or new works are held, which the owner reads on the page.
+    let why = req["why"].as_str().map(str::trim).filter(|s| !s.is_empty());
     match req["op"].as_str().unwrap_or_default() {
         "pause_work" => {
             let i = need_item()?;
@@ -906,7 +908,7 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
                 return Err(format!("work {} on item {i} is paused already", work.id));
             }
             // The architect's stop is the engine's pause, its reason saying the architect stopped it and why.
-            let why = match say {
+            let why = match why {
                 Some(s) => format!("{}: {s}", db::STOPPED_BY_ARCHITECT),
                 None => format!("{}: in its wake, work {}", db::STOPPED_BY_ARCHITECT, w.id),
             };
@@ -941,8 +943,9 @@ fn op(e: &mut Engine, w: &Work, req: &Value) -> Result<(), String> {
             .db
             .write(Actor::Architect, |tx| {
                 tx.execute(
-                    "INSERT INTO dispatch_holds (reason, since) VALUES ('architect', ?1) ON CONFLICT (reason) DO NOTHING",
-                    [db::now()],
+                    "INSERT INTO dispatch_holds (reason, since, why) VALUES ('architect', ?1, ?2)
+                     ON CONFLICT (reason) DO UPDATE SET why = coalesce(excluded.why, why)",
+                    params![db::now(), why],
                 )?;
                 Ok(())
             })

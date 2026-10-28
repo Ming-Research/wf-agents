@@ -2994,7 +2994,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let tools =
-                    json!([{ "tool": "engine_op", "op": "pause_work", "item": 1, "say": "It waits for the parser." }]);
+                    json!([{ "tool": "engine_op", "op": "pause_work", "item": 1, "why": "It waits for the parser." }]);
                 return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
             }
             (Vec::new(), Vec::new())

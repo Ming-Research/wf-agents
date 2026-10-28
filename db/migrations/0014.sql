@@ -68,7 +68,10 @@ CREATE TABLE dispatch_holds (
   -- architect: held by engine_op. tidying: the fifth question answered set_straight. policy: a new policy is being set.
   reason TEXT PRIMARY KEY CHECK (reason IN ('architect', 'tidying', 'policy')),
   -- When it began.
-  since INTEGER NOT NULL
+  since INTEGER NOT NULL,
+  -- Why, in the owner's language, as the architect said it for its own hold; NULL for the others, whose reason says
+  -- why. Read by: the owner's interface.
+  why TEXT
 ) STRICT;
 
 CREATE TABLE plan_segments (

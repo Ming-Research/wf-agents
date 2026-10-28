@@ -839,7 +839,7 @@ answers: number | null, };
  * What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
  * `policy`, while a new policy is set; and since when.
  */
-export type DispatchHold = { reason: string, since: number, };
+export type DispatchHold = { reason: string, since: number, why: string | null, };
 
 /**
  * What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.

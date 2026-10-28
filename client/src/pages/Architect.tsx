@@ -190,6 +190,7 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
       {a.holds.map((h) => (
         <span key={h.reason} className="chip warn" title={t('hold_since', { at: time(h.since) })}>
           {HOLDS[h.reason] !== undefined ? t(HOLDS[h.reason]) : t('hold_other', { reason: words(h.reason) })}
+          {h.why !== null ? `: ${h.why}` : null}
         </span>
       ))}
       {canWake ? (

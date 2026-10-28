@@ -809,11 +809,12 @@ pub struct Matter {
 }
 
 /// What stops new works from starting: `architect`, its own hold; `tidying`, while it sets the whole straight;
-/// `policy`, while a new policy is set; and since when.
+/// `policy`, while a new policy is set; since when; and for the architect's own hold, why, as it said it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DispatchHold {
     pub reason: String,
     pub since: i64,
+    pub why: Option<String>,
 }
 
 /// What a round of the architect handed back: its wake, its number in the wake, when it ended, and its answer.

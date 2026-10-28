@@ -1753,11 +1753,12 @@ fn queue(conn: &Connection) -> Result<Vec<Matter>> {
 }
 
 fn holds(conn: &Connection) -> Result<Vec<DispatchHold>> {
-    let mut st = conn.prepare("SELECT reason, since FROM dispatch_holds ORDER BY since, reason")?;
+    let mut st = conn.prepare("SELECT reason, since, why FROM dispatch_holds ORDER BY since, reason")?;
     let rows = st.query_map([], |r| {
         Ok(DispatchHold {
             reason: r.get(0)?,
             since: r.get(1)?,
+            why: r.get(2)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -2640,6 +2641,7 @@ mod tests {
             [DispatchHold {
                 reason: "policy".into(),
                 since: 300,
+                why: None,
             }]
         );
         assert_eq!(a.asks.len(), 1);
