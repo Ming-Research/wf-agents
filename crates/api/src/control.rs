@@ -304,7 +304,7 @@ impl Control {
     /// Waits until what is asked differs from `seen`, or `idle` has passed.
     pub fn wait(&self, seen: &Asked, idle: Duration) {
         let a = lock(&self.asked);
-        let _ = self.changed.wait_timeout_while(a, idle, |now| now != seen);
+        let _ = self.changed.wait_timeout_while(a, idle, |now| *now == *seen);
     }
 }
 
