@@ -9,9 +9,10 @@ use serde_json::{Map, Value, json};
 use crate::agent::{self, Request};
 use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
-use crate::message::{self, Held};
+use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
 use crate::{ARCHITECT, Advance, Engine, actions, architect, checks, git, tools, values};
+use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -123,7 +124,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let cli_name = level.cli.clone();
     let Composed {
         line,
-        session,
+        plan,
         line_rounds,
         given,
         interjections,
@@ -142,10 +143,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
-    // A session the CLI has started is resumed; one it never started is started under the id kept for it.
-    let used = line_rounds
-        .iter()
-        .any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
     let head = w.worktree.as_deref().and_then(|wt| git::head(wt).ok());
     let change = w
         .worktree
@@ -157,23 +154,21 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .filter_map(|i| i["interjection"].as_i64())
         .collect();
     let commit = e.config.commit.clone();
-    let fresh = agent::new_session_id();
-    let (sid, resume, new_session) = match session {
-        Some((id, s)) if used => (id, Some(s.clone()), s),
-        Some((id, s)) => (id, None, s),
-        None => {
+    // The session manager chose the session: the line's going on, resumed once the CLI started it and else started
+    // under the id kept for it, or a new one, which ends the one the line had going on.
+    let (sid, resume, new_session) = match plan {
+        Plan::Going {
+            id,
+            cli_session,
+            resume: true,
+            ..
+        } => (id, Some(cli_session.clone()), cli_session),
+        Plan::Going { id, cli_session, .. } => (id, None, cli_session),
+        Plan::New(why) => {
+            let fresh = agent::new_session_id();
             let id =
                 e.db.write(Actor::Engine, |tx| {
-                    // A session of its own that an earlier engine left going on, cut off with its round, is ended.
-                    tx.execute(
-                        "UPDATE sessions SET ended = ?3 WHERE work = ?1 AND line = ?2 AND ended IS NULL",
-                        params![w.id, line, db::now()],
-                    )?;
-                    tx.execute(
-                        "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, ?2, ?3, ?4)",
-                        params![w.id, line, cli_name, fresh],
-                    )?;
-                    Ok(tx.last_insert_rowid())
+                    sessions::choose::open(tx, w.id, &line, &cli_name, &fresh, why).map_err(db::Error::Abort)
                 })
                 .map_err(sql)?;
             (id, None, fresh)
@@ -201,7 +196,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         line: line_of_cell.clone(),
         cli,
         model: level.model.clone(),
-        effort: level.effort.clone(),
+        effort: sessions::choose::effort(&level, cell),
         worktree: wt,
         config_dir: e.cli_home(&cli_name),
         resume,
@@ -210,12 +205,16 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         refused: e.config.config.install.agents.permissions.refused(&line_of_cell),
         readable,
+        replay: None,
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
     // structured-output schema.
     let mut kept = msg.kept.clone();
-    let mut call = kept_call(agent::call(&req, &agent::command_line(&req), &cli_version), &mut kept);
+    let mut call = kept_call(
+        agent::call(&req, &agent::command_line(&req), &cli_version, crate::VERSION),
+        &mut kept,
+    );
     // The level the round runs at, which the configuration maps to its model and effort: the owner reads the round by
     // it.
     call["level"] = Value::String(level_name.clone());
@@ -234,7 +233,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .map_err(sql)?;
     (e.say)(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
     let reply = e
-        .agents
+        .sessions
         .run(&req, &|what: &str| (e.activity)(round.work, round.n, what));
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -252,8 +251,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     }
+    // What the session had cost before, its keep-warm pings included, so that the round's own cost is what it grew by.
+    let before = sessions::cost::spent(e.db.conn(), &new_session, &line_rounds)?;
     let ended = Ended {
-        usage: Some(round_cost(reply.usage.clone(), &line_rounds)).filter(|u| !u.is_null()),
+        usage: Some(sessions::cost::own_cost(reply.usage.clone(), before)).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
@@ -333,9 +334,10 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
 struct Composed {
     /// The line the session is on: the cell's, or for a cell on no line the cell itself, whose session is its own.
     line: String,
-    /// The line's session: its id and the CLI's id for it; none before the line's first round.
-    session: Option<(i64, String)>,
-    /// The session's rounds, oldest first: those of earlier wakes too, for the architect's line.
+    /// Where the round runs, as the session manager chose it.
+    plan: Plan,
+    /// The session's rounds, oldest first: those of earlier wakes too, for the architect's line; none for a new
+    /// session.
     line_rounds: Vec<Round>,
     given: Map<String, Value>,
     /// The interjections waiting for the line.
@@ -349,9 +351,8 @@ struct Composed {
 }
 
 /// Builds the message of an agent's round at a cell from the work as it stands, running and recording nothing. The
-/// session a line goes on in is the one not ended; a cell on no line starts a session of its own every round. The
-/// architect's line goes on in one CLI session across its wakes, so what its session holds is read from the rounds of
-/// every work that ran in that CLI session.
+/// session manager chooses the session it runs in and says what that session holds; the architect's line goes on in
+/// one CLI session across its wakes, so what its session holds is read from the rounds of every work that ran in it.
 fn compose(
     e: &Engine,
     w: &Work,
@@ -359,25 +360,13 @@ fn compose(
     cell: &CompiledCell,
     item: Option<&Item>,
 ) -> Result<Composed, String> {
-    let line = cell.line.clone().unwrap_or_else(|| cell.id.clone());
-    let session: Option<(i64, String)> = match &cell.line {
-        Some(l) => {
-            e.db.conn()
-                .query_row(
-                    "SELECT id, cli_session FROM sessions WHERE work = ?1 AND line = ?2 AND ended IS NULL",
-                    params![w.id, l],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .ok()
-        }
-        None => None,
-    };
+    let line = sessions::choose::line_of(cell);
+    let mut plan = sessions::choose::plan(e.db.conn(), w.id, cell, e.config.config.install.agents.context_limit)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
-    let line_rounds: Vec<Round> = match &session {
-        Some((_, cli_session)) => work::session_rounds(e.db.conn(), cli_session)?,
-        None => Vec::new(),
+    let (line_rounds, held) = match &mut plan {
+        Plan::Going { rounds, held, .. } => (std::mem::take(rounds), std::mem::take(held)),
+        Plan::New(_) => (Vec::new(), Held::default()),
     };
-    let held = Held::of(&line_rounds);
     let mut known: Vec<Round> = line_rounds.iter().filter(|r| r.id.work != w.id).cloned().collect();
     known.extend(work_rounds.iter().cloned());
     let registry = message::registry(&known);
@@ -419,7 +408,7 @@ fn compose(
     }
     Ok(Composed {
         line,
-        session,
+        plan,
         line_rounds,
         given,
         interjections,
@@ -562,23 +551,6 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
     Ok(compose(e, &w, &g, &cell, item.as_ref())?.msg)
-}
-
-/// The CLI reports what its session has cost so far, the rounds it resumed from included; a round's own cost is what
-/// that grew by since the session's last round that reported it.
-fn round_cost(mut usage: Value, line_rounds: &[Round]) -> Value {
-    let Some(total) = usage["session_cost_usd"].as_f64() else {
-        return usage;
-    };
-    let before = line_rounds
-        .iter()
-        .rev()
-        .find_map(|r| r.usage.as_ref().and_then(|u| u["session_cost_usd"].as_f64()));
-    usage["cost_usd"] = json!(match before {
-        Some(b) if b <= total => total - b,
-        _ => total,
-    });
-    usage
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
@@ -1185,32 +1157,5 @@ mod tests {
         ] } })];
         assert_eq!(what_is_asked(&asked), " (blocked by permission): Please run a probe.");
         assert_eq!(what_is_asked(&[]), "");
-    }
-
-    fn round(usage: Value) -> Round {
-        Round {
-            id: RoundId::new(1, 1),
-            cell: None,
-            session: Some(1),
-            input: Value::Null,
-            output: None,
-            transition: None,
-            rejected: None,
-            compactions: 0,
-            started_at: 0,
-            ended_at: Some(0),
-            usage: Some(usage),
-        }
-    }
-
-    #[test]
-    fn a_round_costs_what_its_session_grew_by() {
-        let u = |c: f64| json!({ "session_cost_usd": c });
-        assert_eq!(round_cost(u(1.5), &[])["cost_usd"], 1.5);
-        let before = [round(u(1.5)), round(json!({ "started": true }))];
-        assert_eq!(round_cost(u(4.0), &before)["cost_usd"], 2.5);
-        // A session the CLI counted afresh costs what it reports.
-        assert_eq!(round_cost(u(0.5), &before)["cost_usd"], 0.5);
-        assert_eq!(round_cost(json!({ "started": true }), &[]), json!({ "started": true }));
     }
 }

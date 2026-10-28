@@ -293,6 +293,32 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
             s.graph, s.cells, s.rows, s.states, s.places
         );
     }
+    // Each line's sessions: where a new one starts, and how large the forms every return of the line shares are.
+    for g in &compiled.graphs {
+        let mut lines: Vec<String> = Vec::new();
+        let mut seen: Vec<&str> = Vec::new();
+        for c in g.cells.iter().filter(|c| c.kind == "agent") {
+            let Some(line) = c.line.as_deref().filter(|l| !seen.contains(l)) else {
+                continue;
+            };
+            seen.push(line);
+            let cells = sessions::format_cells(g, c);
+            let size = flow::formats::common_format_of(g, &cells, &[]).chars().count();
+            let starts: Vec<&str> = cells.iter().filter(|x| x.new_session).map(|x| x.id.as_str()).collect();
+            let at = if starts.is_empty() {
+                String::new()
+            } else {
+                format!(", new sessions also at {}", starts.join(", "))
+            };
+            lines.push(format!("{line} {size}{at}"));
+        }
+        println!(
+            "{}: format:common {} characters, by line: {}",
+            g.name,
+            flow::formats::common_format(g, &[]).chars().count(),
+            lines.join("; ")
+        );
+    }
     println!("digest {}", compiled.digest());
     Ok(())
 }
@@ -600,6 +626,10 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         }
         let asked = control.asked();
         e.reload_config();
+        // The sessions of works that wait are kept warm between steps, never beside a round.
+        if let Err(x) = e.keep_warm(db::now()) {
+            (e.say)(&format!("keeping waiting sessions warm: {x}"));
+        }
         let now = status(&mut e, last.as_ref(), started_at)?;
         bus.publish(api::Event::Status {
             status: Box::new(control.status(now)),

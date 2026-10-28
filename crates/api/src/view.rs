@@ -31,7 +31,16 @@ pub fn view(c: &Compiled) -> FlowView {
         source
             .as_ref()
             .and_then(|s| s.flows.iter().find(|f| f.name == name))
-            .map(|f| f.sessions.lines.clone())
+            .map(|f| {
+                f.sessions
+                    .lines
+                    .iter()
+                    .map(|l| Named {
+                        name: l.name.clone(),
+                        desc: l.desc.clone(),
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     };
     FlowView {

@@ -1,8 +1,11 @@
-//! One round of an agent: one run of its CLI in the work's worktree, from the message the engine sends to the return
-//! the agent hands in. It is a trait so that the engine's tests can script the agents; [`Claude`] runs `claude -p`.
+//! The command line an agent's round runs in: how it starts (the context, permissions, tools, model and reasoning
+//! effort it is given), one run of it in the work's worktree from the message to the return, and what its stream
+//! reports. The flags the installation gives every agent's command line, such as the tools it offers, stay in the
+//! configuration; the flags that shape a session's context belong here. It is a trait so that the engine's tests can
+//! script the agents; [`Claude`] runs `claude -p`.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
@@ -31,6 +34,10 @@ pub struct Request {
     /// Directories outside the worktree the agent may read but not change, such as where the engine saves a tool's
     /// output too long to give inline; absolute paths.
     pub readable: Vec<PathBuf>,
+    /// For a keep-warm ping: the whole command line of the session's last round, run again as it was, resuming the
+    /// session, with only the message changed, so that everything that shapes the prompt is the same and the prompt
+    /// cache is read; none for a round, whose command line is built from the fields above.
+    pub replay: Option<Vec<String>>,
 }
 
 /// What a round came to.
@@ -113,7 +120,7 @@ pub fn command_line(r: &Request) -> Vec<String> {
 
 /// What a round's record says of its call: the whole command line (the structured-output schema in it), the
 /// environment the engine set, the session it started or resumed, and the engine's and the CLI's versions.
-pub fn call(r: &Request, command: &[String], cli_version: &str) -> Value {
+pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) -> Value {
     let session = match &r.resume {
         Some(s) => json!({ "resumed": s }),
         None => json!({ "started": r.new_session }),
@@ -127,9 +134,23 @@ pub fn call(r: &Request, command: &[String], cli_version: &str) -> Value {
         "env": env,
         "cwd": r.worktree.display().to_string(),
         "session": session,
-        "engine": crate::VERSION,
+        "engine": engine,
         "cli": cli_version,
     })
+}
+
+/// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of git even when the
+/// owner made it first by logging in there; with what went wrong making it, if anything.
+pub fn home(data: &Path, cli: &config::Cli, name: &str) -> (PathBuf, Option<String>) {
+    let dir = cli.home(data, name);
+    let ignore = dir.join(".gitignore");
+    if !ignore.exists()
+        && let Err(x) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&ignore, "*\n"))
+    {
+        let why = format!("{}: {x}", dir.display());
+        return (dir, Some(why));
+    }
+    (dir, None)
 }
 
 /// Agents run with `claude -p`.
@@ -137,7 +158,7 @@ pub struct Claude;
 
 impl Claude {
     fn command(r: &Request) -> Command {
-        let line = command_line(r);
+        let line = r.replay.clone().unwrap_or_else(|| command_line(r));
         let mut c = Command::new(&line[0]);
         c.args(&line[1..]);
         if let Some(d) = &r.config_dir {
@@ -557,7 +578,7 @@ mod tests {
             },
         )
         .unwrap();
-        let g = f.graph(crate::ENGINEER).unwrap();
+        let g = f.graph("engineer").unwrap();
         let shapes: Vec<Value> = g
             .cells
             .iter()
@@ -688,6 +709,7 @@ mod tests {
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             refused: config::Permissions::default().refused("engineer"),
             readable: vec![PathBuf::from("/data/tool-output")],
+            replay: None,
         };
         let line = command_line(&r);
         // The engine's saved tool output is readable and not editable.
@@ -717,7 +739,7 @@ mod tests {
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
         // It reads no project instructions or settings by itself.
         assert!(line.windows(2).any(|w| w == ["--setting-sources", "user"]), "{line:?}");
-        let c = call(&r, &line, "2.1.0 (Claude Code)");
+        let c = call(&r, &line, "2.1.0 (Claude Code)", "e1");
         assert_eq!(c["session"]["resumed"], "s1");
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");
         // The structured-output schema is in the command line, and not recorded again beside it.
@@ -727,7 +749,7 @@ mod tests {
                 .any(|w| w[0] == "--json-schema" && w[1].contains("\"progress\""))
         );
         assert_eq!(c["cli"], "2.1.0 (Claude Code)");
-        assert_eq!(c["engine"], crate::VERSION);
+        assert_eq!(c["engine"], "e1");
         let cmd = Claude::command(&r);
         let env: Vec<_> = cmd.get_envs().collect();
         assert_eq!(
@@ -737,6 +759,18 @@ mod tests {
                 Some(std::ffi::OsStr::new("/data/agents/claude"))
             )]
         );
+        // A keep-warm ping runs the command line it replays, as it is.
+        let replayed: Vec<String> = ["claude", "-p", "--resume", "s1"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let ping = Request {
+            replay: Some(replayed),
+            ..r.clone()
+        };
+        let cmd = Claude::command(&ping);
+        assert_eq!(cmd.get_program(), "claude");
+        assert_eq!(cmd.get_args().collect::<Vec<_>>(), ["-p", "--resume", "s1"]);
     }
 
     #[test]

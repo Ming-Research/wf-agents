@@ -308,6 +308,14 @@ case!(
 case!(a_form_for_no_such_line, "a form for no such line", |v| {
     graph(v)["agentCommon"]["returns"]["forms"][5]["lines"] = json!(["test"]);
 });
+// A line starts a new session only at an agent's cell of its own: the review's first cell is not the engineer's.
+case!(
+    a_new_session_at_another_lines_cell,
+    "a line starts a new session at a cell that is not one of its agents: engineer 5",
+    |v| {
+        graph(v)["sessions"]["lines"][0]["starts"] = json!(["4", "5"]);
+    }
+);
 case!(
     two_who_may_interject_with_one_name,
     "two who may interject with one name",

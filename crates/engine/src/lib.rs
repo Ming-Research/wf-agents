@@ -12,7 +12,6 @@
 //! In this version the engine and the session manager are one process on one machine, and the engine takes one work
 //! one step at a time: a long round of one work holds up the others.
 
-pub mod agent;
 pub mod database;
 pub mod git;
 pub mod hub;
@@ -20,7 +19,6 @@ pub mod hub;
 mod actions;
 mod arch_changes;
 mod architect;
-mod changes;
 mod checks;
 mod failed;
 mod inputs;
@@ -28,6 +26,7 @@ pub mod message;
 mod steps;
 mod tools;
 mod values;
+mod warm;
 mod work;
 
 use std::collections::BTreeMap;
@@ -38,6 +37,9 @@ use db::rusqlite::params;
 use db::{Actor, Db};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
+
+/// The command line agents run in, which the session manager starts.
+pub use sessions::cli as agent;
 
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
@@ -76,7 +78,8 @@ pub struct Engine {
     /// The data directory: the configuration, the database and the worktrees.
     pub data: PathBuf,
     pub config: config::Committed,
-    pub agents: Box<dyn Agents>,
+    /// The session manager: the agents' sessions and the command line they run in.
+    pub sessions: sessions::Manager,
     pub github: Box<dyn GitHub>,
     flows: BTreeMap<i64, Compiled>,
     /// The flow version new works start on: the one built into this engine.
@@ -97,8 +100,6 @@ pub struct Engine {
     /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
     /// after, up to five minutes.
     pub retry_wait: Duration,
-    /// Each CLI's version as it reported it, by the CLI's name in the configuration.
-    cli_versions: BTreeMap<String, String>,
 }
 
 impl Engine {
@@ -133,7 +134,7 @@ impl Engine {
             db,
             data: data.to_path_buf(),
             config,
-            agents,
+            sessions: sessions::Manager::new(agents),
             github,
             flows,
             flow_now,
@@ -143,7 +144,6 @@ impl Engine {
             halt: None,
             told: None,
             retry_wait: Duration::from_secs(10),
-            cli_versions: BTreeMap::new(),
         };
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
         for name in names {
@@ -180,7 +180,7 @@ impl Engine {
             db,
             data: data.to_path_buf(),
             config,
-            agents,
+            sessions: sessions::Manager::new(agents),
             github,
             flows,
             flow_now,
@@ -190,7 +190,6 @@ impl Engine {
             halt: None,
             told: None,
             retry_wait: Duration::from_secs(10),
-            cli_versions: BTreeMap::new(),
         })
     }
 
@@ -333,33 +332,26 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of git even
-    /// when the owner made it first by logging in there.
+    /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of the data
+    /// directory's history even when the owner made it first by logging in there.
     pub fn cli_home(&self, name: &str) -> Option<PathBuf> {
         let cli = self.config.config.install.agents.clis.get(name)?;
-        let dir = cli.home(&self.data, name);
-        let ignore = dir.join(".gitignore");
-        if !ignore.exists() {
-            let made = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&ignore, "*\n"));
-            if let Err(x) = made {
-                (self.say)(&format!("{}: {x}", dir.display()));
-            }
+        let (dir, failed) = agent::home(&self.data, cli, name);
+        if let Some(x) = failed {
+            (self.say)(&x);
         }
         Some(dir)
     }
 
     /// A CLI's version as it reports it, read the first time it is asked for: when the engine starts.
     pub fn cli_version(&mut self, name: &str) -> String {
-        if let Some(v) = self.cli_versions.get(name) {
-            return v.clone();
-        }
-        let Some(cli) = self.config.config.install.agents.clis.get(name).cloned() else {
-            return "unknown".to_string();
-        };
-        let home = self.cli_home(name);
-        let v = self.agents.version(&cli, home.as_deref());
-        self.cli_versions.insert(name.to_string(), v.clone());
-        v
+        self.sessions.version(&self.data, &self.config.config, name)
+    }
+
+    /// Keeps warm the sessions of the works that wait: the session manager sends a ping to each session whose work's
+    /// next round will go on in it, 55 minutes after its last call, and records it; gives how many it sent at `now`.
+    pub fn keep_warm(&mut self, now: i64) -> Result<usize, String> {
+        warm::keep_warm(self, now)
     }
 
     /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.

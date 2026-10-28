@@ -263,12 +263,14 @@ CREATE TABLE works (
 ) STRICT;
 
 CREATE TABLE sessions (
-  -- The CLI session each line of a work runs in. A line keeps one session for the whole work and lets the CLI compact
-  -- it; after a compaction the engine gives the cell's rules and inputs again. The architect's line goes on in one CLI
-  -- session across its wakes: each wake has a row of its own with the same cli_session, until a new policy ends it. A
-  -- cell on no line has a session of its own for each round, ended once the round has.
+  -- The CLI session each line of a work runs in. A line goes on in its session and lets the CLI compact it, after
+  -- which the session manager gives the cell's rules and inputs again; it starts a new session at a cell the flow says
+  -- it starts one at, and when its session's context is past the configuration's limit. The architect's line goes on
+  -- in one CLI session across its wakes: each wake has a row of its own with the same cli_session, until a new policy
+  -- ends it. A cell on no line has a session of its own for each round, ended once the round has.
   -- Hidden from agents.
-  -- Read by: the engine, to resume a line.
+  -- Read by: the session manager, to resume a line, to start a new session and to keep a waiting session warm; the
+  -- owner's interface.
   id INTEGER PRIMARY KEY,
   work INTEGER NOT NULL REFERENCES works(id),
   -- The line, for example engineer, review, adversarial, advisor or architect; for a cell on no line, the cell.
@@ -279,7 +281,39 @@ CREATE TABLE sessions (
   cli_session TEXT NOT NULL,
   -- When the session was ended, so that the line's next round starts a new one; NULL while it goes on. A work's line
   -- has at most one session going on. Read by: the engine, which resumes only a session not ended.
-  ended INTEGER
+  ended INTEGER,
+  -- Why it started: line, the line had no session going on (its first round in the work, or after its session
+  -- ended); cell, the round is the work's first at a cell the line starts a new session at; limit, the context of the
+  -- line's session before it was past the configuration's limit; wake, a wake of the architect going on in the CLI
+  -- session the last wake left. Read by: the owner's interface.
+  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'wake'))
+) STRICT;
+
+CREATE TABLE pings (
+  -- Each keep-warm ping: one minimal message the session manager sent a session whose work waited, 55 minutes after
+  -- the session's last call, so that the session's prompt cache was read before it expired instead of written again
+  -- whole at its next round. A ping means the work waited over an hour, which is an anomaly: it says where the work
+  -- waited and for what. Its cost is the work's.
+  -- Hidden from agents.
+  -- Read by: the session manager, which counts a wait's pings and a session's cost; the owner's interface and the
+  -- anomalies command.
+  id INTEGER PRIMARY KEY,
+  session INTEGER NOT NULL REFERENCES sessions(id),
+  -- Where the work waited and for what, JSON: the cell, what it waited on (pause, owner, architect, items or tool)
+  -- and that in words.
+  waited TEXT NOT NULL CHECK (json_valid(waited)),
+  -- The model the ping ran on, as the CLI reported it.
+  model TEXT,
+  -- Tokens and cost as the CLI reported them, JSON, with the ping's own cost as a round's usage has it; NULL while it
+  -- runs.
+  usage TEXT CHECK (usage IS NULL OR json_valid(usage)),
+  -- How many times the CLI compacted the session during the ping: the session then holds nothing from before.
+  compactions INTEGER NOT NULL DEFAULT 0 CHECK (compactions >= 0),
+  -- Why the run failed, when it did.
+  error TEXT,
+  -- When it started and ended.
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER
 ) STRICT;
 
 CREATE TABLE rounds (
@@ -566,6 +600,8 @@ CREATE INDEX item_links_by_depends_on ON item_links (depends_on);
 CREATE INDEX works_by_item ON works (item);
 -- The session each line of a work goes on in: one at most, among those not ended.
 CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NULL;
+-- The keep-warm pings of a session.
+CREATE INDEX pings_by_session ON pings (session);
 -- The rounds of a work in order, which every input that names a returned field and the history read, are the
 -- primary key of rounds.
 -- The tools a round ran.

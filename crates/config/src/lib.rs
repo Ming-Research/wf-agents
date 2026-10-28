@@ -107,6 +107,14 @@ pub struct Agents {
     /// The level the architect runs at, by its name among the levels; the top level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architect: Option<String>,
+    /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
+    /// prompt of the last call of the session's latest round, as recorded.
+    #[serde(default = "context_limit")]
+    pub context_limit: u64,
+}
+
+fn context_limit() -> u64 {
+    500_000
 }
 
 /// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine

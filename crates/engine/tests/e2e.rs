@@ -141,7 +141,9 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
 }
 
 /// What the scripted agent hands in at a cell, and does in the worktree before. Under `@error` it hands in nothing,
-/// as a run that failed with that report; under `@compactions`, the session was compacted that many times.
+/// as a run that failed with that report; under `@compactions`, the session was compacted that many times; under
+/// `@usage`, what the CLI reports the round used. The script `@ping` answers a keep-warm ping, its `@usage` what the
+/// ping used.
 type Script = Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>)>;
 
 struct Scripted {
@@ -151,6 +153,9 @@ struct Scripted {
 
 impl Agents for Scripted {
     fn run(&self, r: &Request, _activity: &dyn Fn(&str)) -> Reply {
+        if r.replay.is_some() {
+            return self.ping(r);
+        }
         let n = {
             let mut rounds = self.rounds.borrow_mut();
             let n = rounds.entry(r.cell.clone()).or_default();
@@ -173,6 +178,7 @@ impl Agents for Scripted {
             };
         }
         let compactions = set.remove("@compactions").and_then(|c| c.as_i64()).unwrap_or(0);
+        let usage = set.remove("@usage").unwrap_or_else(|| json!({ "cost_usd": 0.01 }));
         set.entry("side_reports".into()).or_insert(json!([]));
         set.entry("tell_owner".into()).or_insert(json!([]));
         set.entry("progress".into())
@@ -181,7 +187,7 @@ impl Agents for Scripted {
             output: Some(example(&r.schema, "", &pick, &set)),
             session,
             model: Some(r.model.clone()),
-            usage: json!({ "cost_usd": 0.01 }),
+            usage,
             compactions,
             error: None,
             command: Vec::new(),
@@ -190,6 +196,39 @@ impl Agents for Scripted {
 
     fn version(&self, _cli: &config::Cli, _config_dir: Option<&Path>) -> String {
         "scripted".to_string()
+    }
+}
+
+impl Scripted {
+    /// A keep-warm ping: what the script `@ping` says it used, or a read of the session's cache.
+    fn ping(&self, r: &Request) -> Reply {
+        let n = {
+            let mut rounds = self.rounds.borrow_mut();
+            let n = rounds.entry("@ping".to_string()).or_default();
+            *n += 1;
+            *n
+        };
+        let (_, set) = self.scripts.get("@ping").map(|f| f(r, n)).unwrap_or_default();
+        let set: BTreeMap<&str, Value> = set.into_iter().collect();
+        let session = r.resume.clone().unwrap_or_default();
+        if let Some(e) = set.get("@error") {
+            return Reply {
+                session,
+                error: e.as_str().map(str::to_string),
+                ..Reply::default()
+            };
+        }
+        let usage = set.get("@usage").cloned().unwrap_or_else(|| {
+            json!({ "usage": { "input_tokens": 3, "cache_read_input_tokens": 9_000, "cache_creation_input_tokens": 20,
+                               "output_tokens": 5 } })
+        });
+        Reply {
+            output: Some(json!({})),
+            session,
+            model: Some("m".into()),
+            usage,
+            ..Reply::default()
+        }
     }
 }
 
@@ -1833,7 +1872,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let design = &rounds.iter().rev().find(|r| r.1 == "2a").unwrap().0;
     let acceptance = format!("{design}·2a·acceptance");
     assert_eq!(given(&at("3f"), &acceptance), Some(false), "{}", at("3f"));
-    assert_eq!(given(&at("4"), &acceptance), Some(false), "{}", at("4"));
+    // Implementing starts a new session, which holds nothing: the acceptance is given whole again.
+    assert_eq!(given(&at("4"), &acceptance), Some(true), "{}", at("4"));
     assert_eq!(given(&at("5"), &acceptance), Some(true), "{}", at("5"));
     assert!(
         !rounds
@@ -1862,14 +1902,15 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
             .is_some_and(|d| d.ends_with("agents/claude")),
         "{call}"
     );
-    // The record keeps each large text once: the shared formats and the structured-output schema are in contents
-    // once, however many rounds and sessions were given them, and a round's record refers to them.
+    // The record keeps each large text once: the shared formats of each line (the engineer's and the review's) and
+    // the structured-output schema are in contents once, however many rounds and sessions were given them, and a
+    // round's record refers to them.
     let kept = |like: &str| -> i64 {
         e.db.conn()
             .query_row("SELECT count(*) FROM contents WHERE text LIKE ?1", [like], |r| r.get(0))
             .unwrap()
     };
-    assert_eq!(kept("The forms every agent's return shares.%"), 1);
+    assert_eq!(kept("The forms every agent's return shares.%"), 2);
     assert_eq!(kept("{\"type\":\"object\"%"), 1);
     let raw: String =
         e.db.conn()
@@ -3436,5 +3477,370 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let without = at_end(&mut e, None);
     e.step_work(without).unwrap();
     assert_eq!(followups(&e).len(), 1, "{}", said.borrow().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The sessions of a work's line, oldest first: why each started, whether it ended, and the cells of its rounds.
+fn line_sessions(e: &Engine, work: i64, line: &str) -> Vec<(String, bool, String)> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT s.started, s.ended IS NOT NULL, coalesce((SELECT group_concat(x.cell, ',') FROM
+                   (SELECT r.cell FROM rounds r WHERE r.session = s.id ORDER BY r.n) x), '')
+                 FROM sessions s WHERE s.work = ?1 AND s.line = ?2 ORDER BY s.id",
+            )
+            .unwrap();
+    st.query_map(params![work, line], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// When the engineer's latest round of a work ended: the session's last call.
+fn last_call(e: &Engine, work: i64) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT max(r.ended_at) FROM rounds r JOIN sessions s ON s.id = r.session
+             WHERE s.work = ?1 AND s.line = 'engineer'",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// A work's keep-warm pings, oldest first: where it waited, and what each used.
+fn pings_of(e: &Engine, work: i64) -> Vec<(Value, Option<Value>)> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT p.waited, p.usage FROM pings p JOIN sessions s ON s.id = p.session WHERE s.work = ?1 ORDER BY p.id",
+        &[&work],
+        1000,
+    )
+    .unwrap()
+    .into_iter()
+    .map(|r| (r["waited"].clone(), Some(r["usage"].clone()).filter(|u| !u.is_null())))
+    .collect()
+}
+
+/// What the CLI reports a round or a ping used: the session's cost so far, and calls that read and wrote the cache.
+fn used(session_cost: f64, read: i64) -> Value {
+    json!({ "session_cost_usd": session_cost, "usage": {
+        "input_tokens": 3, "cache_read_input_tokens": read, "cache_creation_input_tokens": 500, "output_tokens": 50,
+        "iterations": [{ "input_tokens": 3, "cache_read_input_tokens": read, "cache_creation_input_tokens": 500 }],
+    } })
+}
+
+fn pause_by_owner(e: &mut Engine, work: i64, why: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1",
+            params![work, why],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+fn let_go_on(e: &mut Engine, work: i64) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+fn move_to(e: &mut Engine, work: i64, cell: &str) {
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, cell])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Steps the engine until the item's work has run so many agent rounds.
+fn agent_rounds_to(e: &mut Engine, item: i64, n: usize) {
+    for _ in 0..10 {
+        if agent_rounds(e, item).len() == n {
+            return;
+        }
+        e.step(None).unwrap();
+    }
+    panic!("the work did not run {n} agent rounds");
+}
+
+// The engineer's line starts a new session at the first round of implementing and at the first round of fixing: the
+// session before ends, every other round goes on in the latest session, and a later round of either cell goes on in
+// the session it started.
+#[test]
+fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
+    let s = setup("rotate");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "18");
+    let (work, _, _) = state(&e, item).unwrap();
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
+    assert_eq!((lines[0].0.as_str(), lines[0].1), ("line", true), "{lines:?}");
+    assert!(lines[0].2.starts_with("1,") && !lines[0].2.contains('4'), "{lines:?}");
+    assert_eq!(lines[1], ("cell".to_string(), false, "4,4".to_string()));
+    let rounds = agent_rounds(&e, item);
+    let fours: Vec<&Value> = rounds.iter().filter(|r| r.1 == "4").map(|r| &r.2).collect();
+    assert_eq!(given(fours[0], "format:common"), Some(true));
+    assert!(
+        fours[0]["call"]["session"]["started"].is_string(),
+        "{}",
+        fours[0]["call"]
+    );
+    assert_eq!(given(fours[1], "format:common"), Some(false));
+    assert!(
+        fours[1]["call"]["session"]["resumed"].is_string(),
+        "{}",
+        fours[1]["call"]
+    );
+    move_to(&mut e, work, "8");
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(lines.len(), 3, "{lines:?}\n{log}");
+    assert!(lines[1].1, "{lines:?}");
+    assert_eq!(
+        (lines[2].0.as_str(), lines[2].1, lines[2].2.as_str()),
+        ("cell", false, "8"),
+        "{log}"
+    );
+    move_to(&mut e, work, "8");
+    e.step(None).unwrap();
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.borrow().join("\n"));
+    assert_eq!(lines[2].2, "8,8");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A line's session whose context is past the configuration's limit is replaced at the line's next round by a new one,
+// which is given everything its cell needs; the session before ends. While the work waits before that round, the
+// session is not kept warm: the next round starts a new one anyway.
+#[test]
+fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
+    let s = setup("limit");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1a",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 499_997))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "2", "{}", said.borrow().join("\n"));
+    pause_by_owner(&mut e, work, "to look at it");
+    let from = last_call(&e, work);
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    let_go_on(&mut e, work);
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(
+        lines,
+        [
+            ("line".to_string(), true, "1,1a".to_string()),
+            ("limit".to_string(), false, "2".to_string())
+        ],
+        "{log}"
+    );
+    let rounds = agent_rounds(&e, item);
+    let two = &rounds[2].2;
+    for a in ["format:common", "format:2", "rule:ground"] {
+        assert_eq!(given(two, a), Some(true), "{a}");
+    }
+    assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits has the session its next round goes on in pinged 55 minutes after the session's last call, while
+// the cache still holds it, and every 55 minutes after, at most 39 times in a wait. Each ping runs the last round's
+// command line again, resuming the session, records where the work waited and for what, and costs what the session
+// grew by, which the next round's cost leaves out.
+#[test]
+fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
+    let s = setup("warm");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
+    );
+    scripts.insert(
+        "1a",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.5, 9_500))])),
+    );
+    scripts.insert(
+        "2",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(3.0, 10_000))])),
+    );
+    let seen: Rc<RefCell<Vec<(Vec<String>, String)>>> = Rc::default();
+    let pinged = seen.clone();
+    scripts.insert(
+        "@ping",
+        Box::new(move |r: &Request, n: usize| {
+            pinged
+                .borrow_mut()
+                .push((r.replay.clone().unwrap_or_default(), r.prompt.clone()));
+            let total = 1.5 + 0.02 * n as f64;
+            let usage = json!({ "session_cost_usd": total, "usage": {
+                "input_tokens": 3, "cache_read_input_tokens": 9_500, "cache_creation_input_tokens": 20, "output_tokens": 5,
+            } });
+            (Vec::new(), vec![("@usage", usage)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "2", "{}", said.borrow().join("\n"));
+    pause_by_owner(&mut e, work, "to look at it");
+    let from = last_call(&e, work);
+    // Not before 55 minutes, and not once the cache has let the session go.
+    assert_eq!(e.keep_warm(from + 54 * 60_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 60 * 60_000).unwrap(), 0);
+    let mut now = from + 55 * 60_000;
+    assert_eq!(e.keep_warm(now).unwrap(), 1);
+    assert_eq!(e.keep_warm(now + 60_000).unwrap(), 0);
+    for _ in 0..40 {
+        now += 55 * 60_000 + 1_000;
+        e.keep_warm(now).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let pings = pings_of(&e, work);
+    assert_eq!(pings.len(), 39, "{log}");
+    for (waited, _) in &pings {
+        assert_eq!(*waited, json!({ "cell": "2", "on": "pause", "what": "to look at it" }));
+    }
+    // Each ping cost what the session grew by since the call before it.
+    let costs: Vec<f64> = pings
+        .iter()
+        .map(|(_, u)| u.as_ref().unwrap()["cost_usd"].as_f64().unwrap())
+        .collect();
+    assert!(costs.iter().all(|c| (c - 0.02).abs() < 1e-9), "{costs:?}");
+    // The ping ran the last round's command line, resuming its session, with only the message changed.
+    let rounds = agent_rounds(&e, item);
+    let recorded: Vec<String> = rounds[1].2["call"]["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap().to_string())
+        .collect();
+    let (replayed, prompt) = seen.borrow()[0].clone();
+    assert_eq!(replayed, recorded);
+    assert_eq!(replayed[replayed.len() - 2], "--resume");
+    let schema = replayed.iter().position(|a| a == "--json-schema").unwrap();
+    assert!(replayed[schema + 1].starts_with('{'), "{replayed:?}");
+    assert!(prompt.contains("Keep-warm ping"), "{prompt}");
+    // The round after the wait costs what the session grew by since the last ping.
+    let_go_on(&mut e, work);
+    e.step(None).unwrap();
+    let cost: f64 =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND cell = '2'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!((cost - (3.0 - 1.5 - 0.02 * 39.0)).abs() < 1e-9, "{cost}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// No ping goes to a session whose next round starts a new one, at a cell the line starts one at, nor beside a round of
+// the session that runs.
+#[test]
+fn no_ping_before_a_new_session_or_beside_a_round() {
+    let s = setup("no-warm");
+    let mut scripts = scripts();
+    scripts.insert(
+        "3f",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "no")], vec![("@usage", used(1.0, 9_000))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    step_to(&mut e, item, "4");
+    let (work, _, _) = state(&e, item).unwrap();
+    pause_by_owner(&mut e, work, "to look at it");
+    let from = last_call(&e, work);
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
+    move_to(&mut e, work, "3f");
+    let session: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM sessions WHERE work = ?1 AND line = 'engineer' AND ended IS NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let open =
+        e.db.write(Actor::Engine, |tx| {
+            let n = next_round(tx, work)?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (?1, ?2, '3f', ?3, '{}', 'c', ?4)",
+                params![work, n, session, from],
+            )?;
+            Ok(n)
+        })
+        .unwrap();
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(),
+        1,
+        "{}",
+        said.borrow().join("\n")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work waiting for the owner's answer has the session of the line that asked kept warm, and the ping says the work
+// waited at the owner's cell for the owner's answer to that ask.
+#[test]
+fn a_ping_says_where_the_work_waited_and_for_what() {
+    let s = setup("warm-owner");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1a",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "2", "{}", said.borrow().join("\n"));
+    let ask =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE works SET at = '16', resume_at = '2', waiting = '[\"2\"]' WHERE id = ?1",
+                [work],
+            )?;
+            let round = next_round(tx, work)?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, '16', '{}', 'c', 1)",
+                [work, round],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                [work, round],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let from = last_call(&e, work);
+    assert_eq!(
+        e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(),
+        1,
+        "{}",
+        said.borrow().join("\n")
+    );
+    let pings = pings_of(&e, work);
+    assert_eq!(
+        pings[0].0,
+        json!({ "cell": "16", "on": "owner", "what": format!("the owner's answer to ask {ask}") })
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }

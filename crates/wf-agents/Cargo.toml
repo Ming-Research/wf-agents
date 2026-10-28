@@ -14,6 +14,8 @@ db = { path = "../db" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# The session manager, for what the flow check says of each line's sessions.
+sessions = { path = "../sessions" }
 web = { path = "../web" }
 
 [lints]

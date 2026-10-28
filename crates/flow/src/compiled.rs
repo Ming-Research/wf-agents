@@ -157,6 +157,9 @@ pub struct CompiledCell {
     pub needs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
+    /// The cell starts a new session of its line at its first round in a work, besides the line's first round.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub new_session: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -189,6 +192,11 @@ pub struct CompiledCell {
     pub read_by: Vec<ReadBy>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
+}
+
+/// Whether a flag is off, which the compiled flow leaves out.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Compiled {
@@ -713,6 +721,12 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             step: c.step.clone(),
             needs: c.needs.clone(),
             line: c.line.clone(),
+            new_session: g
+                .flow
+                .sessions
+                .lines
+                .iter()
+                .any(|l| c.line.as_ref() == Some(&l.name) && l.starts.contains(&c.id)),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
             inputs: c

@@ -271,9 +271,20 @@ pub struct Named {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    pub lines: Vec<Named>,
+    pub lines: Vec<Line>,
     /// How sessions are kept, for people.
     pub rules: Vec<String>,
+}
+
+/// A line: the agent whose cells go on in one session, and the cells at which it starts a new one.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Line {
+    pub name: String,
+    pub desc: String,
+    /// The cells of the line at whose first round in a work it starts a new session, besides its first round.
+    #[serde(default)]
+    pub starts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

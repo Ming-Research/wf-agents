@@ -213,11 +213,16 @@ fn without_kinds(schema: &mut Value, gone: &[&AskNeed]) {
     }
 }
 
-/// The inputs every agent's cell may have besides its own, each by its name with what it is, in the order the cells
-/// have them.
-fn common_inputs(g: &CompiledGraph) -> Vec<(&str, &str)> {
+/// The inputs every agent's cell of those given may have besides its own, each by its name with what it is, in the
+/// order the cells have them.
+fn common_inputs<'g>(cells: &[&'g CompiledCell]) -> Vec<(&'g str, &'g str)> {
     let mut out: Vec<(&str, &str)> = Vec::new();
-    for x in g.cells.iter().filter(|c| c.kind == "agent").flat_map(|c| &c.inputs) {
+    for x in cells
+        .iter()
+        .copied()
+        .filter(|c| c.kind == "agent")
+        .flat_map(|c| &c.inputs)
+    {
         if let Some(n) = x.name.as_deref()
             && !out.iter().any(|(m, _)| *m == n)
         {
@@ -228,15 +233,22 @@ fn common_inputs(g: &CompiledGraph) -> Vec<(&str, &str)> {
 }
 
 /// The forms every agent's return in a graph shares, with each cell's own answer apart, and the inputs every agent's
-/// cell may have: what `format:common` gives. A form some cells have with fewer alternatives (fewer tools, fewer
-/// roles to ask) is given with all of them; `format:<cell>` says which a cell has. The kinds of question left out for
-/// the project are not in it.
+/// cell may have: [`common_format_of`] every agent's cell.
 pub fn common_format(g: &CompiledGraph, gone: &[&AskNeed]) -> String {
+    let cells: Vec<&CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
+    common_format_of(g, &cells, gone)
+}
+
+/// The forms the returns of the agents' cells given share, with each cell's own answer apart, and the inputs those
+/// cells may have: what `format:common` gives a session whose rounds are at those cells. A form some cells have with
+/// fewer alternatives (fewer tools, fewer roles to ask) is given with all of them; `format:<cell>` says which a cell
+/// has. The kinds of question left out for the project are not in it.
+pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&AskNeed]) -> String {
     let mut forms: Vec<(String, Value)> = Vec::new();
     let mut every: Map<String, Value> = Map::new();
     let mut without: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut within = Value::Null;
-    for c in g.cells.iter().filter(|c| c.kind == "agent") {
+    for c in cells.iter().filter(|c| c.kind == "agent") {
         let Some(props) = c.schema.as_ref().and_then(|s| s["properties"].as_object()) else {
             continue;
         };
@@ -304,7 +316,7 @@ pub fn common_format(g: &CompiledGraph, gone: &[&AskNeed]) -> String {
         let lines: Vec<String> = g.write.iter().map(|l| format!("- {l}")).collect();
         parts.push(format!("How a return is written:\n{}", lines.join("\n")));
     }
-    let inputs = common_inputs(g);
+    let inputs = common_inputs(cells);
     if !inputs.is_empty() {
         let lines: Vec<String> = inputs.iter().map(|(n, what)| format!("- {n}: {what}")).collect();
         parts.push(format!(

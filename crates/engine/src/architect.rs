@@ -18,7 +18,6 @@ use serde_json::{Map, Value, json};
 use crate::actions::{self, Ctx};
 use crate::checks;
 use crate::inputs::{self, Gathered, Origin, at_path, last_return};
-use crate::message::Held;
 use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
 use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
@@ -218,7 +217,7 @@ pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
     if let Some((cli, cli_session, None)) = last {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'architect', ?2, ?3)",
+                "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', ?2, ?3, 'wake')",
                 params![w.id, cli, cli_session],
             )?;
             Ok(())
@@ -264,7 +263,7 @@ fn session(e: &Engine, w: &Work) -> Result<String, String> {
     let Some(cli_session) = cli_session else {
         return Ok("new".into());
     };
-    let held = Held::of(&work::session_rounds(e.db.conn(), &cli_session)?);
+    let (_, held) = sessions::held::of_session(e.db.conn(), &cli_session)?;
     Ok(if held.rounds.iter().any(|r| r.work != w.id) {
         "continued".into()
     } else {

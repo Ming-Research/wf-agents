@@ -3031,7 +3031,11 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell 1 starts a new session, and research, design, implementation, fixes and choosing the way on all continue it"
+            "desc": "The engineer doing this work: cell 1 and the first round of 4 and of 8 start a new session, and every other round continues the latest",
+            "starts": [
+              "4",
+              "8"
+            ]
           },
           {
             "name": "review",
@@ -3047,7 +3051,7 @@
           }
         ],
         "rules": [
-          "Before each round the engine looks at how large the line's session has grown; at the limit, it starts a new session on the same line, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs. The limit is set below the point where Claude Code compacts on its own; the number stays open until it has been measured at what size carrying on costs more than starting afresh.",
+          "Before each round the session manager looks at the line's session: when its context is past the configuration's limit, or the round is the work's first at a cell the line starts a session at, the line starts a new session, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs.",
           "Compaction still happens, for instance when a session fills up within a round. The session's record marks the compaction, and the session manager sees it: right after the compaction, the session manager gives the rules and inputs this cell got in this round again, then has the agent carry on. From then on the engine treats it as a new session and gives later cells what they need as usual.",
           "A cell on no line starts a session of its own every round, and the engine gives it every input.",
           "When an agent hands in pause, the engine runs the same cell again in the same session: it gives the cell's always inputs again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."

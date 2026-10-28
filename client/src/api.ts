@@ -1342,7 +1342,11 @@ kind: string,
 /**
  * Written as a gate.
  */
-gate: boolean, title: string, step: string | null, needs: string | null, line: string | null, stage: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
+gate: boolean, title: string, step: string | null, needs: string | null, line: string | null, 
+/**
+ * The cell starts a new session of its line at its first round in a work, besides the line's first round.
+ */
+new_session?: boolean, stage: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
 /**
  * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
  */

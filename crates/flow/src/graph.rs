@@ -782,6 +782,18 @@ impl<'s> Graph<'s> {
                 };
             }
         }
+        // A line starts a new session only at a cell of its own.
+        for l in &flow.sessions.lines {
+            for s in &l.starts {
+                ensure!(
+                    cells
+                        .iter()
+                        .any(|c| c.id == *s && c.kind == CellKind::Agent && c.line.as_ref() == Some(&l.name)),
+                    "a line starts a new session at a cell that is not one of its agents: {} {s}",
+                    l.name
+                );
+            }
+        }
         for c in &cells {
             for r in &c.rows {
                 let off = match receive {

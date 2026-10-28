@@ -267,6 +267,7 @@ dependencies = [
  "flow",
  "serde",
  "serde_json",
+ "sessions",
 ]
 
 [[package]]
@@ -679,6 +680,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sessions"
+version = "0.1.0"
+dependencies = [
+ "config",
+ "db",
+ "flow",
+ "serde_json",
+]
+
+[[package]]
 name = "sha2"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -984,6 +995,7 @@ dependencies = [
  "engine",
  "flow",
  "serde_json",
+ "sessions",
  "web",
 ]
 

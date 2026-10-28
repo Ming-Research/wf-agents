@@ -12,6 +12,8 @@ configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds
 - `crates/db`: creating, migrating and opening the database; every change to its state is kept in `changes`.
 - `crates/config`: the configuration's types, read from the data directory (`--data`), which lives outside this
   repository.
+- `crates/sessions`: the session manager: the session each agent's round runs in, what the session holds and costs,
+  the command line it runs in, and keeping a waiting session's prompt cache warm.
 - `crates/api`: the owner's interface apart from serving it: its types (the page's TypeScript types are generated from
   them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
 - `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the
