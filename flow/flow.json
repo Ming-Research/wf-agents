@@ -5198,6 +5198,78 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "what": "The item",
+              "from": [
+                {
+                  "db": "item_body",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "what": "How the work is understood",
+              "from": [
+                [
+                  "1",
+                  "understanding"
+                ]
+              ]
+            },
+            {
+              "what": "The approach chosen and why, its measure, the design tree change and the estimate",
+              "from": [
+                [
+                  "2a",
+                  "chosen"
+                ],
+                [
+                  "2a",
+                  "why"
+                ],
+                [
+                  "2a",
+                  "measure"
+                ],
+                [
+                  "2a",
+                  "design_tree"
+                ],
+                [
+                  "2a",
+                  "estimate"
+                ]
+              ]
+            },
+            {
+              "what": "The checks after design: the answers of 3a, 3b, 3c and 3g, the progress of 3d and 3e",
+              "from": [
+                [
+                  "3a",
+                  "answer"
+                ],
+                [
+                  "3b",
+                  "answer"
+                ],
+                [
+                  "3c",
+                  "answer"
+                ],
+                [
+                  "3g",
+                  "answer"
+                ],
+                [
+                  "3d",
+                  "progress"
+                ],
+                [
+                  "3e",
+                  "progress"
+                ]
+              ]
             }
           ],
           "rules": [
@@ -7266,6 +7338,62 @@
                 [
                   "19a",
                   "plan[over]"
+                ]
+              ]
+            },
+            {
+              "what": "The item",
+              "from": [
+                {
+                  "db": "item_body",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "what": "The locked acceptance",
+              "from": [
+                {
+                  "db": "item_acceptance",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "what": "The design's description",
+              "from": [
+                [
+                  "2a",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "what": "What implementing and fixing handed in: the conditions met, deviations and test changes (accumulated)",
+              "from": [
+                [
+                  "4",
+                  "conditions"
+                ],
+                [
+                  "4",
+                  "deviations"
+                ],
+                [
+                  "4",
+                  "test_changes"
+                ],
+                [
+                  "8",
+                  "conditions"
+                ],
+                [
+                  "8",
+                  "deviations"
+                ],
+                [
+                  "8",
+                  "test_changes"
                 ]
               ]
             }

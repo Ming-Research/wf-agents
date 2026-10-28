@@ -3572,9 +3572,21 @@ fn agent_rounds_to(e: &mut Engine, item: i64, n: usize) {
     panic!("the work did not run {n} agent rounds");
 }
 
+/// Whether a round's message gave the conditional input whose address ends so, or only referred to it; none when it has
+/// none such.
+fn given_ending(input: &Value, end: &str) -> Option<bool> {
+    input["conditional"]
+        .as_array()?
+        .iter()
+        .find(|m| m["address"].as_str().is_some_and(|a| a.ends_with(end)))
+        .and_then(|m| m["given"].as_bool())
+}
+
 // The engineer's line starts a new session at the first round of implementing and at the first round of fixing: the
 // session before ends, every other round goes on in the latest session, and a later round of either cell goes on in
-// the session it started.
+// the session it started. The new session is given what the work came to before it: at implementing the item, how
+// the work is understood, the approach chosen and the checks after design; at fixing the item, the locked acceptance,
+// the design and what implementing handed in. A round that goes on in the session is not given them again.
 #[test]
 fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     let s = setup("rotate");
@@ -3600,6 +3612,27 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
         "{}",
         fours[1]["call"]
     );
+    let item_address = format!("item:{item}");
+    for end in [
+        item_address.as_str(),
+        "·1·understanding",
+        "·2a·chosen",
+        "·2a·estimate",
+        "·3d·progress",
+    ] {
+        assert_eq!(
+            given_ending(fours[0], end),
+            Some(true),
+            "{end}: {}",
+            fours[0]["conditional"]
+        );
+        assert_eq!(
+            given_ending(fours[1], end),
+            Some(false),
+            "{end}: {}",
+            fours[1]["conditional"]
+        );
+    }
     move_to(&mut e, work, "8");
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
@@ -3616,6 +3649,22 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.borrow().join("\n"));
     assert_eq!(lines[2].2, "8,8");
+    let rounds = agent_rounds(&e, item);
+    let eights: Vec<&Value> = rounds.iter().filter(|r| r.1 == "8").map(|r| &r.2).collect();
+    for end in [item_address.as_str(), "·2a·acceptance", "·2a·design", "·4·conditions"] {
+        assert_eq!(
+            given_ending(eights[0], end),
+            Some(true),
+            "{end}: {}",
+            eights[0]["conditional"]
+        );
+        assert_ne!(
+            given_ending(eights[1], end),
+            Some(true),
+            "{end}: {}",
+            eights[1]["conditional"]
+        );
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
