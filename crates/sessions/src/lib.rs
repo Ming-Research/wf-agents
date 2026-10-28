@@ -13,6 +13,7 @@ pub mod cost;
 pub mod diff;
 pub mod give;
 pub mod held;
+pub mod interject;
 pub mod round;
 pub mod warm;
 pub mod worktree;

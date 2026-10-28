@@ -38,6 +38,12 @@ pub struct Request {
     /// session, with only the message changed, so that everything that shapes the prompt is the same and the prompt
     /// cache is read; none for a round, whose command line is built from the fields above.
     pub replay: Option<Vec<String>>,
+    /// A file holding what the round's cell was given, whole, which the command line gives the session again at once
+    /// when it compacts the session within the round; none to give nothing again.
+    pub regive: Option<PathBuf>,
+    /// The shell command the command line's hook runs after each tool use, which hands in the interjections waiting
+    /// for the round's line; none to hand in none during the round.
+    pub deliver: Option<String>,
 }
 
 /// What a round came to.
@@ -111,11 +117,44 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.push("--disallowedTools".into());
         out.extend(refused);
     }
+    // The command line's hooks: after a compaction within the round, which leaves the session holding nothing it was
+    // given, one gives it again at once what the round's cell was given, whole; after each tool use, one hands in the
+    // interjections waiting for the line.
+    if let Some(h) = hooks(r) {
+        out.push("--settings".into());
+        out.push(h.to_string());
+    }
     match &r.resume {
         Some(s) => out.extend(["--resume".to_string(), s.clone()]),
         None => out.extend(["--session-id".to_string(), r.new_session.clone()]),
     }
     out
+}
+
+/// A word as a shell reads it back as it is: in single quotes.
+pub fn quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+/// The settings that give a round's command line its hooks, whose output the command line adds to the session: at the
+/// start of a session it compacted, what a file holds; after each tool use, what a command gives. None when the round
+/// has neither.
+fn hooks(r: &Request) -> Option<Value> {
+    let mut hooks = serde_json::Map::new();
+    if let Some(f) = &r.regive {
+        let cat = format!("cat {}", quote(&f.display().to_string()));
+        hooks.insert(
+            "SessionStart".into(),
+            json!([{ "matcher": "compact", "hooks": [{ "type": "command", "command": cat }] }]),
+        );
+    }
+    if let Some(c) = &r.deliver {
+        hooks.insert(
+            "PostToolUse".into(),
+            json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": c }] }]),
+        );
+    }
+    (!hooks.is_empty()).then(|| json!({ "hooks": hooks }))
 }
 
 /// What a round's record says of its call: the whole command line (the structured-output schema in it), the
@@ -710,6 +749,8 @@ mod tests {
             refused: config::Permissions::default().refused("engineer"),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,
+            regive: Some(PathBuf::from("/tmp/given it.md")),
+            deliver: Some("wf-agents deliver --work 1".into()),
         };
         let line = command_line(&r);
         // The engine's saved tool output is readable and not editable.
@@ -737,6 +778,18 @@ mod tests {
                 .any(|a| a == "Edit")
         );
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
+        // A compaction within the round has the command line give the session again what the round was given.
+        let settings = line.iter().position(|a| a == "--settings").unwrap();
+        let hooks: Value = serde_json::from_str(&line[settings + 1]).unwrap();
+        let start = &hooks["hooks"]["SessionStart"][0];
+        assert_eq!(start["matcher"], "compact");
+        assert_eq!(start["hooks"][0]["command"], "cat '/tmp/given it.md'");
+        // After each tool use a hook hands in the interjections waiting for the line.
+        assert_eq!(
+            hooks["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+            "wf-agents deliver --work 1"
+        );
+        assert_eq!(quote("it's"), "'it'\\''s'");
         // It reads no project instructions or settings by itself.
         assert!(line.windows(2).any(|w| w == ["--setting-sources", "user"]), "{line:?}");
         let c = call(&r, &line, "2.1.0 (Claude Code)", "e1");

@@ -127,11 +127,12 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         plan,
         line_rounds,
         given,
-        interjections,
+        mut interjections,
         columns,
         table,
         number,
         msg,
+        whole,
     } = compose(e, w, g, cell, item.as_ref())?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
@@ -149,7 +150,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .as_deref()
         .zip(project.as_ref())
         .and_then(|(wt, p)| values::change_hash(wt, &p.main));
-    let ids: Vec<i64> = interjections
+    let mut ids: Vec<i64> = interjections
         .iter()
         .filter_map(|i| i["interjection"].as_i64())
         .collect();
@@ -174,6 +175,36 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             (id, None, fresh)
         }
     };
+    // What the cell is given, whole, which a compaction within the round gives the session again at once.
+    let given_again = std::env::temp_dir().join(format!("wf-agents-given-{number}-{}.md", agent::new_session_id()));
+    std::fs::write(
+        &given_again,
+        format!(
+            "Your session was compacted in the middle of {number}: what its cell is given, again, whole. Carry on with \
+             the round's work.\n\n{whole}"
+        ),
+    )
+    .map_err(|x| format!("{}: {x}", given_again.display()))?;
+    // After each tool use the command line's hook has this program hand in the interjections waiting for the line.
+    let deliver = std::env::current_exe().ok().map(|exe| {
+        let n = number.n.to_string();
+        let work = w.id.to_string();
+        let data = e.data.display().to_string();
+        let exe = exe.display().to_string();
+        let words = [
+            exe.as_str(),
+            "deliver",
+            "--data",
+            data.as_str(),
+            "--work",
+            work.as_str(),
+            "--round",
+            n.as_str(),
+            "--line",
+            line_of_cell.as_str(),
+        ];
+        words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
+    });
     // A work runs in its worktree; the architect in a directory of its own, with every project's checkout to read.
     let wt = match (&w.worktree, &project) {
         (Some(wt), _) => wt.clone(),
@@ -206,6 +237,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         refused: e.config.config.install.agents.permissions.refused(&line_of_cell),
         readable,
         replay: None,
+        regive: Some(given_again.clone()),
+        deliver,
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
@@ -235,6 +268,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let reply = e
         .sessions
         .run(&req, &|what: &str| (e.activity)(round.work, round.n, what));
+    let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
         e.db.write(Actor::Engine, |tx| {
@@ -246,6 +280,22 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if cell.line.is_none() {
         e.db.write(Actor::Engine, |tx| {
             sessions::choose::end(tx, sid).map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
+    }
+    // The interjections the hook handed in while the round ran are this round's, as those its message gave are.
+    let during = sessions::interject::delivered_during(&e.db, round.work, round.n, &ids)?;
+    if !during.is_empty() {
+        ids.extend(during.iter().filter_map(|i| i["interjection"].as_i64()));
+        interjections.extend(during);
+        let all = serde_json::to_string(&ids).unwrap_or_default();
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json(?3))
+                 WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                params![round.work, round.n, all],
+            )?;
+            Ok(())
         })
         .map_err(sql)?;
     }
@@ -346,6 +396,8 @@ struct Composed {
     /// The round it will be.
     number: RoundId,
     msg: message::Message,
+    /// The message as a session that holds nothing is sent it: what a compaction within the round gives again.
+    whole: String,
 }
 
 /// Builds the message of an agent's round at a cell from the work as it stands, running and recording nothing. The
@@ -378,7 +430,7 @@ fn compose(
     let columns = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
     let number = work::next_round(e.db.conn(), w.id)?;
-    let msg = message::Context {
+    let context = message::Context {
         e,
         w,
         g,
@@ -392,8 +444,15 @@ fn compose(
         table: &table,
         held: &held,
         registry: &registry,
+    };
+    let msg = context.build();
+    let nothing = Held::default();
+    let whole = message::Context {
+        held: &nothing,
+        ..context
     }
-    .build();
+    .build()
+    .text;
     // A short message gives no interjection: those the round it goes on from was given are still this round's, and
     // any that came since wait for the next whole message.
     if let Some(prev) = msg.continues {
@@ -414,6 +473,7 @@ fn compose(
         table,
         number,
         msg,
+        whole,
     })
 }
 

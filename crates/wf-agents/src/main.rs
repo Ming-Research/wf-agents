@@ -147,6 +147,17 @@ enum Command {
     },
     /// How many times a work took the rows that count each counter.
     Counters { work: i64 },
+    /// Hands in the interjections waiting for a running round's line, as the round's command line runs it after each
+    /// tool use: what it prints, the command line adds to the session.
+    #[command(hide = true)]
+    Deliver {
+        #[arg(long)]
+        work: i64,
+        #[arg(long)]
+        round: i64,
+        #[arg(long)]
+        line: String,
+    },
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
     /// The time and cost of each work, or of one work's rounds by cell.
@@ -349,6 +360,13 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
     match c {
         Command::Flow(_) | Command::Config(_) | Command::TreeCheck { .. } => Ok(()),
         Command::Init => init(d),
+        Command::Deliver { work, round, line } => {
+            let mut db = engine::database::open(d)?;
+            if let Some(out) = sessions::interject::deliver(&mut db, work, round, &line)? {
+                println!("{out}");
+            }
+            Ok(())
+        }
         Command::Run { once, port } => run(d, once, port),
         Command::Item(ItemCommand::Add(add)) => {
             let AddItem {

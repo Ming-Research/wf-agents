@@ -3847,3 +3847,109 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// The file a round gives its session again from after a compaction, and what it held while the round ran.
+type GivenAgain = (PathBuf, String);
+
+// A compaction within a round leaves the session holding nothing: the round's command line has a hook give the session
+// again at once what the cell is given, whole, from a file that is there while the round runs and gone after it.
+#[test]
+fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
+    let s = setup("regive");
+    let mut scripts = scripts();
+    let read: Rc<RefCell<Option<GivenAgain>>> = Rc::default();
+    let seen = read.clone();
+    scripts.insert(
+        "1a",
+        Box::new(move |r: &Request, _: usize| {
+            let file = r.regive.clone().unwrap();
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            *seen.borrow_mut() = Some((file, text));
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let rounds = agent_rounds(&e, item);
+    let (id, cell, input) = &rounds[1];
+    assert_eq!(cell, "1a", "{}", said.borrow().join("\n"));
+    let (file, text) = read.borrow().clone().expect("the file the hook gives again");
+    // The session holds the shared formats, so the message only refers to them; the file gives them whole.
+    assert_eq!(given(input, "format:common"), Some(false));
+    assert!(
+        text.starts_with(&format!("Your session was compacted in the middle of {id}"))
+            && text.contains(&format!("# {id} · cell 1a"))
+            && text.contains("### format:common"),
+        "{text}"
+    );
+    let command: Vec<String> = input["call"]["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap().to_string())
+        .collect();
+    let at = command.iter().position(|a| a == "--settings").unwrap();
+    let hooks: Value = serde_json::from_str(&command[at + 1]).unwrap();
+    assert_eq!(hooks["hooks"]["SessionStart"][0]["matcher"], "compact");
+    assert!(!file.exists(), "{}", file.display());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An interjection that comes while a round runs is handed in after the agent's next tool use, by the hook the round's
+// command line runs: it is this round's, recorded as delivered in it, and the round's answer to it is taken.
+#[test]
+fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
+    let s = setup("during");
+    let mut scripts = scripts();
+    let data = s.data.clone();
+    scripts.insert(
+        "1a",
+        Box::new(move |r: &Request, _: usize| {
+            // What the hook does after a tool use, while the owner interjects.
+            let mut db = engine::database::open(&data).unwrap();
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Why?')",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            let n: i64 = db
+                .conn()
+                .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [r.work], |x| x.get(0))
+                .unwrap();
+            assert!(r.deliver.as_deref().is_some_and(|d| d.contains("'deliver'")));
+            sessions::interject::deliver(&mut db, r.work, n, "engineer")
+                .unwrap()
+                .unwrap();
+            (
+                vec![("outcome", "answers")],
+                vec![(
+                    "outcome.answers",
+                    json!([{ "to": "owner", "text": "Because the log says so." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let log = said.borrow().join("\n");
+    let rounds = agent_rounds(&e, item);
+    let (id, cell, input) = &rounds[1];
+    assert_eq!(cell, "1a", "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let (transition, delivered): (Option<String>, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT r.transition, (SELECT i.delivered_round FROM interjections i WHERE i.work = r.work)
+                 FROM rounds r WHERE r.work = ?1 AND 'R' || r.work || '-' || r.n = ?2",
+                params![work, id],
+                |x| Ok((x.get(0)?, x.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(transition.as_deref(), Some("answers"), "{log}");
+    assert_eq!(delivered.map(|n| format!("R{work}-{n}")), Some(id.clone()));
+    assert_eq!(input["engine"]["interjections"], json!([1]), "{input}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}

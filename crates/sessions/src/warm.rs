@@ -231,6 +231,8 @@ pub fn ping(
         refused: Vec::new(),
         readable: Vec::new(),
         replay: Some(line),
+        regive: None,
+        deliver: None,
     };
     let session = due.session;
     let id = db
