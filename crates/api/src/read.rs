@@ -2076,6 +2076,7 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
         .query_row(
             "SELECT r.work, r.n, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
              WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell = 'U2' AND r.transition IS NOT NULL
+               AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
              ORDER BY r.work DESC, r.n DESC LIMIT 1",
             [project],
             |r| {
@@ -2094,19 +2095,22 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
         None => (None, Vec::new(), Vec::new()),
     };
     // Every version, read from the round records alone: each understanding, with what the wrap-ups after it, before
-    // the next, learned.
+    // the next, learned; a round that asked for tools or paused gave none.
     let mut st = conn.prepare(
         "SELECT r.work, r.n, r.ended_at, json_extract(r.output, '$.outcome'),
                 (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y
                  ON y.id = x.work
                  WHERE y.graph = 'architect' AND y.project = w.project AND x.cell = 'E1' AND x.transition IS NOT NULL
+                   AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
                    AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))
                    AND NOT EXISTS (SELECT 1 FROM rounds z JOIN works v ON v.id = z.work
                      WHERE v.project = w.project AND z.cell = 'U1' AND z.transition IS NOT NULL
+                       AND z.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
                        AND (z.work > r.work OR (z.work = r.work AND z.n > r.n))
                        AND (z.work < x.work OR (z.work = x.work AND z.n < x.n))))
          FROM rounds r JOIN works w ON w.id = r.work
          WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell = 'U1' AND r.transition IS NOT NULL
+           AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
          ORDER BY r.work DESC, r.n DESC",
     )?;
     let versions = st

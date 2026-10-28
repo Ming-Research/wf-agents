@@ -2726,7 +2726,7 @@
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
       "policy_text_clean": "The policy quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
       "probes_cover_points": "Every probe names points the text has, and every point has at least one probe.",
-      "failed_probes_gone": "No probe a new architect answered wrongly is among the probes.",
+      "failed_probes_gone": "No probe a new architect answered wrongly, as the judgment of its reading lists them, is among the probes.",
       "reading_complete": "Every point of the policy is restated, and every probe is answered.",
       "picked_pickable": "The matter picked is one of those that can be picked now.",
       "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
@@ -2747,9 +2747,9 @@
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
-      "since_last_wake": "What happened in the project since its last wake: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the first wake, main's recent history.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for, who waits for it, how long it has run and what it spent; the release items with the items under them; dependencies with other projects' items.",
-      "numbers": "The numbers the engine measures for the project, each now and earlier, for the trend.",
+      "since_last_wake": "What happened in the project since its last wake: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the first wake, the same over the last week.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for, who waits for it, how long it has run and what it spent, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
+      "numbers": "The numbers the engine measures for the project, each as the wake started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project.",
@@ -2762,6 +2762,8 @@
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
+      "draft_text": "The text of the policy being set, as the round that last wrote or corrected it handed it in.",
+      "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
@@ -9720,7 +9722,7 @@
               ]
             },
             {
-              "what": "What happened in the project since its last wake: the commits merged on main with their messages, the works that ended or stopped, the CI on main, the owner's words and the design cards ruled, the reports that came in; at the project's first wake, main's recent history instead",
+              "what": "What happened in the project since its last wake: the commits merged on main with their messages, the works that ended or stopped, the CI on main, the owner's words and the design cards ruled, the reports that came in; at the project's first wake, the same over the last week",
               "from": [
                 {
                   "engine": "since_last_wake"
@@ -9728,7 +9730,7 @@
               ]
             },
             {
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -9736,7 +9738,7 @@
               ]
             },
             {
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its works spent week by week. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's wakes spent week by week, up to this wake. The engine measures nothing else yet, and says so for a signal it does not measure",
               "from": [
                 {
                   "engine": "numbers"
@@ -10004,7 +10006,7 @@
               "maybe": true
             },
             {
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its works spent week by week. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's wakes spent week by week, up to this wake. The engine measures nothing else yet, and says so for a signal it does not measure",
               "from": [
                 {
                   "engine": "numbers"
@@ -10028,7 +10030,7 @@
               ]
             },
             {
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -13385,14 +13387,16 @@
               "what": "This version's text and the probes' answers",
               "from": [
                 {
-                  "db": "policy_draft",
-                  "by": "work"
+                  "engine": "draft_text"
+                },
+                {
+                  "engine": "draft_probes"
                 }
               ]
             }
           ],
           "prompt": [
-            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks. A question the constitution or the architect's rules answer, or that the policy rightly leaves to the architect's judgment, is no gap."
+            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks; list in wrong_probes only the probes it answered wrongly. A question the constitution or the architect's rules answer, or that the policy rightly leaves to the architect's judgment, is no gap."
           ],
           "out": [
             {
@@ -13441,6 +13445,15 @@
                         ]
                       },
                       "min": 1
+                    },
+                    {
+                      "name": "wrong_probes",
+                      "type": "list",
+                      "desc": "The probes the new architect answered wrongly, by id; an empty list if none",
+                      "item": {
+                        "type": "text",
+                        "desc": "A probe's id"
+                      }
                     }
                   ]
                 }
@@ -13518,8 +13531,10 @@
               "what": "This version's text and probes",
               "from": [
                 {
-                  "db": "policy_draft",
-                  "by": "work"
+                  "engine": "draft_text"
+                },
+                {
+                  "engine": "draft_probes"
                 }
               ]
             }
@@ -13666,8 +13681,7 @@
               "what": "The draft's text, read in place of the policy in force",
               "from": [
                 {
-                  "db": "policy_text",
-                  "by": "work"
+                  "engine": "draft_text"
                 }
               ]
             },

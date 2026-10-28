@@ -4501,6 +4501,317 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
     }
 }
 
+/// What a message gave whole under the address that ends with `end`, read back; none when it gave nothing there.
+fn given_value(message: &str, end: &str) -> Option<Value> {
+    message.split("\n### ").skip(1).find_map(|part| {
+        let (address, rest) = part.split_once('\n')?;
+        if !address.ends_with(end) {
+            return None;
+        }
+        serde_json::from_str(rest.trim_start().lines().next()?).ok()
+    })
+}
+
+/// The lines of a message's list of the inputs to work from.
+fn work_from(message: &str) -> Vec<String> {
+    message
+        .split("## Work from\n\n")
+        .nth(1)
+        .unwrap_or_default()
+        .lines()
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The inputs of a work's rounds at a cell, as they were recorded, oldest first.
+fn inputs_at(e: &Engine, work: i64, cell: &str) -> Vec<Value> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n",
+        &[&work, &cell],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| db::put_back(e.db.conn(), &r["input"]))
+    .collect()
+}
+
+// At a project's first wake its architect is told what happened in the week before it, as at a later wake since the
+// last; its board holds every item not done: one whose last work stopped, queued again, with why; one whose work asks
+// the owner, at the stage of the cell it stopped at, its pause said once; and one whose work runs tools, at the stage
+// of the cell that waits for them.
+#[test]
+fn the_first_wake_is_told_the_week_before_it_and_every_item_not_done() {
+    let s = setup("first-wake");
+    let (mut e, said) = engine(&s, scripts());
+    let merged = an_item(&mut e);
+    let v = e.flow_now;
+    let ago = db::now() - 24 * 3_600_000;
+    let (stopped, asking, tools) =
+        e.db.write(Actor::Owner, |tx| {
+            let item = |title: &str| -> Result<i64, db::Error> {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'Missing.', 'Needed.', 'change', 'l')",
+                    [title],
+                )?;
+                Ok(tx.last_insert_rowid())
+            };
+            let (stopped, asking, tools) = (item("Lex it")?, item("Print it")?, item("Test it")?);
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', '4', 'stopped: by hand')",
+                params![stopped, v],
+            )?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, resume_at, paused, paused_by)
+                 VALUES (?1, ?2, 'engineer', '16', '4', 'later', 'owner')",
+                params![asking, v],
+            )?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, waiting, paused, paused_by)
+                 VALUES (?1, ?2, 'engineer', '13', '[\"4\"]', 'later', 'owner')",
+                params![tools, v],
+            )?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', '20')",
+                params![merged, v],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 1, '9', '{}', '{\"result\":{\"merge_commit\":\"abc\"}}', 'merged', 'c', ?2, ?2)",
+                params![tx.last_insert_rowid(), ago],
+            )?;
+            Ok((stopped, asking, tools))
+        })
+        .unwrap();
+    say(&mut e, "Look at the items.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "U1")),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let m = message_at(&e, wake, "U1", false);
+    let since = given_value(&m, "·engine·since_last_wake").expect(&m);
+    assert_eq!(since["first_wake"], true, "{since}");
+    assert_eq!(since["merged"][0]["item"], merged, "{since}");
+    let board = given_value(&m, "·engine·board").expect(&m);
+    let row = |id: i64| board["items"][format!("#{id}")].clone();
+    assert_eq!(row(merged), Value::Null, "{board}");
+    assert_eq!(row(stopped)["last_work_ended"], "stopped: by hand", "{board}");
+    assert_eq!(row(stopped)["ready"], true, "{board}");
+    assert_eq!(row(stopped).get("work"), None, "{board}");
+    assert_eq!(row(asking)["stage"], "implement", "{board}");
+    assert_eq!(row(asking)["paused"], "later", "{board}");
+    assert_eq!(row(asking).get("waits"), None, "{board}");
+    assert_eq!(row(tools)["stage"], "implement", "{board}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The numbers the architect is given are measured up to the start of its wake, so they hold through it: the wake's own
+// rounds change nothing, and the next cell that reads them is only referred to them. What each week spent is split
+// between the items' works and the architect's wakes.
+#[test]
+fn the_numbers_hold_through_a_wake_and_split_what_was_spent() {
+    let s = setup("numbers");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    let v = e.flow_now;
+    let ago = db::now() - 3_600_000;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE rounds SET usage = '{\"cost_usd\":0.25}' WHERE cell = 'N1'", [])?;
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', '4', 'stopped: by hand')",
+            params![item, v],
+        )?;
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, usage, started_at, ended_at)
+             VALUES (?1, 1, '4', '{}', 'tools', 'c', '{\"cost_usd\":0.5}', ?2, ?2)",
+            params![tx.last_insert_rowid(), ago],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Look at the numbers.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "U3")),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let u1 = message_at(&e, wake, "U1", false);
+    let numbers = given_value(&u1, "·engine·numbers").expect(&u1);
+    assert_eq!(
+        numbers["weeks"][0]["spent_usd"],
+        json!({ "items": 0.5, "architect": 0.25 }),
+        "{numbers}"
+    );
+    let u2 = &inputs_at(&e, wake, "U2")[0];
+    assert_eq!(given_ending(u2, "·engine·numbers"), Some(false), "{u2}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of the understanding that asks for tools hands in no state of things: until the cell answers, the project
+// has none, as at its first wake, and the cell's next round is still told it is the first wake. The cell's own inputs
+// that have nothing are listed as none; the tool results, which every cell may have, only once there are some.
+#[test]
+fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_nor_the_task() {
+    let s = setup("understand-tools");
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    let took = |row: &'static str| {
+        move |e: &mut Engine| {
+            cells_of(e, wake)
+                .iter()
+                .any(|c| c.0 == "U1" && c.1.as_deref() == Some(row))
+        }
+    };
+    let states = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM architect_state WHERE project = 'p'", [], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    assert!(steps_until(&mut e, 10, took("tools")), "{}", said.borrow().join("\n"));
+    assert_eq!(states(&e), 0, "{}", said.borrow().join("\n"));
+    assert!(
+        steps_until(&mut e, 10, took("understood")),
+        "{}",
+        said.borrow().join("\n")
+    );
+    assert_eq!(states(&e), 1);
+    let (first, second) = (message_at(&e, wake, "U1", false), message_at(&e, wake, "U1", true));
+    for m in [&first, &second] {
+        assert!(m.contains("This is the project's first wake"), "{m}");
+    }
+    let w = e.work(wake).unwrap();
+    let g = e.graph_of(&w).unwrap();
+    let numbered: Vec<&flow::CompiledInput> = g
+        .cell("U1")
+        .unwrap()
+        .inputs
+        .iter()
+        .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
+        .collect();
+    let number = |of: &dyn Fn(&flow::CompiledInput) -> bool| numbered.iter().position(|x| of(x)).unwrap() + 1;
+    let constitution = number(&|x| x.from == [flow::format::Src::Engine("constitution".into())]);
+    let tools = number(&|x| x.name.as_deref() == Some("Tool results"));
+    let listed = |m: &str, n: usize| work_from(m).into_iter().find(|l| l.starts_with(&format!("{n}. ")));
+    assert_eq!(
+        listed(&first, constitution),
+        Some(format!("{constitution}. none")),
+        "{first}"
+    );
+    assert_eq!(listed(&first, tools), None, "{first}");
+    assert!(
+        listed(&second, tools).is_some_and(|l| l.contains("·TOOLS·")),
+        "{second}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The policy being set is given to the cells that judge and correct it as the architect's own return that last wrote
+// it, which its session holds and is only referred to. A probe the judgment of a reading lists as answered wrongly is
+// not used again, every such probe named at once; one the judgment only mentions stays.
+#[test]
+fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
+    let s = setup("draft");
+    let mut agents = scripts();
+    agents.insert(
+        "P6",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let gaps = json!([{ "what": "The probes x and y", "seen": "It hesitated on x.", "missing": "Point 1." }]);
+            (
+                vec![("outcome.verdict", "gaps")],
+                vec![
+                    ("outcome.verdict.gaps", gaps),
+                    ("outcome.verdict.wrong_probes", json!(["y", "z"])),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "P7",
+        Box::new(|_: &Request, n: usize| {
+            let probe = |id: &str| json!({ "id": id, "ask": "What first?", "points": [1], "expect": "Point 1." });
+            let probes = if n == 1 {
+                json!([probe("x"), probe("y"), probe("z")])
+            } else {
+                json!([probe("x")])
+            };
+            (Vec::new(), vec![("outcome.revision.probes", probes)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let v = e.flow_now;
+    let wake =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'P3', 'p')",
+                [v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let judged = |e: &Engine| {
+        cells_of(e, wake)
+            .iter()
+            .filter(|c| c.0 == "P6" && c.1.is_some())
+            .count()
+    };
+    for _ in 0..20 {
+        if judged(&e) == 2 {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(judged(&e), 2, "{log}\n{:?}", cells_of(&e, wake));
+    let (p6, p7) = (inputs_at(&e, wake, "P6"), inputs_at(&e, wake, "P7"));
+    for input in [&p6[0], &p7[0]] {
+        assert_eq!(given_ending(input, "·P3·policy"), Some(false), "{input}");
+        assert_eq!(given_ending(input, "·P3·probes"), Some(false), "{input}");
+    }
+    // The correction handed in new probes and left the text as it was, which keeps the address it was first given.
+    assert_eq!(given_ending(&p6[1], "·P7·revision.probes"), Some(false), "{}", p6[1]);
+    assert_eq!(given_ending(&p6[1], "·P3·policy"), Some(false), "{}", p6[1]);
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'P7' AND rejected IS NOT NULL",
+        &[&wake],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(rejected[0].contains("not used again: y, z"), "{rejected:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
 /// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked

@@ -913,18 +913,21 @@ CREATE VIEW architect_notes AS
 
 CREATE VIEW architect_state AS
   -- Each project's state of things as its architect last wrote it: its latest understanding (cell U1), with what its
-  -- wrap-ups learned and every note written since. Read by: cells U1 and E1; the owner's interface.
+  -- wrap-ups learned and every note written since; a round that asked for tools or paused wrote none of them. Read by:
+  -- cells U1 and E1; the owner's interface.
   SELECT project, work, round, state, direction, learned, notes FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
       json_extract(r.output, '$.outcome.direction') AS direction,
       (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
        WHERE y.graph = 'architect' AND y.project = w.project AND x.cell = 'E1' AND x.transition IS NOT NULL
+         AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
          AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))) AS learned,
       (SELECT json_group_array(json_object('item', n.item, 'text', n.text)) FROM architect_notes n
        WHERE n.project = w.project AND (n.work > r.work OR (n.work = r.work AND n.round > r.n))) AS notes,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell = 'U1' AND r.transition IS NOT NULL)
+    WHERE w.graph = 'architect' AND r.cell = 'U1' AND r.transition IS NOT NULL
+      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner'))
   WHERE k = 1;
 
 CREATE VIEW architect_log AS
@@ -979,7 +982,8 @@ CREATE VIEW policy_current AS
 
 CREATE VIEW policy_draft AS
   -- Each wake's version of the policy being set: the text and the probes, with the answers the architect holds right,
-  -- of the latest writing or correcting of the text in the wake. Read by: cells P6 and P7.
+  -- of the latest writing or correcting of the text in the wake. Read by: policy_text, policy_probes_asked and
+  -- policy_trials; the cells on the architect's line take it from the returns that wrote it.
   SELECT t.work, t.n AS round,
     coalesce(json_extract(t.output, '$.outcome.policy'), json_extract(t.output, '$.outcome.revision.policy')) AS policy,
     coalesce(json_extract(t.output, '$.outcome.probes'), json_extract(t.output, '$.outcome.revision.probes')) AS probes
@@ -989,7 +993,8 @@ CREATE VIEW policy_draft AS
                WHERE x.work = t.work AND x.cell IN ('P3', 'P7') AND x.transition IS NOT NULL);
 
 CREATE VIEW policy_text AS
-  -- The text of each wake's version of the policy being set, without its probes. Read by: cells P4, P5 and P11.
+  -- The text of each wake's version of the policy being set, without its probes. Read by: cells P4 and P5; the
+  -- engine, to check a reading of it.
   SELECT work, round, policy FROM policy_draft;
 
 CREATE VIEW policy_probes_asked AS

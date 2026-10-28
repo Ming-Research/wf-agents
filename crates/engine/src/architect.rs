@@ -31,7 +31,8 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 /// An hour, in milliseconds: the least time between two matters of slots free with nothing ready for one project.
 pub const HOUR: i64 = 3_600_000;
 
-/// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
+/// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
+/// and those of the policy being set, which [`draft_places`] names the places of.
 pub const INPUTS: [&str; 21] = [
     "constitution",
     "guide",
@@ -59,6 +60,20 @@ pub const INPUTS: [&str; 21] = [
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
+
+/// The inputs that give the policy being set, its text and its probes, as the wake's round that last wrote (P3) or
+/// corrected (P7) them handed them in, each with the places of those cells' returns it is at: addressed as that return,
+/// so that the session that wrote it is only referred to it.
+const DRAFT: [(&str, [(&str, &str); 2]); 2] = [
+    ("draft_text", [("P3", "policy"), ("P7", "revision.policy")]),
+    ("draft_probes", [("P3", "probes"), ("P7", "revision.probes")]),
+];
+
+/// The places of the returns an input of the policy being set is taken from, the newest of them; none for another
+/// input.
+pub fn draft_places(name: &str) -> Option<&'static [(&'static str, &'static str); 2]> {
+    DRAFT.iter().find(|d| d.0 == name).map(|d| &d.1)
+}
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
@@ -100,6 +115,10 @@ const ROWS: usize = 200;
 
 /// The most matters a batch handles before its item changes are reviewed.
 const BATCH: i64 = 20;
+
+/// The rows a round of the architect's cells takes when it hands in no answer of its own, as the views say it: it
+/// asked for tools or a search, paused, or asked the owner.
+const NO_ANSWER: &str = "('tools', 'search', 'pause', 'ask_owner')";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -463,7 +482,8 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sess
 }
 
 /// Whether the session the wake goes on in answered the understanding question since it started or was last
-/// compacted: a new one, or one the next round would leave for a new one, did not.
+/// compacted: a new one, or one the next round would leave for a new one, did not. A round that asked for tools or
+/// paused answered nothing, as the state of things the views read has it.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
     let sessions::Plan::Going { held, .. } = plan_at_understanding(e, w, g)? else {
         return Ok(false);
@@ -471,7 +491,10 @@ fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
     for r in &held.rounds {
         let n = count(
             e.db.conn(),
-            "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2 AND cell = ?3 AND transition IS NOT NULL",
+            &format!(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2 AND cell = ?3 AND transition IS NOT NULL
+                   AND transition NOT IN {NO_ANSWER}"
+            ),
             &[&r.work, &r.n, &UNDERSTAND],
         )?;
         if n > 0 {
@@ -482,8 +505,8 @@ fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
 }
 
 /// How the work came to the understanding question: from a rethink after a batch; in a session compacted since it
-/// last understood the project; or in a new one, at the project's first wake, after a new policy, or for another
-/// reason.
+/// last understood the project; or in a new one, at the project's first wake (before any answer of the question, a
+/// round that asked for tools or paused being none), after a new policy, or for another reason.
 fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let conn = e.db.conn();
     let last: Option<String> = conn
@@ -506,8 +529,11 @@ fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let project = project_of(w)?;
     let before = count(
         conn,
-        "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
-         WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell = ?2 AND r.transition IS NOT NULL",
+        &format!(
+            "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell = ?2 AND r.transition IS NOT NULL
+               AND r.transition NOT IN {NO_ANSWER}"
+        ),
         &[&project, &UNDERSTAND],
     )?;
     if before == 0 {
@@ -1834,24 +1860,24 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 &[&c.w.id],
                 ROWS,
             )?;
-            let said: Vec<String> = gaps
+            let wrong: BTreeSet<String> = gaps
                 .iter()
-                .flat_map(|r| items(at_path(&c.g.unwrap(&r["output"]), "verdict.gaps").as_ref()))
-                .map(|g| {
-                    format!(
-                        "{} {}",
-                        g["what"].as_str().unwrap_or_default(),
-                        g["seen"].as_str().unwrap_or_default()
-                    )
-                })
+                .flat_map(|r| texts(&at_path(&c.g.unwrap(&r["output"]), "verdict.wrong_probes").unwrap_or_default()))
                 .collect();
-            for p in items(v) {
-                let id = p["id"].as_str().unwrap_or_default();
-                if !id.trim().is_empty() && said.iter().any(|s| s.contains(id)) {
-                    return Err(format!("the probe {id} was answered wrongly, and is not used again"));
-                }
+            let still: Vec<String> = items(v)
+                .iter()
+                .filter_map(|p| p["id"].as_str().map(str::trim))
+                .filter(|id| wrong.contains(*id))
+                .map(str::to_string)
+                .collect();
+            if still.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "these probes were answered wrongly, and are not used again: {}",
+                    still.join(", ")
+                ))
             }
-            Ok(())
         }
         "reading_complete" => {
             let reading = v.cloned().unwrap_or(Value::Null);
@@ -1903,7 +1929,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "cited_nodes" => cited_nodes(e, w, project),
         "since_last_wake" => since_last_wake(e, w, project).map(Some),
         "board" => board(e, project).map(Some),
-        "numbers" => numbers(e, project).map(Some),
+        "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "policy" => policy(e, project),
@@ -1984,11 +2010,8 @@ fn cited_nodes(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Str
     Ok((!empty(&nodes)).then_some(nodes))
 }
 
-/// What an engineer's work waits for, in words; none when it waits for nothing.
-fn work_waits(e: &Engine, work: i64, at: &str, paused: Option<&str>) -> Result<Option<String>, String> {
-    if let Some(p) = paused {
-        return Ok(Some(format!("paused: {p}")));
-    }
+/// What an engineer's work waits for, in words, besides a pause, which its row says; none when it waits for nothing.
+fn work_waits(e: &Engine, work: i64, at: &str) -> Result<Option<String>, String> {
     let ask: Option<i64> =
         e.db.conn()
             .query_row(
@@ -2021,19 +2044,22 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 }
 
 /// A project's items running and queued, each by its number, with its rank, its cell and stage, what it waits for and
-/// who waits for it, since when its work runs and what it spent; the release items, each an item nothing depends on
-/// with items under it, with the items under it; and the dependencies with other projects' items.
+/// who waits for it, since when its work runs and what it spent, or why its last work stopped, as one queued again;
+/// the release items, each an item nothing depends on with items under it, with the items under it; and the
+/// dependencies with other projects' items. A work at a cell of no stage, which asks or runs tools for another, is at
+/// the stage of the cell it stopped at, or else of the innermost cell that waits for it with one.
 fn board(e: &Engine, project: &str) -> Result<Value, String> {
-    let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
+    let g = engineer_graph(e);
+    let end = g.map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.paused,
-                (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
+        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.resume_at, w.waiting,
+                w.paused, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
                 (SELECT json_group_array(l.depends_on) FROM item_links l WHERE l.item = i.id) AS waits_for,
                 (SELECT json_group_array(l.item) FROM item_links l WHERE l.depends_on = i.id) AS waited_by,
                 EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready
          FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
-         WHERE i.project = ?1 AND i.cancelled IS NULL AND (w.id IS NULL OR w.ended IS NULL)
+         WHERE i.project = ?1 AND i.cancelled IS NULL
          ORDER BY i.rank NULLS LAST, i.id",
         &[&project],
         10_000,
@@ -2047,16 +2073,29 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
         }
         let id = r["item"].as_i64().unwrap_or_default();
         open.insert(id);
-        if let Some(work) = r["work"].as_i64() {
-            let stage = engineer_graph(e)
-                .and_then(|g| g.cell(&at))
-                .and_then(|c| c.stage.clone());
+        let stopped = r["ended"].as_str().map(str::to_string);
+        if let (Some(work), None) = (r["work"].as_i64(), &stopped) {
+            let stage_of = |c: &str| g.and_then(|g| g.cell(c)).and_then(|c| c.stage.clone());
+            let callers = items(r.get("waiting"));
+            let stage = stage_of(&at)
+                .or_else(|| r["resume_at"].as_str().and_then(stage_of))
+                .or_else(|| callers.iter().rev().find_map(|c| c.as_str().and_then(stage_of)));
             r["stage"] = json!(stage);
-            r["waits"] = json!(work_waits(e, work, &at, r["paused"].as_str())?);
+            r["waits"] = json!(work_waits(e, work, &at)?);
             r["since"] = json!(r["since"].as_i64().map(utc_minute));
             r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
-        } else {
-            r.as_object_mut().map(|o| o.remove("since"));
+        } else if let Some(o) = r.as_object_mut() {
+            for k in ["work", "at", "paused", "since"] {
+                o.remove(k);
+            }
+        }
+        if let Some(o) = r.as_object_mut() {
+            for k in ["resume_at", "waiting", "ended"] {
+                o.remove(k);
+            }
+        }
+        if let Some(why) = stopped {
+            r["last_work_ended"] = json!(why);
         }
         r["ready"] = json!(r["ready"] == 1);
         if let Some(o) = r.as_object_mut() {
@@ -2130,10 +2169,20 @@ fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
     Ok(json!({ "waits_for": waits_for, "waited_by": waited_by }))
 }
 
-/// What happened in a project since its architect's last wake; at its first wake, main's recent history.
+/// When a wake started: its first round's start; now, before it has one.
+fn wake_start(conn: &Connection, work: i64) -> Result<i64, String> {
+    let at: Option<i64> = conn
+        .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [work], |r| {
+            r.get(0)
+        })
+        .map_err(sql)?;
+    Ok(at.unwrap_or_else(db::now))
+}
+
+/// What happened in a project since its architect's last wake started; at its first wake, in the week before it.
 fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
-    let since: Option<i64> = conn
+    let last: Option<i64> = conn
         .query_row(
             "SELECT min(r.started_at) FROM rounds r
              WHERE r.work = (SELECT max(x.id) FROM works x WHERE x.graph = 'architect' AND x.project = ?1 AND x.id < ?2)",
@@ -2141,6 +2190,11 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
             |r| r.get(0),
         )
         .map_err(sql)?;
+    let first = last.is_none();
+    let since = match last {
+        Some(t) => t,
+        None => wake_start(conn, w.id)? - 7 * 24 * HOUR,
+    };
     let p = e.config.config.projects.get(project);
     let log = |args: &[&str]| -> Value {
         let Some(p) = p else { return Value::Null };
@@ -2151,9 +2205,6 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         git::git(&p.checkout, &a)
             .map(|t| json!(t.lines().map(str::to_string).collect::<Vec<_>>()))
             .unwrap_or(Value::Null)
-    };
-    let Some(since) = since else {
-        return Ok(json!({ "first_wake": true, "main": log(&["-n", "40"]) }));
     };
     let after = format!("--since=@{}", since / 1000);
     let merged = query_json(
@@ -2206,7 +2257,7 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         &[&project, &since],
         ROWS,
     )?;
-    Ok(json!({
+    let mut out = json!({
         "since": utc_minute(since),
         "main": log(&[&after]),
         "merged": merged,
@@ -2215,19 +2266,24 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         "owner_said": owner,
         "design_cards_ruled": cards,
         "reports": reports,
-    }))
+    });
+    if first {
+        out["first_wake"] = json!(true);
+    }
+    Ok(out)
 }
 
-/// The numbers the engine measures for a project, each now and earlier for the trend: the size of its design paths and
-/// of every file on main; its items made, merged and cancelled, and what its works spent, each for the last four weeks
-/// one by one.
-fn numbers(e: &Engine, project: &str) -> Result<Value, String> {
+/// The numbers the engine measures for a project, each as the wake started and earlier for the trend, so that they hold
+/// through the wake: the size of its design paths and of every file on main; its items made, merged and cancelled, and
+/// what its items' works and its architect's wakes spent, each for the four weeks before the wake one by one.
+fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
-    let now = db::now();
+    let now = wake_start(conn, w.id)?;
     let mut weeks = Vec::new();
     for k in 0..4 {
-        let (to, from) = (now - k * week, now - (k + 1) * week);
+        // Each week ends the millisecond before the next begins, the last before the wake.
+        let (to, from) = (now - k * week - 1, now - (k + 1) * week);
         let made = count(
             conn,
             "SELECT count(*) FROM items i WHERE i.project = ?1 AND (SELECT min(c.at) FROM changes c
@@ -2247,18 +2303,20 @@ fn numbers(e: &Engine, project: &str) -> Result<Value, String> {
                AND json_extract(c.old_row, '$.cancelled') IS NULL",
             &[&project, &from, &to],
         )?;
-        let spent: f64 = conn
+        let (items, wakes): (f64, f64) = conn
             .query_row(
-                "SELECT coalesce(sum(json_extract(r.usage, '$.cost_usd')), 0) FROM rounds r JOIN works w ON w.id = r.work
-                 LEFT JOIN items i ON i.id = w.item
+                "SELECT coalesce(sum(CASE WHEN w.graph = 'engineer' THEN json_extract(r.usage, '$.cost_usd') END), 0),
+                        coalesce(sum(CASE WHEN w.graph = 'architect' THEN json_extract(r.usage, '$.cost_usd') END), 0)
+                 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN items i ON i.id = w.item
                  WHERE coalesce(i.project, w.project) = ?1 AND r.started_at BETWEEN ?2 AND ?3",
                 params![project, from, to],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(sql)?;
+        let usd = |x: f64| (x * 100.0).round() / 100.0;
         weeks.push(json!({
             "weeks_ago": k, "items_made": made, "merged": merged, "cancelled": cancelled,
-            "spent_usd": (spent * 100.0).round() / 100.0,
+            "spent_usd": { "items": usd(items), "architect": usd(wakes) },
         }));
     }
     let size = e.config.config.projects.get(project).map(|p| {
@@ -2294,7 +2352,7 @@ fn numbers(e: &Engine, project: &str) -> Result<Value, String> {
                 _ => Value::Null,
             }
         };
-        json!({ "now": at(&main), "a_week_ago": back(7), "a_month_ago": back(30) })
+        json!({ "now": back(0), "a_week_ago": back(7), "a_month_ago": back(30) })
     });
     Ok(json!({
         "size_on_main": size,
@@ -2755,7 +2813,7 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     }
     if let Some(work) = out["state"][0]["work"].as_i64() {
         let at = text(&out["state"][0]["at"]).to_string();
-        out["state"][0]["waits"] = json!(work_waits(e, work, &at, out["state"][0]["paused"].as_str())?);
+        out["state"][0]["waits"] = json!(work_waits(e, work, &at)?);
     }
     Ok(Some(out))
 }
