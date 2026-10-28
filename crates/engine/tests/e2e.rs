@@ -2443,24 +2443,27 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The owner's Start all lets go on the works the owner paused, and leaves paused a work the engine paused for a
-// problem, until the owner lets that one go on by itself.
+// The owner's Start all lifts no work's own pause: a work the owner paused, and one the engine paused for a problem,
+// stay paused until the owner lets each go on by itself.
 #[test]
-fn start_all_leaves_a_work_the_engine_paused() {
+fn start_all_lifts_no_work_s_own_pause() {
     let s = setup("start_all");
     let (mut e, said, item) = start(&s, scripts());
     let work = e.step(None).unwrap().work.unwrap();
     api::pause(&mut e.db, work, None).unwrap();
+    let c = api::Control::default();
+    c.set_paused(false);
     let n = rounds_count(&e);
-    assert_eq!(e.step(Some(work)).unwrap().work, None);
-    assert_eq!(api::start_all(&mut e.db).unwrap(), "1 works paused by the owner go on");
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    assert_eq!(rounds_count(&e), n);
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
+    api::resume(&mut e.db, work).unwrap();
     assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
     assert_eq!(rounds_count(&e), n + 1);
     e.pause(work, "cell 1a: the return does not fit").unwrap();
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
-    assert_eq!(api::start_all(&mut e.db).unwrap(), "0 works paused by the owner go on");
     let log = said.borrow().join("\n");
-    assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new(), "{log}");
     assert_eq!(
         state(&e, item).unwrap().2.as_deref(),
         Some("cell 1a: the return does not fit")
@@ -3024,7 +3027,7 @@ fn a_design_card_wakes_the_architect_which_looks_and_leaves_the_ruling_to_the_ow
 }
 
 // The architect stops a work with engine_op: the engine pauses it, with a reason that says the architect stopped it and
-// why. The owner's Start all does not let it go on; the owner's Continue of that work does.
+// why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on.
 #[test]
 fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
@@ -3058,7 +3061,6 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
         "{}",
         said.borrow().join("\n")
     );
-    assert_eq!(api::start_all(&mut e.db).unwrap(), "0 works paused by the owner go on");
     let n = rounds_count(&e);
     let log = said.borrow().join("\n");
     assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
@@ -3685,7 +3687,7 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(at, "2", "{}", said.borrow().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let_go_on(&mut e, work);
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
@@ -3749,14 +3751,14 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
-    assert_eq!(e.keep_warm(from + 54 * 60_000).unwrap(), 0);
-    assert_eq!(e.keep_warm(from + 60 * 60_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 54 * 60_000, None).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 60 * 60_000, None).unwrap(), 0);
     let mut now = from + 55 * 60_000;
-    assert_eq!(e.keep_warm(now).unwrap(), 1);
-    assert_eq!(e.keep_warm(now + 60_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(now, None).unwrap(), 1);
+    assert_eq!(e.keep_warm(now + 60_000, None).unwrap(), 0);
     for _ in 0..40 {
         now += 55 * 60_000 + 1_000;
-        e.keep_warm(now).unwrap();
+        e.keep_warm(now, None).unwrap();
     }
     let log = said.borrow().join("\n");
     let pings = pings_of(&e, work);
@@ -3814,7 +3816,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
     move_to(&mut e, work, "3f");
     let session: i64 =
@@ -3836,14 +3838,14 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(), 0);
+    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     e.db.write(Actor::Engine, |tx| {
         tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
         Ok(())
     })
     .unwrap();
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(),
+        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.borrow().join("\n")
@@ -3885,7 +3887,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
         .unwrap();
     let from = last_call(&e, work);
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000).unwrap(),
+        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.borrow().join("\n")
@@ -4086,4 +4088,378 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
         assert_eq!((at.as_str(), transition.as_deref()), (then, Some(verdict)), "{log}");
         let _ = std::fs::remove_dir_all(&s.root);
     }
+}
+
+// The owner's Start, Pause and Step of a work and of the architect, beside the global pause and start.
+
+/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked
+/// for handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then
+/// the step the owner's asks call for.
+fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped {
+    let asked = c.asked();
+    for w in c.take_new_sessions() {
+        e.sessions.ask_new(w);
+    }
+    let (done, architect) = e.release_started(&asked.releasing, asked.architect_releasing).unwrap();
+    c.released(&done, architect);
+    match asked.next() {
+        api::Next::Step(w) => {
+            let s = e.step_work(w).unwrap();
+            c.stepped(Some(w));
+            s
+        }
+        api::Next::Architect => {
+            let s = e.step_architect().unwrap();
+            c.stepped(s.work);
+            s
+        }
+        api::Next::Pass => e.step(after).unwrap(),
+        api::Next::Started => e.step_started(after, &asked.started, asked.architect_started).unwrap(),
+        api::Next::Wait => engine::Stepped::default(),
+    }
+}
+
+/// Takes turns of the loop, each after the work the last moved, and gives the works that moved, in order.
+fn turns(e: &mut Engine, c: &api::Control, n: usize) -> Vec<i64> {
+    let mut moved = Vec::new();
+    let mut after = None;
+    for _ in 0..n {
+        let s = turn(e, c, after);
+        if let Some(w) = s.work.filter(|_| !s.rounds.is_empty()) {
+            moved.push(w);
+        }
+        after = s.work.or(after);
+    }
+    moved
+}
+
+/// The owner's Pause of a work, as the page sends it: the work's own pause written as the owner's, its Start over.
+fn owner_pauses(e: &mut Engine, c: &api::Control, work: i64) {
+    c.pause(Some(work));
+    api::pause(&mut e.db, work, None).unwrap();
+}
+
+/// A setup whose one machine has two slots, and an engine over it with two items in the queue.
+fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
+    let s = setup(name);
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 2"));
+    git(&s.data, &["commit", "-q", "-am", "two slots"]);
+    let (mut e, said, _) = start(&s, scripts());
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+        Ok(())
+    })
+    .unwrap();
+    (s, e, said)
+}
+
+// Each work follows the global pause and start unless the owner started or paused it, and the later action wins: a
+// work the owner starts goes on while every work is paused, and follows the global pause again once every work is
+// paused after; a work the owner pauses stays paused through Start all, until the owner starts it; a work the owner
+// takes one round of is paused by the owner after it.
+#[test]
+fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
+    let (s, mut e, said) = two_works("own-start");
+    let c = api::Control::default();
+    // Every work paused, as the engine starts: nothing moves.
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    c.set_paused(false);
+    let moved = turns(&mut e, &c, 2);
+    let log = said.borrow().join("\n");
+    assert_eq!(moved.len(), 2, "{log}");
+    let (one, two) = (moved[0], moved[1]);
+    assert_ne!(one, two, "{log}");
+    // Paused again: nothing moves, until the owner starts one work, which alone goes on.
+    c.set_paused(true);
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    c.start(Some(one), false);
+    let log = said.borrow().join("\n");
+    assert_eq!(turns(&mut e, &c, 3), [one, one, one], "{log}");
+    // A later global pause makes it follow the global state again.
+    c.set_paused(true);
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    // The owner pauses the other work: Start all runs the first and leaves the one the owner paused.
+    owner_pauses(&mut e, &c, two);
+    c.set_paused(false);
+    let moved = turns(&mut e, &c, 3);
+    assert!(!moved.is_empty() && !moved.contains(&two), "{moved:?}");
+    assert_eq!(paused_by(&e, two).as_deref(), Some("owner"));
+    // Its Start lifts its pause, as the owner, and it goes on.
+    c.start(Some(two), false);
+    let moved = turns(&mut e, &c, 4);
+    let log = said.borrow().join("\n");
+    assert!(moved.contains(&two), "{moved:?}\n{log}");
+    assert_eq!(paused_by(&e, two), None);
+    assert!(c.asked().releasing.is_empty());
+    let lifted: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT actor FROM changes WHERE table_name = 'works' AND json_extract(old_row, '$.paused_by') = 'owner'
+                 AND json_extract(new_row, '$.paused') IS NULL ORDER BY id DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(lifted, "owner");
+    // One round the owner asks for runs whatever the global state, and leaves the work paused by the owner, which
+    // Start all does not lift.
+    c.set_paused(true);
+    c.ask_step(one, false).unwrap();
+    let stepped = turn(&mut e, &c, None);
+    assert_eq!((stepped.work, stepped.rounds.len()), (Some(one), 1), "{stepped:?}");
+    assert_eq!(paused_by(&e, one).as_deref(), Some("owner"));
+    c.set_paused(false);
+    let moved = turns(&mut e, &c, 3);
+    assert!(!moved.contains(&one), "{moved:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work the owner starts that is paused holds no slot: its pause is lifted only once its machine has a slot free, and
+// until then it stays paused, its Start waiting.
+#[test]
+fn a_work_the_owner_starts_still_needs_a_free_slot() {
+    let s = setup("own-start-slot");
+    let (mut e, said, _) = start(&s, scripts());
+    let c = api::Control::default();
+    c.set_paused(false);
+    let first = turn(&mut e, &c, None).work.unwrap();
+    owner_pauses(&mut e, &c, first);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+        Ok(())
+    })
+    .unwrap();
+    let second = turn(&mut e, &c, Some(first)).work.unwrap();
+    let log = said.borrow().join("\n");
+    assert_ne!(second, first, "{log}");
+    c.set_paused(true);
+    c.start(Some(first), false);
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    assert_eq!(paused_by(&e, first).as_deref(), Some("owner"));
+    assert!(c.asked().releasing.contains(&first));
+    // The other work paused frees its slot: the first goes on.
+    owner_pauses(&mut e, &c, second);
+    let moved = turns(&mut e, &c, 2);
+    let log = said.borrow().join("\n");
+    assert_eq!(moved.first(), Some(&first), "{log}");
+    assert_eq!(paused_by(&e, first), None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start of a work the architect stopped is the owner's release of it: its pause is lifted as the owner's,
+// and the architect is told in the owner's words.
+#[test]
+fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
+    let s = setup("own-release");
+    let (mut e, said, item) = start(&s, scripts());
+    let c = api::Control::default();
+    c.set_paused(false);
+    let work = turn(&mut e, &c, None).work.unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
+            params![work, format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT)],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    c.set_paused(true);
+    c.start(Some(work), false);
+    let moved = turns(&mut e, &c, 1);
+    let log = said.borrow().join("\n");
+    assert_eq!(moved, [work], "{log}");
+    assert_eq!(paused_by(&e, work), None);
+    let told: (String, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT body ->> 'text', item FROM architect_matters WHERE kind = 'owner_words'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(
+        told,
+        (
+            format!("I started work {work}, which you had stopped (it waits for the parser): it goes on."),
+            Some(item)
+        )
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's wakes are taken the same way: started while every work is paused, a wake starts when a matter is
+// due and goes on; the owner's Pause of the architect pauses the wake, and its Step leaves the wake paused by the owner.
+#[test]
+fn the_architect_the_owner_starts_wakes_and_goes_on_while_every_work_is_paused() {
+    let s = setup("own-start-architect");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let c = api::Control::default();
+    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    c.start(None, false);
+    let moved = turns(&mut e, &c, 3);
+    let log = said.borrow().join("\n");
+    assert_eq!(moved.len(), 3, "{log}");
+    let wake = moved[0];
+    assert!(moved.iter().all(|w| *w == wake), "{moved:?}");
+    assert_eq!(paused_by(&e, wake), None);
+    // Paused, the wake takes no step, and no other wake starts.
+    c.pause(None);
+    api::pause_wake(&mut e.db).unwrap();
+    assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
+    // Started again, its pause is lifted; a round asked for leaves it paused by the owner.
+    c.start(None, false);
+    assert_eq!(turns(&mut e, &c, 1), [wake]);
+    assert_eq!(paused_by(&e, wake), None);
+    c.ask_step_architect(false).unwrap();
+    let stepped = turn(&mut e, &c, None);
+    assert_eq!(stepped.work, Some(wake));
+    assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
+    assert!(!c.asked().architect_started);
+    assert_eq!(wakes(&e), [wake]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Step or Start can ask for a new session: the round starts one for its cell's line, recorded as the
+// owner's, given everything its cell needs; the session before ends and is otherwise left as it is, and the line's
+// later rounds go on in the new one. For the architect, the new session is its wake's.
+#[test]
+fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
+    let s = setup("own-new-session");
+    let (mut e, said, item) = start(&s, scripts());
+    agent_rounds_to(&mut e, item, 2);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "2", "{}", said.borrow().join("\n"));
+    let c = api::Control::default();
+    c.ask_step(work, true).unwrap();
+    turn(&mut e, &c, None);
+    let log = said.borrow().join("\n");
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(
+        lines,
+        [
+            ("line".to_string(), true, "1,1a".to_string()),
+            ("owner".to_string(), false, "2".to_string())
+        ],
+        "{log}"
+    );
+    let rounds = agent_rounds(&e, item);
+    let two = &rounds[2].2;
+    for a in ["format:common", "format:2", "rule:ground"] {
+        assert_eq!(given(two, a), Some(true), "{a}");
+    }
+    assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
+    // Started as it is, the work's next round goes on in that session; started in a new session, the next starts one.
+    c.start(Some(work), false);
+    let n = agent_rounds(&e, item).len();
+    for _ in 0..10 {
+        if agent_rounds(&e, item).len() > n {
+            break;
+        }
+        turn(&mut e, &c, None);
+    }
+    let lines = line_sessions(&e, work, "engineer");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
+    owner_pauses(&mut e, &c, work);
+    c.start(Some(work), true);
+    let n = agent_rounds(&e, item).len();
+    for _ in 0..10 {
+        if agent_rounds(&e, item).len() > n {
+            break;
+        }
+        turn(&mut e, &c, None);
+    }
+    let lines = line_sessions(&e, work, "engineer");
+    let log = said.borrow().join("\n");
+    assert_eq!(lines.len(), 3, "{lines:?}\n{log}");
+    assert!(lines[1].1, "{lines:?}");
+    assert_eq!((lines[2].0.as_str(), lines[2].1), ("owner", false), "{lines:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's Step in a new session starts one for its wake, recorded as the owner's; the wake's next round goes
+// on in it.
+#[test]
+fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
+    let s = setup("own-new-wake-session");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let c = api::Control::default();
+    db::say_to_architect(&mut e.db, "Look at the queue.").unwrap();
+    c.start(None, false);
+    let wake = turns(&mut e, &c, 2)[0];
+    let log = said.borrow().join("\n");
+    let lines = line_sessions(&e, wake, "architect");
+    assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
+    c.pause(None);
+    c.ask_step_architect(true).unwrap();
+    turn(&mut e, &c, None);
+    c.ask_step_architect(false).unwrap();
+    turn(&mut e, &c, None);
+    let log = said.borrow().join("\n");
+    let lines = line_sessions(&e, wake, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert!(lines[0].1, "{lines:?}");
+    assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
+    assert_eq!(lines[1].2.split(',').count(), 2, "{lines:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While every work is paused, a work the pause holds waits on it: its session is kept warm as the session manager's
+// rules say, unless the owner switched keeping warm off, which holds across restarts; a work the owner started runs,
+// and is not kept warm for the pause.
+#[test]
+fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_it_off() {
+    let s = setup("warm-paused");
+    let mut scripts = scripts();
+    scripts.insert(
+        "1a",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "2", "{}", said.borrow().join("\n"));
+    let from = last_call(&e, work);
+    let due = from + 55 * 60_000 + 1_000;
+    // Works going on wait on nothing.
+    assert_eq!(e.keep_warm(due, None).unwrap(), 0);
+    let paused = |warm: bool, runs: &[i64]| engine::GlobalPause {
+        warm,
+        runs: runs.iter().copied().collect(),
+        architect: false,
+    };
+    assert_eq!(e.keep_warm(due, Some(&paused(false, &[]))).unwrap(), 0);
+    assert_eq!(e.keep_warm(due, Some(&paused(true, &[work]))).unwrap(), 0);
+    assert_eq!(
+        e.keep_warm(due, Some(&paused(true, &[]))).unwrap(),
+        1,
+        "{}",
+        said.borrow().join("\n")
+    );
+    assert_eq!(
+        pings_of(&e, work)[0].0,
+        json!({ "cell": "2", "on": "pause", "what": "the owner paused every work" })
+    );
+    // The owner's switch is kept in the database, as the owner's, across a restart.
+    assert!(api::keep_warm_paused(e.db.conn()).unwrap());
+    api::set_keep_warm_paused(&mut e.db, false).unwrap();
+    drop(e);
+    let (e, _) = engine(&s, BTreeMap::new());
+    assert!(!api::keep_warm_paused(e.db.conn()).unwrap());
+    let _ = std::fs::remove_dir_all(&s.root);
 }

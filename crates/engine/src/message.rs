@@ -223,9 +223,10 @@ impl Context<'_> {
     }
 
     /// Why the cell's last return was sent back, when this round only rewrites it: the session holds everything else.
+    /// A new session, such as one the owner asked for, holds nothing, and is given the whole message.
     fn sent_back(&self) -> Option<(RoundId, String)> {
         let r = self.rounds.last()?;
-        if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() {
+        if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() || self.held.rounds.is_empty() {
             return None;
         }
         let rej = r.rejected.as_ref()?;

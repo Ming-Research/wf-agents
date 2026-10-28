@@ -145,7 +145,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .collect();
     let commit = e.config.commit.clone();
     // The session manager chose the session: the line's going on, resumed once the CLI started it and else started
-    // under the id kept for it, or a new one, which ends the one the line had going on.
+    // under the id kept for it, or a new one, which ends the one the line had going on; a new one the owner asked for
+    // meets the ask.
     let (sid, resume, new_session) = match plan {
         Plan::Going {
             id,
@@ -161,6 +162,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                     sessions::choose::open(tx, w.id, &line, &cli_name, &fresh, why).map_err(db::Error::Abort)
                 })
                 .map_err(sql)?;
+            if why == sessions::Start::Owner {
+                e.sessions.met(w.id, g.name == ARCHITECT);
+            }
             (id, None, fresh)
         }
     };
@@ -423,7 +427,9 @@ fn compose(
     let line = sessions::choose::line_of(cell);
     let model = level_of(e, g, cell, item)?.1.model;
     let limit = e.config.config.install.agents.context_limit;
-    let mut plan = sessions::choose::plan(e.db.conn(), w.id, cell, limit, &model)?;
+    let mut plan = e
+        .sessions
+        .plan(e.db.conn(), w.id, g.name == ARCHITECT, cell, limit, &model)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),

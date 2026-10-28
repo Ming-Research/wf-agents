@@ -1,12 +1,25 @@
 //! When a work waits, the session its next round will go on in, which the session manager keeps warm
 //! ([`sessions::warm`]): the engine knows where the work stands and what it waits on, and the flow where it goes next.
+//! A work the owner's global pause holds waits on it, and is kept warm while the owner keeps that switch on.
+
+use std::collections::BTreeSet;
 
 use db::rusqlite::params;
 use flow::{CompiledCell, CompiledGraph, Position};
 use sessions::warm::Waited;
 
 use crate::work::{self, Work};
-use crate::{Engine, values};
+use crate::{ARCHITECT, Engine, values};
+
+/// The owner's global pause, while it holds, as keeping sessions warm reads it: whether the owner keeps the sessions of
+/// waiting works warm meanwhile (the switch beside the pause, on at first), the works the owner started, which run on
+/// despite it, and whether the owner started the architect, whose wakes then do.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GlobalPause {
+    pub warm: bool,
+    pub runs: BTreeSet<i64>,
+    pub architect: bool,
+}
 
 /// The agents' cells a work's next round may be at, from where it stands: the cell itself when it is an agent's, else
 /// every agent's cell its rows lead to through the engine's, the tools' and the owner's cells; none when a way leads
@@ -100,9 +113,11 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
 }
 
 /// Sends a keep-warm ping to each session whose work waits and whose next round will go on in it, when the session
-/// manager finds it due at `now`; gives how many it sent. None is sent while a failed run's cause stops every work.
-pub fn keep_warm(e: &mut Engine, now: i64) -> Result<usize, String> {
-    if e.halted() {
+/// manager finds it due at `now`; gives how many it sent. While the owner's global pause holds (`pause`), a work it
+/// holds waits on it; none is sent then if the owner switched keeping warm off, and none while a failed run's cause
+/// stops every work. A work whose next round starts the new session the owner asked for has nothing to keep warm.
+pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
+    if e.halted() || pause.is_some_and(|p| !p.warm) {
         return Ok(0);
     }
     let ids: Vec<i64> = {
@@ -121,9 +136,18 @@ pub fn keep_warm(e: &mut Engine, now: i64) -> Result<usize, String> {
         if w.flow_version != e.flow_now || e.done(&w)? {
             continue;
         }
-        let g = e.graph_of(&w)?;
-        let Some(waited) = waited_on(e, &w, &g)? else {
+        if e.sessions.asked_new(w.id, w.graph == ARCHITECT) {
             continue;
+        }
+        let g = e.graph_of(&w)?;
+        let waited = match waited_on(e, &w, &g)? {
+            Some(x) => x,
+            None if pause.is_some_and(|p| !p.runs.contains(&id) && !(p.architect && w.graph == ARCHITECT)) => Waited {
+                cell: w.pos.at.clone(),
+                on: "pause".to_string(),
+                what: "the owner paused every work".to_string(),
+            },
+            None => continue,
         };
         let Some(next) = next_cells(&g, &w.pos) else {
             continue;

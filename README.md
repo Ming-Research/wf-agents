@@ -59,9 +59,11 @@ project against it article by article (the level-two headings that start with "A
 
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
 every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
-looked at against a copy of the data; Pause all stops every work at the end of the round it is in. Each work has its
-own Pause, Continue and Step in its row and its window; Step runs one round of a work that does not go on by itself,
-after showing what it will be. `npm run dev` in `client/` serves the page from its sources and passes the
+looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
+switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in its row and its window,
+which win over the global state when they come later, Start all aside, which lifts no work's own pause; Step runs one
+round of a work, after showing what it will be, and leaves it paused; Start and Step resume the work's session or
+start a new one, as the owner chooses. `npm run dev` in `client/` serves the page from its sources and passes the
 interface's requests to a running `wf-agents run`.
 
 The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
@@ -70,4 +72,4 @@ flow is reviewed there.
 
 The Architect view shows the architect's wakes on its graph, its asks of the owner with their forms, its queue, its
 decisions, the policy and the plan, and where things stand as it understands them; its line holds the architect's
-Pause, Continue and Step, and what the owner says to it.
+Start, Pause and Step, and what the owner says to it.

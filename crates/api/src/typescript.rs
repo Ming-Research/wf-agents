@@ -21,6 +21,8 @@ pub fn typescript() -> String {
     let decls = [
         decl::<serde_json::Value>(&cfg),
         // The interface.
+        decl::<RunAsk>(&cfg),
+        decl::<KeepWarm>(&cfg),
         decl::<StepTaken>(&cfg),
         decl::<NextRound>(&cfg),
         decl::<Status>(&cfg),

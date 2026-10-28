@@ -5,7 +5,7 @@
 use rusqlite::{Transaction, params};
 use serde_json::Value;
 
-use crate::{Actor, Db, Result, now};
+use crate::{Actor, Db, Result, STOPPED_BY_ARCHITECT, now};
 
 /// A matter to queue for the architect.
 #[derive(Debug, Clone, Default)]
@@ -47,6 +47,34 @@ pub fn queue_matter(tx: &Transaction<'_>, m: &Matter) -> Result<i64> {
         ],
     )?;
     Ok(tx.last_insert_rowid())
+}
+
+/// Lifts a work's pause, in a write made as the owner, as the owner's Start of it does: a work the architect stopped is
+/// then the owner's release of it, which the architect is told as the owner's words. Gives whether the architect had
+/// stopped it.
+pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
+    let (paused, by, item): (Option<String>, Option<String>, Option<i64>) =
+        tx.query_row("SELECT paused, paused_by, item FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+    tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+    let stopped = (by.as_deref() == Some("engine"))
+        .then(|| paused.as_deref()?.strip_prefix(STOPPED_BY_ARCHITECT))
+        .flatten();
+    let Some(why) = stopped else {
+        return Ok(false);
+    };
+    let why = why.trim_start_matches(':').trim();
+    let text = format!("I started work {work}, which you had stopped ({why}): it goes on.");
+    let m = Matter {
+        kind: "owner_words".into(),
+        what: format!("The owner says: {}", one_sentence(&text)),
+        body: serde_json::json!({ "text": text }),
+        item,
+        ..Matter::default()
+    };
+    queue_matter(tx, &m)?;
+    Ok(true)
 }
 
 /// Says something to the architect, as the owner: the words come to its queue as a matter of the kind owner_words,

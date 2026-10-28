@@ -1,9 +1,9 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, pausing a work and letting a paused work go on, and letting every work the owner paused go on. Each is
-//! written as the owner, so `changes` records it as theirs, and the engine reads it as it goes on. What the owner says
-//! to the architect is `db::say_to_architect`.
+//! design card, pausing a work and lifting a work's pause, and the switch that keeps waiting sessions warm while every
+//! work is paused. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as it goes
+//! on. What the owner says to the architect is `db::say_to_architect`.
 
-use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
@@ -321,8 +321,9 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
     Ok(format!("design card {design_card} ruled"))
 }
 
-/// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself until the owner
-/// lets it go on, by itself or with every work the owner paused. Why is the owner's words, or that the owner paused it.
+/// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself, whatever the
+/// global state, until the owner starts it again; letting every work go on does not lift it. Why is the owner's words,
+/// or that the owner paused it.
 pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String> {
     let found: Option<(Option<String>, Option<String>)> = db
         .conn()
@@ -352,21 +353,38 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
     Ok(format!("work {work} pauses"))
 }
 
-/// Lets every work the owner paused go on, as the owner's Start all does beside letting the engine start works again;
-/// a work the engine paused stays paused until the owner lets it go on by itself.
-pub fn start_all(db: &mut Db) -> Result<String, String> {
-    let n = db
-        .write(Actor::Owner, |tx| {
-            Ok(tx.execute(
-                "UPDATE works SET paused = NULL, paused_by = NULL WHERE paused_by = 'owner' AND ended IS NULL",
-                [],
-            )?)
-        })
+/// What the owner's Start of a work says, once the work is one that can go on: not ended.
+pub fn can_start(conn: &Connection, work: i64) -> Result<String, String> {
+    let ended: Option<Option<String>> = conn
+        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .optional()
         .map_err(sql)?;
-    Ok(format!("{n} works paused by the owner go on"))
+    match ended {
+        None => Err(format!("no work {work}")),
+        Some(Some(_)) => Err(format!("work {work} has ended")),
+        Some(None) => Ok(format!("work {work} goes on")),
+    }
 }
 
-/// Lets a paused work go on: its cell runs again. The engine closes a round the pause left open, with the reason.
+/// Pauses the architect's wake that runs, as the owner, as [`pause`] pauses a work; none when no wake runs or it is
+/// paused already.
+pub fn pause_wake(db: &mut Db) -> Result<String, String> {
+    let wake: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT max(id) FROM works WHERE graph = 'architect' AND ended IS NULL AND paused IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    match wake {
+        Some(w) => pause(db, w, None),
+        None => Ok("no wake of the architect goes on".into()),
+    }
+}
+
+/// Lifts a paused work's pause, as the owner: its cell runs again. The engine closes a round the pause left open, with
+/// the reason. A work the architect stopped is the owner's release of it, which the architect is told.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
     let paused: Option<Option<String>> = db
         .conn()
@@ -378,12 +396,44 @@ pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
         Some(None) => return Err(format!("work {work} is not paused")),
         Some(Some(_)) => {}
     }
+    let released = db.write(Actor::Owner, |tx| db::lift_pause(tx, work)).map_err(sql)?;
+    Ok(if released {
+        format!("work {work} goes on; the architect, which had stopped it, is told")
+    } else {
+        format!("work {work} goes on")
+    })
+}
+
+/// The owner's switch named so, which a switch with no row has as it is at first: on.
+fn switch(conn: &Connection, name: &str) -> Result<bool, String> {
+    let v: Option<i64> = conn
+        .query_row("SELECT value FROM owner_switches WHERE name = ?1", [name], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    Ok(v.is_none_or(|v| v != 0))
+}
+
+/// Whether the sessions of waiting works are kept warm while every work is paused: the owner's switch, on at first.
+pub fn keep_warm_paused(conn: &Connection) -> Result<bool, String> {
+    switch(conn, "keep_warm_paused")
+}
+
+/// Switches keeping the sessions of waiting works warm while every work is paused, as the owner.
+pub fn set_keep_warm_paused(db: &mut Db, on: bool) -> Result<String, String> {
     db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+        tx.execute(
+            "INSERT INTO owner_switches (name, value) VALUES ('keep_warm_paused', ?1)
+             ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+            [i64::from(on)],
+        )?;
         Ok(())
     })
     .map_err(sql)?;
-    Ok(format!("work {work} goes on"))
+    Ok(if on {
+        "waiting sessions are kept warm while every work is paused".into()
+    } else {
+        "no waiting session is kept warm while every work is paused".into()
+    })
 }
 
 #[cfg(test)]
@@ -439,12 +489,68 @@ mod tests {
             .unwrap();
         assert_eq!(paused, (None, None));
         assert!(resume(&mut db, 9).is_err());
+        // A work the architect stopped is the owner's release of it, which the architect is told as the owner's words.
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE works SET paused = ?1, paused_by = 'engine' WHERE id = 1",
+                [format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT)],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            resume(&mut db, 1).unwrap(),
+            "work 1 goes on; the architect, which had stopped it, is told"
+        );
+        let told: (String, String, i64) = db
+            .conn()
+            .query_row("SELECT kind, body ->> 'text', item FROM architect_matters", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(
+            told,
+            (
+                "owner_words".to_string(),
+                "I started work 1, which you had stopped (it waits for the parser): it goes on.".to_string(),
+                1
+            )
+        );
+        let actor: String = db
+            .conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'architect_matters'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actor, "owner");
     }
 
-    // The owner pauses a work that goes on, once; Start all lets go on the works the owner paused, and not one the
-    // engine paused.
+    // The switch that keeps waiting sessions warm while every work is paused is on at first, and the owner's once set.
     #[test]
-    fn the_owner_pauses_a_work_and_start_all_lets_go_on_only_the_owner_s() {
+    fn keeping_sessions_warm_while_paused_is_the_owner_s_switch() {
+        let mut db = setup();
+        assert!(keep_warm_paused(db.conn()).unwrap());
+        set_keep_warm_paused(&mut db, false).unwrap();
+        assert!(!keep_warm_paused(db.conn()).unwrap());
+        set_keep_warm_paused(&mut db, true).unwrap();
+        assert!(keep_warm_paused(db.conn()).unwrap());
+        let actors: Vec<String> = db
+            .conn()
+            .prepare("SELECT actor FROM changes WHERE table_name = 'owner_switches' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(actors, ["owner", "owner"]);
+    }
+
+    // The owner pauses a work that goes on, once, and a wake of the architect the same way; why is the owner's words
+    // when given.
+    #[test]
+    fn the_owner_pauses_a_work_once() {
         let mut db = setup();
         let paused = |db: &Db, id: i64| -> (Option<String>, Option<String>) {
             db.conn()
@@ -460,25 +566,19 @@ mod tests {
         );
         assert!(pause(&mut db, 1, None).is_err());
         assert!(pause(&mut db, 9, None).is_err());
+        assert_eq!(pause_wake(&mut db).unwrap(), "no wake of the architect goes on");
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '4')",
-                [],
-            )?;
-            tx.execute(
-                "UPDATE works SET paused = 'cell 4: no', paused_by = 'engine' WHERE id = 2",
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (NULL, 1, 'architect', 'A1')",
                 [],
             )?;
             Ok(())
         })
         .unwrap();
-        assert_eq!(start_all(&mut db).unwrap(), "1 works paused by the owner go on");
-        assert_eq!(paused(&db, 1), (None, None));
-        assert_eq!(
-            paused(&db, 2),
-            (Some("cell 4: no".to_string()), Some("engine".to_string()))
-        );
+        assert_eq!(pause_wake(&mut db).unwrap(), "work 2 pauses");
+        assert_eq!(paused(&db, 2).1.as_deref(), Some("owner"));
         // The owner's words, when given, say why.
+        resume(&mut db, 1).unwrap();
         pause(&mut db, 1, Some("Wait for the release.")).unwrap();
         assert_eq!(paused(&db, 1).0.as_deref(), Some("Wait for the release."));
     }

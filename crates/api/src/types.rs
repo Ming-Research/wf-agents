@@ -9,6 +9,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+/// What the owner sends with a work's or the architect's Start and Step: whether its next round resumes the session
+/// its line goes on in (the default) or starts a new one.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct RunAsk {
+    #[serde(default)]
+    pub new_session: bool,
+}
+
+/// What the owner sends with the switch that keeps waiting sessions warm while every work is paused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct KeepWarm {
+    pub on: bool,
+}
+
 /// The round of a work the owner asked for, and what it came to.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StepTaken {
@@ -54,8 +68,19 @@ pub struct NextRound {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Status {
     /// Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
-    /// though a work's round the owner asks for runs.
+    /// but for the works the owner started since; a work's round the owner asks for runs.
     pub paused: bool,
+    /// Whether the sessions of waiting works are kept warm while every work is paused: the owner's switch beside the
+    /// pause, on at first and kept across restarts.
+    pub keep_warm: bool,
+    /// The works the owner started since every work was last paused: each goes on whatever the global state.
+    pub started: Vec<i64>,
+    /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
+    /// their pause.
+    pub releasing: Vec<i64>,
+    /// Whether the owner started the architect since every work was last paused: its wakes go on whatever the global
+    /// state.
+    pub architect_started: bool,
     /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
     /// before the pause, unless the owner asked for it.
     pub running: Option<i64>,

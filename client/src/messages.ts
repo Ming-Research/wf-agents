@@ -50,19 +50,28 @@ const messages = {
   engine_offline_hint: 'The page cannot reach wf-agents run; it reconnects by itself.',
   engine_running: 'Running',
   engine_paused: 'Paused',
-  engine_paused_hint: 'Every work is paused, as when the engine starts: no work goes on by itself and no new work starts.',
+  engine_paused_hint:
+    'Every work is paused, as when the engine starts: no work goes on by itself and no new work starts, but for those you started.',
+  engine_paused_runs: 'Paused · running: {which}',
+  engine_runs_architect: 'the architect',
+  keep_warm: 'Keep sessions warm',
+  keep_warm_on_hint:
+    'On: while every work is paused, a waiting session gets a keep-warm ping 55 minutes after its last call, so that its next round reads the cache instead of writing it again whole. Click to send none while every work is paused.',
+  keep_warm_off_hint:
+    'Off: no keep-warm ping goes out while every work is paused, and a round after an hour writes its cache again whole. Click to keep waiting sessions warm.',
   engine_pausing_one: 'Pausing: 1 round finishing',
   engine_pausing: 'Pausing: {n} rounds finishing',
   engine_halt: 'Waiting: {kind} until {until}',
   pause_all: 'Pause all',
   start_all: 'Start all',
-  pause_all_hint: 'Every work stops at the end of the round it is in, and no new round or work starts.',
+  pause_all_hint:
+    'Every work stops at the end of the round it is in, and no new round or work starts; the works you started follow the pause again.',
   start_all_hint:
-    'Every work you paused goes on, and new works start on ready items as slots free. A work the engine stopped for a problem, or the architect stopped, stays stopped until you continue it.',
+    'Every work goes on but those paused by themselves, and new works start on ready items as slots free. A work you paused, or the engine or the architect stopped, stays stopped until you start it.',
   confirm_start_all:
-    'Start all? Every work you paused goes on with real rounds on your account, and new works start on ready items.',
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items.',
   confirm_start_all_takeover:
-    'Start all? Every work you paused goes on with real rounds on your account, and new works start on ready items. {n} works on an older flow version are taken over: each ends, and a new work on version {version} takes its item over from the first cell.',
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works on an older flow version are taken over: each ends, and a new work on version {version} takes its item over from the first cell.',
   slots: 'Slots {used}/{total}',
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   request_failed: 'The request failed: {error}',
@@ -124,33 +133,51 @@ const messages = {
   open_design_cards_later_n:
     'Design cards to rule on: {n}. The work does not wait for them now: a ruling is needed before the merge.',
   course_running: 'running',
+  course_running_started: 'running (you started it)',
+  course_ready_started: 'ready (you started it)',
   course_pausing: 'pausing after this round',
   course_step: 'running one round',
-  course_paused: 'paused by you',
-  course_paused_why: 'paused by you: {why}',
-  course_stopped: 'stopped by the engine',
-  course_stopped_why: 'stopped by the engine: {why}',
-  course_stopped_architect: 'stopped by the architect',
-  course_stopped_architect_why: 'stopped by the architect: {why}',
-  course_note_all: 'Every work is paused: Start all in the bar lets them go on, and Step runs one round of this one.',
+  course_paused: 'stopped (you paused it)',
+  course_paused_why: 'stopped (you paused it): {why}',
+  course_stopped: 'stopped (by the engine)',
+  course_stopped_why: 'stopped (by the engine): {why}',
+  course_stopped_architect: 'stopped (by the architect)',
+  course_stopped_architect_why: 'stopped (by the architect): {why}',
+  course_all: 'stopped (global pause)',
+  course_all_why: 'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
+  course_releasing: 'started, waiting for a free slot',
+  course_releasing_why: 'You started it: it goes on once its machine has a slot free.',
+  course_note_all:
+    'Every work is paused: Start runs this one on whatever the global state, Step runs one round of it, and Start all in the bar lets every work go on.',
   course_answered: 'your answer to ask {id} is in',
   course_answered_hint: 'The ask is answered: the next round takes the answer in and the work goes on.',
   course_outdated: 'flow {version}: older',
   course_outdated_hint:
-    'On flow version {version}; the engine runs version {now}. When it goes on (Continue, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
-  waits_answer: 'waits for your answer to ask {id}',
-  waits_ruling: 'waits for your ruling on design card {id}',
-  waits_items: 'waits for items {items} to be merged',
-  waits_row: 'waits at cell {cell} ({row}); its next round says for what',
+    'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
+  waits_answer: 'waiting for your answer to ask {id}',
+  waits_ruling: 'waiting for your ruling on design card {id}',
+  waits_items: 'waiting for items {items} to be merged',
+  waits_row: 'waiting at cell {cell} ({row}); its next round says for what',
+  work_start: 'Start',
   work_pause: 'Pause',
-  work_resume: 'Continue',
   work_step: 'Step',
-  work_pause_hint: 'It stops at the end of the round it is in, and takes no step by itself until you continue it.',
-  work_resume_hint: 'It goes on by itself.',
-  work_resume_engine_hint: 'Cell {cell} runs again, and the work goes on by itself.',
-  work_resume_engine_all_hint:
-    "The engine's stop is lifted: cell {cell} runs again once you start all works, or step this one.",
-  work_step_hint: 'Runs exactly one real round of it on your account; after it, the work stays as it is.',
+  work_start_hint:
+    'It goes on round after round, whatever the global state, its own pause lifted, until you pause it or pause every work; it still needs a free slot.',
+  work_start_engine_hint:
+    "The engine's stop is lifted: cell {cell} runs again, and the work goes on whatever the global state.",
+  work_start_architect_hint:
+    'Your release of the work the architect stopped: it goes on whatever the global state, and the architect is told.',
+  start_release_confirm:
+    'The architect stopped work {id}. Start it? This is your release of it, and the architect is told in your words.',
+  session_choice: 'Session',
+  session_choice_hint:
+    'The session Start or Step runs the next round in: the one its line goes on in, or a new one given everything its cell needs. The session before is left as it is.',
+  session_resume: 'Resume the session',
+  session_new: 'New session',
+  work_pause_hint:
+    'It stops at the end of the round it is in and stays paused, whatever the global state, until you start it; Start all does not lift it.',
+  work_step_hint:
+    'Runs exactly one real round of it on your account, whatever the global state; after it, the work is paused by you.',
   work_step_later: 'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
   confirm_step: 'Run one round of work {id} at cell {cell} now? It is a real round on your account.',
   confirm_takeover:
@@ -197,6 +224,7 @@ const messages = {
   run_new_session_cell: 'started a new session, as cell {cell} starts one',
   run_new_session_limit: "started a new session, as the line's session was past the context limit",
   run_new_session_model: "started a new session, as the line's model changed",
+  run_new_session_owner: 'started a new session, as you asked',
   run_continued: 'continued its session',
   run_not_asked: 'not asked: the engine answered it, since the project has no {need}',
   round_by_engine: 'engine',
@@ -384,6 +412,7 @@ const messages = {
   us_started_limit_at: 'the one before was past the context limit, at {n}',
   us_started_wake: "the last wake's, going on",
   us_started_model: 'the model changed',
+  us_started_owner: 'you asked for it',
   us_with_pings: 'with {n} keep-warm pings',
   us_pings_title: 'Keep-warm pings',
   us_pings_note:
@@ -810,6 +839,11 @@ const messages = {
   arch_wake_hint: 'Wake the architect for the matters waiting and run its first round; the wake stays paused after it.',
   arch_wake_confirm:
     'Wake the architect and run its first round? It is a real round on your account; the wake stays paused after it.',
+  arch_start_hint:
+    'The architect goes on whatever the global state: a wake starts when a matter is due and goes on round after round, until you pause it or pause every work.',
+  arch_pause_hint:
+    "The architect's wake stops at the end of the round it is in and stays paused, whatever the global state, until you start it; no other wake starts meanwhile.",
+  arch_started: 'started by you',
   arch_say: 'Say to the architect',
   arch_say_hint: "Tell the architect something: it goes to its queue as your words, and wakes it when works may go on.",
   arch_say_note:

@@ -73,8 +73,10 @@ export function liveState(w: WorkSummary, status: Status | null): WorkState {
 }
 
 /// How a work goes on, in the owner's terms. Two things are kept apart: what holds it back though it could go on (the
-/// owner's pause, every work paused, or the engine's pause for a problem), which Continue or Start all lifts; and what
-/// it waits for, after which it goes on by itself. Both can hold at once.
+/// owner's pause, every work paused, or the engine's or the architect's stop), which the work's Start lifts, and Start
+/// all lifts for every work paused with them all; and what it waits for, after which it goes on by itself. Both can
+/// hold at once. The later of the owner's actions wins: a work the owner started goes on while every work is paused,
+/// until every work is paused again; a work the owner paused stays paused through Start all.
 export type Course = {
   /// Done or ended: it goes on no more.
   over: boolean;
@@ -85,12 +87,20 @@ export type Course = {
   waits: Waits | null;
   /// Its flow version is older than the one the engine runs: when it goes on, it is taken over.
   outdated: boolean;
+  /// The owner started it since every work was last paused (a wake of the architect: the architect): it goes on
+  /// whatever the global state.
+  started: boolean;
+  /// The owner started it while it was paused: its pause is lifted once its machine has a slot free.
+  releasing: boolean;
 };
 
 export function course(w: WorkSummary, status: Status | null): Course {
   if (w.state === 'done' || w.state === 'ended') {
-    return { over: true, running: null, held: null, waits: null, outdated: false };
+    return { over: true, running: null, held: null, waits: null, outdated: false, started: false, releasing: false };
   }
+  const started =
+    status !== null && (status.started.includes(w.id) || (w.graph === 'architect' && status.architect_started));
+  const releasing = status !== null && status.releasing.includes(w.id);
   const held: Course['held'] =
     w.paused_by === 'engine'
       ? 'engine'
@@ -98,7 +108,7 @@ export function course(w: WorkSummary, status: Status | null): Course {
         ? 'architect'
         : w.paused_by === 'owner'
           ? 'you'
-          : status?.paused
+          : status?.paused && !started
             ? 'all'
             : null;
   let running: Course['running'] = null;
@@ -111,17 +121,20 @@ export function course(w: WorkSummary, status: Status | null): Course {
     held,
     waits: w.waits,
     outdated: status !== null && w.flow_version !== status.flow_version,
+    started,
+    releasing,
   };
 }
 
-/// What the owner can do with a work now: pause one that goes on by itself; let go on one held back by itself (with
-/// every work paused, Start all does it for every work); run one round of one that does not go on by itself and waits
-/// for nothing, which can run only while no other round asked for is under way and nothing stops every work.
+/// What the owner can do with a work now: Pause one not paused by itself, which then stays paused whatever the global
+/// state, or one the owner started that waits for a slot; Start one that does not go on, which then goes on whatever
+/// the global state, its own pause lifted; Step, one round of one that does not go on and waits for nothing, which can
+/// run only while no other round asked for is under way and nothing stops every work.
 export function controls(c: Course, status: Status | null) {
-  if (c.over || status === null) return { pause: false, resume: false, step: false, canStep: false };
+  if (c.over || status === null) return { pause: false, start: false, step: false, canStep: false };
   return {
-    pause: c.held === null,
-    resume: c.held === 'engine' || c.held === 'architect' || (c.held === 'you' && !status.paused),
+    pause: c.held === null || c.held === 'all' || c.releasing,
+    start: c.held !== null && !c.releasing,
     step: c.held !== null && c.running === null && c.waits === null,
     canStep: status.stepping === null && status.halt === null,
   };
@@ -130,18 +143,23 @@ export function controls(c: Course, status: Status | null) {
 /// Why the engine pauses a work the owner paused without saying why, as the engine writes it.
 const PAUSED_BY_OWNER = 'the owner paused it';
 
-/// Who holds a work back, in a few words, and whether the engine stopped it for a problem the owner looks at: paused by
-/// the owner, or stopped by the engine or by the architect.
+/// What holds a work back, in a few words, and whether the engine stopped it for a problem the owner looks at: the
+/// owner's Start waiting for a free slot, the owner's pause, the engine's or the architect's stop, or every work paused.
 export function heldName(c: Course): { name: string; problem: boolean } {
+  if (c.releasing) return { name: t('course_releasing'), problem: false };
   if (c.held === 'engine') return { name: t('course_stopped'), problem: true };
   if (c.held === 'architect') return { name: t('course_stopped_architect'), problem: false };
+  if (c.held === 'all') return { name: t('course_all'), problem: false };
   return { name: t('course_paused'), problem: false };
 }
 
-/// Why a work is held back by itself, in words: stopped by the engine or by the architect, or paused by the owner.
+/// Why a work is held back, in words: the owner's Start waiting for a free slot, stopped by the engine or by the
+/// architect, every work paused, or paused by the owner.
 export function heldWords(c: Course, why: string | null): string {
+  if (c.releasing) return t('course_releasing_why');
   if (c.held === 'engine') return t('course_stopped_why', { why: why ?? '' });
   if (c.held === 'architect') return t('course_stopped_architect_why', { why: why ?? '' });
+  if (c.held === 'all') return t('course_all_why');
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 

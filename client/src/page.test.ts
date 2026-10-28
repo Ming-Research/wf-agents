@@ -13,7 +13,7 @@ import type {
   WorkSummary,
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
-import { held } from './course';
+import { held, runningWords } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
@@ -113,6 +113,10 @@ describe('how a work goes on', () => {
   });
   const status = (extra: Partial<Status>): Status => ({
     paused: false,
+    keep_warm: true,
+    started: [],
+    releasing: [],
+    architect_started: false,
     running: null,
     stepping: null,
     last_step: null,
@@ -128,34 +132,58 @@ describe('how a work goes on', () => {
   });
 
   it('keeps what holds a work back apart from what it waits for, and offers what does something', () => {
-    // Paused by the owner and waiting for an answer: both; Continue, and no Step while it waits.
+    // Paused by the owner and waiting for an answer: both; Start, and no Step while it waits.
     const both = course(
       work({ state: 'paused', paused: 'the owner paused it', paused_by: 'owner', waits: { kind: 'answer', ask: 6 } }),
       status({}),
     );
     expect([both.held, both.waits]).toEqual(['you', { kind: 'answer', ask: 6 }]);
-    expect(controls(both, status({}))).toEqual({ pause: false, resume: true, step: false, canStep: true });
-    // Every work paused: held back with them all, Step offered, no Continue of its own.
+    expect(controls(both, status({}))).toEqual({ pause: false, start: true, step: false, canStep: true });
+    expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('stopped (you paused it)');
+    // Every work paused: stopped by the global pause, said so; Start, Pause and Step offered.
     const all = course(work({}), status({ paused: true }));
-    expect(all.held).toBe('all');
-    expect(controls(all, status({ paused: true }))).toEqual({ pause: false, resume: false, step: true, canStep: true });
-    // Only the owner's own pause of a work reads as paused by the owner; held with every work, it reads as what it is.
-    expect(held(all, work({}))).toBeNull();
-    expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('paused by you');
+    expect([all.held, heldName(all).name]).toEqual(['all', 'stopped (global pause)']);
+    expect(controls(all, status({ paused: true }))).toEqual({ pause: true, start: true, step: true, canStep: true });
+    expect(held(all, work({}))).toBe(
+      'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
+    );
+    // Started by the owner while every work is paused: it goes on, said so; Pause only.
+    const started = course(work({}), status({ paused: true, started: [5], running: 5 }));
+    expect([started.held, started.started, started.running]).toEqual([null, true, 'goes_on']);
+    expect(runningWords(started)).toBe('running (you started it)');
+    expect(controls(started, status({ paused: true, started: [5] }))).toEqual({
+      pause: true,
+      start: false,
+      step: false,
+      canStep: true,
+    });
+    // Started while paused by itself, its pause waiting for a free slot: said so; its Pause takes the Start back.
+    const slot = course(
+      work({ paused: 'the owner paused it', paused_by: 'owner' }),
+      status({ paused: true, started: [5], releasing: [5] }),
+    );
+    expect([slot.held, heldName(slot).name]).toEqual(['you', 'started, waiting for a free slot']);
+    expect([controls(slot, status({})).pause, controls(slot, status({})).start]).toEqual([true, false]);
+    // A wake of the architect goes on while the owner started the architect.
+    const wake = course(work({ graph: 'architect', item: null }), status({ paused: true, architect_started: true }));
+    expect([wake.held, wake.started]).toEqual([null, true]);
     // Going on by itself, its round running: Pause only; once paused, it pauses after the round.
     const on = course(work({}), status({ running: 5 }));
     expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);
     expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5 })).running).toBe('pausing');
     expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5, stepping: 5 })).running).toBe('step');
-    // Stopped by the engine on an older flow version: Continue and Step, which wait for the round under way.
+    // Stopped by the engine on an older flow version: Start and Step, which wait for the round under way.
     const stopped = course(work({ paused: 'cell 4: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
-    expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, resume: true, step: true, canStep: false });
-    // Stopped by the architect: said so, with its reason, not as a problem; Start all leaves it, Continue lets it go on.
+    expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, start: true, step: true, canStep: false });
+    // Stopped by the architect: said so, with its reason, not as a problem; Start all leaves it, its Start lets it go on.
     const architect = course(work({ paused: 'it waits for the parser', paused_by: 'architect' }), status({ paused: true }));
-    expect([architect.held, heldName(architect)]).toEqual(['architect', { name: 'stopped by the architect', problem: false }]);
-    expect(heldWords(architect, 'it waits for the parser')).toBe('stopped by the architect: it waits for the parser');
-    expect(controls(architect, status({ paused: true })).resume).toBe(true);
+    expect([architect.held, heldName(architect)]).toEqual([
+      'architect',
+      { name: 'stopped (by the architect)', problem: false },
+    ]);
+    expect(heldWords(architect, 'it waits for the parser')).toBe('stopped (by the architect): it waits for the parser');
+    expect(controls(architect, status({ paused: true })).start).toBe(true);
     // An ended work goes on no more.
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
   });

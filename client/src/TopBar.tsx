@@ -1,7 +1,8 @@
 // The bar on every view: the views (the works, the architect, the items, the flow, and the messages to the owner with
-// how many are unread), and how the engine stands: running, paused, pausing while the last round finishes, or waiting
-// for what stops every work, with the switch that pauses every work or starts them all, and the slots in use. The
-// engine starts with every work paused.
+// how many are unread), and how the engine stands: running, paused (saying which works the owner started run
+// meanwhile), pausing while the last round finishes, or waiting for what stops every work, with the switch that pauses
+// every work or starts them all, the switch that keeps waiting sessions warm while every work is paused, and the slots
+// in use. The engine starts with every work paused.
 
 import { useState } from 'react';
 
@@ -14,18 +15,57 @@ import { Link, type Route } from './route';
 import { t } from './text';
 
 /// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
-/// asked for.
+/// asked for, or of a work the owner started.
 function finishing(s: Status): number {
-  return s.paused && s.running !== null && s.running !== s.stepping ? 1 : 0;
+  const goesOn = s.running !== null && (s.running === s.stepping || s.started.includes(s.running) || s.architect_started);
+  return s.paused && s.running !== null && !goesOn ? 1 : 0;
 }
 
-/// What the engine is doing, in a few words.
+/// What the engine is doing, in a few words: while every work is paused, which the owner started run.
 function stateWords(s: Status): string {
   if (s.halt !== null) return t('engine_halt', { kind: s.halt.kind, until: time(s.halt.until) });
   if (!s.paused) return t('engine_running');
   const n = finishing(s);
   if (n === 1) return t('engine_pausing_one');
-  return n > 0 ? t('engine_pausing', { n }) : t('engine_paused');
+  if (n > 0) return t('engine_pausing', { n });
+  const runs = [...s.started.map((w) => `#${w}`), ...(s.architect_started ? [t('engine_runs_architect')] : [])];
+  return runs.length > 0 ? t('engine_paused_runs', { which: runs.join(', ') }) : t('engine_paused');
+}
+
+/// The switch that keeps waiting sessions warm while every work is paused, on at first: one click turns it over, and
+/// the engine keeps it across restarts.
+function KeepWarm({ status }: { status: Status }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const flip = () => {
+    setBusy(true);
+    setError(null);
+    postJson('/api/v1/engine/keep-warm', { on: !status.keep_warm }).then(
+      () => setBusy(false),
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={`keep-warm${status.keep_warm ? ' on' : ''}`}
+        aria-pressed={status.keep_warm}
+        onClick={flip}
+        disabled={busy}
+        title={status.keep_warm ? t('keep_warm_on_hint') : t('keep_warm_off_hint')}
+      >
+        <span className="keep-warm-box" aria-hidden="true">
+          {status.keep_warm ? '✓' : ''}
+        </span>
+        {t('keep_warm')}
+      </button>
+      {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+    </>
+  );
 }
 
 /// The switch of every work: Pause all while works go on, Start all while they are paused. Starting asks first, saying
@@ -53,10 +93,8 @@ function Switch({ status }: { status: Status }) {
       post('/api/v1/engine/pause');
       return;
     }
-    // The works that go on once all start: those the engine or the architect stopped stay stopped.
-    const taken = (works.data ?? []).filter(
-      (w) => course(w, status).outdated && w.paused_by !== 'engine' && w.paused_by !== 'architect',
-    ).length;
+    // The works that go on once all start: those paused by themselves stay paused.
+    const taken = (works.data ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
     const ask =
       taken > 0 ? t('confirm_start_all_takeover', { n: taken, version: status.flow_version }) : t('confirm_start_all');
     if (!window.confirm(ask)) return;
@@ -98,6 +136,7 @@ function Engine() {
         <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
       </span>
       <Switch status={status} />
+      <KeepWarm status={status} />
       <span className="muted" title={t('slots_hint')}>
         {t('slots', { used: status.slots_used, total: status.slots })}
       </span>

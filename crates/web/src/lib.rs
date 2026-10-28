@@ -118,13 +118,14 @@ fn router(app: App) -> Router {
         .route("/api/v1/status", get(status))
         .route("/api/v1/engine/pause", post(pause_all))
         .route("/api/v1/engine/start", post(start_all))
+        .route("/api/v1/engine/keep-warm", post(keep_warm))
         .route("/api/v1/events", get(events))
         .route("/api/v1/works", get(works))
         .route("/api/v1/works/{id}", get(work))
         .route("/api/v1/works/{id}/next", get(next_round))
         .route("/api/v1/works/{id}/step", post(step))
+        .route("/api/v1/works/{id}/start", post(start))
         .route("/api/v1/works/{id}/pause", post(pause))
-        .route("/api/v1/works/{id}/resume", post(resume))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
         .route("/api/v1/flows", get(flows))
@@ -146,6 +147,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/design-cards/{id}/rule", post(rule))
         .route("/api/v1/architect/say", post(say_to_architect))
         .route("/api/v1/architect/step", post(step_architect))
+        .route("/api/v1/architect/start", post(start_architect))
+        .route("/api/v1/architect/pause", post(pause_architect))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -244,33 +247,81 @@ fn tell_status(app: &App) {
     }
 }
 
-/// Pauses every work: a round under way ends first, and nothing starts after it.
+/// Pauses every work: a round under way ends first, and nothing starts after it. The works and the architect the owner
+/// started follow the global pause again; those the owner paused stay paused.
 async fn pause_all(State(app): State<App>) -> StatusCode {
     app.control.set_paused(true);
     tell_status(&app);
     StatusCode::NO_CONTENT
 }
 
-/// Lets every work go on: the works the owner paused go on, as written as the owner, and the engine starts works on
-/// ready items as slots free; a work the engine paused stays paused.
-async fn start_all(State(app): State<App>) -> Result<Json<api::Done>, Fail> {
-    let done = decide(&app, api::start_all).await?;
+/// Lets every work go on that follows the global state, and the engine starts works on ready items as slots free; a
+/// work the owner paused, or the engine or the architect stopped, stays paused.
+async fn start_all(State(app): State<App>) -> Json<api::Done> {
     app.control.set_paused(false);
+    tell_status(&app);
+    Json(api::Done {
+        done: "every work goes on but those paused by themselves".into(),
+    })
+}
+
+/// Keeps the sessions of waiting works warm while every work is paused, or not, as the owner's switch says: written as
+/// the owner, so that it holds across restarts.
+async fn keep_warm(State(app): State<App>, Json(k): Json<api::KeepWarm>) -> Result<Json<api::Done>, Fail> {
+    let on = k.on;
+    let done = decide(&app, move |db| api::set_keep_warm_paused(db, on)).await?;
+    app.control.set_keep_warm(on);
     tell_status(&app);
     Ok(done)
 }
 
-/// Runs one round of one work that does not go on by itself: one real round.
-async fn step(State(app): State<App>, Path(id): Path<i64>) -> Result<StatusCode, Fail> {
+/// Runs one round of one work, whatever the global state, resuming its line's session or in a new one as the owner
+/// chose: one real round, after which the work is paused by the owner.
+async fn step(State(app): State<App>, Path(id): Path<i64>, Json(r): Json<api::RunAsk>) -> Result<StatusCode, Fail> {
     app.control
-        .ask_step(id)
+        .ask_step(id, r.new_session)
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
 }
 
-/// What a work's next round would be: the engine's loop builds it between its steps, running and recording nothing.
-async fn next_round(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::NextRound>, Fail> {
-    let rx = app.control.ask_preview(id);
+/// Starts a work, as the owner: it goes on whatever the global state, its own pause lifted by the engine once it may
+/// hold a slot (a work the architect stopped is the owner's release of it, which the architect is told), and its next
+/// round resumes its line's session or starts a new one as the owner chose.
+async fn start(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Json(r): Json<api::RunAsk>,
+) -> Result<Json<api::Done>, Fail> {
+    let done = read(&app, move |c, _| {
+        api::can_start(c, id).map_err(|e| {
+            if e.starts_with("no work") {
+                api::Error::NotFound(e)
+            } else {
+                api::Error::Invalid(e)
+            }
+        })
+    })
+    .await?;
+    app.control.start(Some(id), r.new_session);
+    tell_status(&app);
+    Ok(Json(api::Done { done }))
+}
+
+/// Whether what a work's next round would be is asked in a new session.
+#[derive(Deserialize)]
+struct Fresh {
+    #[serde(default)]
+    new_session: bool,
+}
+
+/// What a work's next round would be, resuming its line's session or in a new one: the engine's loop builds it between
+/// its steps, running and recording nothing.
+async fn next_round(
+    State(app): State<App>,
+    Path(id): Path<i64>,
+    Query(q): Query<Fresh>,
+) -> Result<Json<api::NextRound>, Fail> {
+    let rx = app.control.ask_preview(id, q.new_session);
     tokio::task::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(20)))
         .await
         .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -514,22 +565,43 @@ async fn say_to_architect(State(app): State<App>, Json(s): Json<Said>) -> Result
 }
 
 /// Runs one round of the architect: the next round of the wake that runs, or, when none runs and its queue would wake
-/// it, a wake started paused by the owner and its first round.
-async fn step_architect(State(app): State<App>) -> Result<StatusCode, Fail> {
+/// it, a wake started paused by the owner and its first round; in a new session for its wake as the owner chose.
+async fn step_architect(State(app): State<App>, Json(r): Json<api::RunAsk>) -> Result<StatusCode, Fail> {
     app.control
-        .ask_step_architect()
+        .ask_step_architect(r.new_session)
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
 }
 
-/// Pauses a work, as the owner, as the command line does: a round of it under way ends first.
-async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
-    decide(&app, move |db| api::pause(db, id, None)).await
+/// Starts the architect, as the owner, as a work is started: its wake goes on, and one starts when a matter is due,
+/// whatever the global state; its next round resumes its session or starts a new one for its wake as the owner chose.
+async fn start_architect(State(app): State<App>, Json(r): Json<api::RunAsk>) -> Json<api::Done> {
+    app.control.start(None, r.new_session);
+    tell_status(&app);
+    Json(api::Done {
+        done: "the architect goes on".into(),
+    })
 }
 
-/// Lets a paused work go on, as the owner, as the command line does; the engine is woken to go on.
-async fn resume(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
-    decide(&app, move |db| api::resume(db, id)).await
+/// Pauses a work, as the owner, as the command line does: a round of it under way ends first, and it stays paused,
+/// whatever the global state, until the owner starts it. The owner's Start of it is over, and with it the lifting of
+/// its pause that Start asked, so a work still paused stays so.
+async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
+    app.control.pause(Some(id));
+    tell_status(&app);
+    decide(&app, move |db| match api::pause(db, id, None) {
+        Err(e) if e.ends_with("is paused already") => Ok(format!("work {id} stays paused")),
+        r => r,
+    })
+    .await
+}
+
+/// Pauses the architect, as the owner: the wake that runs is paused as a work is, and the owner's Start of the
+/// architect is over.
+async fn pause_architect(State(app): State<App>) -> Result<Json<api::Done>, Fail> {
+    app.control.pause(None);
+    tell_status(&app);
+    decide(&app, api::pause_wake).await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

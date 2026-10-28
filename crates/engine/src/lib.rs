@@ -29,7 +29,7 @@ mod values;
 mod warm;
 mod work;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -44,6 +44,7 @@ pub use sessions::cli as agent;
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
 pub use steps::{NextRound, next_message, next_round};
+pub use warm::GlobalPause;
 pub use work::{Item, Round, RoundId, Work, json_col, query_json};
 
 use agent::Agents;
@@ -350,8 +351,9 @@ impl Engine {
 
     /// Keeps warm the sessions of the works that wait: the session manager sends a ping to each session whose work's
     /// next round will go on in it, 55 minutes after its last call, and records it; gives how many it sent at `now`.
-    pub fn keep_warm(&mut self, now: i64) -> Result<usize, String> {
-        warm::keep_warm(self, now)
+    /// While the owner's global pause holds, `pause` says whether it keeps them warm and which works run on despite it.
+    pub fn keep_warm(&mut self, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
+        warm::keep_warm(self, now, pause)
     }
 
     /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.
@@ -799,11 +801,11 @@ impl Engine {
         Ok(Stepped::default())
     }
 
-    /// The next round of one work, which the owner asked for because the work does not go on by itself: the outbox
-    /// first, then that work one step, then the outbox that step filled. A paused work takes its step and stays
-    /// paused, in the owner's hands. A work on an older flow version is taken over instead, and the step is the first
-    /// of the new work, which stays paused when the owner had paused the old one; when no slot is free for it, its
-    /// item waits at the head of the queue and no round runs.
+    /// The next round of one work, which the owner asked for whatever the global state: the outbox first, then that
+    /// work one step, then the outbox that step filled. After its step the work is paused by the owner, in the owner's
+    /// hands, until the owner starts it. A work on an older flow version is taken over instead, and the step is the
+    /// first of the new work, paused by the owner after it the same way; when no slot is free for it, its item waits
+    /// at the head of the queue and no round runs.
     pub fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
@@ -824,6 +826,7 @@ impl Engine {
         } else {
             self.take_step(work, true)?;
         }
+        self.paused_after_step(stepped)?;
         actions::run_outbox(self)?;
         let (rounds, cell) = self.rounds_since(&mark)?;
         Ok(Stepped {
@@ -832,6 +835,125 @@ impl Engine {
             rounds,
             cell,
         })
+    }
+
+    /// A work the owner took a round of is paused by the owner after it, unless it ended, is done or is paused already.
+    fn paused_after_step(&mut self, id: i64) -> Result<(), String> {
+        let w = self.work(id)?;
+        if w.ended.is_some() || w.paused.is_some() || self.done(&w)? {
+            return Ok(());
+        }
+        self.db
+            .write(Actor::Owner, |tx| {
+                tx.execute(
+                    "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1 AND paused IS NULL",
+                    params![id, db::PAUSED_BY_OWNER],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    /// While every work is paused, one step of the works the owner started (`started`), and of the architect when the
+    /// owner started it (`architect`): when no wake runs and a matter is due for it, a wake starts and takes its first
+    /// step; otherwise the next step of the first of those works, and of the wake that runs, that has one, in the order
+    /// of the works' ids beginning after `after`, as [`Engine::step`] goes round the works that go on. A started work
+    /// paused by itself takes no step, and no new work starts on a ready item.
+    pub fn step_started(
+        &mut self,
+        after: Option<i64>,
+        started: &BTreeSet<i64>,
+        architect: bool,
+    ) -> Result<Stepped, String> {
+        self.reload_config();
+        actions::run_outbox(self)?;
+        if self.halted() {
+            return Ok(Stepped::default());
+        }
+        let mark = self.rounds_mark()?;
+        if architect && let Some(id) = self.wake_due()? {
+            self.advance(id)?;
+            actions::run_outbox(self)?;
+            let (rounds, cell) = self.rounds_since(&mark)?;
+            return Ok(Stepped {
+                work: Some(id),
+                started_item: None,
+                rounds,
+                cell,
+            });
+        }
+        let wake = if architect { architect::running(self)? } else { None };
+        let (later, earlier): (Vec<i64>, Vec<i64>) = self
+            .active()?
+            .into_iter()
+            .filter(|id| started.contains(id) || Some(*id) == wake)
+            .partition(|id| after.is_some_and(|a| *id > a));
+        for id in later.into_iter().chain(earlier) {
+            self.advance(id)?;
+            let (rounds, cell) = self.rounds_since(&mark)?;
+            if !rounds.is_empty() {
+                actions::run_outbox(self)?;
+                return Ok(Stepped {
+                    work: Some(id),
+                    started_item: None,
+                    rounds,
+                    cell,
+                });
+            }
+        }
+        Ok(Stepped::default())
+    }
+
+    /// Lifts, as the owner, the pause of each work the owner started (`releasing`) that is still paused, once it may
+    /// hold a slot: a work on an item holds none while it is paused, so its pause is lifted only while its machine has a
+    /// slot free; and of the wake that runs when the owner started the architect (`architect`), which holds none. A
+    /// work the architect stopped is the owner's release of it, which the architect is told. Gives the works the
+    /// owner's Start is done with, lifted or found not paused, and whether it is done with the architect's.
+    pub fn release_started(&mut self, releasing: &BTreeSet<i64>, architect: bool) -> Result<(Vec<i64>, bool), String> {
+        let mut done = Vec::new();
+        for &id in releasing {
+            let w = self.work(id)?;
+            if w.paused.is_some() && w.ended.is_none() && w.graph == ENGINEER {
+                let free = self.slots_by_machine()?;
+                let room = match &w.machine {
+                    Some(m) => free.get(m).copied().unwrap_or(0) > 0,
+                    None => free.values().sum::<i64>() > 0,
+                };
+                if !room {
+                    continue;
+                }
+            }
+            if w.paused.is_some() && w.ended.is_none() {
+                self.lift(id)?;
+            }
+            done.push(id);
+        }
+        if !architect {
+            return Ok((done, false));
+        }
+        if let Some(id) = architect::running(self)?
+            && self.work(id)?.paused.is_some()
+        {
+            self.lift(id)?;
+        }
+        Ok((done, true))
+    }
+
+    /// Lifts a work's pause as the owner's Start does, saying so.
+    fn lift(&mut self, id: i64) -> Result<(), String> {
+        let told = self
+            .db
+            .write(Actor::Owner, |tx| db::lift_pause(tx, id))
+            .map_err(|e| e.to_string())?;
+        (self.say)(&format!(
+            "work {id} goes on, as the owner started it{}",
+            if told {
+                "; the architect, which had stopped it, is told"
+            } else {
+                ""
+            }
+        ));
+        Ok(())
     }
 
     /// Each work's newest round, and the rounds not ended, as JSON lists of `[work, n]`.

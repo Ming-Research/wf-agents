@@ -1,7 +1,7 @@
 //! Which session an agent's round runs in: its line's session going on, or a new one, and why. A line starts a new
 //! session at its first round in a work, at the work's first round of a cell the flow says it starts one at, and when
-//! the context of its session is past the configuration's limit; every other round goes on in the line's session. A
-//! cell on no line has a session of its own every round.
+//! the context of its session is past the configuration's limit, and when the owner asks for one; every other round
+//! goes on in the line's session. A cell on no line has a session of its own every round.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use flow::CompiledCell;
@@ -22,6 +22,8 @@ pub enum Start {
     Model,
     /// A wake of the architect goes on in the CLI session the last wake left.
     Wake,
+    /// The owner asked for a new session with the round's Start or Step on the page.
+    Owner,
 }
 
 impl Start {
@@ -32,6 +34,7 @@ impl Start {
             Start::Limit => "limit",
             Start::Model => "model",
             Start::Wake => "wake",
+            Start::Owner => "owner",
         }
     }
 }

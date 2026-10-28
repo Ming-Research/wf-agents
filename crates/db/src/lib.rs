@@ -17,7 +17,7 @@ pub use rusqlite;
 
 mod matters;
 
-pub use matters::{Matter, one_sentence, queue_matter, say_to_architect};
+pub use matters::{Matter, lift_pause, one_sentence, queue_matter, say_to_architect};
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
@@ -43,6 +43,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0015.sql"),
     include_str!("../../../db/migrations/0016.sql"),
     include_str!("../../../db/migrations/0017.sql"),
+    include_str!("../../../db/migrations/0018.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.

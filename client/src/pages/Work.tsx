@@ -3,7 +3,8 @@
 // on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
 // it took standing out, the cell a round runs at in a moving halo and the cell a work held back stands at marked. The
 // column holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by
-// itself, its next round with the Step that runs it; its design cards, the one waiting for the owner's ruling first
+// itself, its next round with the Step that runs it, resuming its session or in a new one as the owner chooses, and
+// shown as it would be sent so; its design cards, the one waiting for the owner's ruling first
 // with its controls; and its messages, the asks waiting for the owner's answer first with their forms, then what its
 // agents and the engine told the owner. A round or a cell opened shows in the column's lower part, its cell brought
 // into view.
@@ -24,7 +25,7 @@ import type {
   WorkSummary,
 } from '../api';
 import { controls, type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
-import { held, runningWords, takeoverWords, waitsWords } from '../course';
+import { held, runningWords, SessionChoice, sessionKey, takeoverWords, useNewSession, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
@@ -185,7 +186,9 @@ function Going({ d, onCard, onAsk }: {
       ? heldName(c).name
       : c.waits !== null
         ? waitsWords(c.waits)
-        : t('state_ready');
+        : c.started
+          ? t('course_ready_started')
+          : t('state_ready');
   const waits = c.waits;
   return (
     <section className={`next going${c.held === 'engine' ? ' paused' : ''}`}>
@@ -196,6 +199,7 @@ function Going({ d, onCard, onAsk }: {
       {(c.held === 'engine' || c.held === 'architect') && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
       {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
       {c.held === 'all' && !runs ? <p className="muted">{t('course_note_all')}</p> : null}
+      {c.releasing ? <p className="muted">{t('course_releasing_why')}</p> : null}
       {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}
       {waits?.kind === 'ruling' ? (
         <div>
@@ -254,8 +258,12 @@ export function Next({ d, onRound, onCard, onAsk, stepPath }: {
   // When the owner pressed Step: until the round asked for has ended, the button says it is starting.
   const [pressed, setPressed] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [newSession, setNewSession] = useNewSession(sessionKey(w));
   const preview = can.step && !c.outdated;
-  const next = useResource<NextRound>(`work:${w.id}`, preview ? `/api/v1/works/${w.id}/next` : null);
+  const next = useResource<NextRound>(
+    `work:${w.id}`,
+    preview ? `/api/v1/works/${w.id}/next${newSession ? '?new_session=true' : ''}` : null,
+  );
   const stepping = status?.stepping === w.id;
   // The round asked for has ended: open it, where it ran.
   const last = status?.last_step;
@@ -273,11 +281,14 @@ export function Next({ d, onRound, onCard, onAsk, stepPath }: {
     setError(null);
     setPressed(Date.now());
     asked.current = true;
-    postJson(stepPath ?? `/api/v1/works/${w.id}/step`, {}).catch((e: unknown) => {
-      asked.current = false;
-      setPressed(null);
-      setError(e instanceof Error ? e.message : String(e));
-    });
+    postJson(stepPath ?? `/api/v1/works/${w.id}/step`, { new_session: newSession }).then(
+      () => setNewSession(false),
+      (e: unknown) => {
+        asked.current = false;
+        setPressed(null);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
   };
   const button = (note: string, ready: boolean) => (
     <div className="next-run">
@@ -290,6 +301,7 @@ export function Next({ d, onRound, onCard, onAsk, stepPath }: {
       >
         {starting ? t('next_starting') : t('work_step')}
       </button>
+      <SessionChoice on={newSession} set={setNewSession} disabled={starting} />
       <span className="muted">{note}</span>
     </div>
   );

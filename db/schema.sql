@@ -265,8 +265,9 @@ CREATE TABLE works (
 CREATE TABLE sessions (
   -- The CLI session each line of a work runs in. A line goes on in its session and lets the CLI compact it, after
   -- which the session manager gives the cell's rules and inputs again; it starts a new session at a cell the flow says
-  -- it starts one at, when its session's context is past the configuration's limit, and when the model its rounds run
-  -- on changed, whose prompt cache it would have to write again whole. The architect's line goes on
+  -- it starts one at, when its session's context is past the configuration's limit, when the model its rounds run on
+  -- changed, whose prompt cache it would have to write again whole, and when the owner asks for one. The architect's
+  -- line goes on
   -- in one CLI session across its wakes: each wake has a row of its own with the same cli_session, until a new policy
   -- ends it. A cell on no line has a session of its own for each round, ended once the round has.
   -- Hidden from agents.
@@ -286,9 +287,9 @@ CREATE TABLE sessions (
   -- Why it started: line, the line had no session going on (its first round in the work, or after its session
   -- ended); cell, the round is the work's first at a cell the line starts a new session at; limit, the context of the
   -- line's session before it was past the configuration's limit; model, the line's rounds run on another model than its
-  -- session before; wake, a wake of the architect going on in the CLI session the last wake left. Read by: the owner's
-  -- interface.
-  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'model', 'wake'))
+  -- session before; wake, a wake of the architect going on in the CLI session the last wake left; owner, the owner
+  -- asked for a new session with the round's Start or Step on the page. Read by: the owner's interface.
+  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'model', 'wake', 'owner'))
 ) STRICT;
 
 CREATE TABLE pings (
@@ -316,6 +317,18 @@ CREATE TABLE pings (
   -- When it started and ended.
   started_at INTEGER NOT NULL,
   ended_at INTEGER
+) STRICT;
+
+CREATE TABLE owner_switches (
+  -- The owner's switches on the page that hold across restarts of the engine, one row for each switch the owner set;
+  -- a switch with no row is as it is at first. Who set one, and when, is in changes.
+  -- Hidden from agents.
+  -- Read by: the engine; the owner's interface.
+  -- keep_warm_paused: whether the session manager keeps the sessions of waiting works warm while the owner's global
+  -- pause holds; on at first.
+  name TEXT PRIMARY KEY CHECK (name IN ('keep_warm_paused')),
+  -- Whether it is on.
+  value INTEGER NOT NULL CHECK (value IN (0, 1))
 ) STRICT;
 
 CREATE TABLE rounds (

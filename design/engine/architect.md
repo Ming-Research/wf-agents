@@ -28,7 +28,7 @@ Decision: A next look the architect sets at its wrap-up is a time or an item's w
 
 Decision: The engine asks the architect to advance when fewer items are ready to start than there are slots, at most once an hour while such a matter waits or was handled; provisional: the line is the slots' number until how long slots stand empty has been measured, and the hour keeps an empty queue from waking the architect again and again.
 
-Decision: A work the architect pauses is paused as the engine pauses one, with the architect's reason, and the page says it was stopped by the architect; the owner's Start all does not let it go on, the architect's resume or the owner's Continue of that work does, instead of a third kind of pause in the works table, because what matters to the owner is who stopped the work and that it stays stopped, which the reason and the engine's pause already give.
+Decision: A work the architect pauses is paused as the engine pauses one, with the architect's reason, and the page says it was stopped by the architect; the owner's Start all does not let it go on, the architect's resume or the owner's Start of that work does, which is the owner's release of it, said on the page and told to the architect in the owner's words, instead of a third kind of pause in the works table, because what matters to the owner is who stopped the work and that it stays stopped, which the reason and the engine's pause already give.
 
 Rejected:
 - The architect ruling on design cards beside the owner: rejected because the owner rules on design cards; the architect only looks at whether a card and its defaults hold.

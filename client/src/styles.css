@@ -201,6 +201,47 @@ button {
   cursor: default;
 }
 
+/* The switch beside the global pause that keeps waiting sessions warm while every work is paused. */
+.keep-warm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.keep-warm.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.keep-warm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.keep-warm-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* The choice of the session Start and Step run the next round in. */
+.session-choice {
+  padding: 0 4px;
+}
+
 button.link {
   background: none;
   border: 0;

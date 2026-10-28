@@ -43,7 +43,7 @@ enum Command {
     },
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
     /// appears in the data directory. The owner's page is served beside it, on the loopback address. Every work starts
-    /// paused: nothing runs until the owner starts all works, or asks for a work's round, on the page.
+    /// paused: nothing runs until the owner starts all works, starts one, or asks for a work's round, on the page.
     Run {
         /// Takes one pass only, without the page: carries out the outbox, starts what can start, and takes each work
         /// one step.
@@ -120,13 +120,16 @@ enum Command {
     /// The architect: what the owner says to it.
     #[command(subcommand)]
     Architect(ArchitectCommand),
-    /// Pauses a work: a round of it under way ends first. The page's Start all lets it go on, as `resume` does.
+    /// Pauses a work, as the owner: a round of it under way ends first, and it stays paused, whatever the global state,
+    /// until the owner starts it again with `resume` or its Start on the page; the page's Start all does not lift it.
     Pause {
         work: i64,
         #[arg(long)]
         why: String,
     },
-    /// Lets a paused work go on.
+    /// Lifts a work's pause, as the owner, as its Start on the page does: one the architect stopped is the owner's
+    /// release of it, which the architect is told. It then goes on as every work does, which while every work is
+    /// paused on the page is only once the owner starts it there or lets every work go on.
     Resume { work: i64 },
     /// Where each work stands.
     Status,
@@ -517,6 +520,10 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         .sum();
     Ok(api::Status {
         paused: true,
+        keep_warm: true,
+        started: Vec::new(),
+        releasing: Vec::new(),
+        architect_started: false,
         running: None,
         stepping: None,
         last_step: last.cloned(),
@@ -559,10 +566,13 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 }
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it. Every
-/// work starts paused, whatever the owner had asked before the engine stopped: the owner starts them on the page.
-/// Between two steps the loop answers what the page asked, tells how the engine stands, and takes the round of a
-/// work the owner asked for, or else, while works go on, the next step of the works that go on by themselves, so
-/// that a pause takes effect as soon as the round under way has ended.
+/// work starts paused, whatever the owner had started before the engine stopped: the owner starts them on the page;
+/// a work's own pause is kept. Between two steps the loop answers what the page asked, hands the session manager the
+/// new sessions the owner asked for, lifts the pause of the works the owner started once each may hold a slot, keeps
+/// waiting sessions warm unless the owner switched that off while every work is paused, tells how the engine stands,
+/// and takes the round of a work the owner asked for, or else the next step of the works that go on: every work but
+/// those paused by themselves, or while every work is paused, those the owner started. So a pause takes effect as
+/// soon as the round under way has ended.
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
@@ -582,6 +592,8 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     }))
     .map_err(|x| x.to_string())?;
     let control = Arc::new(api::Control::default());
+    // The owner's switch that keeps waiting sessions warm while every work is paused holds across restarts.
+    control.set_keep_warm(api::keep_warm_paused(e.db.conn())?);
     // What a running agent is doing goes to the page as it happens.
     let told = Arc::clone(&bus);
     e.activity = Box::new(move |work, round, what| {
@@ -625,7 +637,12 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let mut after: Option<i64> = None;
     while !stop.exists() {
         // What a work's next round would be, for the page that asked: built between steps, nothing run.
-        for (work, answer) in control.take_previews() {
+        for (work, fresh, answer) in control.take_previews() {
+            // Shown in a new session, the round is composed as the owner's ask of one would have it.
+            let asked_before = e.sessions.asked_new(work, false);
+            if fresh && !asked_before {
+                e.sessions.ask_new(Some(work));
+            }
             let next = engine::next_round(&mut e, work).map(|n| api::NextRound {
                 work,
                 cell: n.cell,
@@ -640,12 +657,27 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 design_card: n.design_card,
                 ask: n.ask,
             });
+            if fresh && !asked_before {
+                e.sessions.forget(work);
+            }
             let _ = answer.send(next);
         }
         let asked = control.asked();
+        for work in control.take_new_sessions() {
+            e.sessions.ask_new(work);
+        }
         e.reload_config();
+        match e.release_started(&asked.releasing, asked.architect_releasing) {
+            Ok((done, architect)) => control.released(&done, architect),
+            Err(x) => (e.say)(&format!("lifting the pause of the works the owner started: {x}")),
+        }
         // The sessions of works that wait are kept warm between steps, never beside a round.
-        if let Err(x) = e.keep_warm(db::now()) {
+        let pause = asked.paused.then(|| engine::GlobalPause {
+            warm: asked.keep_warm,
+            runs: asked.started.clone(),
+            architect: asked.architect_started,
+        });
+        if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
             (e.say)(&format!("keeping waiting sessions warm: {x}"));
         }
         let now = status(&mut e, last.as_ref(), started_at)?;
@@ -668,7 +700,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                     rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
                     cell: s.cell,
                 });
-                control.stepped();
+                control.stepped(Some(work));
             }
             api::Next::Architect => {
                 let s = e.step_architect()?;
@@ -687,16 +719,23 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                         cell: s.cell,
                     });
                 }
-                control.stepped();
+                control.stepped(s.work);
             }
             api::Next::Pass => {
                 let s = e.step(after)?;
                 if s.work.is_none() {
-                    control.wait(asked, idle);
+                    control.wait(&asked, idle);
                 }
                 after = s.work;
             }
-            api::Next::Wait => control.wait(asked, idle),
+            api::Next::Started => {
+                let s = e.step_started(after, &asked.started, asked.architect_started)?;
+                if s.work.is_none() {
+                    control.wait(&asked, idle);
+                }
+                after = s.work;
+            }
+            api::Next::Wait => control.wait(&asked, idle),
         }
     }
     let _ = std::fs::remove_file(&stop);

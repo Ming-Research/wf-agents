@@ -274,7 +274,7 @@ pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String
         .map_err(sql)
 }
 
-/// Lets a paused work go on, as the page does.
+/// Lifts a work's pause, as its Start on the page does.
 pub fn resume(data: &Path, work: i64) -> Result<String, String> {
     let mut db = open(data)?;
     api::resume(&mut db, work)

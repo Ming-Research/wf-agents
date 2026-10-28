@@ -146,22 +146,84 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         .0,
         415
     );
-    // Every work starts paused; the owner runs one work's round, once at a time.
-    assert!(s.control.asked().paused);
+    // Every work starts paused, waiting sessions kept warm; the owner runs one work's round, once at a time, in a new
+    // session when asked.
+    assert!(s.control.asked().paused && s.control.asked().keep_warm);
     assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 202);
     assert_eq!(s.control.asked().step, Some(3));
-    assert_eq!(post(s.port, "/api/v1/works/4/step", "{}", "application/json").0, 409);
-    s.control.stepped();
-    // The owner pauses one work, and Start all lets it go on with every work, but not the one the engine paused.
+    assert_eq!(
+        post(
+            s.port,
+            "/api/v1/works/4/step",
+            r#"{"new_session":true}"#,
+            "application/json"
+        )
+        .0,
+        409
+    );
+    s.control.stepped(Some(3));
+    assert!(s.control.take_new_sessions().is_empty());
+    assert_eq!(
+        post(
+            s.port,
+            "/api/v1/works/4/step",
+            r#"{"new_session":true}"#,
+            "application/json"
+        )
+        .0,
+        202
+    );
+    assert_eq!(s.control.take_new_sessions(), vec![Some(4)]);
+    s.control.stepped(Some(4));
+    // The switch that keeps waiting sessions warm is the owner's, written so.
+    let (status, done) = post(
+        s.port,
+        "/api/v1/engine/keep-warm",
+        r#"{"on":false}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{done}");
+    assert!(!s.control.asked().keep_warm);
+    assert!(!api::keep_warm_paused(db.conn()).unwrap());
+    // The owner starts a work while every work is paused: it goes on, its pause to be lifted by the engine; a work that
+    // is not there cannot be started.
+    let (status, done) = post(
+        s.port,
+        "/api/v1/works/2/start",
+        r#"{"new_session":true}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{done}");
+    assert!(s.control.asked().started.contains(&2) && s.control.asked().releasing.contains(&2));
+    assert_eq!(s.control.take_new_sessions(), vec![Some(2)]);
+    assert_eq!(post(s.port, "/api/v1/works/9/start", "{}", "application/json").0, 404);
+    // Its Pause ends its Start; the engine's pause stays.
+    let (status, done) = post(s.port, "/api/v1/works/2/pause", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(done.ends_with(r#"{"done":"work 2 stays paused"}"#), "{done}");
+    assert!(s.control.asked().started.is_empty() && s.control.asked().releasing.is_empty());
+    // The owner pauses one work; Start all does not lift it, nor the engine's pause.
     let (status, done) = post(s.port, "/api/v1/works/1/pause", "{}", "application/json");
     assert_eq!(status, 200, "{done}");
     assert_eq!(paused_by(&db, 1).as_deref(), Some("owner"));
-    assert_eq!(post(s.port, "/api/v1/works/1/pause", "{}", "application/json").0, 422);
     let (status, done) = post(s.port, "/api/v1/engine/start", "{}", "application/json");
     assert_eq!(status, 200, "{done}");
     assert!(!s.control.asked().paused);
-    assert_eq!(paused_by(&db, 1), None);
+    assert_eq!(paused_by(&db, 1).as_deref(), Some("owner"));
     assert_eq!(paused_by(&db, 2).as_deref(), Some("engine"));
+    // The architect is started and paused the same way.
+    let (status, done) = post(
+        s.port,
+        "/api/v1/architect/start",
+        r#"{"new_session":true}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{done}");
+    assert!(s.control.asked().architect_started);
+    assert_eq!(s.control.take_new_sessions(), vec![None]);
+    let (status, done) = post(s.port, "/api/v1/architect/pause", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(!s.control.asked().architect_started);
     // A work that does not go on by itself is stepped while the others go on; the status says what the owner asked.
     assert_eq!(post(s.port, "/api/v1/works/2/step", "{}", "application/json").0, 202);
     let here = format!("127.0.0.1:{}", s.port);
@@ -170,7 +232,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         now.contains(r#""paused":false"#) && now.contains(r#""stepping":2"#),
         "{now}"
     );
-    s.control.stepped();
+    s.control.stepped(Some(2));
     assert_eq!(post(s.port, "/api/v1/engine/pause", "{}", "application/json").0, 204);
     assert!(s.control.asked().paused);
     assert!(s.bus.status().is_some_and(|x| x.paused));
@@ -178,7 +240,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     let control = std::sync::Arc::clone(&s.control);
     let loop_ = std::thread::spawn(move || {
         for _ in 0..100 {
-            if let Some((work, answer)) = control.take_previews().pop() {
+            if let Some((work, _, answer)) = control.take_previews().pop() {
                 let _ = answer.send(Err(format!("work {work} has no next round")));
                 return;
             }
@@ -197,6 +259,10 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
 fn status() -> api::Status {
     api::Status {
         paused: true,
+        keep_warm: true,
+        started: Vec::new(),
+        releasing: Vec::new(),
+        architect_started: false,
         running: None,
         stepping: None,
         last_step: None,
@@ -355,19 +421,16 @@ fn the_owner_answers_and_rules_on_the_page() {
         said,
         "Ruling on design card 1:\n- decision 1: disagree: Keep the old name."
     );
-    // A paused work goes on; one that is not paused is refused.
+    // A work is started; one that ended cannot be.
+    let (status, done) = post(s.port, "/api/v1/works/1/start", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(done.ends_with(r#"{"done":"work 1 goes on"}"#), "{done}");
     db.write(db::Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE works SET paused = 'cell 13: no', paused_by = 'engine' WHERE id = 1",
-            [],
-        )?;
+        tx.execute("UPDATE works SET ended = 'cancelled' WHERE id = 1", [])?;
         Ok(())
     })
     .unwrap();
-    let (status, done) = post(s.port, "/api/v1/works/1/resume", "{}", "application/json");
-    assert_eq!(status, 200, "{done}");
-    assert!(done.ends_with(r#"{"done":"work 1 goes on"}"#), "{done}");
-    let (status, again) = post(s.port, "/api/v1/works/1/resume", "{}", "application/json");
+    let (status, again) = post(s.port, "/api/v1/works/1/start", "{}", "application/json");
     assert_eq!(status, 422, "{again}");
     let _ = std::fs::remove_dir_all(&s.dir);
 }

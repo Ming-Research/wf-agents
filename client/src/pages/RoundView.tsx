@@ -382,6 +382,8 @@ function newSession(r: RoundSummary): string | null {
       return t('run_new_session_limit');
     case 'model':
       return t('run_new_session_model');
+    case 'owner':
+      return t('run_new_session_owner');
     case 'line':
       return r.line !== null && r.line === r.cell ? t('run_new_session_own') : t('run_new_session_line');
     default:

@@ -1,7 +1,8 @@
 // The architect's page, laid out as a work's page, since the architect runs a long time and the owner comes back to it.
 // Its line says how the architect stands in words (asleep since when, what falls due next and how many matters wait;
 // or awake: the question it is at, the matter it handles, a round running and for how long, or what holds it back),
-// what stops new works from starting, the architect's Pause, Continue and Step, a way to say something to it, and the
+// what stops new works from starting, the architect's Start, Pause and Step with the session they run its next round
+// in, a way to say something to it, and the
 // switch between its wakes (when each woke, why, how many matters it handled, what it cost). Under the line, its graph
 // fills the window with the wake shown placed on it as a work is (the wake going on, else the latest, else the bare
 // graph), and the column docked at its right holds the architect's panel on top and what is open on the chart below
@@ -24,7 +25,7 @@ import type {
 } from '../api';
 import { architectState, overWake, queueParts, shownWake } from '../architect';
 import { course, heldName, Loaded } from '../components';
-import { Controls, held, runningWords, useActions } from '../course';
+import { Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
@@ -67,17 +68,19 @@ function useNow(ticking: boolean): number {
 }
 
 /// The architect's Step: one round of the wake going on, or, when none goes on and a matter waits, a new wake and its
-/// first round. It asks first, as a real round runs on the owner's account.
+/// first round, resuming its session or in a new one for its wake as the owner chose; and its Start and Pause while no
+/// wake goes on. Step asks first, as a real round runs on the owner's account.
 function useStep() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const step = (ask: string) => {
-    if (!window.confirm(ask)) return;
+  const [newSession, setNewSession] = useNewSession('architect');
+  const send = (path: string, body: object) => {
     setBusy(true);
     setError(null);
-    postJson('/api/v1/architect/step', {}).then(
+    postJson(path, body).then(
       () => {
         setBusy(false);
+        setNewSession(false);
         reread('architect', 'works', 'work:*');
       },
       (e: unknown) => {
@@ -86,11 +89,16 @@ function useStep() {
       },
     );
   };
-  return { busy, error, step };
+  const start = () => send('/api/v1/architect/start', { new_session: newSession });
+  const pause = () => send('/api/v1/architect/pause', {});
+  const step = (ask: string) => {
+    if (window.confirm(ask)) send('/api/v1/architect/step', { new_session: newSession });
+  };
+  return { busy, error, step, start, pause, newSession, setNewSession };
 }
 
 /// How the wake going on goes on, on one line: a round running and for how long, or what holds it back, or what it
-/// waits for, linked to the ask; then the question it is at and the matter it handles; and its Pause, Continue and Step.
+/// waits for, linked to the ask; then the question it is at and the matter it handles; and its Start, Pause and Step.
 function Awake({ w, handling, onAsk }: { w: WorkSummary; handling: string; onAsk: (id: number) => void }) {
   const status = useStatus();
   const a = useActions(w, status, true);
@@ -165,8 +173,10 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
     return h !== null && typeof h === 'object' && !Array.isArray(h) && typeof h.matter === 'string' ? h.matter : '';
   })();
   // With no wake going on, the owner's Step wakes the architect while every work is paused and a matter waits: else
-  // the engine wakes it by itself.
+  // the engine wakes it by itself. Started, the architect wakes by itself whatever the global state, until paused.
   const canWake = state.kind !== 'awake' && state.waiting > 0 && status !== null && status.paused;
+  const canStart = state.kind !== 'awake' && status !== null && status.paused && !status.architect_started;
+  const canPause = state.kind !== 'awake' && status !== null && status.architect_started;
   return (
     <div className="work-line arch-line">
       {state.kind === 'awake' && current !== null ? (
@@ -193,6 +203,17 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
           {h.why !== null ? `: ${h.why}` : null}
         </span>
       ))}
+      {canPause ? <span className="badge state-running">{t('arch_started')}</span> : null}
+      {canStart ? (
+        <button type="button" className="control" disabled={s.busy} title={t('arch_start_hint')} onClick={s.start}>
+          {t('work_start')}
+        </button>
+      ) : null}
+      {canPause ? (
+        <button type="button" className="control" disabled={s.busy} title={t('arch_pause_hint')} onClick={s.pause}>
+          {t('work_pause')}
+        </button>
+      ) : null}
       {canWake ? (
         <button
           type="button"
@@ -204,6 +225,7 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
           {t('work_step')}
         </button>
       ) : null}
+      {canStart || canWake ? <SessionChoice on={s.newSession} set={s.setNewSession} disabled={s.busy} /> : null}
       {s.error !== null ? <span className="bad why">{t('request_failed', { error: s.error })}</span> : null}
       <button
         type="button"

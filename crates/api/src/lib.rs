@@ -26,7 +26,7 @@ pub use control::{Asked, Control, Next};
 pub use diff::diff;
 pub use events::events;
 pub use marks::mark_read;
-pub use owner::{answer, pause, resume, rule, start_all};
+pub use owner::{answer, can_start, keep_warm_paused, pause, pause_wake, resume, rule, set_keep_warm_paused};
 pub use read::{
     Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, messages, round,
     spend, version_of, work, works,

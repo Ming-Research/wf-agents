@@ -1,7 +1,8 @@
 // Every work, or the one open. The list shows every row: those running or waiting, then those that have ended,
 // folded at first; both have the same columns at the same widths, which the owner drags, so that they read as one
 // table, and every cell stays on one line. A row says how its work goes on (a round running, what holds it back, what
-// it waits for) and holds the owner's Pause, Continue and Step of it. A work opened from it takes the whole window
+// it waits for), its state as it is in effect and why, and holds the owner's Start, Pause and Step of it. A work opened
+// from it takes the whole window
 // under the bar, its chart under a line that says which work it is, how it goes on and where, holds the owner's
 // controls, and leads to the other works running or waiting with what each needs of the owner. What waits for the owner
 // opens that tab of the work, and the marks of rounds that went wrong open the work with only those rounds.
@@ -83,7 +84,15 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
     );
   }
   if (c.running === null && why === null && waits === null) {
-    parts.push(<WorkBadge key="ready" state="ready" />);
+    parts.push(
+      c.started ? (
+        <span key="ready" className="badge state-ready">
+          {t('course_ready_started')}
+        </span>
+      ) : (
+        <WorkBadge key="ready" state="ready" />
+      ),
+    );
   }
   if (c.running === null && waits === null && w.answered !== null) {
     parts.push(
