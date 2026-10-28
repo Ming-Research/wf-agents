@@ -741,6 +741,8 @@ const messages = {
   arch_handling: 'on: {what}',
   arch_waits_answer: 'waits for your answer to ask {id}',
   arch_matters_wait: '{n} matters wait',
+  ask_waits: 'waits for your answer',
+  ask_answer_by: 'Answered by {by}',
   arch_step_confirm:
     "Run one round of the architect's wake {id} at {cell}? It is a real round on your account; the wake stays paused after it.",
   arch_wake_hint: 'Wake the architect for the matters waiting and run its first round; the wake stays paused after it.',
