@@ -82,7 +82,7 @@ function Block(props: { title: ReactNode; from?: Shown; open?: boolean; children
 /// A design card, in the card every card shares, linked to the round that handed it in; folded to its one line unless
 /// it is the item's current card.
 function Card({ c, current }: { c: DesignCard; current: number | null }) {
-  return <DesignCardView c={c} round={<From x={c} />} folded={c.id !== current} />;
+  return <DesignCardView c={c} round={<From x={{ work: c.work, round: c.round }} />} folded={c.id !== current} />;
 }
 
 function Ask({ a }: { a: OwnerAsk }) {
