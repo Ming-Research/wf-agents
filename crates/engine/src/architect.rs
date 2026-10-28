@@ -79,11 +79,13 @@ pub fn policy_stays(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, Str
     Ok(latest.is_some_and(|(_, r)| r["ruling"]["choice"] == "policy_stays"))
 }
 
-/// The inputs that give the policy being set, its text and its probes, as the wake's round that last wrote (P3) or
-/// corrected (P7) them handed them in, each with the places of those cells' returns it is at: addressed as that return,
-/// so that the session that wrote it is only referred to it.
+/// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the wake's
+/// round that wrote it (P3) handed it in, or as the engine put it together (P4) from a correction (P7), which hands in
+/// only its edits; and its probes, as the round that last wrote or corrected them handed them in. Each is addressed as
+/// the oldest of those places that holds it as it is now, so that the session that wrote it, or was given it once, is
+/// only referred to it.
 const DRAFT: [(&str, [(&str, &str); 2]); 2] = [
-    ("draft_text", [("P3", "policy"), ("P7", "revision.policy")]),
+    ("draft_text", [("P3", "policy"), ("P4", "draft.policy")]),
     ("draft_probes", [("P3", "probes"), ("P7", "revision.probes")]),
 ];
 
@@ -1666,6 +1668,158 @@ fn beside(at: Option<&str>, from: &str, to: &str) -> String {
     }
 }
 
+/// The text of the policy a return writes, for the checks of it: whole, as the policy beside the place checked; or,
+/// from a correction that hands in only its edits, beside the place checked, the text being set with them applied.
+/// None when the return holds neither, or its edits do not apply, which edits_apply says.
+fn revised(c: &checks::Ctx<'_>, at: Option<&str>) -> Result<Option<Value>, String> {
+    let place = |to: &str| match at.and_then(|a| a.rsplit_once('.')) {
+        Some((head, _)) => format!("{head}.{to}"),
+        None => to.to_string(),
+    };
+    if let Some(p) = at_path(&c.unwrapped, &place("policy")) {
+        return Ok(Some(p));
+    }
+    let Some(edits) = at_path(&c.unwrapped, &place("edits")) else {
+        return Ok(None);
+    };
+    let Some((_, draft)) = draft_now(c.e.db.conn(), c.w.id)? else {
+        return Ok(None);
+    };
+    Ok(applied(&draft, &items(Some(&edits))).ok())
+}
+
+/// The text of the policy a wake is setting as it stands, whole, with the round that holds it: the latest the
+/// architect wrote (P3) or the engine put together (P4); none before one is written.
+fn draft_now(conn: &Connection, work: i64) -> Result<Option<(i64, Value)>, String> {
+    let rows = query_json(
+        conn,
+        "SELECT n, coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy')) AS policy
+         FROM rounds WHERE work = ?1 AND cell IN ('P3', 'P4') AND transition IS NOT NULL
+           AND coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy')) IS NOT NULL
+         ORDER BY n DESC LIMIT 1",
+        &[&work],
+        1,
+    )?;
+    Ok(rows
+        .into_iter()
+        .next()
+        .map(|r| (r["n"].as_i64().unwrap_or_default(), r["policy"].clone())))
+}
+
+/// Cell P4: this version of the policy's text, put together for a new architect to read: as the architect wrote it,
+/// or, after a correction, the text before with each of the correction's edits applied in order.
+pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
+    let conn = e.db.conn();
+    let (round, text) =
+        draft_now(conn, w.id)?.ok_or_else(|| format!("work {}: no text of a policy is written", w.id))?;
+    let correction = query_json(
+        conn,
+        "SELECT json_extract(output, '$.outcome.revision.edits') AS edits FROM rounds
+         WHERE work = ?1 AND cell = 'P7' AND transition IS NOT NULL AND n > ?2
+           AND json_extract(output, '$.outcome.revision.edits') IS NOT NULL
+         ORDER BY n DESC LIMIT 1",
+        &[&w.id, &round],
+        1,
+    )?;
+    let text = match correction.first() {
+        Some(r) => applied(&text, &items(r.get("edits")))?,
+        None => text,
+    };
+    Ok(json!({ "draft": { "policy": text } }))
+}
+
+/// A policy with a correction's edits applied in order: each passage changed is in its texts, as the edits before
+/// leave them, exactly once, and is replaced there; a point, stage or signal added goes last, a point numbered after
+/// the highest; one removed is taken out, the other points keeping their numbers. When an edit does not apply, none
+/// is, and why each does not is said, each by its number.
+pub fn applied(policy: &Value, edits: &[Value]) -> Result<Value, String> {
+    let mut p = policy.clone();
+    let mut problems: Vec<String> = Vec::new();
+    for (i, x) in edits.iter().enumerate() {
+        let n = i + 1;
+        match text(&x["kind"]) {
+            "change" => {
+                let old = text(&x["old"]);
+                let times = if old.is_empty() { 0 } else { occurrences(&p, old) };
+                if times == 1 {
+                    replace_once(&mut p, old, text(&x["new"]));
+                } else {
+                    problems.push(format!(
+                        "edit {n} (change): its old passage is in the text {times} times, not once; quote it word \
+                         for word, and enough of it to be there once"
+                    ));
+                }
+            }
+            "add_point" => {
+                let no = point_numbers(&p).into_iter().max().unwrap_or(0) + 1;
+                push_row(&mut p, "points", json!({ "no": no, "text": x["text"] }));
+            }
+            "add_stage" => push_row(&mut p, "stages", x["text"].clone()),
+            "add_signal" => push_row(&mut p, "signals", json!({ "what": x["what"], "how": x["how"] })),
+            "remove" => {
+                // A point by its number; a stage or a signal by its place in its list, from 1.
+                let no = x["no"].as_i64().unwrap_or_default();
+                let part = text(&x["part"]);
+                let list = format!("{part}s");
+                let rows = items(p.get(&list));
+                let at = if part == "point" {
+                    rows.iter().position(|q| q["no"].as_i64() == Some(no))
+                } else {
+                    usize::try_from(no - 1).ok().filter(|i| *i < rows.len())
+                };
+                match (at, p.get_mut(&list).and_then(Value::as_array_mut)) {
+                    (Some(i), Some(xs)) => {
+                        xs.remove(i);
+                    }
+                    _ => problems.push(format!("edit {n} (remove): the text has no {part} {no}")),
+                }
+            }
+            other => problems.push(format!("edit {n}: there is no kind of edit {other}")),
+        }
+    }
+    if problems.is_empty() {
+        Ok(p)
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+/// How many times a passage is in the texts a value holds.
+fn occurrences(v: &Value, passage: &str) -> usize {
+    match v {
+        Value::String(s) => s.matches(passage).count(),
+        Value::Array(xs) => xs.iter().map(|x| occurrences(x, passage)).sum(),
+        Value::Object(o) => o.values().map(|x| occurrences(x, passage)).sum(),
+        _ => 0,
+    }
+}
+
+/// Replaces the first place a passage is in the texts a value holds; whether it was there.
+fn replace_once(v: &mut Value, old: &str, new: &str) -> bool {
+    match v {
+        Value::String(s) => match s.find(old) {
+            Some(at) => {
+                s.replace_range(at..at + old.len(), new);
+                true
+            }
+            None => false,
+        },
+        Value::Array(xs) => xs.iter_mut().any(|x| replace_once(x, old, new)),
+        Value::Object(o) => o.values_mut().any(|x| replace_once(x, old, new)),
+        _ => false,
+    }
+}
+
+/// Adds a row at the end of a list of a policy.
+fn push_row(p: &mut Value, list: &str, row: Value) {
+    if !p[list].is_array() {
+        p[list] = json!([]);
+    }
+    if let Some(xs) = p[list].as_array_mut() {
+        xs.push(row);
+    }
+}
+
 /// Whether a project's observation is open.
 fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, String> {
     Ok(count(
@@ -1962,8 +2116,12 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "edits_apply" => {
+            let (_, draft) = draft_now(conn, c.w.id)?.ok_or("no text of the policy is written yet")?;
+            applied(&draft, &items(v)).map(|_| ())
+        }
         "policy_text_clean" => {
-            let Some(policy) = v else { return Ok(()) };
+            let Some(policy) = revised(c, at)? else { return Ok(()) };
             let text = policy.to_string();
             for p in items(at_path(&c.unwrapped, &beside(at, "policy", "probes")).as_ref()) {
                 let ask = p["ask"].as_str().unwrap_or_default();
@@ -1989,7 +2147,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         }
         "probes_cover_points" => {
             let probes = items(v);
-            let policy = at_path(&c.unwrapped, &beside(at, "probes", "policy")).unwrap_or(Value::Null);
+            let Some(policy) = revised(c, at)? else { return Ok(()) };
             let numbers = point_numbers(&policy);
             for p in &probes {
                 for n in items(p.get("points")).iter().filter_map(Value::as_i64) {
@@ -3354,6 +3512,48 @@ mod tests {
         assert!(names_article("independent of any project; developed by itself", a));
         assert!(!names_article("Article 10", a));
         assert!(!names_article("Article 2", a));
+    }
+
+    // A correction's edits apply in order: a passage changed where it is once, as the edits before leave the text, a
+    // point added after the highest, rows removed; when one does not apply, none does, and each that does not is named.
+    #[test]
+    fn a_correction_s_edits_apply_in_order_or_not_at_all() {
+        let policy = json!({ "goal": "Ship the parser.", "why": "Users wait.", "scope": "The parser.",
+                             "points": [{ "no": 1, "text": "Parse first." }, { "no": 2, "text": "Check second." }],
+                             "stages": ["Lex.", "Parse."], "signals": [{ "what": "Speed", "how": "merged" }] });
+        let edits = [
+            json!({ "kind": "change", "old": "Users wait.", "new": "Users wait for it." }),
+            json!({ "kind": "change", "old": "for it", "new": "for the parser" }),
+            json!({ "kind": "add_point", "text": "Measure third." }),
+            json!({ "kind": "remove", "part": "point", "no": 1 }),
+            json!({ "kind": "remove", "part": "stage", "no": 1 }),
+            json!({ "kind": "add_signal", "what": "Size", "how": "design_bytes" }),
+        ];
+        let p = applied(&policy, &edits).unwrap();
+        assert_eq!(p["why"], "Users wait for the parser.");
+        assert_eq!(
+            p["points"],
+            json!([{ "no": 2, "text": "Check second." }, { "no": 3, "text": "Measure third." }])
+        );
+        assert_eq!(p["stages"], json!(["Parse."]));
+        assert_eq!(p["signals"][1]["what"], "Size");
+        let wrong = [
+            json!({ "kind": "change", "old": "parser", "new": "lexer" }),
+            json!({ "kind": "change", "old": "Users wait.", "new": "Users wait long." }),
+            json!({ "kind": "change", "old": "Nowhere.", "new": "Somewhere." }),
+            json!({ "kind": "remove", "part": "stage", "no": 5 }),
+        ];
+        let why = applied(&policy, &wrong).unwrap_err();
+        assert!(
+            why.contains("edit 1 (change): its old passage is in the text 2 times"),
+            "{why}"
+        );
+        assert!(
+            why.contains("edit 3 (change): its old passage is in the text 0 times"),
+            "{why}"
+        );
+        assert!(why.contains("edit 4 (remove): the text has no stage 5"), "{why}");
+        assert!(!why.contains("edit 2"), "{why}");
     }
 
     #[test]

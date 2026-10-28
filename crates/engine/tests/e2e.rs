@@ -4757,13 +4757,24 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The policy being set is given to the cells that judge and correct it as the architect's own return that last wrote
-// it, which its session holds and is only referred to. A probe the judgment of a reading lists as answered wrongly is
+// The policy being set is given to the cells that judge and correct it as the architect's own return that wrote it,
+// which its session holds and is only referred to. A correction hands in only the passages it changes, and the text
+// the engine puts together from it is given whole once. A probe the judgment of a reading lists as answered wrongly is
 // not used again, every such probe named at once; one the judgment only mentions stays.
 #[test]
 fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let s = setup("draft");
     let mut agents = scripts();
+    agents.insert(
+        "P3",
+        Box::new(|_: &Request, _: usize| {
+            let policy = json!({ "goal": "Ship the parser.", "why": "Users wait for it.",
+                                 "points": [{ "no": 1, "text": "Parse before checking." }], "stages": ["Lex."],
+                                 "signals": [{ "what": "Speed", "how": "merged" }], "scope": "The front end." });
+            let probes = json!([{ "id": "x", "ask": "What first?", "points": [1], "expect": "Point 1." }]);
+            (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
+        }),
+    );
     agents.insert(
         "P6",
         Box::new(|_: &Request, n: usize| {
@@ -4789,7 +4800,11 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
             } else {
                 json!([probe("x")])
             };
-            (Vec::new(), vec![("outcome.revision.probes", probes)])
+            let edits = json!([{ "kind": "change", "old": "Ship the parser.", "new": "Ship the parser first." }]);
+            (
+                Vec::new(),
+                vec![("outcome.revision.probes", probes), ("outcome.revision.edits", edits)],
+            )
         }),
     );
     let (mut e, said) = engine(&s, agents);
@@ -4823,9 +4838,21 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
         assert_eq!(given_ending(input, "·P3·policy"), Some(false), "{input}");
         assert_eq!(given_ending(input, "·P3·probes"), Some(false), "{input}");
     }
-    // The correction handed in new probes and left the text as it was, which keeps the address it was first given.
+    // The correction changed a passage: the text the engine put together from it is given whole, the new probes are
+    // the session's own return.
     assert_eq!(given_ending(&p6[1], "·P7·revision.probes"), Some(false), "{}", p6[1]);
-    assert_eq!(given_ending(&p6[1], "·P3·policy"), Some(false), "{}", p6[1]);
+    assert_eq!(given_ending(&p6[1], "·P4·draft.policy"), Some(true), "{}", p6[1]);
+    let text: Vec<Value> = engine::query_json(
+        e.db.conn(),
+        "SELECT policy FROM policy_text WHERE work = ?1",
+        &[&wake],
+        1,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["policy"]["goal"].clone())
+    .collect();
+    assert_eq!(text, [json!("Ship the parser first.")]);
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
         "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'P7' AND rejected IS NOT NULL",

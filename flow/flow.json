@@ -2688,6 +2688,7 @@
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
       "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
+      "put_draft_together": "Puts this version of the policy's text together, for a new architect to read, and records it: as the architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.",
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round."
     },
     "actions": {
@@ -2759,7 +2760,8 @@
       "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card, the return is a redirect, not answers.",
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
-      "policy_text_clean": "The policy quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
+      "edits_apply": "Each passage a correction changes is in the text, as the edits before it leave it, exactly once, and each point, stage or signal it removes is there; the engine applies none until all apply.",
+      "policy_text_clean": "The policy, as a correction's edits leave it, quotes none of the owner's words, and holds none of the probes; it names no cell of the flow and no date the owner said something.",
       "probes_cover_points": "Every probe names points the text has, and every point has at least one probe.",
       "failed_probes_gone": "No probe a new architect answered wrongly, as the judgment of its reading lists them, is among the probes.",
       "reading_complete": "Every point of the policy is restated, and every probe is answered.",
@@ -2799,7 +2801,7 @@
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
       "state_of_things": "The state of things as the architect last wrote it, with what it learned and noted since: when the wake's understanding wrote it, as that round handed it in.",
       "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the wake said the policy in force stays.",
-      "draft_text": "The text of the policy being set, as the round that last wrote or corrected it handed it in.",
+      "draft_text": "The text of the policy being set, as the round that wrote it handed it in, or as the engine put it together with the corrections since.",
       "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
@@ -13261,10 +13263,11 @@
         {
           "id": "P4",
           "kind": "engine",
-          "title": "A new session reads it",
+          "title": "Put the text together for a new session",
+          "step": "put_draft_together",
           "inputs": [
             {
-              "what": "This version's text",
+              "what": "This version's text as it stood before",
               "from": [
                 {
                   "db": "policy_text",
@@ -13273,7 +13276,18 @@
               ]
             }
           ],
-          "out": [],
+          "out": [
+            {
+              "name": "draft",
+              "type": "obj",
+              "desc": "This version of the text, as a new architect reads it",
+              "fields": [
+                {
+                  "$ref": "policy"
+                }
+              ]
+            }
+          ],
           "cases": [
             {
               "name": "new_session",
@@ -13297,10 +13311,10 @@
             {
               "what": "The policy's text",
               "from": [
-                {
-                  "db": "policy_text",
-                  "by": "work"
-                }
+                [
+                  "P4",
+                  "draft.policy"
+                ]
               ]
             },
             {
@@ -13324,7 +13338,7 @@
           ],
           "prompt": [
             "You are an architect just taking up the post, and the owner is away. The policy below is the owner's guiding thought for now, and from now on you act by it; apart from it and the constitution you know nothing, and can ask no one.",
-            "First read it and say it again in your own words, one point per row. Then ask what you do not understand, are unsure of, or the text does not make clear, one per row: these are used to correct the text, and no one answers you. Last, answer the probes: by the policy, how you would judge and why; answer even when unsure, saying where you are unsure."
+            "First read it and say each point again in one sentence of your own, one per row. Then ask what you do not understand, are unsure of, or the text does not make clear, one per row: these are used to correct the text, and no one answers you. Last, answer the probes, where your effort goes: by the policy, how you would judge and why; answer even when unsure, saying where you are unsure."
           ],
           "out": [
             {
@@ -13335,7 +13349,7 @@
                 {
                   "name": "restate",
                   "type": "list",
-                  "desc": "The restatement, one point per row",
+                  "desc": "The restatement, one sentence per point",
                   "item": {
                     "type": "obj",
                     "fields": [
@@ -13347,7 +13361,7 @@
                       {
                         "name": "text",
                         "type": "text",
-                        "desc": "In your own words, how this point has you judge, and why"
+                        "desc": "In one sentence of your own, how this point has you judge"
                       }
                     ]
                   },
@@ -13582,13 +13596,14 @@
             }
           ],
           "prompt": [
-            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe. Coming from P11, the draft would need setting again at once: correct the text for what it found."
+            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe. Coming from P11, the draft would need setting again at once: correct the text for what it found.",
+            "Hand in only what you change, in edits the engine applies in order: each passage changed, quoted word for word and long enough to be in the text once, with what it becomes; a point, stage or signal added or removed. Hand in the probes whole."
           ],
           "out": [
             {
               "name": "revision",
               "type": "obj",
-              "desc": "The corrected text and probes",
+              "desc": "What you change in the text, and the probes",
               "fields": [
                 {
                   "name": "why",
@@ -13596,7 +13611,100 @@
                   "desc": "Where the text lacked something, was vague or read off, and how you corrected it"
                 },
                 {
-                  "$ref": "policy"
+                  "name": "edits",
+                  "type": "list",
+                  "min": 1,
+                  "desc": "What you change in the text, one per row, applied in order",
+                  "item": {
+                    "type": "union",
+                    "by": "kind",
+                    "branches": [
+                      {
+                        "value": "change",
+                        "desc": "Change a passage in place",
+                        "fields": [
+                          {
+                            "name": "old",
+                            "type": "text",
+                            "desc": "The passage as the text has it, word for word, long enough to be in it once"
+                          },
+                          {
+                            "name": "new",
+                            "type": "text",
+                            "desc": "What it becomes"
+                          }
+                        ]
+                      },
+                      {
+                        "value": "add_point",
+                        "desc": "Add a point, numbered after the last",
+                        "fields": [
+                          {
+                            "name": "text",
+                            "type": "text",
+                            "desc": "What it meets, how to judge it, why, and what it rules out"
+                          }
+                        ]
+                      },
+                      {
+                        "value": "add_stage",
+                        "desc": "Add a stage after the last",
+                        "fields": [
+                          {
+                            "name": "text",
+                            "type": "text",
+                            "desc": "What this step delivers, and when it counts as done"
+                          }
+                        ]
+                      },
+                      {
+                        "value": "add_signal",
+                        "desc": "Add a signal",
+                        "fields": [
+                          {
+                            "name": "what",
+                            "type": "text",
+                            "desc": "Which signal"
+                          },
+                          {
+                            "name": "how",
+                            "type": "text",
+                            "desc": "How it shows: a number the engine measures, named as the numbers name it, and its line; or something that happens"
+                          }
+                        ]
+                      },
+                      {
+                        "value": "remove",
+                        "desc": "Remove a point, a stage or a signal",
+                        "fields": [
+                          {
+                            "name": "part",
+                            "type": "enum",
+                            "desc": "Which",
+                            "values": [
+                              [
+                                "point",
+                                "A point, by its number; the others keep theirs"
+                              ],
+                              [
+                                "stage",
+                                "A stage, by its place, from 1"
+                              ],
+                              [
+                                "signal",
+                                "A signal, by its place, from 1"
+                              ]
+                            ]
+                          },
+                          {
+                            "name": "no",
+                            "type": "int",
+                            "desc": "Its number or place"
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 },
                 {
                   "$ref": "policy_probes"
@@ -13618,7 +13726,11 @@
           ],
           "checks": [
             {
-              "at": "revision.policy",
+              "at": "revision.edits",
+              "check": "edits_apply"
+            },
+            {
+              "at": "revision.edits",
               "check": "policy_text_clean"
             },
             {

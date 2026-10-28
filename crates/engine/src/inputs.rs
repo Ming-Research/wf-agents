@@ -346,22 +346,21 @@ fn source(
         }
         // What the cell before this one on a matter's path answered is a place of that round's return.
         Src::Engine(n) if n == crate::architect::BEFORE => crate::architect::before(e, w, g)?,
-        // The policy being set is the newest of the places of the returns that write it.
+        // The policy being set is the newest of the places of the returns that write it, addressed as the oldest of
+        // them that holds it as it is: the text the engine put together unchanged from the text written is the
+        // written one.
         Src::Engine(n) if crate::architect::draft_places(n).is_some() => {
             let round = |p: &Part| match p.origin {
                 Origin::Place { round, .. } => Some(round),
                 _ => None,
             };
-            let mut newest: Option<Part> = None;
+            let mut parts: Vec<Part> = Vec::new();
             for (c, path) in crate::architect::draft_places(n).into_iter().flatten() {
                 let place = Src::Place((*c).to_string(), (*path).to_string());
-                if let Some(p) = source(e, w, g, cell, item, &place)?
-                    && newest.as_ref().is_none_or(|x| round(&p) > round(x))
-                {
-                    newest = Some(p);
-                }
+                parts.extend(source(e, w, g, cell, item, &place)?);
             }
-            newest
+            let newest = parts.iter().max_by_key(|p| round(p)).map(|p| p.value.clone());
+            newest.and_then(|v| parts.iter().filter(|p| p.value == v).min_by_key(|p| round(p)).cloned())
         }
         Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
