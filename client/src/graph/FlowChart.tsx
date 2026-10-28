@@ -142,7 +142,7 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
             </li>
             <li>
               <Swatch>
-                <path className="fc-edge fc-edge-lit" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-lit)" />
+                <path className="fc-edge fc-edge-lit" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit)" />
               </Swatch>
               {t('legend_lit')}
             </li>

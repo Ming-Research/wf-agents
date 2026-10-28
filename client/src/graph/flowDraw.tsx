@@ -137,9 +137,11 @@ export function labelSize(e: ChartEdge, numbered: boolean): Size | null {
   return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 20 };
 }
 
-/// The arrowhead's length and width, the same for every arrow, and how far the ring around the cell a work is at
-/// stands off the cell, where the arrows into and out of the cell end and start.
+/// The arrowhead's length and width, the same for every arrow but those lit for the round chosen, whose wide line
+/// takes a head sized to it; and how far the ring around the cell a work is at stands off the cell, where the arrows
+/// into and out of the cell end and start.
 const HEAD = 7;
+const LIT_HEAD = 16;
 const RING = 5;
 const RING_CUT = RING + 2;
 
@@ -374,8 +376,8 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
               refX="0"
               refY="5"
               markerUnits="userSpaceOnUse"
-              markerWidth={HEAD}
-              markerHeight={HEAD}
+              markerWidth={k === 'lit' ? LIT_HEAD : HEAD}
+              markerHeight={k === 'lit' ? LIT_HEAD : HEAD}
               orient="auto-start-reverse"
             >
               <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -403,7 +405,7 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
         // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
         const d = pathOf(r, {
           start: e.source === ring ? RING_CUT : 0,
-          end: HEAD + (e.target === ring ? RING_CUT : 0),
+          end: (kind === 'lit' ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
         });
         return (
           <g key={e.id} data-edge={e.id}>
