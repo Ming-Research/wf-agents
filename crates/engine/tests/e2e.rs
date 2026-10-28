@@ -2862,6 +2862,63 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Every agent's cell of a line, in every graph of the flow, gives the command line what it caches before the session
+// the same way, so that the line's session is read from the prompt cache at every change of cell: the program and its
+// arguments, the model, the structured-output schema, the tools and commands refused and the directories added, with
+// the configuration directory and where it runs. The effort may differ, as far as the flow's check lets it, and the
+// round's own session and hooks do; a cell on no line has a session of its own every round.
+#[test]
+fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
+    let s = setup("prefix");
+    let (mut e, _) = engine(&s, scripts());
+    let item = a_ready_item(&mut e, "Parse it");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', '1')",
+                params![item, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let wake = wake_at(&mut e, "U1");
+    let mut lines = 0;
+    for id in [work, wake] {
+        let w = e.work(id).unwrap();
+        let g = e.graph_of(&w).unwrap();
+        let item = e.subject(&w).unwrap();
+        let mut by_line: BTreeMap<String, Vec<(String, Vec<String>)>> = BTreeMap::new();
+        for cell in g.cells.iter().filter(|c| c.kind == "agent") {
+            let Some(line) = &cell.line else { continue };
+            let r = engine::cell_request(&e, &w, &g, cell, item.as_ref()).unwrap();
+            let mut prefix = vec![r.worktree.display().to_string(), format!("{:?}", r.config_dir)];
+            let mut words = engine::agent::command_line(&r).into_iter();
+            while let Some(x) = words.next() {
+                if matches!(x.as_str(), "--effort" | "--settings" | "--resume" | "--session-id") {
+                    words.next();
+                    continue;
+                }
+                prefix.push(x);
+            }
+            by_line.entry(line.clone()).or_default().push((cell.id.clone(), prefix));
+        }
+        for (line, cells) in &by_line {
+            lines += 1;
+            let (first, want) = &cells[0];
+            for (cell, got) in cells {
+                assert_eq!(
+                    got, want,
+                    "line {line}: cell {cell} gives the command line another prefix than cell {first}"
+                );
+            }
+        }
+    }
+    // The engineer's graph has four lines, the architect's three.
+    assert_eq!(lines, 7);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A wake goes on in the session the project's last wake left: one that understood the project in it goes from waking
 // straight to the queue, and does not understand it again.
 #[test]

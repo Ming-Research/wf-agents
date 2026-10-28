@@ -113,7 +113,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return failed::pause(e, w, &why);
     }
     let line_of_cell = crate::line_of(g, cell);
-    let (level_name, level, cli) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
+    let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();
     let Composed {
         line,
@@ -202,41 +202,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ];
         words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
     });
-    // A work runs in its worktree; a project's architect in a directory of its own, with its project's checkout to
-    // read.
-    let wt = match (&w.worktree, &project) {
-        (Some(wt), _) => wt.clone(),
-        (None, Some(p)) => p.checkout.clone(),
-        (None, None) => architect::made_workdir(&e.data, architect::project_of(w)?)?,
-    };
-    let mut readable = readable_dirs(e);
-    if g.name == ARCHITECT {
-        readable.extend(
-            w.project
-                .as_ref()
-                .and_then(|p| e.config.config.projects.get(p))
-                .and_then(|p| std::fs::canonicalize(&p.checkout).ok()),
-        );
-    }
     let req = Request {
-        work: w.id,
-        cell: cell.id.clone(),
-        line: line_of_cell.clone(),
-        cli,
-        model: level.model.clone(),
-        effort: sessions::choose::effort(cell),
-        worktree: wt,
-        config_dir: e.cli_home(&cli_name),
         resume,
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
-        schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
-        envelope: sessions::cli::envelope(g),
-        refused: e.config.config.install.agents.permissions.refused(&line_of_cell),
-        readable,
-        replay: None,
         regive: Some(given_again.clone()),
         deliver,
+        ..cell_request(e, w, g, cell, item.as_ref())?
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
@@ -386,6 +358,62 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
         }
     }
     call
+}
+
+/// What an agent's round at a cell is sent with, but for its message, its session and its hooks: the CLI and the model
+/// of the level the cell runs at, the CLI's configuration directory, the effort, the structured-output schemas, the
+/// tools and commands its line refuses, the directories outside where it runs that it may read, and where it runs: a
+/// work in its worktree, a project's architect in a directory of its own, with its project's checkout to read. What of
+/// it the command line puts before the session is the same for every cell of a line, but for the effort, which the
+/// flow's check keeps from turning thinking on or off, or the line's session reads nothing from the prompt cache at a
+/// change of cell; a test holds every line of the flow to that.
+pub fn cell_request(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Result<Request, String> {
+    let (_, level, cli) = level_of(e, g, cell, item).map_err(|x| format!("work {}: {x}", w.id))?;
+    let line = crate::line_of(g, cell);
+    let project = match item {
+        Some(_) => Some(e.project_of(w)?),
+        None => None,
+    };
+    let worktree = match (&w.worktree, &project) {
+        (Some(wt), _) => wt.clone(),
+        (None, Some(p)) => p.checkout.clone(),
+        (None, None) => architect::made_workdir(&e.data, architect::project_of(w)?)?,
+    };
+    let mut readable = readable_dirs(e);
+    if g.name == ARCHITECT {
+        readable.extend(
+            w.project
+                .as_ref()
+                .and_then(|p| e.config.config.projects.get(p))
+                .and_then(|p| std::fs::canonicalize(&p.checkout).ok()),
+        );
+    }
+    Ok(Request {
+        work: w.id,
+        cell: cell.id.clone(),
+        cli,
+        model: level.model.clone(),
+        effort: sessions::choose::effort(cell),
+        worktree,
+        config_dir: e.cli_home(&level.cli),
+        resume: None,
+        new_session: String::new(),
+        prompt: String::new(),
+        schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
+        envelope: sessions::cli::envelope(g),
+        refused: e.config.config.install.agents.permissions.refused(&line),
+        readable,
+        replay: None,
+        regive: None,
+        deliver: None,
+        line,
+    })
 }
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
