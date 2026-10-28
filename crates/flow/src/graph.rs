@@ -822,6 +822,21 @@ impl<'s> Graph<'s> {
                 };
             }
         }
+        // A line's cells run at `low`, which does not think, all or none: a round whose effort turns thinking on or off
+        // reads nothing of its session from the cache, and writes it all again.
+        for l in &flow.sessions.lines {
+            let efforts: Vec<(&str, &str)> = cells
+                .iter()
+                .filter(|c| c.kind == CellKind::Agent && c.line.as_ref() == Some(&l.name))
+                .filter_map(|c| Some((c.id.as_str(), c.effort.as_deref()?)))
+                .collect();
+            let low = efforts.iter().filter(|e| e.1 == "low").count();
+            ensure!(
+                low == 0 || low == efforts.len(),
+                "a line mixes the effort low, which does not think, with others: {} {efforts:?}",
+                l.name
+            );
+        }
         // A line starts a new session only at a cell of its own.
         for l in &flow.sessions.lines {
             for s in &l.starts {

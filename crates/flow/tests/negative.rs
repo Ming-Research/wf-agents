@@ -90,6 +90,13 @@ case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
 case!(no_such_engine_action, "no such engine action: nope", |v| {
     row(v, "3e", "report")["do"] = json!(["lock_acceptance", "post_design_card", "nope"]);
 });
+case!(
+    a_line_mixing_low_with_other_efforts,
+    "a line mixes the effort low, which does not think, with others: engineer",
+    |v| {
+        node(v, "4")["effort"] = json!("low");
+    }
+);
 case!(no_such_engine_check, "no such engine check: nope", |v| {
     node(v, "5")["checks"] = json!([{ "check": "nope" }]);
 });

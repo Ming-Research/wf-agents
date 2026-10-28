@@ -12559,7 +12559,7 @@
           "id": "C1",
           "kind": "agent",
           "title": "Rethink state and policy?",
-          "effort": "low",
+          "effort": "medium",
           "line": "architect",
           "inputs": [
             {
