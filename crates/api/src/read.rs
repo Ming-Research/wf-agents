@@ -434,7 +434,8 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        (SELECT count(*) FROM tool_runs t WHERE t.work = r.work AND t.round = r.n),
        json_extract(r.output, '$.progress'),
        r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
-       json_extract(r.input, '$.engine.not_applicable'), r.session
+       json_extract(r.input, '$.engine.not_applicable'), r.session, json_extract(r.input, '$.call.level'),
+       json_extract(r.input, '$.call.command')
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
@@ -459,12 +460,48 @@ fn round_tokens(usage: Option<&Value>) -> Option<RoundTokens> {
         thinking: n(&u["output_tokens_details"]["thinking_tokens"]),
         context_end: last
             .map(|c| n(&c["input_tokens"]) + n(&c["cache_read_input_tokens"]) + n(&c["cache_creation_input_tokens"])),
+        window: usage?["models"]
+            .as_object()
+            .and_then(|m| m.values().filter_map(|v| v["contextWindow"].as_i64()).max()),
         context_before: None,
+        level: None,
+        effort: None,
+        others: Vec::new(),
     })
+}
+
+/// The tokens each model has counted in a session so far, as a round's usage record gives them per model.
+fn per_model(usage: Option<&Value>) -> BTreeMap<String, i64> {
+    let Some(models) = usage.and_then(|u| u.get("models")).and_then(Value::as_object) else {
+        return BTreeMap::new();
+    };
+    models
+        .iter()
+        .map(|(k, v)| {
+            let n = |f: &str| v[f].as_i64().unwrap_or(0);
+            let all = n("inputTokens") + n("outputTokens") + n("cacheReadInputTokens") + n("cacheCreationInputTokens");
+            (k.clone(), all)
+        })
+        .collect()
+}
+
+/// The models besides a round's own whose count grew since the session's round before it.
+fn others(now: &BTreeMap<String, i64>, before: Option<&BTreeMap<String, i64>>, own: Option<&str>) -> Vec<String> {
+    now.iter()
+        .filter(|(m, n)| Some(m.as_str()) != own && **n > before.and_then(|b| b.get(*m)).copied().unwrap_or(0))
+        .map(|(m, _)| m.clone())
+        .collect()
 }
 
 fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     let transition: Option<String> = r.get(3)?;
+    // The level as the round's call record says it, and the effort its command line gave.
+    let level: Option<String> = r.get(23)?;
+    let effort = json(r.get(24)?).and_then(|command| {
+        let args = command.as_array()?;
+        let i = args.iter().position(|a| a.as_str() == Some("--effort"))?;
+        args.get(i + 1)?.as_str().map(str::to_string)
+    });
     let rejected = json(r.get(4)?);
     let ended_at: Option<i64> = r.get(6)?;
     Ok(RoundSummary {
@@ -482,7 +519,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         tool_runs: r.get(10)?,
         progress: text(r, 11)?,
         not_asked: r.get(21)?,
-        tokens: round_tokens(json(r.get(20)?).as_ref()),
+        tokens: round_tokens(json(r.get(20)?).as_ref()).map(|t| RoundTokens { level, effort, ..t }),
     })
 }
 
@@ -692,18 +729,23 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         .next()
         .ok_or_else(|| Error::NotFound(format!("no work {id}")))?;
     let mut st = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 ORDER BY r.n"))?;
-    let rows: Vec<(RoundSummary, Option<i64>)> = st
-        .query_map([id], |r| Ok((round_summary(r)?, r.get(22)?)))?
+    let rows: Vec<(RoundSummary, Option<i64>, Option<String>)> = st
+        .query_map([id], |r| Ok((round_summary(r)?, r.get(22)?, r.get(20)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    // Each round's context at its start is where the latest round before it in its session ended.
+    // Each round's context at its start is where the latest round before it in its session ended, and the models
+    // besides its own that it used are those whose count in the session grew since that session's round before it.
     let mut ended: HashMap<i64, i64> = HashMap::new();
+    let mut counted: HashMap<i64, BTreeMap<String, i64>> = HashMap::new();
     let mut rounds = Vec::with_capacity(rows.len());
-    for (mut round, session) in rows {
+    for (mut round, session, usage) in rows {
         if let (Some(session), Some(tokens)) = (session, round.tokens.as_mut()) {
             tokens.context_before = ended.get(&session).copied();
             if let Some(end) = tokens.context_end {
                 ended.insert(session, end);
             }
+            let now = per_model(json(usage).as_ref());
+            tokens.others = others(&now, counted.get(&session), round.model.as_deref());
+            counted.insert(session, now);
         }
         rounds.push(round);
     }
@@ -836,18 +878,25 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no round R{work}-{n}")))?;
     let (mut summary, _, flow_version, graph, session, config_commit, input, output, usage, rejected, session_id) = row;
-    // Its context at its start is where the latest round before it in its session ended.
+    // Its context at its start is where the latest round before it in its session ended, and the models besides its
+    // own that it used are those whose count in the session grew since that session's round before it.
     if let (Some(id), Some(tokens)) = (session_id, summary.tokens.as_mut()) {
         let mut st = conn.prepare(
             "SELECT usage FROM rounds WHERE work = ?1 AND session = ?2 AND n < ?3 AND usage IS NOT NULL ORDER BY n DESC",
         )?;
         let usages = st.query_map(rusqlite::params![work, id, n], |r| r.get::<_, Option<String>>(0))?;
+        let mut before: Option<BTreeMap<String, i64>> = None;
         for u in usages {
-            if let Some(end) = round_tokens(json(u?).as_ref()).and_then(|x| x.context_end) {
+            let u = json(u?);
+            if before.is_none() {
+                before = Some(per_model(u.as_ref()));
+            }
+            if let Some(end) = round_tokens(u.as_ref()).and_then(|x| x.context_end) {
                 tokens.context_before = Some(end);
                 break;
             }
         }
+        tokens.others = others(&per_model(usage.as_ref()), before.as_ref(), summary.model.as_deref());
     }
     // The record as the round was given it: each text it keeps once put back.
     let input = db::put_back(conn, &input);

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledCell, CompiledGraph, CompiledRow, DesignCard, GraphView, JsonValue, RoundSummary, Status, WorkSummary } from './api';
+import type {
+  CompiledCell,
+  CompiledGraph,
+  CompiledRow,
+  DesignCard,
+  GraphView,
+  JsonValue,
+  RoundSummary,
+  RoundTokens,
+  Status,
+  WorkSummary,
+} from './api';
 import { controls, course } from './components';
 import { held } from './course';
 import { cellTab, cellTabs, numbered } from './flow/CellPanel';
@@ -17,6 +28,7 @@ import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, foldLabel, messageParts, placeSchema, preview, shape, spent, tokens, valueMeanings } from './round';
+import { usageOf } from './usage';
 
 describe('the message catalog', () => {
   it('has every text, none empty, all in English', () => {
@@ -776,7 +788,11 @@ describe('a round', () => {
       output: 30127,
       thinking: 14389,
       context_end: 373995,
+      window: 1000000,
       context_before: 302901,
+      level: '2',
+      effort: 'xhigh',
+      others: [],
     };
     const s = spent(x, 'claude-sonnet-5-5');
     expect(s.parts.map((p) => p.text).join(' · ')).toBe('50 steps · context 303K→374K · re-read 68% · new 15% · output 16%');
@@ -789,6 +805,55 @@ describe('a round', () => {
     );
     expect(tokens(74)).toBe('74');
     expect(tokens(999_700)).toBe('1.00M');
+  });
+});
+
+describe("a work's usage", () => {
+  it('splits its time, groups its models by the level each round recorded, and finds the subagents and the sessions', () => {
+    const tokensOf = (extra: Partial<RoundTokens>): RoundTokens => ({
+      steps: 2,
+      input: 0,
+      read: 1_000_000,
+      written_5m: 0,
+      written_1h: 10_000,
+      output: 1_000,
+      thinking: 500,
+      context_end: 200_000,
+      window: 1_000_000,
+      context_before: null,
+      level: '2',
+      effort: 'xhigh',
+      others: [],
+      ...extra,
+    });
+    const at = (r: RoundSummary, start: number, end: number, extra: Partial<RoundSummary> = {}): RoundSummary => ({
+      ...r,
+      started_at: start,
+      ended_at: end,
+      ...extra,
+    });
+    const rounds = [
+      at(round(1, 'a', 'took', 'tools'), 0, 60_000, { line: 'engineer', model: 'claude-sonnet-5-5', cost_usd: 0.2, tokens: tokensOf({}) }),
+      at(round(2, 't', 'took', 'ran'), 60_000, 120_000),
+      at(round(3, 'a', 'sent_back', null), 300_000, 360_000, {
+        line: 'engineer',
+        model: 'claude-sonnet-5-5',
+        cost_usd: 0.3,
+        tokens: tokensOf({ context_end: 250_000, others: ['claude-haiku-5-5'] }),
+      }),
+    ];
+    const cells = new Map([
+      ['a', { kind: 'agent', title: 'Implement' }],
+      ['t', { kind: 'tool', title: 'Run tools' }],
+    ]);
+    const u = usageOf(rounds, cells, 0);
+    expect(u.time).toEqual({ model: 120_000, tool: 60_000, engine: 0, idle: 180_000 });
+    expect([u.agentRounds, u.sentBack, u.compactions]).toEqual([2, 1, 0]);
+    expect(u.models.map((m) => [m.model, m.level, m.effort, m.rounds, m.turns])).toEqual([['claude-sonnet-5-5', '2', 'xhigh', 2, 4]]);
+    expect(u.subagents).toEqual([{ model: 'claude-haiku-5-5', rounds: [3] }]);
+    expect(u.sessions.map((s) => [s.line, s.context, s.points.length])).toEqual([['engineer', 250_000, 2]]);
+    expect(u.tools).toEqual([{ cell: 't', title: 'Run tools', ms: 60_000, runs: 1 }]);
+    expect(u.kinds !== null && Math.round(u.kinds.read)).toBe(200_000);
   });
 });
 

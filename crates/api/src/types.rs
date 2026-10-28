@@ -290,9 +290,18 @@ pub struct RoundTokens {
     pub thinking: i64,
     /// The context at the round's end: its last call's prompt; none when the record does not give the last call.
     pub context_end: Option<i64>,
+    /// The size of the context window, as the command line reported it for the models of the session.
+    pub window: Option<i64>,
     /// The context at the round's start: the end of the latest round before it in the same session, since the usage
     /// record keeps only the round's last call; none for a round that started its session.
     pub context_before: Option<i64>,
+    /// The level the round ran at, as its call record says it; none for a round recorded before it said.
+    pub level: Option<String>,
+    /// The reasoning effort its command line gave it.
+    pub effort: Option<String>,
+    /// The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
+    /// which counts the whole session: the subagents that ran on other models.
+    pub others: Vec<String>,
 }
 
 /// A design card, as the round that handed it in wrote it, with its rulings.

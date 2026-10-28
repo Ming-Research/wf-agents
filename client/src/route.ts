@@ -4,8 +4,8 @@ import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type Rea
 
 import { roundName } from './format';
 
-/// What the work's panel beside its chart shows: its rounds, its design cards, or its messages and asks.
-export type WorkTab = 'rounds' | 'cards' | 'messages';
+/// What the work's panel beside its chart shows: its rounds, its design cards, its messages and asks, or its usage.
+export type WorkTab = 'rounds' | 'cards' | 'messages' | 'usage';
 
 /// Which of a work's rounds its list shows besides all of them: those whose return was sent back, or those whose run
 /// failed or was cut off.
@@ -66,7 +66,7 @@ export function parse(pathname: string, search: string): Route {
         id,
         round: roundOf(id, q.get('round')),
         cell: q.get('cell'),
-        tab: tab === 'cards' || tab === 'messages' ? tab : 'rounds',
+        tab: tab === 'cards' || tab === 'messages' || tab === 'usage' ? tab : 'rounds',
         only: only === 'sent_back' || only === 'failed' ? only : null,
       };
     }

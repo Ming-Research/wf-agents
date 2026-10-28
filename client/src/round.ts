@@ -348,20 +348,26 @@ export type Spent = {
 
 type SpentKey = 'spent_read' | 'spent_new' | 'spent_output' | 'spent_input';
 
-export function spent(x: RoundTokens, model: string | null): Spent {
+/// What each kind of token of a round cost, by the model's prices, in millionths of a dollar: the new input, the
+/// reads from the cache, the writes to it and the output; none for a model with no prices here.
+export type CostParts = { input: number; read: number; written: number; output: number };
+
+export function costParts(x: RoundTokens, model: string | null): CostParts | null {
   const priced = model !== null ? PRICES[model] : undefined;
   // A model priced higher above a size of prompt is priced by the last call's here: the record sums the calls.
   const above = priced?.above !== undefined && x.context_end !== null && x.context_end > priced.above.tokens;
   const p = above ? priced?.above?.prices : priced?.prices;
-  const costs =
-    p !== undefined
-      ? {
-          input: x.input * p.input,
-          read: x.read * p.read,
-          written: x.written_5m * p.write5m + x.written_1h * p.write1h,
-          output: x.output * p.output,
-        }
-      : null;
+  if (p === undefined) return null;
+  return {
+    input: x.input * p.input,
+    read: x.read * p.read,
+    written: x.written_5m * p.write5m + x.written_1h * p.write1h,
+    output: x.output * p.output,
+  };
+}
+
+export function spent(x: RoundTokens, model: string | null): Spent {
+  const costs = costParts(x, model);
   const total = costs !== null ? costs.input + costs.read + costs.written + costs.output : 0;
   const parts: SpentPart[] = [];
   const steps = t(x.steps === 1 ? 'spent_step' : 'spent_steps', { n: x.steps });

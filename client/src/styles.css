@@ -12,6 +12,11 @@
   --running: #2f6fdf;
   --code: #f0f0ec;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  --us-1: #2a78d6;
+  --us-2: #eb6834;
+  --us-3: #1baf7a;
+  --us-4: #8a5cd6;
+  --us-idle: #d8d6ce;
   color-scheme: light;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
   font-size: 14px;
@@ -33,6 +38,11 @@
     --running: #6ea0f5;
     --code: #2a2a27;
     --shadow: none;
+    --us-1: #3987e5;
+    --us-2: #d95926;
+    --us-3: #199e70;
+    --us-4: #9b72e0;
+    --us-idle: #4a4945;
     color-scheme: dark;
   }
 }
@@ -3517,3 +3527,268 @@ details.dc[open] > summary::before,
   overflow-x: auto;
 }
 
+/* A work's usage tab: tiles, then charts whose marks say what they are on hovering and whose labels are HTML so that
+   they keep their size as the charts shrink with the panel. */
+
+.us {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.us-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.us-tile {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.us-k,
+.us-s,
+.us-note,
+.us-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.us-v {
+  font-size: 19px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.us-sec h4 {
+  margin: 16px 0 2px;
+  font-size: 13.5px;
+}
+
+.us-note {
+  margin: 0 0 6px;
+}
+
+.us-gap {
+  margin-top: 12px;
+}
+
+.us-stack {
+  display: flex;
+  gap: 2px;
+  height: 22px;
+}
+
+.us-stack > span {
+  border-radius: 4px;
+}
+
+.us-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.us-legend i,
+.us-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.us-timeline {
+  margin-top: 10px;
+}
+
+.us-track {
+  position: relative;
+  height: 30px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--us-idle) 55%, transparent);
+}
+
+.us-block {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  border-radius: 2px;
+}
+
+.us-model {
+  background: var(--us-1);
+}
+
+.us-tool {
+  background: var(--us-2);
+}
+
+.us-axis {
+  position: relative;
+  height: 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.us-axis > span {
+  position: absolute;
+  top: 3px;
+  white-space: nowrap;
+}
+
+.us-axis > .us-tick {
+  transform: translateX(-50%);
+}
+
+.us-axis > .us-axis-end {
+  transform: translateX(-100%);
+}
+
+.us-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.us-table th {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.us-table th:first-child {
+  text-align: left;
+}
+
+.us-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.us-table td.num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.us-mini {
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.us-mini > div {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--us-1);
+}
+
+.us-bars {
+  display: grid;
+  gap: 5px;
+}
+
+.us-bar {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.us-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.us-bar-track {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.us-bar-fill {
+  display: block;
+  height: 18px;
+  border-radius: 0 4px 4px 0;
+}
+
+.us-bar-value {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.us-chart {
+  position: relative;
+  width: 100%;
+}
+
+.us-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.us-grid {
+  stroke: var(--line);
+}
+
+.us-point {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.us-compacted {
+  stroke: var(--text);
+}
+
+.us-chart > span {
+  position: absolute;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.us-chart > .us-y {
+  left: 0;
+  transform: translateY(-120%);
+}
+
+.us-chart > .us-end-label {
+  font-size: 12px;
+  font-weight: 600;
+  transform: translateY(-50%);
+}
+
+.us-chart > .us-x {
+  bottom: -16px;
+}
+
+.us-chart > .us-x-end {
+  transform: translateX(-100%);
+}
+
+.us-tip {
+  position: fixed;
+  z-index: 50;
+  max-width: 420px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--panel);
+  font-size: 12px;
+  pointer-events: none;
+}

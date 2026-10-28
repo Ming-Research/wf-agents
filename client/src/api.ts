@@ -282,10 +282,27 @@ output: number, thinking: number,
  */
 context_end: number | null, 
 /**
+ * The size of the context window, as the command line reported it for the models of the session.
+ */
+window: number | null, 
+/**
  * The context at the round's start: the end of the latest round before it in the same session, since the usage
  * record keeps only the round's last call; none for a round that started its session.
  */
-context_before: number | null, };
+context_before: number | null,
+/**
+ * The level the round ran at, as its call record says it; none for a round recorded before it said.
+ */
+level: string | null,
+/**
+ * The reasoning effort its command line gave it.
+ */
+effort: string | null,
+/**
+ * The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
+ * which counts the whole session: the subagents that ran on other models.
+ */
+others: Array<string>, };
 
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.

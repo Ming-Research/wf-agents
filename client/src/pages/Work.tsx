@@ -34,6 +34,7 @@ import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView, words } from './Decide';
 import { markRead } from './Messages';
 import { RoundView } from './RoundView';
+import { Usage } from './Usage';
 
 /// Who did a round's work: an agent, by its line; the engine, also for a gate it answered itself; the tools; the
 /// owner.
@@ -507,7 +508,7 @@ function WorkPanel({ d, g, r, go }: {
   const onAsk = (id: number) => show('messages', `ask-${id}`);
   const openCards = d.design_cards.filter((c) => c.status === 'open').length;
   const openAsks = d.asks.filter((a) => a.answer === null).length;
-  const tabs: Array<{ tab: WorkTab; label: string; n: number; chip: string | null; hint: string }> = [
+  const tabs: Array<{ tab: WorkTab; label: string; n: number | null; chip: string | null; hint: string }> = [
     { tab: 'rounds', label: t('rounds'), n: d.rounds.length, chip: null, hint: '' },
     {
       tab: 'cards',
@@ -523,6 +524,7 @@ function WorkPanel({ d, g, r, go }: {
       chip: openAsks > 0 ? t('open_asks_chip', { n: openAsks }) : null,
       hint: t('open_asks_n', { n: openAsks }),
     },
+    { tab: 'usage', label: t('us_tab'), n: null, chip: null, hint: '' },
   ];
   const shown = roundsShown(d.rounds, r.only);
   return (
@@ -539,7 +541,7 @@ function WorkPanel({ d, g, r, go }: {
               onClick={() => show(x.tab, null)}
             >
               {x.label}
-              <span className="tab-n">{x.n}</span>
+              {x.n !== null ? <span className="tab-n">{x.n}</span> : null}
               {x.chip !== null ? (
                 <span className="chip warn" title={x.hint}>
                   {x.chip}
@@ -576,6 +578,7 @@ function WorkPanel({ d, g, r, go }: {
         ) : null}
         {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
         {r.tab === 'messages' ? <Messages d={d} onRound={onRound} onAsk={onAsk} /> : null}
+        {r.tab === 'usage' ? <Usage d={d} g={g} /> : null}
       </div>
     </div>
   );
