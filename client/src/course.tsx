@@ -113,26 +113,81 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
   return { c, can, busy, error, pause, start, step, newSession, setNewSession };
 }
 
-/// The owner's choice of the session the next Start or Step runs its round in: the one its line goes on in, or a new
-/// one given everything its cell needs.
-export function SessionChoice({ on, set, disabled }: { on: boolean; set: (on: boolean) => void; disabled?: boolean }) {
+/// The icons of the owner's controls, drawn in the colour of their text: Start a triangle, Pause two bars, Step a
+/// triangle against a bar, and the new session a speech bubble holding a plus.
+function Icon({ of }: { of: 'start' | 'pause' | 'step' | 'session' }) {
   return (
-    <select
-      className="control session-choice"
-      value={on ? 'new' : 'resume'}
-      disabled={disabled}
-      title={t('session_choice_hint')}
-      aria-label={t('session_choice')}
-      onChange={(e) => set(e.target.value === 'new')}
-    >
-      <option value="resume">{t('session_resume')}</option>
-      <option value="new">{t('session_new')}</option>
-    </select>
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+      {of === 'start' ? <path d="M5 3.2v9.6l7.6-4.8z" /> : null}
+      {of === 'pause' ? <path d="M4.5 3.5h2.4v9H4.5zM9.1 3.5h2.4v9H9.1z" /> : null}
+      {of === 'step' ? <path d="M3.5 3.5v9l6.4-4.5zM10.6 3.5h2v9h-2z" /> : null}
+      {of === 'session' ? (
+        <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2.5 4q0-1.5 1.5-1.5h8q1.5 0 1.5 1.5v5.5q0 1.5-1.5 1.5H7l-3 2.5V11q-1.5 0-1.5-1.5z" />
+          <path d="M8 4.75v4M6 6.75h4" />
+        </g>
+      ) : null}
+    </svg>
   );
 }
 
-/// The buttons of the controls the owner can use on a work now, each saying on hovering what it does, with the session
-/// choice beside Start and Step.
+/// The names of Start, Pause and Step, said on hovering each and to a screen reader.
+const NAMES = { start: 'work_start', pause: 'work_pause', step: 'work_step' } as const;
+
+/// One of the owner's Start, Pause and Step, drawn as its icon: hovering says its name and what it does, or why it
+/// cannot now, and a screen reader is told its name.
+export function Control({ icon, hint, onClick, disabled }: {
+  icon: 'start' | 'pause' | 'step';
+  hint: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const name = t(NAMES[icon]);
+  return (
+    <button
+      type="button"
+      className="control icon-control"
+      onClick={onClick}
+      disabled={disabled}
+      title={`${name}\n${hint}`}
+      aria-label={name}
+    >
+      <Icon of={icon} />
+    </button>
+  );
+}
+
+/// The owner's choice of the session the next Start or Step runs its round in, as a switch drawn as its icon: pressed,
+/// a new one given everything its cell needs; else the one its line goes on in.
+export function SessionChoice({ on, set, disabled }: { on: boolean; set: (on: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="control icon-control"
+      aria-pressed={on}
+      disabled={disabled}
+      title={`${t('session_new')}\n${t('session_choice_hint')}`}
+      aria-label={t('session_new')}
+      onClick={() => set(!on)}
+    >
+      <Icon of="session" />
+    </button>
+  );
+}
+
+/// Why Step cannot run a round of a work now, in words, or null when it can: the work goes on, a round of it runs, it
+/// waits for something, or another round asked for is under way or something stops every work.
+export function stepWhyNot(c: Course, can: ReturnType<typeof controls>): string | null {
+  if (!can.start) return t('work_step_goes_on');
+  if (c.running !== null) return runningWords(c);
+  if (c.waits !== null) return waitsWords(c.waits);
+  if (!can.canStep) return t('work_step_later');
+  return null;
+}
+
+/// The controls the owner has on a work not over, as icons, each saying on hovering what it does: Start while it is
+/// held back or Pause while it goes on; Step, greyed with why while it cannot run a round; and beside it the choice of
+/// a new session, greyed while the work goes on, since it is only for the next Start or Step.
 export function Controls({ a, w, status, onStep }: {
   a: ReturnType<typeof useActions>;
   w: WorkSummary;
@@ -141,43 +196,28 @@ export function Controls({ a, w, status, onStep }: {
   onStep: (() => void) | null;
 }) {
   const { c, can } = a;
-  const startHint =
-    c.held === 'architect'
+  const live = can.start || can.pause;
+  const startHint = c.outdated
+    ? takeoverWords(w, status)
+    : c.held === 'architect'
       ? t('work_start_architect_hint')
       : c.held === 'engine'
         ? t('work_start_engine_hint', { cell: w.at })
         : t('work_start_hint');
-  const stepShown = can.step && onStep !== null;
+  const whyNot = stepWhyNot(c, can);
   return (
     <span className="controls">
-      {can.start ? (
-        <button
-          type="button"
-          className="control"
-          onClick={a.start}
-          disabled={a.busy}
-          title={c.outdated ? takeoverWords(w, status) : startHint}
-        >
-          {t('work_start')}
-        </button>
-      ) : null}
-      {can.pause ? (
-        <button type="button" className="control" onClick={a.pause} disabled={a.busy} title={t('work_pause_hint')}>
-          {t('work_pause')}
-        </button>
-      ) : null}
-      {stepShown ? (
-        <button
-          type="button"
-          className="control"
+      {can.start ? <Control icon="start" hint={startHint} onClick={a.start} disabled={a.busy} /> : null}
+      {can.pause ? <Control icon="pause" hint={t('work_pause_hint')} onClick={a.pause} disabled={a.busy} /> : null}
+      {live && onStep !== null ? (
+        <Control
+          icon="step"
+          hint={whyNot ?? (c.outdated ? takeoverWords(w, status) : t('work_step_hint'))}
           onClick={onStep}
-          disabled={a.busy || !can.canStep}
-          title={can.canStep ? (c.outdated ? takeoverWords(w, status) : t('work_step_hint')) : t('work_step_later')}
-        >
-          {t('work_step')}
-        </button>
+          disabled={a.busy || whyNot !== null}
+        />
       ) : null}
-      {can.start || stepShown ? <SessionChoice on={a.newSession} set={a.setNewSession} disabled={a.busy} /> : null}
+      {live ? <SessionChoice on={a.newSession} set={a.setNewSession} disabled={a.busy || !can.start} /> : null}
     </span>
   );
 }

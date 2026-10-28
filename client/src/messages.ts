@@ -169,16 +169,15 @@ const messages = {
     'Your release of the work the architect stopped: it goes on whatever the global state, and the architect is told.',
   start_release_confirm:
     'The architect stopped work {id}. Start it? This is your release of it, and the architect is told in your words.',
-  session_choice: 'Session',
   session_choice_hint:
-    'The session Start or Step runs the next round in: the one its line goes on in, or a new one given everything its cell needs. The session before is left as it is.',
-  session_resume: 'Resume the session',
+    'Pressed, the next Start or Step runs its round in a new session given everything its cell needs; else in the session its line goes on in. The session before is left as it is.',
   session_new: 'New session',
   work_pause_hint:
     'It stops at the end of the round it is in and stays paused, whatever the global state, until you start it; Start all does not lift it.',
   work_step_hint:
     'Runs exactly one real round of it on your account, whatever the global state; after it, the work is paused by you.',
   work_step_later: 'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
+  work_step_goes_on: 'It goes on: Step runs a round of it only while it is paused.',
   confirm_step: 'Run one round of work {id} at cell {cell} now? It is a real round on your account.',
   confirm_takeover:
     'Work {id} is on flow version {version}; the engine runs version {now}. Going on, it ends, and a new work on version {now} takes item {item} over from the first cell. Go on?',

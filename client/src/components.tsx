@@ -128,16 +128,20 @@ export function course(w: WorkSummary, status: Status | null): Course {
   };
 }
 
-/// What the owner can do with a work now: Pause one not paused by itself, which then stays paused whatever the global
-/// state, or one the owner started that waits for a slot; Start one that does not go on, which then goes on whatever
-/// the global state, its own pause lifted; Step, one round of one that does not go on and waits for nothing, which can
-/// run only while no other round asked for is under way and nothing stops every work.
+/// What the owner can do with a work now; a work over, or any while the engine's state is not known, has nothing.
+/// Otherwise it has exactly one of Start and Pause: Start while it is held back (paused by the owner, every work
+/// paused, or stopped by the engine or the architect), after which it goes on whatever the global state, its own pause
+/// lifted; Pause while it goes on, or the owner started it and it waits for a slot, after which it stays paused
+/// whatever the global state. Step, one round of it, is for a work held back that no round of it runs and that waits
+/// for nothing (`step`), and can run only while no other round asked for is under way and nothing stops every work
+/// (`canStep`).
 export function controls(c: Course, status: Status | null) {
   if (c.over || status === null) return { pause: false, start: false, step: false, canStep: false };
+  const back = c.held !== null && !c.releasing;
   return {
-    pause: c.held === null || c.held === 'all' || c.releasing,
-    start: c.held !== null && !c.releasing,
-    step: c.held !== null && c.running === null && c.waits === null,
+    pause: !back,
+    start: back,
+    step: back && c.running === null && c.waits === null,
     canStep: status.stepping === null && status.halt === null,
   };
 }

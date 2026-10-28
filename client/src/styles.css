@@ -237,11 +237,6 @@ button {
   line-height: 1;
 }
 
-/* The choice of the session Start and Step run the next round in. */
-.session-choice {
-  padding: 0 4px;
-}
-
 button.link {
   background: none;
   border: 0;
@@ -3150,10 +3145,11 @@ p.rp-note {
   text-decoration: none;
 }
 
-/* The owner's Pause, Continue and Step of a work, in its row and its window. */
+/* The owner's Start or Pause, Step and the choice of a new session for them, of a work, in its row and its window. */
 .controls {
   display: inline-flex;
   gap: 4px;
+  vertical-align: middle;
 }
 
 .next-head .controls {
@@ -3173,6 +3169,27 @@ p.rp-note {
 .control:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* A control drawn as its icon: a small square; the choice of a new session is filled while pressed. */
+.control.icon-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  vertical-align: middle;
+}
+
+.icon-control svg {
+  width: 14px;
+  height: 14px;
+}
+
+.icon-control[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--panel);
 }
 
 .timeline td.nowrap {

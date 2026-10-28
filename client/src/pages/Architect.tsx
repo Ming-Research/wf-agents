@@ -28,7 +28,7 @@ import type {
 } from '../api';
 import { architectState, observationsShown, overWake, queueParts, shownWake } from '../architect';
 import { course, heldName, Loaded } from '../components';
-import { Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
+import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
@@ -189,11 +189,20 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
   const s = useStep(a.project);
   const handling = state.kind === 'awake' && state.handling !== null ? state.handling.what : '';
   const started = status !== null && status.architects_started.includes(a.project);
-  // With no wake going on, the owner's Step wakes the architect while every work is paused and a matter waits: else
-  // the engine wakes it by itself. Started, the architect wakes by itself whatever the global state, until paused.
-  const canWake = state.kind !== 'awake' && state.waiting > 0 && status !== null && status.paused;
-  const canStart = state.kind !== 'awake' && status !== null && status.paused && !started;
-  const canPause = state.kind !== 'awake' && started;
+  // With no wake going on, the architect is held back while every work is paused and the owner has not started it:
+  // then its Start, and its Step, which wakes it while a matter waits; else the engine wakes it by itself. Started, it
+  // wakes by itself whatever the global state, until paused. Step and the session choice beside it are shown greyed
+  // while they cannot be used.
+  const asleep = state.kind !== 'awake' && status !== null;
+  const canStart = asleep && status.paused && !started;
+  const canPause = asleep && started;
+  const wakeWhyNot = !canStart
+    ? t('work_step_goes_on')
+    : state.waiting === 0
+      ? t('arch_queue_none_waiting')
+      : status.stepping !== null || status.halt !== null
+        ? t('work_step_later')
+        : null;
   return (
     <div className="work-line arch-line">
       {a.projects.length > 1 ? (
@@ -229,28 +238,17 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
         </span>
       ))}
       {canPause ? <span className="badge state-running">{t('arch_started')}</span> : null}
-      {canStart ? (
-        <button type="button" className="control" disabled={s.busy} title={t('arch_start_hint')} onClick={s.start}>
-          {t('work_start')}
-        </button>
-      ) : null}
-      {canPause ? (
-        <button type="button" className="control" disabled={s.busy} title={t('arch_pause_hint')} onClick={s.pause}>
-          {t('work_pause')}
-        </button>
-      ) : null}
-      {canWake ? (
-        <button
-          type="button"
-          className="control"
-          disabled={s.busy || status?.stepping !== null || status?.halt !== null}
-          title={t('arch_wake_hint')}
+      {canStart ? <Control icon="start" hint={t('arch_start_hint')} onClick={s.start} disabled={s.busy} /> : null}
+      {canPause ? <Control icon="pause" hint={t('arch_pause_hint')} onClick={s.pause} disabled={s.busy} /> : null}
+      {asleep ? (
+        <Control
+          icon="step"
+          hint={wakeWhyNot ?? t('arch_wake_hint')}
           onClick={() => s.step(t('arch_wake_confirm'))}
-        >
-          {t('work_step')}
-        </button>
+          disabled={s.busy || wakeWhyNot !== null}
+        />
       ) : null}
-      {canStart || canWake ? <SessionChoice on={s.newSession} set={s.setNewSession} disabled={s.busy} /> : null}
+      {asleep ? <SessionChoice on={s.newSession} set={s.setNewSession} disabled={s.busy || !canStart} /> : null}
       {s.error !== null ? <span className="bad why">{t('request_failed', { error: s.error })}</span> : null}
       <button
         type="button"
