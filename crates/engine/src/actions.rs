@@ -53,21 +53,35 @@ fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> 
 /// Tells the owner something: kept for the owner's interface in the same transaction, and written to the
 /// notifications log through the outbox.
 pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
-    tell(tx, work, None, text)
+    tell(tx, work, None, None, text).map(|_| ())
 }
 
 /// Tells the owner of a new ask of the owner, the notice naming the ask for the owner's interface to link to.
 pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
-    tell(tx, Some(work), Some(ask), text)
+    tell(tx, Some(work), Some(ask), None, text).map(|_| ())
 }
 
-fn tell(tx: &Transaction<'_>, work: Option<i64>, ask: Option<i64>, text: &str) -> Result<(), String> {
+/// Tells the owner of a fault of wf-agents, the notice naming its kind for the owner's interface to set it apart;
+/// gives the notice.
+pub fn notify_fault(tx: &Transaction<'_>, work: i64, fault: &str, text: &str) -> Result<i64, String> {
+    tell(tx, Some(work), None, Some(fault), text)
+}
+
+fn tell(
+    tx: &Transaction<'_>,
+    work: Option<i64>,
+    ask: Option<i64>,
+    fault: Option<&str>,
+    text: &str,
+) -> Result<i64, String> {
     tx.execute(
-        "INSERT INTO engine_notices (work, ask, text, at) VALUES (?1, ?2, ?3, ?4)",
-        params![work, ask, text, db::now()],
+        "INSERT INTO engine_notices (work, ask, fault, text, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![work, ask, fault, text, db::now()],
     )
     .map_err(sql)?;
-    outbox(tx, work, "notify", &json!({ "text": text }))
+    let id = tx.last_insert_rowid();
+    outbox(tx, work, "notify", &json!({ "text": text }))?;
+    Ok(id)
 }
 
 impl Ctx {

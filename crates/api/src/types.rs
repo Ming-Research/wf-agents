@@ -433,6 +433,21 @@ pub struct OwnerMessage {
     /// For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
     /// architect's project; none otherwise.
     pub architect: Option<String>,
+    /// For the engine's notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its
+    /// kind: cache_miss; none for any other message.
+    pub fault: Option<String>,
+    /// For the engine's notice of cache misses: the misses it tells of, the first and those added to it since.
+    pub misses: Option<Misses>,
+}
+
+/// The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
+/// reading the cache, and when the latest came.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Misses {
+    pub count: i64,
+    pub written: i64,
+    pub cost_usd: f64,
+    pub last_at: Option<i64>,
 }
 
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by

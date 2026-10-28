@@ -6,6 +6,41 @@ use serde_json::{Value, json};
 
 use crate::round::Round;
 
+/// What a model's tokens cost as parts of an input token's price, as Anthropic prices every model: reading the cache,
+/// writing it to keep five minutes or an hour, and output.
+const READ: f64 = 0.1;
+const WRITE_5M: f64 = 1.25;
+const WRITE_1H: f64 = 2.0;
+const OUTPUT: f64 = 5.0;
+
+/// What writing `tokens` to the cache again cost a call beyond reading them, from its usage record with its own cost:
+/// the price of an input token is that cost over the call's tokens, each counted at its part of that price, and the
+/// tokens are written as the call wrote the cache, kept five minutes or an hour. None when the record has no cost or
+/// no tokens.
+pub fn rewritten(usage: &Value, tokens: i64) -> Option<f64> {
+    let cost = usage["cost_usd"].as_f64()?;
+    let u = usage.get("usage")?;
+    let n = |v: &Value| v.as_f64().unwrap_or(0.0);
+    let (w5, w1) = match u.get("cache_creation") {
+        Some(c) => (n(&c["ephemeral_5m_input_tokens"]), n(&c["ephemeral_1h_input_tokens"])),
+        None => (n(&u["cache_creation_input_tokens"]), 0.0),
+    };
+    let units = n(&u["input_tokens"])
+        + READ * n(&u["cache_read_input_tokens"])
+        + WRITE_5M * w5
+        + WRITE_1H * w1
+        + OUTPUT * n(&u["output_tokens"]);
+    if units <= 0.0 {
+        return None;
+    }
+    let write = if w5 + w1 > 0.0 {
+        (WRITE_5M * w5 + WRITE_1H * w1) / (w5 + w1)
+    } else {
+        WRITE_5M
+    };
+    Some(tokens as f64 * (write - READ) * cost / units)
+}
+
 /// A usage record with its own cost written in: what the session's cost grew by since `before`, what it had cost by
 /// its call before; a session the CLI counted afresh costs what it reports.
 pub fn own_cost(mut usage: Value, before: Option<f64>) -> Value {
@@ -55,5 +90,16 @@ mod tests {
         // A session the CLI counted afresh costs what it reports.
         assert_eq!(own_cost(u(0.5), Some(1.5))["cost_usd"], 0.5);
         assert_eq!(own_cost(json!({ "started": true }), None), json!({ "started": true }));
+    }
+
+    // A call that only wrote the cache, kept an hour, cost twice an input token's price for each token: writing them
+    // again beyond reading them cost 1.9 parts of 2.
+    #[test]
+    fn writing_the_cache_again_costs_its_price_beyond_reading_it() {
+        let u = json!({ "cost_usd": 2.0, "usage": { "cache_creation_input_tokens": 1000,
+            "cache_creation": { "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 1000 } } });
+        let c = rewritten(&u, 1000).unwrap();
+        assert!((c - 1.9).abs() < 1e-9, "{c}");
+        assert_eq!(rewritten(&json!({ "usage": {} }), 1000), None);
     }
 }

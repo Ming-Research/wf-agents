@@ -305,6 +305,15 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
+    // A round that resumed its session within the cache's lifetime and still wrote most of it to the cache again missed
+    // the cache: a fault of wf-agents, which the owner is told of.
+    if req.resume.is_some()
+        && let Some(usage) = &ended.usage
+        && let Some(miss) =
+            sessions::miss::missed(e.db.conn(), &new_session, &line_rounds, round, &input["call"], usage)?
+    {
+        crate::faults::cache_miss(e, w, round, &cell.id, &line, &miss)?;
+    }
     let Some(mut output) = reply.output.clone() else {
         let f = Failed {
             w,

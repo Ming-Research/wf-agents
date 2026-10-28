@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, InputsNow, Interjection, ItemChange,
-    ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter,
+    ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, LogEntry, Matter, Misses,
     NamedText, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued,
     Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens,
     RunningRound, Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail,
@@ -711,13 +711,20 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             ask: None,
             ask_kinds: Vec::new(),
             architect: r.get(10)?,
+            fault: None,
+            misses: None,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body,
-       CASE WHEN w.graph = 'architect' THEN w.project END
+       CASE WHEN w.graph = 'architect' THEN w.project END, n.fault,
+       (SELECT count(*) FROM cache_misses c WHERE c.notice = n.id),
+       (SELECT coalesce(sum(c.written), 0) FROM cache_misses c WHERE c.notice = n.id),
+       (SELECT coalesce(sum(c.cost_usd), 0.0) FROM cache_misses c WHERE c.notice = n.id),
+       (SELECT max(r.started_at) FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
+        WHERE c.notice = n.id)
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
 LEFT JOIN owner_asks a ON a.id = n.ask";
 
@@ -739,6 +746,16 @@ fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Ow
             ask: r.get(7)?,
             ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
             architect: r.get(9)?,
+            fault: r.get(10)?,
+            misses: match r.get::<_, i64>(11)? {
+                0 => None,
+                count => Some(Misses {
+                    count,
+                    written: r.get(12)?,
+                    cost_usd: r.get(13)?,
+                    last_at: r.get(14)?,
+                }),
+            },
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)

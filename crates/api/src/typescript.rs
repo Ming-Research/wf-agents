@@ -41,6 +41,7 @@ pub fn typescript() -> String {
         decl::<OwnerAsk>(&cfg),
         decl::<AskKind>(&cfg),
         decl::<OwnerMessage>(&cfg),
+        decl::<Misses>(&cfg),
         decl::<MarkRead>(&cfg),
         decl::<Answer>(&cfg),
         decl::<Ruling>(&cfg),

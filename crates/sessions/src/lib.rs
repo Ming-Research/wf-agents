@@ -2,8 +2,8 @@
 //! run in. The engine decides when (which cell runs next, when a work waits); the session manager decides in which
 //! session a round runs ([`choose`]), what the round's message gives and what it only refers to ([`held`], [`give`],
 //! [`diff`]), whether a round starts the new session the owner asked for, how the command line starts and runs
-//! ([`cli`]), what each call cost ([`cost`]), and keeps a waiting
-//! session's cache warm ([`warm`]); it sets up a work's worktree on a machine with a free slot, says whether a head
+//! ([`cli`]), what each call cost ([`cost`]), keeps a waiting session's cache warm ([`warm`]) and tells a round that
+//! missed it ([`miss`]); it sets up a work's worktree on a machine with a free slot, says whether a head
 //! handed in is the clean worktree's, and removes the worktree once the work ended ([`worktree`]). It reads and writes
 //! only the sessions, their keep-warm pings, the rounds' records and where works run, so that it can move out of the
 //! engine's process; for now they share one.
@@ -15,6 +15,7 @@ pub mod diff;
 pub mod give;
 pub mod held;
 pub mod interject;
+pub mod miss;
 pub mod round;
 pub mod warm;
 pub mod worktree;

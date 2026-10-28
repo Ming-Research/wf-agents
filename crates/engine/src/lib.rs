@@ -21,6 +21,7 @@ mod arch_changes;
 mod architect;
 mod checks;
 mod failed;
+mod faults;
 mod inputs;
 pub mod message;
 mod steps;

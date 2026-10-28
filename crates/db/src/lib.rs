@@ -47,13 +47,22 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0019.sql"),
     include_str!("../../../db/migrations/0020.sql"),
     include_str!("../../../db/migrations/0021.sql"),
+    include_str!("../../../db/migrations/0022.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 6] = ["rounds", "tool_runs", "pings", "changes", "outbox", "contents"];
+const UNTRACKED: [&str; 7] = [
+    "rounds",
+    "tool_runs",
+    "pings",
+    "cache_misses",
+    "changes",
+    "outbox",
+    "contents",
+];
 
 /// The line a table's description has when agents may not read it.
 const HIDDEN: &str = "Hidden from agents.";

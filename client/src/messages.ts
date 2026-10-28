@@ -46,6 +46,8 @@ const messages = {
   message_cell: 'cell {cell}',
   message_engine: 'the engine',
   message_answer_ask: 'Answer ask {id}',
+  message_misses:
+    '{n} misses with this cause on this line so far, the latest {at}: {written} tokens written to the cache again, about {cost} more than reading them.',
   engine_offline: 'Offline',
   engine_offline_hint: 'The page cannot reach wf-agents run; it reconnects by itself.',
   engine_running: 'Running',

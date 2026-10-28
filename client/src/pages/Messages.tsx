@@ -1,13 +1,13 @@
 // What agents and the engine told the owner: messages that need no answer, newest first. The engine's own notices (a
 // work stopped by a new flow version, a design card posted, every work halted until a limit resets) are marked as the
 // engine's; what a wake of the architect told is named as the architect's and leads to its page; a notice of a new ask
-// shows the kinds it asks about as chips coloured by their group. The owner marks one read, or all of them; read ones
-// are shown on asking.
+// shows the kinds it asks about as chips coloured by their group; a notice of cache misses says how many it holds, the
+// tokens they wrote again and what they cost. The owner marks one read, or all of them; read ones are shown on asking.
 
 import { useState } from 'react';
 
 import type { OwnerMessage } from '../api';
-import { time } from '../format';
+import { cost, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { architectHref, Link, workHref } from '../route';
@@ -68,6 +68,16 @@ function Message({ m, onError }: { m: OwnerMessage; onError: (e: string) => void
         )}
       </div>
       <p className="msg-text">{m.text}</p>
+      {m.misses !== null && m.misses.count > 1 ? (
+        <p className="muted">
+          {t('message_misses', {
+            n: m.misses.count,
+            written: m.misses.written.toLocaleString('en-US'),
+            cost: cost(m.misses.cost_usd),
+            at: time(m.misses.last_at),
+          })}
+        </p>
+      ) : null}
       {m.ask !== null && (m.item !== null || m.architect !== null) ? (
         <div className="msg-ask">
           {m.ask_kinds.map((k, i) => (
