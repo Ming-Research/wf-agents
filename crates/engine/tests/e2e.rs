@@ -4878,7 +4878,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
             let policy = json!({ "goal": "Ship the parser.", "why": "Users wait for it.",
                                  "points": [{ "no": 1, "text": "Parse before checking." }], "stages": ["Lex."],
                                  "signals": [{ "what": "Speed", "how": "merged" }], "scope": "The front end." });
-            let probes = json!([{ "id": "x", "ask": "What first?", "points": [1], "expect": "Point 1." }]);
+            let probes = json!([{ "id": "x", "ask": "What comes first?", "points": [1], "expect": "Point 1." }]);
             (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
         }),
     );
@@ -5247,20 +5247,28 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let wake = wake_at(&mut e, "U3");
-    e.step_work(wake).unwrap();
-    let matters: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT what FROM architect_matters WHERE kind = 'set_straight'",
-        &[],
-        10,
-    )
-    .unwrap()
-    .iter()
-    .filter_map(|r| r["what"].as_str().map(str::to_string))
-    .collect();
+    // A new session understands the project from its first question on.
+    let wake = wake_at(&mut e, "U1");
+    let straight = |e: &Engine| -> Vec<String> {
+        engine::query_json(
+            e.db.conn(),
+            "SELECT what FROM architect_matters WHERE kind = 'set_straight'",
+            &[],
+            10,
+        )
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["what"].as_str().map(str::to_string))
+        .collect()
+    };
+    for _ in 0..6 {
+        if !straight(&e).is_empty() {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
     assert_eq!(
-        matters,
+        straight(&e),
         [
             "To set straight, The policy's second stage: Make the items lex and parse; Rank them before #5; Have #5 wait \
           for parse"
