@@ -56,9 +56,19 @@ changes, how hard it is or how much it costs is no reason to choose it or not; i
 
 Violations: giving up a better design because the change is too big or would take too long.
 
+## Article 7. What the flow can do, the flow does
+
+How work goes on is drawn in the flow, where the owner and every agent can read it, and a work that went wrong can be
+traced cell by cell: where it stops, who handles what, when something is handed on or taken higher. The engine carries
+the flow out, keeps the data and checks it; it does nothing of its own that a cell or a row could do, and as little as
+possible happens by itself.
+
+Violations: a hand-over, an escalation, a retry or a wait that the engine does out of the flow's sight; behaviour that
+can be found only by reading the engine's code.
+
 ## When articles conflict
 
 Article 1 governs all the others. Article 2 comes before Article 3: without the right information nothing works, and
 being efficient means wasting nothing, not giving less than is needed. Article 4 decides whether a thing should exist
 and Article 5 how a thing that exists is built; neither is ranked against the articles before them. Article 6 is the
-way judgments are made.
+way judgments are made. Article 7 decides where a behaviour is written: in the flow, unless the flow cannot say it.
