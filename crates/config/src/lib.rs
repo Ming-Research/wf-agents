@@ -752,30 +752,158 @@ pub fn worktrees(dir: &Path) -> PathBuf {
     dir.join("worktrees")
 }
 
-/// What a project says of itself in a checkout or a worktree at `root`, which agents are given as the project guide:
-/// its AGENTS.md, the index of its design tree under the design paths (each node's path and first line), and the
-/// full text of the nodes `cites` names by their paths.
+/// What a project says of itself as the files of a checkout at `root` are now, which the owner's page shows: the
+/// project guide as [`project_guide_at`] gives it, read from the files on disk.
 pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json::Value {
-    use serde_json::{Map, Value, json};
     let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
-    let mut index = Map::new();
-    let mut cited = Map::new();
+    let mut nodes = Vec::new();
     for d in design.iter().filter(|d| d.ends_with('/')) {
         for f in files_under(&root.join(d)) {
             let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy().into_owned();
-            let body = std::fs::read_to_string(&f).unwrap_or_default();
-            let first = body
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or_default()
-                .to_string();
-            if cites.contains(&rel) {
-                cited.insert(rel.clone(), Value::String(body));
-            }
-            index.insert(rel, Value::String(first));
+            nodes.push((rel, std::fs::read_to_string(&f).unwrap_or_default()));
         }
     }
+    guide(agents, nodes, cites)
+}
+
+/// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
+/// the index of its design tree under the design paths (each node's path and first line), and the full text of the
+/// nodes `cites` names by their paths. It is read with git from the repository at `repo`, so nothing in a worktree's
+/// files changes it: not what is uncommitted, not what the worktree's branch committed beyond that commit.
+pub fn project_guide_at(
+    repo: &Path,
+    commit: &str,
+    design: &[String],
+    cites: &str,
+) -> Result<serde_json::Value, String> {
+    let dirs: Vec<&str> = design.iter().filter(|d| d.ends_with('/')).map(String::as_str).collect();
+    let mut args = vec!["ls-tree", "-r", "-z", commit, "--", "AGENTS.md"];
+    args.extend(dirs.iter().copied());
+    let listed = git(repo, &args)?;
+    // Each entry is `<mode> <type> <object>\t<path>`.
+    let blobs: Vec<(&str, &str)> = listed
+        .split('\0')
+        .filter_map(|entry| {
+            let (meta, path) = entry.split_once('\t')?;
+            let mut m = meta.split(' ').skip(1);
+            let (kind, object) = (m.next()?, m.next()?);
+            let node = path.ends_with(".md") && dirs.iter().any(|d| path.starts_with(d));
+            (kind == "blob" && (path == "AGENTS.md" || node)).then_some((path, object))
+        })
+        .collect();
+    let mut texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?.into_iter();
+    let mut agents = String::new();
+    let mut nodes = Vec::new();
+    for (path, _) in &blobs {
+        let text = texts.next().unwrap_or_default();
+        if *path == "AGENTS.md" {
+            agents = text;
+        } else {
+            nodes.push((path.to_string(), text));
+        }
+    }
+    Ok(guide(agents, nodes, cites))
+}
+
+/// The project guide of an AGENTS.md and the design tree's nodes, each by its path: the index in the order of the
+/// paths, each node's first line that is not empty, and the nodes `cites` names in full.
+fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde_json::Value {
+    use serde_json::{Map, Value, json};
+    nodes.sort();
+    let mut index = Map::new();
+    let mut cited = Map::new();
+    for (rel, body) in nodes {
+        let first = body
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or_default()
+            .to_string();
+        if cites.contains(&rel) {
+            cited.insert(rel.clone(), Value::String(body));
+        }
+        index.insert(rel, Value::String(first));
+    }
     json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
+}
+
+/// What a later version of a project guide changes in an earlier one, as the later one has it: its AGENTS.md when that
+/// differs, and each entry of the index and each cited node that differs, null for one the later version no longer
+/// has. Empty when they are the same.
+pub fn guide_changes(earlier: &serde_json::Value, later: &serde_json::Value) -> serde_json::Value {
+    use serde_json::{Map, Value};
+    let mut out = Map::new();
+    if earlier["agents_md"] != later["agents_md"] {
+        out.insert("agents_md".into(), later["agents_md"].clone());
+    }
+    let none = Map::new();
+    for key in ["design_tree", "cited_nodes"] {
+        let (was, is) = (
+            earlier[key].as_object().unwrap_or(&none),
+            later[key].as_object().unwrap_or(&none),
+        );
+        let mut changed: Map<String, Value> = is
+            .iter()
+            .filter(|(k, v)| was.get(*k) != Some(*v))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        changed.extend(
+            was.keys()
+                .filter(|k| !is.contains_key(*k))
+                .map(|k| (k.clone(), Value::Null)),
+        );
+        if !changed.is_empty() {
+            out.insert(key.into(), Value::Object(changed));
+        }
+    }
+    Value::Object(out)
+}
+
+/// The texts of git objects of a repository, in the order of their names, read by one run of git.
+fn blob_texts(repo: &Path, objects: &[&str]) -> Result<Vec<String>, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("git cat-file: {e}"))?;
+    let names: String = objects.iter().map(|o| format!("{o}\n")).collect();
+    let mut stdin = child.stdin.take().ok_or("git cat-file: no standard input")?;
+    // Written beside the reading, so that neither pipe fills while the other waits.
+    let writer = std::thread::spawn(move || stdin.write_all(names.as_bytes()));
+    let out = child.wait_with_output().map_err(|e| format!("git cat-file: {e}"))?;
+    writer
+        .join()
+        .map_err(|_| "git cat-file: writing the names failed".to_string())?
+        .map_err(|e| format!("git cat-file: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git cat-file: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    // Each object is `<name> <type> <size>\n<content>\n`; a missing one is `<name> missing\n`.
+    let mut rest: &[u8] = &out.stdout;
+    let mut texts = Vec::new();
+    while let Some(end) = rest.iter().position(|b| *b == b'\n') {
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        let size = header
+            .rsplit(' ')
+            .next()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|_| !header.ends_with(" missing"));
+        let Some(size) = size.filter(|s| *s <= rest.len()) else {
+            return Err(format!("git cat-file: no such object: {header}"));
+        };
+        texts.push(String::from_utf8_lossy(&rest[..size]).into_owned());
+        rest = rest.get(size + 1..).unwrap_or_default();
+    }
+    Ok(texts)
 }
 
 /// The Markdown files under a directory, in the order of their paths.
@@ -992,6 +1120,61 @@ asks = 9
         assert_eq!(c.config.projects["p"].repo, "o/p");
         assert_eq!(c.commit.len(), 40);
         assert_eq!(working(&dir).unwrap().projects["p"].repo, "o/changed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The project guide of a commit is read from the commit alone, whatever the worktree's files say; what a later
+    // guide changes is its entries that differ, null for one it no longer has.
+    #[test]
+    fn the_guide_of_a_commit_is_what_the_commit_holds() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-guide-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let put = |path: &str, text: &str| {
+            let p = dir.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        put("AGENTS.md", "How to work.\n");
+        put("design/a.md", "\nDecision: a.\nMore.\n");
+        put("design/a/b.md", "Decision: b.\n");
+        put("design/notes.txt", "not a node\n");
+        put("other/c.md", "not in the design paths\n");
+        run(&["init", "-q"]);
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]);
+        let first = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let design = ["design/".to_string()];
+        let on_disk = project_guide(&dir, &design, "it cites design/a/b.md");
+        put("design/a/new.md", "Decision: new.\n");
+        put("AGENTS.md", "Changed, not committed.\n");
+        let g = project_guide_at(&dir, &first, &design, "it cites design/a/b.md").unwrap();
+        assert_eq!(g["agents_md"], "How to work.\n");
+        assert_eq!(
+            g["design_tree"],
+            serde_json::json!({ "design/a.md": "Decision: a.", "design/a/b.md": "Decision: b." })
+        );
+        assert_eq!(
+            g["cited_nodes"],
+            serde_json::json!({ "design/a/b.md": "Decision: b.\n" })
+        );
+        // The files on disk gave the same guide for the same files, in the same order.
+        assert_eq!(on_disk.to_string(), g.to_string());
+        run(&["rm", "-q", "design/a/b.md"]);
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "second"]);
+        let second = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let later = project_guide_at(&dir, &second, &design, "it cites design/a/b.md").unwrap();
+        assert_eq!(
+            guide_changes(&g, &later),
+            serde_json::json!({
+                "agents_md": "Changed, not committed.\n",
+                "design_tree": { "design/a/new.md": "Decision: new.", "design/a/b.md": null },
+                "cited_nodes": { "design/a/b.md": null }
+            })
+        );
+        assert_eq!(guide_changes(&later, &later), serde_json::json!({}));
+        assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

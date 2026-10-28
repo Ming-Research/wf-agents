@@ -1889,6 +1889,100 @@ fn a_changed_conditional_input_is_given_again_and_so_is_everything_after_a_compa
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The project guide in a round's message: its address, and whether the message gave it.
+fn guide_in(input: &Value) -> Option<(String, bool)> {
+    input["conditional"].as_array()?.iter().find_map(|m| {
+        let a = m["address"].as_str()?;
+        a.ends_with("·engine·project_guide")
+            .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
+    })
+}
+
+/// What a round's message gives under an address.
+fn given_text(input: &Value, address: &str) -> Option<String> {
+    let m = input["message"].as_str()?;
+    let heading = format!("### {address}\n\n");
+    let rest = &m[m.find(&heading)? + heading.len()..];
+    let end = rest.find("\n### ").or_else(|| rest.find("\n## ")).unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+// The project guide is read from main as the work's branch merged it: the work's own edits to its design tree and to
+// AGENTS.md, committed or not, never make it a new one, so its session is not given it again.
+#[test]
+fn a_works_own_edits_to_its_design_tree_do_not_give_the_guide_again() {
+    let s = setup("own-guide");
+    let (mut e, said, item) = start(&s, scripts());
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    write(&wt, "design/added.md", "# Added\nThe work's own node.\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "Add a node"]);
+    write(&wt, "AGENTS.md", "Edited, not committed.\n");
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let rounds = agent_rounds(&e, item);
+    let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
+    assert_eq!(&cells[..3], ["1", "1a", "2"], "{log}");
+    let (address, sent) = guide_in(&rounds[0].2).unwrap();
+    assert!(sent, "{address}");
+    for (id, _, input) in &rounds[1..3] {
+        assert_eq!(guide_in(input), Some((address.clone(), false)), "{id}");
+        let m = input["message"].as_str().unwrap();
+        assert!(
+            !m.contains("design/added.md") && !m.contains("Edited, not committed."),
+            "{m}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// When main changed the project guide since the version a session holds, and the branch merged it, the session is
+// given only the entries that differ, under the new version's address, and holds the new version after.
+#[test]
+fn a_changed_main_gives_only_what_changed_in_the_guide() {
+    let s = setup("main-guide");
+    let (mut e, said, item) = start(&s, scripts());
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    main_moves_on(
+        &s.root,
+        &[("design/later.md", "# Later\nMain's later node.\n")],
+        "Main's later node",
+    );
+    merge_main(&worktree_of(&e, work));
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let rounds = agent_rounds(&e, item);
+    let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
+    assert_eq!(&cells[..3], ["1", "1a", "2"], "{log}");
+    let (first, _) = guide_in(&rounds[0].2).unwrap();
+    let (changed, sent) = guide_in(&rounds[1].2).unwrap();
+    assert!(sent, "{changed}");
+    assert_eq!(changed, format!("{}·engine·project_guide", rounds[1].0));
+    let text = given_text(&rounds[1].2, &changed).unwrap();
+    assert!(
+        text.starts_with(&format!("Main changed the project guide since {first}: ")),
+        "{text}"
+    );
+    assert!(
+        text.trim_end()
+            .ends_with(r##"{"design_tree":{"design/later.md":"# Later"}}"##),
+        "{text}"
+    );
+    assert!(
+        !text.contains("How to work here.") && !text.contains("design/overview.md"),
+        "{text}"
+    );
+    assert_eq!(guide_in(&rounds[2].2), Some((changed, false)));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // How many returns sent back pause a work is the number the flow the work runs on says.
 #[test]
 fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {

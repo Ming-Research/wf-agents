@@ -8,7 +8,9 @@
 //! does not hold it: one the session already holds, by its content, is only referred to; one that is new or changed
 //! is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the
 //! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
-//! and that the return is to be rewritten.
+//! and that the return is to be rewritten. The project guide is read from main as the work's branch merged it, so the
+//! work's own edits never change it; when main changed it since the version a session holds, the session is given only
+//! the entries that differ, under the new version's address.
 //!
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
@@ -24,7 +26,7 @@ use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
 
 use crate::Engine;
-use crate::inputs::{Gathered, Origin, Part};
+use crate::inputs::{GUIDE, Gathered, Origin, Part};
 use crate::work::{Item, Round, RoundId, Work};
 
 /// One conditional input of a message.
@@ -95,6 +97,17 @@ pub struct Held {
     pub rounds: BTreeSet<RoundId>,
     /// The last round in which it was compacted: it holds nothing from before that round's end.
     pub compacted: Option<RoundId>,
+    /// The latest version of the project guide it holds.
+    pub guide: Option<HeldGuide>,
+}
+
+/// A version of the project guide a session holds: its address, the hash of its content, and the commit it was read
+/// from, which reads it again as it was; none for a round recorded before rounds recorded that commit.
+#[derive(Debug, Clone)]
+pub struct HeldGuide {
+    pub address: String,
+    pub hash: String,
+    pub commit: Option<String>,
 }
 
 impl Held {
@@ -114,7 +127,15 @@ impl Held {
                 continue;
             }
             h.rounds.insert(r.id);
-            h.conditional.extend(recorded(&r.input));
+            let given = recorded(&r.input);
+            if let Some((address, hash)) = given.iter().find(|(a, _)| a.ends_with(GUIDE_ADDRESS)) {
+                h.guide = Some(HeldGuide {
+                    address: address.clone(),
+                    hash: hash.clone(),
+                    commit: r.input["engine"]["guide"].as_str().map(str::to_string),
+                });
+            }
+            h.conditional.extend(given);
         }
         h
     }
@@ -162,10 +183,13 @@ fn empty(v: &Value) -> bool {
     }
 }
 
+/// How the address of a version of the project guide ends.
+const GUIDE_ADDRESS: &str = "·engine·project_guide";
+
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
 /// AGENTS.md and design tree) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
-    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == "project_guide")
+    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE)
 }
 
 /// How a conditional input's content is written in a message: a text as it is, anything else as compact JSON.
@@ -250,6 +274,18 @@ impl Conditionals<'_> {
         address
     }
 
+    /// Adds a conditional input the session holds an earlier version of by giving only what this version changes in
+    /// it: the message writes `changes` under the address, and the session then holds `content` under it.
+    fn add_changes(&mut self, address: String, content: &Value, changes: Value) -> String {
+        self.list.push(Conditional {
+            address: address.clone(),
+            content: changes,
+            hash: hash(content),
+            given: true,
+        });
+        address
+    }
+
     /// The address of a round's value: of the rounds that produced the same content in the work, wherever it was
     /// copied to, the earliest.
     fn earliest(&self, address: String, content: &Value) -> String {
@@ -278,6 +314,32 @@ impl Context<'_> {
             .and_then(|known| known.iter().find(|a| a.ends_with(&suffix) && round_of(a).is_some()))
             .cloned()
             .unwrap_or_else(|| format!("{}{suffix}", self.round))
+    }
+
+    /// What main changed in the project guide since the version the session holds, when it holds an earlier one and
+    /// not this one: the entries that differ, as one small input under this version's address, instead of the whole
+    /// guide again. None when the session holds this version or none, or when the version it holds cannot be read
+    /// again as it was; the guide is then given whole.
+    fn guide_changes(&self, p: &Part, address: &str, content: &Value) -> Option<Value> {
+        if !matches!(&p.origin, Origin::Engine(n) if n == GUIDE) {
+            return None;
+        }
+        let h = hash(content);
+        let held = self.held.guide.as_ref().filter(|g| g.hash != h)?;
+        if self.held.holds(address, &h) {
+            return None;
+        }
+        let wt = self.w.worktree.as_deref()?;
+        let earlier = crate::inputs::project_guide(self.e, self.item, wt, held.commit.as_deref()?).ok()?;
+        if hash(&earlier) != held.hash {
+            return None;
+        }
+        Some(Value::String(format!(
+            "Main changed the project guide since {}: these are its entries that differ, each in place of the one \
+             there, null for one no longer there. {}",
+            held.address,
+            config::guide_changes(&earlier, content)
+        )))
     }
 
     fn cell_of_round(&self, id: RoundId) -> Option<String> {
@@ -566,7 +628,10 @@ impl Context<'_> {
                     if empty(&content) {
                         continue;
                     }
-                    let a = m.add(address, content);
+                    let a = match self.guide_changes(p, &address, &content) {
+                        Some(changes) => m.add_changes(address, &content, changes),
+                        None => m.add(address, content),
+                    };
                     if a.starts_with("ij:") && !interjections.contains(&a) {
                         interjections.push(a.clone());
                     }

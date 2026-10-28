@@ -428,13 +428,7 @@ fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
 /// What the engine computes for an input; none when there is nothing.
 pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: &str) -> Result<Option<Value>, String> {
     let wt = w.worktree.as_deref();
-    let main = e
-        .config
-        .config
-        .projects
-        .get(&item.project)
-        .map(|p| p.main.clone())
-        .unwrap_or_else(|| "main".into());
+    let main = main_of(e, item);
     Ok(match name {
         "free_slots" => {
             let hosts = &e.config.config.install.machines.hosts;
@@ -442,7 +436,10 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
                 json!({ "machines": hosts.iter().map(|(n, h)| json!({ "name": n, "slots": h.slots })).collect::<Vec<_>>() }),
             )
         }
-        "project_guide" => wt.map(|wt| project_guide(wt, item, &design_paths(e, item))),
+        "project_guide" => match wt {
+            Some(wt) => Some(project_guide(e, item, wt, &guide_base(wt, &main)?)?),
+            None => None,
+        },
         "local_commits" => wt.and_then(|wt| {
             let range = match &w.pushed_head {
                 Some(p) => format!("{p}..HEAD"),
@@ -451,7 +448,7 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
         "plan_segment" | "plan_usage" => None,
-        "existing_work" => existing_work(e, w, item, &main)?.map(Value::String),
+        "existing_work" => existing_work(e, w, g, item, &main)?.map(Value::String),
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
                 // At a re-review of the design tree, the change since the last design tree review; the table review
@@ -498,8 +495,10 @@ pub fn engine_input(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, name: 
 
 /// What already exists for the item, as pointers the agent follows itself: its earlier works here, with how far each
 /// got and why it ended, and the queries that read their rounds; what an import recorded of work outside this flow;
-/// the branch and the pull request the work took over. None for an item nothing was done on.
-fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option<String>, String> {
+/// the branch and the pull request the work took over, as its start cell took them over, so that the pull request
+/// the work opens itself later neither changes it nor is said to be one it took over. None for an item nothing was
+/// done on.
+fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &str) -> Result<Option<String>, String> {
     let earlier = work::query_json(
         e.db.conn(),
         "SELECT w.id, w.flow_version, w.at, w.ended, w.branch, w.pr,
@@ -529,13 +528,21 @@ fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option
     if let Some(from) = &item.imported_from {
         out.push(format!("- The item was imported from outside this flow: {from}."));
     }
-    if let Some(branch) = &w.branch {
+    // What the start cell took over: a branch when an earlier work had one or the item was imported with one, and
+    // the pull request that came with it.
+    let place = work::rounds_at(e.db.conn(), w.id, &g.start)?
+        .into_iter()
+        .find_map(|r| r.output.filter(|_| r.transition.is_some()))
+        .map(|o| o["place"].clone())
+        .unwrap_or_default();
+    let took_branch = item.imported_branch.is_some() || earlier.iter().any(|x| x["branch"].is_string());
+    if let Some(branch) = place["branch"].as_str().filter(|_| took_branch) {
         out.push(format!(
             "- Your worktree is on the branch {branch}, taken over as it was: what it adds beyond main is `git log \
              --oneline origin/{main}..HEAD` and `git diff origin/{main}...HEAD`; what is not committed is `git status`."
         ));
     }
-    if let Some(pr) = w.pr {
+    if let Some(pr) = place["pr"].as_i64() {
         out.push(format!(
             "- The pull request #{pr}, kept: its description and comments with the tool gh, `pr view {pr} --comments`; \
              its reviews, `pr view {pr} --json reviews`; its checks, `pr checks {pr}`."
@@ -544,16 +551,43 @@ fn existing_work(e: &Engine, w: &Work, item: &Item, main: &str) -> Result<Option
     Ok(Some(out.join("\n")))
 }
 
-/// The project guide for the item: what the project's worktree says of itself, with the full text of the nodes the
-/// item names.
-fn project_guide(wt: &Path, item: &Item, design: &[String]) -> Value {
+/// The branch of the project the flow calls main.
+pub fn main_of(e: &Engine, item: &Item) -> String {
+    e.config
+        .config
+        .projects
+        .get(&item.project)
+        .map(|p| p.main.clone())
+        .unwrap_or_else(|| "main".into())
+}
+
+/// Whether a cell is given the project guide.
+pub fn reads_guide(cell: &CompiledCell) -> bool {
+    cell.inputs
+        .iter()
+        .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n == GUIDE)))
+}
+
+/// The engine's value the project guide is.
+pub const GUIDE: &str = "project_guide";
+
+/// The commit the project guide of a work is read from: main as the work's branch has merged it, the merge base of
+/// its head and the fetched main. What the work itself changes on its branch is never in it, so its own edits to the
+/// design tree or to AGENTS.md never make the guide a new one to give again: the agent knows what it edited.
+pub fn guide_base(wt: &Path, main: &str) -> Result<String, String> {
+    git::fork_point(wt, main)
+}
+
+/// The project guide for the item as a commit of the project has it, read with git from the work's worktree: what
+/// the project says of itself, with the full text of the nodes the item names.
+pub fn project_guide(e: &Engine, item: &Item, wt: &Path, commit: &str) -> Result<Value, String> {
     let text = format!(
         "{} {} {}",
         item.title,
         item.problem,
         item.approach.clone().unwrap_or_default()
     );
-    config::project_guide(wt, design, &text)
+    config::project_guide_at(wt, commit, &design_paths(e, item), &text)
 }
 
 #[cfg(test)]
