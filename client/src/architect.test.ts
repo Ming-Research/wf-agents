@@ -2,21 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   CompiledGraph,
-  ConversationEntry,
   FlowDiff,
   GraphView,
   Handled,
   Matter,
   Observation,
-  OwnerAsk,
-  Status,
   Wake,
   WorkSummary,
 } from './api';
 import {
   againstInOrder,
   architectState,
-  askTab,
   cardWords,
   choicesOf,
   observationsShown,
@@ -27,7 +23,6 @@ import {
   queueParts,
   rulingAnswer,
   shownWake,
-  wordsWait,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
 import { graphOfCell, withGraph } from './flow/FlowScreen';
@@ -239,9 +234,9 @@ describe("the architect's page", () => {
     };
     const routes: Route[] = [
       architect,
-      { ...architect, tab: 'queue' },
+      { ...architect, tab: 'policy' },
       { ...architect, project: 'p', tab: 'observations' },
-      { ...architect, wake: 12, round: 3, tab: 'conversation' },
+      { ...architect, wake: 12, round: 3, tab: 'next' },
       { ...architect, wake: 12, cell: 'H3' },
     ];
     for (const r of routes) {
@@ -252,9 +247,11 @@ describe("the architect's page", () => {
     expect(href({ ...architect, wake: 12, round: 3 })).toBe('/architect?wake=12&round=R12-3');
     expect(href(architect)).toBe('/architect');
     expect(href({ ...architect, project: 'p', wake: 12 })).toBe('/architect?project=p&wake=12');
-    // A round of another wake, or one with no wake named, opens none; a tab the page does not know, such as the asks it
-    // had before, is its rounds, which the page opens on.
+    // A round of another wake, or one with no wake named, opens none; a tab the page does not know, such as the asks, the
+    // conversation and the queue it had before, is its rounds, which the page opens on.
     expect(parse('/architect', '?tab=asks')).toEqual(architect);
+    expect(parse('/architect', '?tab=conversation')).toEqual(architect);
+    expect(parse('/architect', '?tab=queue')).toEqual(architect);
     expect(parse('/architect', '?wake=12&round=R11-3&tab=x')).toEqual({ ...architect, wake: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);
   });
@@ -307,47 +304,6 @@ describe("the architect's page", () => {
     expect(outcomes(handled({ why: 'Already done by #2.' })).map((o) => [o.key, o.text])).toEqual([
       ['nothing', 'Already done by #2.'],
     ]);
-  });
-
-  it('puts an ask in the tab of the stage that put it', () => {
-    const ask = (kind: string): OwnerAsk => ({ id: 1, round: 2, work: 3, item: null, body: { from: 'architect', kind }, answer: null, kinds: [] });
-    expect(askTab(ask('study'))).toBe('policy');
-    expect(askTab(ask('policy_approval'))).toBe('policy');
-    expect(askTab(ask('ask'))).toBe('conversation');
-    expect(askTab(ask('open'))).toBe('conversation');
-  });
-
-  it("says why the owner's words still wait for the architect", () => {
-    const said = (pending: boolean): ConversationEntry => ({
-      source: 'words',
-      id: 1,
-      sender: 'owner',
-      recipient: 'architect',
-      text: 'Put the parser first.',
-      at: 1,
-      work: null,
-      round: null,
-      ask: null,
-      design_card: null,
-      read_at: null,
-      waiting: false,
-      pending,
-      agents: false,
-      fault: null,
-      misses: null,
-    });
-    const status = (paused: boolean, started: string[] = []) =>
-      ({ paused, architects_started: started }) as unknown as Status;
-    const asleep = architectState([wake(9)], []);
-    expect(wordsWait([said(false)], asleep, status(false), 'p')).toBeNull();
-    expect(wordsWait([said(true)], asleep, status(false), 'p')).toBe('asleep');
-    // Held back while every work is paused, unless the owner started it.
-    expect(wordsWait([said(true)], asleep, status(true), 'p')).toBe('held');
-    expect(wordsWait([said(true)], asleep, status(true, ['p']), 'p')).toBe('asleep');
-    const awake = architectState([wake(10, { state: 'running', at: 'H8' })], []);
-    expect(wordsWait([said(true)], awake, status(false), 'p')).toBe('awake');
-    const paused = architectState([wake(10, { state: 'paused', paused: 'to look', paused_by: 'owner' })], []);
-    expect(wordsWait([said(true)], paused, status(false), 'p')).toBe('paused');
   });
 });
 

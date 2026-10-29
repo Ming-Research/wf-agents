@@ -59,7 +59,22 @@ import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
-import { conversationGroups, conversationTitle, party, pinnedOf, runsOf, toMarkRead } from './conversation';
+import {
+  closedWhy,
+  conversationTitle,
+  heldCards,
+  latestAt,
+  listParts,
+  mention,
+  newlyWaiting,
+  party,
+  pendingWords,
+  sayTo,
+  streamOf,
+  totals,
+  voiceOf,
+  waitingByKey,
+} from './conversation';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
@@ -78,10 +93,9 @@ import {
   valueMeanings,
 } from './round';
 import { settingsChange, settingsProblems } from './pages/Settings';
-import { tiersAllowed } from './pages/Item';
+import { tiersAllowed } from './pages/TalkHead';
 import { spendTable } from './spend';
 import { axisTicks, gapsOf, usageOf } from './usage';
-import { stateChanges } from './architect';
 
 describe('the message catalog', () => {
   it('has every text, none empty, all in English', () => {
@@ -103,7 +117,7 @@ describe('the addresses', () => {
       { ...work, round: 240 },
       { ...work, cell: 'D2' },
       { ...work, tab: 'cards' },
-      { ...work, tab: 'messages', round: 7 },
+      { ...work, tab: 'helpers', round: 7 },
       { ...work, only: 'failed' },
       { page: 'items' },
       { page: 'item', id: 5 },
@@ -1633,44 +1647,6 @@ describe('the settings on the page', () => {
   });
 });
 
-describe("the architect's state of things", () => {
-  it('says what each version changed from the one before it, line by line, and the first is all new', () => {
-    const before: JsonValue = { state: [{ line: 'A', where: 'x' }, { line: 'B', where: 'b' }], changed: 'c1' };
-    const after: JsonValue = { state: [{ line: 'A', where: 'y' }, { line: 'C', where: 'c' }], changed: 'c2' };
-    const c = stateChanges(before, after);
-    expect(c.lines.map((l) => [l.line, l.kind])).toEqual([
-      ['A', 'changed'],
-      ['C', 'added'],
-      ['B', 'removed'],
-    ]);
-    expect(c.lines[0].fields.filter((f) => f.changed)).toEqual([{ field: 'where', before: 'x', after: 'y', changed: true }]);
-    expect(c.changed).toEqual({ before: 'c1', after: 'c2' });
-    expect(stateChanges(null, after).lines.map((l) => l.kind)).toEqual(['added', 'added']);
-  });
-
-  it('takes a line written again in other words for the line it was, by what it says', () => {
-    const before: JsonValue = {
-      state: [
-        { line: 'Parser', approach: 'A recursive descent parser written by hand', where: 'Half of the grammar' },
-        { line: 'Docs', approach: 'The commands documented in the README', where: 'Not started' },
-      ],
-    };
-    const after: JsonValue = {
-      state: [
-        { line: 'The parser', approach: 'A recursive descent parser, written by hand', where: 'Half of the grammar' },
-        { line: 'Releases', approach: 'Tagged builds uploaded by CI', where: 'Planned' },
-      ],
-    };
-    const c = stateChanges(before, after);
-    expect(c.lines.map((l) => [l.line, l.kind])).toEqual([
-      ['The parser', 'changed'],
-      ['Releases', 'added'],
-      ['Docs', 'removed'],
-    ]);
-    expect(c.lines[0].fields.filter((f) => f.changed).map((f) => f.field)).toEqual(['line', 'approach']);
-  });
-});
-
 describe('a ruling on a design card', () => {
   const unset: Verdict = { verdict: null, text: '', option: '' };
 
@@ -1725,10 +1701,14 @@ describe('a ruling on a design card', () => {
 describe("the owner's conversations", () => {
   const talk = (key: string, extra: Partial<Conversation> = {}): Conversation => ({
     key,
+    kind: key.startsWith('work:') ? 'work' : key.startsWith('architect:') ? 'architect' : key.startsWith('projects:') ? 'projects' : 'wf_agents',
     project: 'p',
+    projects: [],
     work: null,
     item: null,
     title: null,
+    level: null,
+    over: false,
     waiting: 0,
     unread: 0,
     last_at: 1,
@@ -1745,69 +1725,102 @@ describe("the owner's conversations", () => {
     round: 2,
     ask: null,
     design_card: null,
+    matter: null,
     read_at: null,
     waiting: false,
     pending: false,
-    agents: false,
+    undelivered: false,
+    answerable: false,
     fault: null,
     misses: null,
+    ask_detail: null,
+    revisions: null,
+    stage: null,
+    matter_card: null,
+    policy: null,
+    observation: null,
     ...extra,
   });
 
-  it('lists those where something waits for the owner first, then by their latest entry, by project when several', () => {
-    const one = conversationGroups([
-      talk('work:5', { last_at: 9 }),
-      talk('architect:p', { last_at: 3, waiting: 1 }),
-      talk('wf-agents', { project: null, last_at: 5 }),
+  it('lists in an order that waiting never changes: the one-to-ones and wf-agents, then the works, then the projects', () => {
+    const parts = listParts([
+      talk('architect:p', { waiting: 1 }),
+      talk('wf-agents', { project: null }),
+      talk('work:9', { work: 9, waiting: 2 }),
+      talk('work:5', { work: 5, over: true }),
+      talk('projects:p|q', { project: null, projects: ['p', 'q'] }),
     ]);
-    expect(one.map((g) => g.project)).toEqual([null]);
-    expect(one[0].conversations.map((c) => c.key)).toEqual(['architect:p', 'work:5', 'wf-agents']);
-    const several = conversationGroups([
-      talk('work:5', { last_at: 9, unread: 2 }),
-      talk('architect:q', { project: 'q', last_at: 3, waiting: 1 }),
-      talk('architects:p|q', { project: null, last_at: 4 }),
+    expect(parts.map((p) => [p.part, p.conversations.map((c) => c.key)])).toEqual([
+      ['top', ['architect:p', 'wf-agents']],
+      ['works', ['work:9', 'work:5']],
+      ['projects', ['projects:p|q']],
     ]);
-    expect(several.map((g) => [g.project, g.waiting, g.unread])).toEqual([
-      ['q', 1, 0],
-      ['p', 0, 2],
-      [null, 0, 0],
-    ]);
+    expect(totals([talk('work:9', { waiting: 2, unread: 1 }), talk('architect:p', { unread: 3 })])).toEqual({
+      waiting: 2,
+      unread: 4,
+    });
   });
 
-  it('names each conversation by its subject, and each side of an entry', () => {
-    expect(conversationTitle(talk('work:5', { work: 5, item: 3, title: 'Parse it' }))).toBe('Work 5 · #3 Parse it');
-    expect(conversationTitle(talk('architect:p'))).toBe('The architect of p');
-    expect(conversationTitle(talk('architects:p|q'))).toBe('The architects of p and q');
+  it('names each conversation by its subject, and each side of an entry and whom a message is for', () => {
+    expect(conversationTitle(talk('work:5', { work: 5, item: 3, title: 'Parse it' }))).toBe('#5 Parse it');
+    expect(conversationTitle(talk('architect:p'))).toBe('Architect of p');
+    expect(conversationTitle(talk('projects:p|q', { projects: ['p', 'q'] }))).toBe('Architects of p, q');
     expect(conversationTitle(talk('wf-agents'))).toBe('wf-agents');
     expect(party(entry('message'), 'owner')).toBe('you');
     expect(party(entry('between'), 'q')).toBe('the architect of q');
-    expect(party(entry('advice'), 'advisor')).toBe('advisor');
+    expect(mention(entry('question', { recipient: 'architect' }))).toBe('@architect');
+    expect(mention(entry('interjection', { sender: 'owner', recipient: 'both' }))).toBe('@engineer @architect');
+    expect(mention(entry('message'))).toBe('@you');
   });
 
-  it('pins what waits for the owner, folds what passes between agents, and marks the rest read on opening', () => {
+  it("draws each entry in its voice, pins the open blockers the owner holds, and leaves a stage card's design cards to it", () => {
     const d: ConversationDetail = {
       key: 'work:5',
       entries: [
         entry('message', { id: 1 }),
-        entry('question', { id: 2, agents: true, sender: 'engineer', recipient: 'architect' }),
-        entry('reply', { id: 3, agents: true, sender: 'architect', recipient: 'engineer' }),
+        entry('question', { id: 2, sender: 'engineer', recipient: 'architect' }),
+        entry('reply', { id: 3, sender: 'architect', recipient: 'engineer' }),
         entry('ask', { id: 4, waiting: true }),
         entry('notice', { id: 5, sender: 'engine' }),
-        entry('notice', { id: 6, sender: 'wf-agents', fault: 'cache_miss', waiting: true }),
-        entry('message', { id: 7, read_at: 3 }),
+        entry('card', { id: 6, design_card: 6, sender: 'engineer' }),
+        entry('interjection', { id: 7, sender: 'owner', recipient: 'engineer', at: 3 }),
+        entry('message', { id: 8, sender: 'review' }),
       ],
-      asks: [],
+      asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null }],
       design_cards: [],
+      read_to: null,
     };
-    const { faults, stream } = pinnedOf(d);
-    expect(faults.map((e) => e.id)).toEqual([6]);
-    expect(stream.map((e) => e.id)).toEqual([1, 2, 3, 5, 7]);
-    expect(runsOf(stream).map((r) => [r.agents, r.entries.length])).toEqual([
-      [false, 1],
-      [true, 2],
-      [false, 1],
-      [false, 1],
+    const held = heldCards(d);
+    expect(d.entries.map((e) => voiceOf(e, held))).toEqual([
+      'agent',
+      'agent',
+      'agent',
+      'agent',
+      'system',
+      'system',
+      'owner',
+      'system',
     ]);
-    expect(toMarkRead(d)).toEqual({ ids: [1], notices: [5] });
+    expect(streamOf(d).map((e) => e.id)).toEqual([1, 2, 3, 5, 6, 7, 8]);
+    expect(latestAt(d)).toBe(3);
+    expect(pendingWords([entry('words', { sender: 'owner', pending: true })]).length).toBe(1);
+  });
+
+  it('says whom the box at the bottom says things to, and why it cannot at a work at its end', () => {
+    expect(sayTo(talk('work:5'))).toEqual(['engineer', 'architect', 'both']);
+    expect(sayTo(talk('projects:p|q', { projects: ['p', 'q'] }))).toEqual(['p', 'q', 'all']);
+    expect(sayTo(talk('wf-agents'))).toEqual([]);
+    expect(closedWhy(talk('work:5', { over: true }), null)).not.toBeNull();
+    expect(closedWhy(talk('work:5'), null)).toBeNull();
+  });
+
+  it('tells of what newly waits for the owner, and of nothing the first time', () => {
+    const before = waitingByKey([talk('work:5', { waiting: 1 }), talk('architect:p')]);
+    expect(newlyWaiting(null, [talk('work:5', { waiting: 1 })])).toEqual([]);
+    expect(
+      newlyWaiting(before, [talk('work:5', { waiting: 1 }), talk('architect:p', { waiting: 1 }), talk('work:6', { waiting: 1 })]).map(
+        (c) => c.key,
+      ),
+    ).toEqual(['architect:p', 'work:6']);
   });
 });

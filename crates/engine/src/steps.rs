@@ -1194,8 +1194,9 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
 /// Cell `E1`: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
 /// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
 /// for the architect, as a matter of its own, when the cell names that (`queue_followup`), as a flow version before
-/// the cell named what it does did too. What was said to the work and never handed in is told to the owner when the
-/// cell names that (`tell_undelivered`): no round runs off the graph to answer it, and the way on no longer changes.
+/// the cell named what it does did too. What was said to the work and never handed in stays so: no round runs off the
+/// graph to answer it, the way on no longer changes, and the owner's page marks it on the words themselves as not
+/// received, in place of the notice a flow version's `tell_undelivered` named, which tells nothing now.
 fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
@@ -1204,32 +1205,11 @@ fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, Stri
     } else {
         None
     };
-    let unsaid = if cell.actions.iter().any(|a| a == "tell_undelivered") {
-        crate::work::query_json(
-            e.db.conn(),
-            "SELECT line, text FROM interjections WHERE work = ?1 AND delivered_round IS NULL AND informs = 0
-             ORDER BY id",
-            &[&w.id],
-            1000,
-        )?
-    } else {
-        Vec::new()
-    };
     let projects = &e.config.config.projects;
     e.db.write(Actor::Engine, |tx| {
         crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
         if let Some(m) = &followup {
             db::queue_matter(tx, m)?;
-        }
-        for u in &unsaid {
-            let text = format!(
-                "Work {} is done, and what was said to its {} was not handed in, since its way on no longer changes: \
-                 \"{}\". A change becomes a new item.",
-                w.id,
-                u["line"].as_str().unwrap_or("engineer"),
-                db::one_sentence(u["text"].as_str().unwrap_or_default())
-            );
-            actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)?;
         }
         Ok(())
     })

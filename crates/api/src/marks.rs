@@ -7,7 +7,7 @@ use db::rusqlite::params;
 use db::{Actor, Db};
 
 use crate::read::Error;
-use crate::{MarkRead, Marked};
+use crate::{MarkRead, Marked, ReadTo};
 
 /// Marks messages to the owner read: those named, or every one still unread.
 pub fn mark_read(db: &Path, m: &MarkRead) -> Result<Marked, Error> {
@@ -34,6 +34,35 @@ pub fn mark_read(db: &Path, m: &MarkRead) -> Result<Marked, Error> {
                 )?;
             }
             Ok(n)
+        })
+        .map_err(failed)?;
+    Ok(Marked { marked: marked as i64 })
+}
+
+/// Marks how far the owner has read a conversation, as the page does when it shows one: up to the latest entry shown,
+/// never back; and the agents' messages and the engine's notices in it up to there read, faults aside, which the owner
+/// marks read where they are shown.
+pub fn read_to(db: &Path, r: &ReadTo) -> Result<Marked, Error> {
+    let failed = |e: db::Error| Error::Failed(format!("{}: {e}", db.display()));
+    let mut conn = Db::open(db).map_err(failed)?;
+    let now = db::now();
+    let marked = conn
+        .write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO conversation_reads (conversation, at) VALUES (?1, ?2)
+                 ON CONFLICT (conversation) DO UPDATE SET at = max(at, excluded.at)",
+                params![r.key, r.at],
+            )?;
+            let n = tx.execute(
+                "UPDATE owner_messages SET read_at = ?3 WHERE read_at IS NULL AND id IN (
+                   SELECT id FROM conversation_entries WHERE conversation = ?1 AND source = 'message' AND at <= ?2)",
+                params![r.key, r.at, now],
+            )?;
+            Ok(n + tx.execute(
+                "UPDATE engine_notices SET read_at = ?3 WHERE read_at IS NULL AND fault IS NULL AND id IN (
+                   SELECT id FROM conversation_entries WHERE conversation = ?1 AND source = 'notice' AND at <= ?2)",
+                params![r.key, r.at, now],
+            )?)
         })
         .map_err(failed)?;
     Ok(Marked { marked: marked as i64 })

@@ -15,9 +15,8 @@ export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
   {
     file: 'styles.css',
     why:
-      "The styles of the messages view, which its rebuild on the UI spec converts, and of what a cell's tabs and a " +
-      "round's panel hold (with the JSON and file text they show), which a redesign of their own converts; each leaves " +
-      'it for a file under styles/ when it is converted.',
+      "The styles of what a cell's tabs and a round's panel hold (with the JSON and file text they show), which a " +
+      'redesign of their own converts, leaving it for a file under styles/ when it is converted.',
   },
 ];
 

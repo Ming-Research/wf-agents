@@ -440,10 +440,13 @@ pub fn invariants(e: &mut Engine) -> Result<Vec<String>, String> {
                     ));
                 }
                 if let Some(m) = b.matter {
+                    // A matter the owner answered in the work's group left the queue with its reply, which the work
+                    // takes at its next step.
                     let row: Option<(String, Option<String>)> =
                         e.db.conn()
                             .query_row(
-                                "SELECT project, withdrawn FROM architect_matters WHERE id = ?1",
+                                "SELECT project, CASE WHEN reply IS NULL THEN withdrawn END FROM architect_matters
+                                 WHERE id = ?1",
                                 [m],
                                 |r| Ok((r.get(0)?, r.get(1)?)),
                             )

@@ -68,19 +68,24 @@ agents are then not asked for it.
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
 every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
 looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
-switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in its row and its window,
-which win over the global state when they come later, Start all aside, which lifts no work's own pause; Step runs one
-round of a work, after showing what it will be, and leaves it paused; Start and Step resume the work's session or
-start a new one, as the owner chooses. `npm run dev` in `client/` serves the page from its sources and passes the
+switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its
+group in the Messages view, which win over the global state when they come later, Start all aside, which lifts no
+work's own pause; Step runs one round of a work, after showing what it will be, and leaves it paused; Start and Step
+resume the work's session or start a new one, as the owner chooses.
+
+The Messages view is the one place the owner acts: the one-to-one with each project's architect, wf-agents' own
+conversation (its faults and observations), a group for each work of the owner, its engineer and its project's
+architect, where everything said reaches all three, and a group for the architects of connected projects. What waits
+for the owner is pinned at the top of its conversation and answered with the one box at the bottom; every other view
+only reads, but for the bar's Start all, Pause all and Keep warm, and the Settings view. `npm run dev` in `client/` serves the page from its sources and passes the
 interface's requests to a running `wf-agents run`.
 
 The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
 with git and compiled, nothing written), its graphs side by side, and compares two of them, so that a change to the
 flow is reviewed there.
 
-The Architect view shows a project's architect, with a switch to another project's when there are several: its wakes
-on its graph, its asks of the owner with their forms, its queue with what became of each matter it handled, the item changes its batches made, the
-project's observations (by tag, searchable, each closed by the owner with why), the policy, and where things stand as
-it understands them, each a tab of the column at its right, the first being the owner's conversation with the
-architect: the owner's words, what the architect answered and asked, and a box that says more; its line holds the
-architect's Start, Pause and Step.
+The Architect view shows a project's architect, read only, with a switch to another project's when there are several:
+what it does now, its rounds on its graph, the item changes its batches made, the project's observations (by tag,
+searchable), what to do next and the policy in force, each a tab of the column at its right. Its conversation with the
+owner, its queue with a card for each matter, and its Start, Pause and Step are in its one-to-one in the Messages
+view.

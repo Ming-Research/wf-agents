@@ -5,8 +5,9 @@ import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type Rea
 
 import { roundName } from './format';
 
-/// What the work's panel beside its chart shows: its rounds, its design cards, its messages and asks, or its usage.
-export type WorkTab = 'rounds' | 'cards' | 'messages' | 'usage';
+/// What the work's panel beside its chart shows: its rounds, its design cards, its helpers' talk with its engineer, or its
+/// usage.
+export type WorkTab = 'rounds' | 'cards' | 'helpers' | 'usage';
 
 /// Which of a work's rounds its list shows besides all of them: those whose return was sent back, or those whose run
 /// failed or was cut off.
@@ -22,18 +23,9 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
-/// What the architect's panel beside its chart shows: its asks of the owner, its queue, its log, the item changes its
-/// batches made, the project's observations, the policy, where things stand as it understands them, or the rounds of
-/// the wake shown.
-export const ARCHITECT_TABS = [
-  'rounds',
-  'changes',
-  'observations',
-  'next',
-  'policy',
-  'conversation',
-  'queue',
-] as const;
+/// What the architect's panel beside its chart shows: the rounds of the stretch shown, the item changes its batches made,
+/// the project's observations, what to do next, or the policy in force.
+export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'next', 'policy'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
 
 export type ArchitectRoute = {
@@ -111,7 +103,7 @@ export function parse(pathname: string, search: string): Route {
         id,
         round: roundOf(id, q.get('round')),
         cell: q.get('cell'),
-        tab: tab === 'cards' || tab === 'messages' || tab === 'usage' ? tab : 'rounds',
+        tab: tab === 'cards' || tab === 'helpers' || tab === 'usage' ? tab : 'rounds',
         only: only === 'sent_back' || only === 'failed' ? only : null,
       };
     }

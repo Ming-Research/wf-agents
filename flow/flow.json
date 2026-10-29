@@ -3063,7 +3063,6 @@
       "remove_worktree": "Removes the work's worktree; its branch stays. A work taken over leaves it to the new work.",
       "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
-      "tell_undelivered": "Tells the owner what was said to the work and never handed in, each with the line it was for: the work's way on no longer changes, and a change becomes a new item. A word that needs no answer is left out.",
       "raise_blocker": "Raises the task's blocker at the cell where its problem arose: an engineer's question, an engine tool's failure, an ask of the owner, a wait for items to deliver or for the owner's ruling, held by the holder of the cell the row leads to. A cell where the work waits raises it with its row that waits, for what it waits for.",
       "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
@@ -3157,7 +3156,8 @@
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
       "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
-      "set_again": "Why the policy is set again: what the wake that started the setting found of the policy in force against the constitution, article by article, and each reason it may no longer govern (`P1`)"
+      "set_again": "Why the policy is set again: what the wake that started the setting found of the policy in force against the constitution, article by article, and each reason it may no longer govern (`P1`)",
+      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick or wrap-up, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item."
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -3386,6 +3386,9 @@
         "relations": [
           "interjections",
           "waiting_interjections"
+        ],
+        "inputs": [
+          "group_talk"
         ],
         "owner": "says something to a work, or rules on a design card"
       },
@@ -3620,9 +3623,6 @@
       ],
       "queue_followup": [
         "architect_queue"
-      ],
-      "tell_undelivered": [
-        "owner_notices"
       ],
       "start_work": [
         "branch",
@@ -11370,8 +11370,7 @@
             "queue_followup",
             "withdraw_matters",
             "end_sessions",
-            "remove_worktree",
-            "tell_undelivered"
+            "remove_worktree"
           ]
         },
         {
@@ -13149,6 +13148,16 @@
               "from": [
                 {
                   "engine": "policy"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Said in the works' groups",
+              "what": "What was said in the groups of your project's works since your last pick or wrap-up, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item. It is for you to know and needs no answer; none when nothing was said",
+              "from": [
+                {
+                  "engine": "group_talk"
                 }
               ],
               "maybe": true
@@ -15373,6 +15382,16 @@
               "from": [
                 {
                   "engine": "state_of_things"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Said in the works' groups",
+              "what": "What was said in the groups of your project's works since your last pick or wrap-up, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item. It is for you to know and needs no answer; none when nothing was said",
+              "from": [
+                {
+                  "engine": "group_talk"
                 }
               ],
               "maybe": true

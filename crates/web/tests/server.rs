@@ -351,8 +351,10 @@ fn the_flow_page_reads_a_version_explained_and_compared() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
-// The page reads the owner's conversations, what agents and the engine told the owner in them, and the owner marks it
-// read: one message, then the rest; and says something in a work's conversation, to its engineer.
+// The page reads the owner's conversations in their fixed order, the architect's one-to-one and wf-agents' first, what
+// agents and the engine told the owner in a work's group, and marks how far the owner read it, which marks its messages
+// read; the owner says something in the group, to its engineer, to its architect and to both, and a line that is no
+// member of the group is refused.
 #[test]
 fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let s = serve("messages");
@@ -382,25 +384,30 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let here = format!("127.0.0.1:{}", s.port);
     let (status, list) = get(s.port, "/api/v1/conversations", &here, "");
     assert_eq!(status, 200, "{list}");
-    assert!(
-        list.contains(r#""key":"work:1""#) && list.contains(r#""unread":3"#),
-        "{list}"
-    );
+    let order: Vec<usize> = [r#""key":"architect:p""#, r#""key":"wf-agents""#, r#""key":"work:1""#]
+        .iter()
+        .map(|k| list.find(k).unwrap_or_else(|| panic!("{k} in {list}")))
+        .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{list}");
+    assert!(list.contains(r#""unread":3"#), "{list}");
     let (status, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
     assert_eq!(status, 200, "{talk}");
     assert!(
         talk.contains(r#""text":"first""#) && talk.contains(r#""source":"notice""#),
         "{talk}"
     );
-    let (status, marked) = post(s.port, "/api/v1/messages/read", r#"{"ids":[1]}"#, "application/json");
+    let (status, marked) = post(
+        s.port,
+        "/api/v1/conversations/read",
+        r#"{"key":"work:1","at":5}"#,
+        "application/json",
+    );
     assert_eq!(status, 200, "{marked}");
-    assert!(marked.ends_with(r#"{"marked":1}"#), "{marked}");
+    assert!(marked.ends_with(r#"{"marked":3}"#), "{marked}");
     let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
-    assert!(list.contains(r#""unread":2"#), "{list}");
+    assert!(!list.contains(r#""unread":3"#), "{list}");
     let (_, marked) = post(s.port, "/api/v1/messages/read", r#"{"all":true}"#, "application/json");
-    assert!(marked.ends_with(r#"{"marked":2}"#), "{marked}");
-    let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
-    assert!(list.contains(r#""unread":0"#), "{list}");
+    assert!(marked.ends_with(r#"{"marked":0}"#), "{marked}");
     let (status, said) = post(
         s.port,
         "/api/v1/works/1/say",
@@ -409,11 +416,41 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     );
     assert_eq!(status, 200, "{said}");
     assert!(said.contains("goes to the engineer of work 1"), "{said}");
+    let (status, said) = post(
+        s.port,
+        "/api/v1/works/1/say",
+        r#"{"text":"Hold the merge.","to":"architect"}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{said}");
+    assert!(said.contains("the engineer of work 1 is told"), "{said}");
+    let (status, said) = post(
+        s.port,
+        "/api/v1/works/1/say",
+        r#"{"text":"Both of you.","to":"both"}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{said}");
+    let (status, refused) = post(
+        s.port,
+        "/api/v1/works/1/say",
+        r#"{"text":"Not yours.","to":"review"}"#,
+        "application/json",
+    );
+    assert_eq!(status, 422, "{refused}");
     let (_, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
     assert!(
         talk.contains(r#""source":"interjection""#) && talk.contains("Look at the log."),
         "{talk}"
     );
+    // The words to the architect show once, to the architect, with the words the engineer was given left out.
+    assert_eq!(talk.matches("Hold the merge.").count(), 1, "{talk}");
+    assert!(
+        talk.contains(r#""recipient":"architect""#) && talk.contains(r#""recipient":"both""#),
+        "{talk}"
+    );
+    let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
+    assert!(list.contains(r#""key":"architect:p""#), "{list}");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

@@ -1,0 +1,442 @@
+/* The messages view, the one place the owner acts, as the UI spec draws it: Primer's PageLayout filling the window
+   under the bar, the conversations a NavList in its pane, the one open on the right as a chat. Its head says what the
+   conversation is about and holds the owner's controls; what waits for the owner is pinned under it; the stream
+   scrolls; the one box is at the bottom. In the stream, the page's three voices each have their look: the engine's
+   cards and lines are the page's own words, with no frame; an agent's message is the box of what an agent handed back,
+   beside its avatar, in its colour; the owner's is the sheet of what is sent to an agent, on the right. */
+
+.talks {
+  flex: 1;
+  min-height: 0;
+}
+
+.talks-pane {
+  overflow-y: auto;
+}
+
+.talks-list {
+  padding: var(--base-size-8) 0;
+}
+
+.talks-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talks-marks {
+  display: inline-flex;
+  gap: var(--base-size-4);
+}
+
+/* A work's group once its work is over, greyed in place. */
+.talks-over .talks-title {
+  color: var(--fgColor-muted);
+}
+
+.talks-content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.talk-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.talk-none {
+  margin: 0;
+  padding: var(--base-size-16);
+  color: var(--fgColor-muted);
+}
+
+/* The head: what the conversation is about, its state as a Label, its facts and the owner's controls, under it the
+   architect's queue. */
+.talk-head {
+  display: grid;
+  gap: var(--base-size-8);
+  padding: var(--base-size-12) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-default);
+}
+
+.talk-head-title,
+.talk-head-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-12);
+  min-width: 0;
+}
+
+.talk-head-name {
+  margin: 0;
+  font: var(--text-title-shorthand-small);
+}
+
+.talk-head-facts {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-head-now {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talk-head-controls,
+.talk-head-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* The architect's queue: one line that opens to its matters, the one in hand marked. */
+.talk-queue > summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4) var(--base-size-12);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  cursor: pointer;
+}
+
+.talk-queue-n {
+  color: var(--fgColor-default);
+}
+
+.talk-queue-list {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: var(--base-size-8) 0 0;
+  padding-left: var(--base-size-24);
+}
+
+.talk-queue-current {
+  background: var(--bgColor-accent-muted);
+  border-radius: var(--borderRadius-medium);
+}
+
+/* What waits for the owner, pinned under the head: the open blockers the owner holds, with their options. */
+.talk-pins {
+  display: grid;
+  gap: var(--base-size-12);
+  max-height: 45%;
+  overflow-y: auto;
+  padding: var(--base-size-12) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-muted);
+}
+
+.talk-pins-title {
+  margin: 0;
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+/* The stream: the newest at the bottom, scrolled to. */
+.talk-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+  padding: var(--base-size-16);
+}
+
+.talk-messages {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+/* A message: an agent's beside its avatar on the left, the owner's on the right. */
+.talk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-8);
+  max-width: 84%;
+}
+
+.talk-row-owner {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.talk-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--base-size-32);
+  height: var(--base-size-32);
+  border-radius: var(--borderRadius-full);
+  color: var(--fgColor-onEmphasis);
+}
+
+.talk-avatar-engineer {
+  background: var(--display-blue-bgColor-emphasis);
+}
+
+.talk-avatar-architect {
+  background: var(--display-purple-bgColor-emphasis);
+}
+
+.talk-bubble {
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border-radius: var(--borderRadius-medium);
+}
+
+/* What an agent handed back: the box, all round, in the agent's colour. */
+.talk-bubble-engineer {
+  border: var(--borderWidth-thin) solid var(--display-blue-borderColor-muted);
+  background: var(--display-blue-bgColor-muted);
+}
+
+.talk-bubble-architect {
+  border: var(--borderWidth-thin) solid var(--display-purple-borderColor-muted);
+  background: var(--display-purple-bgColor-muted);
+}
+
+/* What the owner sends to an agent: the sheet, filled, its edge at its left. */
+.talk-bubble-owner {
+  border-left: var(--borderWidth-thicker) solid var(--borderColor-default);
+  background: var(--bgColor-muted);
+}
+
+.talk-bubble-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-who {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+/* Whom a message in a group is for, at its head, as a chat writes a mention. */
+.talk-mention {
+  color: var(--fgColor-accent);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.talk-when {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-state {
+  color: var(--fgColor-attention);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-state-bad {
+  color: var(--fgColor-danger);
+}
+
+.talk-bubble-body {
+  margin-top: var(--base-size-4);
+  overflow-wrap: anywhere;
+}
+
+.talk-bubble-body > :first-child {
+  margin-top: 0;
+}
+
+.talk-bubble-body > :last-child {
+  margin-bottom: 0;
+}
+
+.talk-bubble-actions {
+  margin-top: var(--base-size-8);
+}
+
+/* A line of the page's own: what the engine said, small and grey, with no frame. */
+.talk-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-line-icon {
+  flex: none;
+}
+
+.talk-line-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.talk-line-more {
+  margin: var(--base-size-4) 0 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* The engine's cards and lines: Primer's Timeline, condensed. */
+.talk-cards {
+  margin: 0;
+}
+
+.talk-card-body {
+  display: grid;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+
+.talk-card-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  min-width: 0;
+}
+
+.talk-card-current {
+  background: var(--bgColor-accent-muted);
+  border-radius: var(--borderRadius-medium);
+}
+
+.talk-card-title {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.talk-card-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talk-card-facts,
+.talk-card-note,
+.talk-card-kind {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-card-note {
+  margin: 0;
+}
+
+/* A fold under a card or a message: the design, what an agent said, a document. */
+.talk-fold > summary {
+  color: var(--fgColor-accent);
+  font-size: var(--text-body-size-small);
+  cursor: pointer;
+}
+
+.talk-fold-body {
+  display: grid;
+  gap: var(--base-size-8);
+  margin-top: var(--base-size-8);
+}
+
+.talk-fault {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+/* The one box at the bottom: whom to, the words, Send; while it answers something, what, over it. */
+.talk-say {
+  display: grid;
+  gap: var(--base-size-8);
+  padding: var(--base-size-12) var(--base-size-16);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-default);
+}
+
+.talk-say-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--base-size-8);
+}
+
+.talk-say-target {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  padding: var(--base-size-4) var(--base-size-8);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-accent-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-say-target > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.talk-say-closed {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* What an agent handed back, word for word, wherever a card shows it: the box. */
+.agent-box {
+  padding: var(--base-size-8) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+  overflow-wrap: anywhere;
+}
+
+.agent-box > :first-child {
+  margin-top: 0;
+}
+
+.agent-box > :last-child {
+  margin-bottom: 0;
+}
+
+/* A document the owner reads, a study, a policy or a design: one document in one style. */
+.document-list {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: var(--base-size-8) 0 0;
+  padding-left: var(--base-size-24);
+}
+
+/* Where a card waiting for the owner is ruled on or answered, and the button that answers it here. */
+.answer-there {
+  margin: var(--base-size-8) 0 0;
+  font-size: var(--text-body-size-small);
+}
+
+.ruling-pick {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.design-none p {
+  margin: 0 0 var(--base-size-4);
+}
+
+/* An item's live work, once, at its top. */
+.item-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-12);
+  margin: 0 0 var(--base-size-16);
+}
+
+/* A helper's thread on a work's page. */
+.helper-said {
+  display: grid;
+  gap: var(--base-size-4);
+  margin-bottom: var(--base-size-12);
+}

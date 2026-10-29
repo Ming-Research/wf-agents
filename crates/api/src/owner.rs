@@ -7,23 +7,40 @@ use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
-use crate::{Answer, Ruling, WorkSaid};
+use crate::{Answer, ProjectsSaid, Ruling, WorkSaid};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Says something to a work's line as the owner: an interjection, handed to the line's round that runs after its next
-/// tool use, or at the top of its next round. A work at its end (`E1`) is told nothing more: its way on no longer
-/// changes. Gives the interjection.
+/// Says something to a work's engineer as the owner: an interjection, handed to the engineer's round that runs after
+/// its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
+/// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
+/// told nothing more: its way on no longer changes. Gives the interjection.
 pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("what is said to a work says something".into());
     }
-    if line.trim().is_empty() {
-        return Err("what is said to a work names the line it is for".into());
+    if line != "engineer" {
+        return Err(format!(
+            "the owner speaks to a work's engineer, not to its {line}: its helpers take nothing from the owner"
+        ));
     }
+    live(db, work)?;
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
+            params![work, line, text],
+        )?;
+        Ok(tx.last_insert_rowid())
+    })
+    .map_err(sql)
+}
+
+/// That a work can still be said something: it is not ended, and an engineer's work is not at its end (`E1`), whose
+/// way on no longer changes.
+fn live(db: &Db, work: i64) -> Result<(), String> {
     let found: Option<(Option<String>, String, String)> = db
         .conn()
         .query_row("SELECT ended, graph, at FROM works WHERE id = ?1", [work], |r| {
@@ -42,24 +59,108 @@ pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, 
         }
         Some(_) => {}
     }
-    db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
-            params![work, line, text],
-        )?;
-        Ok(tx.last_insert_rowid())
-    })
-    .map_err(sql)
+    Ok(())
 }
 
-/// What the owner says in the conversation about a work: to its engineer, or the line named, as an interjection; or to
-/// the architect of its item's project, as the owner's words naming the work.
+/// What the engineer is told of what the owner said to its project's architect alone, in the work's group.
+const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
+
+/// What the owner says in a work's group, whose members are the owner, the engineer and the project's architect: to
+/// the engineer, as an interjection; to the architect, as the owner's words naming the work, which the engineer is
+/// given as a word that needs no answer; or to both, the engineer's interjection naming the architect's matter, so that
+/// the group shows the words once. What is said to the engineer alone the architect is given at its next pick. With a
+/// question named, the words answer that question of the engineer's, which the architect holds.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
-    let to = said.to.as_deref().unwrap_or("engineer");
-    if to != "architect" {
-        let id = interject(db, work, to, &said.text)?;
-        return Ok(format!("interjection {id} goes to the {to} of work {work}"));
+    if let Some(m) = said.question {
+        return answer_question(db, work, m, &said.text);
     }
+    let to = said.to.as_deref().unwrap_or("engineer");
+    if to == "engineer" {
+        let id = interject(db, work, to, &said.text)?;
+        return Ok(format!("interjection {id} goes to the engineer of work {work}"));
+    }
+    if to != "architect" && to != "both" {
+        return Err(format!(
+            "what is said in a work's group is for its engineer, its architect or both, not for the {to}"
+        ));
+    }
+    let text = said.text.trim();
+    if text.is_empty() {
+        return Err("what is said to a work says something".into());
+    }
+    live(db, work)?;
+    let (item, project) = item_of(db, work)?;
+    let m = Matter {
+        project: project.clone(),
+        kind: "owner_words".into(),
+        detail: Some("said".into()),
+        what: format!("The owner says: {}", db::one_sentence(text)),
+        body: json!({ "text": text, "where": "work", "work": work }),
+        item,
+        ..Matter::default()
+    };
+    let (copy, informs) = if to == "both" {
+        (text.to_string(), 0)
+    } else {
+        (format!("{TOLD_TO_ARCHITECT}: {text}"), 1)
+    };
+    let id = db
+        .write(Actor::Owner, |tx| {
+            let matter = queue_matter(tx, &m)?;
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, informs, matter)
+                 VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4)",
+                params![work, copy, informs, matter],
+            )?;
+            Ok(matter)
+        })
+        .map_err(sql)?;
+    Ok(match to {
+        "both" => format!("the engineer of work {work} and the architect of {project}, as matter {id}, have it"),
+        _ => format!("the architect of {project} has it as matter {id}, and the engineer of work {work} is told"),
+    })
+}
+
+/// What the owner says in a group of the architects of projects the configuration connects (`projects`, the group's,
+/// in order): to the architect named, or to every one; each comes to its queue as the owner's words naming the group,
+/// the projects it was said to listed in each, so that the group shows the words once.
+pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) -> Result<String, String> {
+    let text = said.text.trim();
+    if text.is_empty() {
+        return Err("what is said to the architects says something".into());
+    }
+    let to: Vec<String> = match said.to.as_deref() {
+        Some(p) if projects.iter().any(|x| x == p) => vec![p.to_string()],
+        Some(p) => return Err(format!("project {p} is not in the group {}", said.key)),
+        None => projects.to_vec(),
+    };
+    let ids = db
+        .write(Actor::Owner, |tx| {
+            let mut ids = Vec::new();
+            for p in &to {
+                let m = Matter {
+                    project: p.clone(),
+                    kind: "owner_words".into(),
+                    detail: Some("said".into()),
+                    what: format!("The owner says: {}", db::one_sentence(text)),
+                    body: json!({ "text": text, "where": "projects", "group": said.key, "to": to }),
+                    ..Matter::default()
+                };
+                ids.push(queue_matter(tx, &m)?);
+            }
+            Ok(ids)
+        })
+        .map_err(sql)?;
+    let listed: Vec<String> = ids.iter().map(i64::to_string).collect();
+    Ok(format!(
+        "the architects of {} have it as matters {}",
+        to.join(", "),
+        listed.join(", ")
+    ))
+}
+
+/// The item of an engineer's work, and its project, whose architect the work's group holds.
+fn item_of(db: &Db, work: i64) -> Result<(Option<i64>, String), String> {
     let of: Option<(Option<i64>, Option<String>)> = db
         .conn()
         .query_row(
@@ -69,12 +170,80 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         )
         .optional()
         .map_err(sql)?;
-    let Some((item, Some(project))) = of else {
-        return Err(format!(
+    match of {
+        Some((item, Some(project))) => Ok((item, project)),
+        _ => Err(format!(
             "work {work} is on no item of a project, so it has no architect to say it to"
+        )),
+    }
+}
+
+/// The owner's answer, in a work's group, to a question of its engineer's that an architect holds: the answer becomes
+/// the reply of the architect's matter, said by the owner, which the work takes as it takes an architect's reply, and
+/// the matter leaves the architect's queue, saying so; the architect is told what the owner answered at its next pick.
+/// A question the architect is handling now, or that is not open, is refused.
+fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("an answer says something".into());
+    }
+    let open: Option<(i64, Option<String>)> = db
+        .conn()
+        .query_row(
+            "SELECT m.work, m.project FROM architect_matters m
+             WHERE m.id = ?1 AND m.reply IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL
+               AND EXISTS (SELECT 1 FROM blockers b
+                           WHERE b.matter = m.id AND b.ended IS NULL AND b.holder = 'architect')",
+            [matter],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    match open {
+        Some((w, _)) if w == work => {}
+        _ => {
+            return Err(format!(
+                "matter {matter} is no question of work {work} that an architect holds now"
+            ));
+        }
+    }
+    // A wake that picked it is answering it: the owner's words go to the architect instead.
+    let picked: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM rounds p JOIN works w ON w.id = p.work
+             WHERE w.graph = 'architect' AND w.ended IS NULL AND p.transition IS NOT NULL
+               AND ?1 IN (json_extract(p.output, '$.outcome.pick.matter'), json_extract(p.output, '$.queue.matter'))",
+            [matter],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if picked > 0 {
+        return Err(format!(
+            "the architect is answering matter {matter} now: say it to the architect instead"
         ));
-    };
-    db::say_to_architect(db, &project, item, Some(work), &said.text)
+    }
+    let reply = json!({
+        "by": "owner",
+        "at": db::now(),
+        "text": text,
+        "why": "The owner answered the question in the work's group.",
+    });
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET reply = ?2, withdrawn = ?3 WHERE id = ?1",
+            params![
+                matter,
+                reply.to_string(),
+                format!("the owner answered it in the group of work {work}")
+            ],
+        )?;
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(format!(
+        "the question of work {work} is answered, and its architect is told"
+    ))
 }
 
 /// The option the owner chose, for an ask of the architect's that offers options.

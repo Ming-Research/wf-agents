@@ -421,50 +421,63 @@ architect: string | null, };
 export type Misses = { count: number, written: number, cost_usd: number, last_at: number | null, };
 
 /**
- * One of the owner's conversations, by its subject, as their list shows it.
+ * One of the owner's conversations, as their list shows it.
  */
 export type Conversation = { 
 /**
- * Which: `work:<id>` for an engineer's work, `architect:<project>` for a project's architect,
- * `architects:<project>|<project>` for two projects' architects, `wf-agents` for wf-agents itself.
+ * Which: `architect:<project>` for the owner's one-to-one with a project's architect, `wf-agents` for wf-agents
+ * itself, `work:<id>` for a work's group of the owner, its engineer and its project's architect, and
+ * `projects:<project>|<project>...` for the architects of projects the configuration connects.
  */
 key: string, 
 /**
- * The project it is about; none for one between two projects' architects, and for wf-agents'.
+ * architect, wf_agents, work or projects.
+ */
+kind: string, 
+/**
+ * The project it is about; none for wf-agents' and a group of projects.
  */
 project: string | null, 
 /**
- * For a work's: the work, its item and the item's title.
+ * For a group of projects: its projects, in order.
  */
-work: number | null, item: number | null, title: string | null, 
+projects: Array<string>, 
 /**
- * How many things in it wait for the owner: asks not answered, design cards not ruled, faults not read.
+ * For a work's group: the work, its item, the item's title and the tier the item is at, and whether the work is
+ * over (done or ended), which greys the group out in place.
+ */
+work: number | null, item: number | null, title: string | null, level: string | null, over: boolean, 
+/**
+ * How many things in it wait for the owner: the open blockers the owner holds, design cards not ruled, faults not
+ * read.
  */
 waiting: number, 
 /**
- * How many of the messages and notices in it the owner has not read, faults aside.
+ * How many of its entries from anyone but the owner came after the latest the owner read, what waits aside.
  */
 unread: number, 
 /**
- * When its latest entry came.
+ * When its latest entry came; none while it has none.
  */
-last_at: number, };
+last_at: number | null, };
 
 /**
- * One entry of a conversation of the owner's, as `conversation_entries` gives it.
+ * One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+ * flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
  */
 export type ConversationEntry = { 
 /**
- * What it is: message, notice, ask, answer, interjection, words, question, reply, advice_ask, advice, card,
- * ruling or between.
+ * What it is: message, notice, ask, answer, interjection, words, question, report, reply, card, ruling, between;
+ * stage, matter, policy or observation.
  */
 source: string, 
 /**
- * Its row in the table it comes from; for advice_ask and advice, the round's number in its work.
+ * Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
  */
 id: number, 
 /**
- * Who said it and to whom: a line, the owner, the engine or wf-agents; for between, the projects.
+ * Who said it and to whom: a line, the owner, the engine or wf-agents; the owner's words in a work's group are to
+ * the engineer, the architect or both; for between, the projects.
  */
 sender: string, recipient: string, text: string, at: number, 
 /**
@@ -472,15 +485,16 @@ sender: string, recipient: string, text: string, at: number,
  */
 work: number | null, round: number | null, 
 /**
- * For an ask and its answer, the ask; for a design card and a ruling on it, the card.
+ * For an ask and its answer, the ask; for a design card and a ruling on it, the card; for what is or holds an
+ * architect's matter, the matter.
  */
-ask: number | null, design_card: number | null, 
+ask: number | null, design_card: number | null, matter: number | null, 
 /**
  * For a message or a notice: when the owner marked it read; none while it is unread.
  */
 read_at: number | null, 
 /**
- * Whether it waits for the owner: an ask not answered, a design card not ruled, a fault not read.
+ * Whether it waits for the owner: an open blocker the owner holds, a design card not ruled, a fault not read.
  */
 waiting: boolean, 
 /**
@@ -488,9 +502,13 @@ waiting: boolean,
  */
 pending: boolean, 
 /**
- * Whether it passes between agents, not to or from the owner.
+ * Whether the owner's words in it were never taken in: the work ended first.
  */
-agents: boolean, 
+undelivered: boolean, 
+/**
+ * Whether it is an engineer's question the architect holds now, which the owner may answer in the group.
+ */
+answerable: boolean, 
 /**
  * For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
  * cache_miss or flow_anomaly.
@@ -499,23 +517,172 @@ fault: string | null,
 /**
  * For a notice of cache misses: the misses it tells of, the first and those added to it since.
  */
-misses: Misses | null, };
-
+misses: Misses | null, 
 /**
- * A conversation in full: its entries in time order, and what waits for the owner in it with its form: the asks not
- * answered and the design cards not ruled.
+ * For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
+ * since the owner last read it (`revisions`).
  */
-export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, };
+ask_detail: OwnerAsk | null, revisions: JsonValue | null, 
+/**
+ * For a stage card: the stage the work went through.
+ */
+stage: StageCard | null, 
+/**
+ * For a matter card: where the matter stands with the architect.
+ */
+matter_card: MatterProgress | null, 
+/**
+ * For the policy taking effect: the policy in force.
+ */
+policy: PolicyInForce | null, 
+/**
+ * For an observation of wf-agents: the observation.
+ */
+observation: Observation | null, };
 
 /**
- * What the owner says in a conversation about a work: to its engineer, or another of its lines, as an interjection;
- * or to the architect of its project, as the owner's words naming the work.
+ * One stretch of a work at one stage (research, design, implementation, testing and fixing, merge, watching main),
+ * as the engine writes it from the flow: from the round that came into the stage to the round that left it. A stage
+ * the work comes back to is a stretch of its own, saying why it came back.
+ */
+export type StageCard = { 
+/**
+ * The stage, as the flow names it.
+ */
+stage: string, 
+/**
+ * How many stretches at this stage came before it.
+ */
+again: number, 
+/**
+ * Its rounds, by their numbers in the work: the first and the last.
+ */
+first: number, last: number, 
+/**
+ * When its first round started, and when its last ended; none while a round of it runs or it goes on.
+ */
+started_at: number, ended_at: number | null, 
+/**
+ * What its rounds cost.
+ */
+cost_usd: number, 
+/**
+ * Whether the work is at this stage now, and its cell there, with the cell's title.
+ */
+current: boolean, cell: string | null, cell_title: string | null, 
+/**
+ * For a stretch after the first at the stage: the row that brought the work back, and what that round said.
+ */
+back: StageMove | null, 
+/**
+ * For a stretch the work left: the row that took it on.
+ */
+left: StageMove | null, 
+/**
+ * What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
+ * approaches compared, the one chosen, the design and the acceptance.
+ */
+shown: Array<Shown>, 
+/**
+ * The design cards its rounds handed in, the one that waits for the owner's ruling among them.
+ */
+design_cards: Array<DesignCard>, 
+/**
+ * How many rounds at it fixed what the checks and reviews found, and how many reviewed.
+ */
+fixes: number, reviews: number, 
+/**
+ * What the last agent's round in it said it did, and that round.
+ */
+said: string | null, said_round: number | null, };
+
+/**
+ * A row a work took from one stage to another: the round, its cell and the cell's title, and the row with its note.
+ */
+export type StageMove = { round: number, cell: string, title: string | null, row: string, note: string | null, 
+/**
+ * What that round said it did, when an agent's round.
+ */
+said: string | null, };
+
+/**
+ * Where a matter stands with its architect, as the engine writes it from the flow: queued, held by an ask of the
+ * owner, worked on at a cell, handled with what became of it, or withdrawn with why.
+ */
+export type MatterProgress = { matter: number, kind: string, detail: string | null, 
+/**
+ * What it is, in one sentence, as the engine wrote it.
+ */
+what: string, 
+/**
+ * queued, held, working, done or withdrawn.
+ */
+state: string, 
+/**
+ * While it is worked on: the cell the architect is at, with its title, and the wake's round there.
+ */
+cell: string | null, cell_title: string | null, wake: number | null, round: number | null, 
+/**
+ * The work it is about, whose group holds it in full, and that work's item.
+ */
+work: number | null, item: number | null, 
+/**
+ * Once handled: what became of it.
+ */
+handled: Handled | null, 
+/**
+ * Once withdrawn: why.
+ */
+withdrawn: string | null, 
+/**
+ * The ask of the owner that holds it, or held it.
+ */
+asked: number | null, };
+
+/**
+ * A conversation in full: its entries in time order; what is pinned at its top for the owner, the open blockers the
+ * owner holds with their forms (the asks, and the design cards whose ruling a work waits for); and how far the owner
+ * has read it.
+ */
+export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
+/**
+ * The time of the latest entry the owner read; none before the first.
+ */
+read_to: number | null, };
+
+/**
+ * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
+ * architect alone, the engineer is given it as a word that needs no answer; to the engineer alone, the architect is
+ * given it at its next pick. With `question`, it answers that question of the engineer's, which the architect holds:
+ * the answer is the reply, and the architect is told.
  */
 export type WorkSaid = { text: string, 
 /**
- * The line it is for, `engineer` unless named; `architect` for the project's architect.
+ * engineer (the default), architect or both.
+ */
+to?: string, 
+/**
+ * The architect's matter that holds the question the words answer.
+ */
+question?: number, };
+
+/**
+ * What the owner says in a group of projects: to one of their architects, or to every one.
+ */
+export type ProjectsSaid = { 
+/**
+ * The group, by its key.
+ */
+key: string, text: string, 
+/**
+ * The project whose architect it is for; none for every architect of the group.
  */
 to?: string, };
+
+/**
+ * How far the owner has read a conversation: the time of the latest entry the page showed.
+ */
+export type ReadTo = { key: string, at: number, };
 
 /**
  * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
@@ -1005,7 +1172,7 @@ setting: PolicySetting | null,
 /**
  * Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
  */
-check: Said | null, understanding: Understanding, next: NextPlan, 
+check: Said | null, next: NextPlan, 
 /**
  * The project's observations: the open ones first, then those closed, each newest first.
  */
@@ -1013,7 +1180,12 @@ observations: Array<Observation>,
 /**
  * The project's tags for observations, each with what it covers.
  */
-tags: Array<Tag>, };
+tags: Array<Tag>, 
+/**
+ * Whether the project is wf-agents itself, whose observations wf-agents' own conversation holds; any other
+ * project's are in its architect's one-to-one, where the owner closes them.
+ */
+own: boolean, };
 
 /**
  * One wake of an architect.
@@ -1267,16 +1439,6 @@ export type Reading = { round: number,
 cell: string, reading: JsonValue, verdict: JsonValue, };
 
 /**
- * What the project is now, as the architect last wrote it (cell `U1`): the state of each line of work, what changed
- * and what it could not settle.
- */
-export type Understanding = { state: Said | null, 
-/**
- * Every version of the understanding, newest first.
- */
-versions: Array<StateVersion>, };
-
-/**
  * What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
  * most and whether what runs fits; none before the first plan.
  */
@@ -1285,11 +1447,6 @@ export type NextPlan = { plan: Said | null,
  * The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
  */
 matters: Array<number>, };
-
-/**
- * One version of the understanding: what an understanding round answered, by the wake and its round.
- */
-export type StateVersion = { work: number, round: number, cell: string, at: number | null, state: JsonValue, };
 
 /**
  * How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what

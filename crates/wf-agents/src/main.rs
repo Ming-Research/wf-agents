@@ -107,12 +107,14 @@ enum Command {
         #[arg(long)]
         choose: Vec<String>,
     },
-    /// Says something to a running work: the line it is for gets it in its next round.
+    /// Says something in a running work's group, as the page does: to its engineer, which gets it in its next round;
+    /// to its project's architect, which gets it as the owner's words, the engineer told of it; or to both.
     Say {
         work: i64,
         text: String,
+        /// engineer, architect or both.
         #[arg(long, default_value = "engineer")]
-        line: String,
+        to: String,
     },
     /// A project's architect: what the owner says to it.
     #[command(subcommand)]
@@ -513,7 +515,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 choose,
             },
         )),
-        Command::Say { work, text, line } => owner::say(d, work, &line, &text).map(|id| println!("interjection {id}")),
+        Command::Say { work, text, to } => print(owner::say(d, work, &to, &text)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),

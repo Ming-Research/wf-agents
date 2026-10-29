@@ -9,15 +9,15 @@
 // verdicts on all of them at once, after a summary of what is sent. A replacing card says first what it changed from
 // the one it replaced. An ask of the owner holds what it asks about, each point under its kind coloured by the kind's
 // group, and for a decision the options with the one recommended; while it waits, the owner clicks an option and says
-// what more there is to say. Both write what the command line writes, and the engine goes on at once.
+// what more there is to say in the box at the bottom of the conversation, which answers it. Both write what the
+// command line writes, and the engine goes on at once. The owner rules and answers in the messages view alone: wherever
+// else a card shows, it says where it waits to be ruled on or answered.
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ReplyIcon } from '@primer/octicons-react';
 import {
   Button,
   ButtonGroup,
-  Checkbox,
   Flash,
-  FormControl,
   Label,
   Textarea,
   type FlashProps,
@@ -25,6 +25,7 @@ import {
 } from '@primer/react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 
+import { answersAsk, askTarget, useAnswering } from '../answer';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
 import { time } from '../format';
 import { postJson } from '../http';
@@ -33,7 +34,7 @@ import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { SendForm, SubHeading } from '../parts';
-import { navigate } from '../route';
+import { href, Link, navigate } from '../route';
 import { t } from '../text';
 
 export { words };
@@ -414,6 +415,25 @@ function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
   );
 }
 
+/// Where a card waiting for the owner is ruled on or answered: the conversation it is in, the work's group or the
+/// one-to-one with the architect that asked; shown wherever else the card shows, which only reads it.
+export function AnswerThere({ conversation, what }: { conversation: string; what: 'rule' | 'answer' }) {
+  return (
+    <p className="answer-there">
+      <Link to={href({ page: 'messages', open: conversation })}>
+        {t(what === 'rule' ? 'answer_there_rule' : 'answer_there_answer')}
+      </Link>
+    </p>
+  );
+}
+
+/// The conversation an ask is in: an architect's one-to-one for what its wake or the setting of its policy asked, else
+/// the group of the work that asked.
+export function askConversation(a: OwnerAsk): string {
+  const body = isObj(a.body) ? a.body : {};
+  return body.from === 'architect' && typeof body.project === 'string' ? `architect:${body.project}` : `work:${a.work}`;
+}
+
 /// A link to a design card: brought into view where the page shows it, else on its item's page.
 function CardLink({ id, item }: { id: number; item: number | null }) {
   const to = item !== null ? `/items/${item}#design-card-${id}` : null;
@@ -440,7 +460,8 @@ const cellText = (cell: string | null, title: string | null) => (cell === null ?
 export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
   const tone = cardTone(c);
   const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const open = c.status === 'open';
+  const can = useAnswering() !== null;
+  const open = c.status === 'open' && can;
   const [set, setSet] = useState<Verdict[]>([]);
   const given = decisions.map((_, i) => set[i] ?? UNSET);
   const setOne = (i: number) => (v: Verdict) => setSet(() => given.map((x, j) => (j === i ? v : x)));
@@ -495,6 +516,7 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
         <Decision key={i} d={d} n={i + 1} v={open ? given[i] : null} set={open ? setOne(i) : null} />
       ))}
       {open && decisions.length > 0 ? <RuleForm c={c} verdicts={given} /> : null}
+      {c.status === 'open' && !can ? <AnswerThere conversation={`work:${c.work}`} what="rule" /> : null}
     </CardFrame>
   );
 }
@@ -521,52 +543,18 @@ export function KindChip({ k }: { k: AskKind }) {
   );
 }
 
-/// The owner's answer to an ask that waits: the option clicked in its choice, when one is, and words. An ask that holds
-/// a work's question may instead be handed to the project's architect, the words the decision it carries out.
-export function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string; options: boolean }) {
-  const [text, setText] = useState('');
-  const [back, setBack] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const handsBack = isObj(a.body) && a.body.to === 'owner';
-  const answer =
-    picked !== '' ? `${t('answer_chosen', { option: picked })}${text.trim() !== '' ? ` ${text.trim()}` : ''}` : text.trim();
-  const send = () => {
-    setBusy(true);
-    setError(null);
-    const body = handsBack && back ? { text: answer, to: 'architect' } : { text: answer };
-    postJson(`/api/v1/asks/${a.id}/answer`, body).then(decided, (e: unknown) => {
-      setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
-    });
-  };
-  const pick = options ? (
-    <p className="muted pick-hint">{picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}</p>
-  ) : null;
-  const toArchitect = handsBack ? (
-    <FormControl>
-      <Checkbox checked={back} onChange={(e) => setBack(e.target.checked)} />
-      <FormControl.Label>{t('answer_to_architect')}</FormControl.Label>
-      <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
-    </FormControl>
-  ) : null;
+/// The owner's answer to an ask that waits, in the conversation it is in: the button that has the box at the bottom
+/// answer it, which says so while it does; elsewhere, where the ask is answered.
+export function AnswerHere({ a }: { a: OwnerAsk }) {
+  const answering = useAnswering();
+  if (answering === null) return <AnswerThere conversation={askConversation(a)} what="answer" />;
+  if (answersAsk(answering.target, a.id)) return <p className="answer-there">{t('answer_below')}</p>;
   return (
-    <SendForm
-      above={
-        pick !== null || toArchitect !== null ? (
-          <>
-            {pick}
-            {toArchitect}
-          </>
-        ) : null
-      }
-      words={{ text, set: setText, placeholder: t(options ? 'answer_more_hint' : 'answer_text_hint') }}
-      label={t('answer_send')}
-      ready={answer !== ''}
-      busy={busy}
-      onSend={send}
-      error={error}
-    />
+    <div className="answer-there">
+      <Button size="small" leadingVisual={ReplyIcon} onClick={() => answering.set(askTarget(answering.target, a))}>
+        {t('answer_this')}
+      </Button>
+    </div>
   );
 }
 
@@ -593,7 +581,10 @@ function parts(body: Obj): Obj[] {
 /// option boxes with the one recommended, which the owner answers by clicking an option; then the answer, or the form
 /// to give it. `round` is the link to the round that asked.
 export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; round?: ReactNode; folded?: boolean }) {
-  const [picked, setPicked] = useState('');
+  const answering = useAnswering();
+  const target = answering?.target ?? null;
+  const picked = target !== null && target.kind === 'ask' && target.ask.id === a.id ? target.option : '';
+  const pick = (name: string) => answering?.set(askTarget(target, a, { option: picked === name ? '' : name }));
   const body = isObj(a.body) ? a.body : {};
   const held = parts(body);
   const points = held.flatMap((x) => (Array.isArray(x.points) ? x.points.filter(isObj) : []));
@@ -641,7 +632,7 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
                 recommended={str(choice.recommended)}
                 mark={t('ask_recommended')}
                 picked={waits ? picked : ''}
-                onPick={waits ? (name) => setPicked((p) => (p === name ? '' : name)) : null}
+                onPick={waits && answering !== null ? pick : null}
               />
             </Box>
           ) : null}
@@ -651,11 +642,7 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
         </>
       ) : null}
       {points.length === 0 && choice === null ? <Labelled value={a.body} /> : null}
-      {answer !== null ? (
-        <TextBox label={t('dc_answer')} value={answer.text} />
-      ) : (
-        <AnswerForm a={a} picked={picked} options={options.length > 0} />
-      )}
+      {answer !== null ? <TextBox label={t('dc_answer')} value={answer.text} /> : <AnswerHere a={a} />}
     </CardFrame>
   );
 }

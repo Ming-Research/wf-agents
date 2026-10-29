@@ -26,6 +26,7 @@ import './styles/architect.css';
 import './styles/items.css';
 import './styles/system.css';
 import './styles/chart.css';
+import './styles/messages.css';
 import './styles.css';
 
 const root = document.getElementById('root');

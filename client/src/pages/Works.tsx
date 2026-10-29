@@ -1,23 +1,22 @@
 // Every work, or the one open. The list shows every row: those running or waiting, then those that have ended,
 // folded at first; both have the same columns at the same widths, which the owner drags, so that they read as one
 // table, and every cell stays on one line. A row says how its work goes on (a round running, what holds it back, what
-// it waits for), its state as it is in effect and why, and holds the owner's Start, Pause and Step of it. A work opened
-// from it takes the whole window
-// under the bar, its chart under a line that says which work it is, how it goes on and where, holds the owner's
-// controls, and leads to the other works running or waiting with what each needs of the owner. What waits for the owner
-// opens that tab of the work, and the marks of rounds that went wrong open the work with only those rounds.
+// it waits for), its state as it is in effect and why, and leads to its group in the messages view, the one place the
+// owner acts on it. A work opened from it takes the whole window under the bar, its chart under a line that says which
+// work it is, how it goes on and where, leads to its group, and to the other works running or waiting with what each
+// needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
 
 import { ArrowLeftIcon, ReplyIcon, XCircleIcon } from '@primer/octicons-react';
 import { CounterLabel, Heading, Label } from '@primer/react';
 import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
-import { type Course, heldName, WorkBadge, Loaded } from '../components';
-import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped, waitsWords } from '../course';
+import { type Course, course, heldName, WorkBadge, Loaded } from '../components';
+import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
-import { architectHref, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
+import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
 
@@ -72,13 +71,9 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   const waits = c.waits;
   if (waits !== null) {
     const to =
-      waits.kind === 'answer'
-        ? workHref(w.id, { tab: 'messages' })
-        : waits.kind === 'ruling'
-          ? workHref(w.id, { tab: 'cards' })
-          : waits.kind === 'architect'
-            ? architectHref({ project: w.project, tab: 'queue' })
-            : waits.kind === 'items' && waits.items.length > 0
+      waits.kind === 'answer' || waits.kind === 'ruling' || waits.kind === 'architect'
+        ? href({ page: 'messages', open: `work:${w.id}` })
+        : waits.kind === 'items' && waits.items.length > 0
               ? `/items/${waits.items[0]}`
               : workHref(w.id);
     parts.push(
@@ -111,7 +106,7 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   const cards = w.open_design_cards - (waits?.kind === 'ruling' ? 1 : 0);
   if (asks > 0) {
     parts.push(
-      <LabelLink key="asks" to={workHref(w.id, { tab: 'messages' })} variant="attention" title={t('open_asks_n', { n: asks })}>
+      <LabelLink key="asks" to={href({ page: 'messages', open: `work:${w.id}` })} variant="attention" title={t('open_asks_n', { n: asks })}>
         {t('open_asks_chip', { n: asks })}
       </LabelLink>,
     );
@@ -120,7 +115,7 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
     parts.push(
       <LabelLink
         key="cards"
-        to={workHref(w.id, { tab: 'cards' })}
+        to={href({ page: 'messages', open: `work:${w.id}` })}
         variant="attention"
         title={t('open_design_cards_later_n', { n: cards })}
       >
@@ -143,10 +138,10 @@ function projectOf(w: WorkSummary, status: Status | null): string | null {
 }
 
 /// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
-/// its controls act without opening it.
+/// its group in the messages view, where the owner acts on it, from its link.
 function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
   const status = useStatus();
-  const a = useActions(w, status, true);
+  const a = { c: course(w, status) };
   const project = projectOf(w, status);
   const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : w.graph;
   const at = `${w.at} ${w.at_title ?? ''}`;
@@ -168,12 +163,9 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
         <State w={w} c={a.c} now={now} />
       </td>
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
-        <Controls a={a} w={w} status={status} onStep={() => a.step()} />
-        {a.error !== null ? (
-          <span className="error" title={a.error}>
-            {t('request_failed', { error: a.error })}
-          </span>
-        ) : null}
+        <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
+          {t('go_to_conversation')}
+        </Link>
       </td>
       <td title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
         <span className="cell-id">{w.at}</span>{' '}
@@ -231,7 +223,7 @@ const COLUMNS = [
   { key: 'id', head: 'col_work', width: 56, num: false },
   { key: 'item', head: 'col_item', width: null, num: false },
   { key: 'state', head: 'col_state', width: 360, num: false },
-  { key: 'control', head: null, width: 130, num: false },
+  { key: 'control', head: null, width: 110, num: false },
   { key: 'at', head: 'col_at', width: 190, num: false },
   { key: 'stage', head: 'col_stage', width: 120, num: false },
   { key: 'rounds', head: 'col_rounds', width: 90, num: true },
@@ -389,13 +381,12 @@ function List({ works, tab, widths, onWidths }: {
   );
 }
 
-/// The line above an open work's chart: back to the list; which work it is; how it goes on; where it is, its rounds,
-/// cost and pull request; the owner's controls of it, its Step opening the round once it has ended; and the other works
-/// running or waiting, each with what it needs of the owner, to go from one to the next keeping the tab open.
+/// The line above an open work's chart, which only reads it: back to the list; which work it is; how it goes on; where
+/// it is, its rounds, cost and pull request; its group in the messages view, where the owner acts on it; and the other
+/// works running or waiting, each with what it needs of the owner, to go from one to the next keeping the tab open.
 function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; tab: WorkTab }) {
   const status = useStatus();
-  const a = useActions(w, status, true);
-  const stepped = useOpenStepped(status, w.id, (work, round) => navigate(workHref(work, { round })));
+  const a = { c: course(w, status) };
   const now = useNow(status !== null && status.running === w.id);
   const repo = w.project !== null ? status?.repos[w.project] : undefined;
   const project = projectOf(w, status);
@@ -442,20 +433,9 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
           <span>{t('work_pr', { n: w.pr })}</span>
         )
       ) : null}
-      <Controls
-        a={a}
-        w={w}
-        status={status}
-        onStep={() => {
-          const at = Date.now();
-          a.step(() => stepped(at));
-        }}
-      />
-      {a.error !== null ? (
-        <span className="error" title={a.error}>
-          {t('request_failed', { error: a.error })}
-        </span>
-      ) : null}
+      <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
+        {t('go_to_conversation')}
+      </Link>
       {others.length > 0 ? (
         <nav className="work-others" aria-label={t('work_others')}>
           <span className="muted">{t('work_others')}</span>

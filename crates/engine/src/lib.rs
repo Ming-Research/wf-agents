@@ -411,19 +411,7 @@ impl Engine {
     /// The project of the configuration that is wf-agents itself, whose repository wf-agents is built from: its
     /// architect takes in the flow feedback of every project that belongs to wf-agents. None when no project is.
     pub fn wf_agents_project(&self) -> Option<String> {
-        let own = env!("CARGO_PKG_REPOSITORY")
-            .trim_end_matches('/')
-            .trim_end_matches(".git");
-        let own = own.strip_prefix("https://github.com/").unwrap_or(own);
-        if own.is_empty() {
-            return None;
-        }
-        self.config
-            .config
-            .projects
-            .iter()
-            .find(|(_, p)| p.repo.eq_ignore_ascii_case(own))
-            .map(|(name, _)| name.clone())
+        self.config.config.wf_agents_project()
     }
 
     pub fn work(&mut self, id: i64) -> Result<Work, String> {

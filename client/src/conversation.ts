@@ -1,104 +1,156 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
-// list in its order and its groups, what a conversation is called, who an entry is from and to, what of it is pinned
-// for the owner and what streams, the runs of what passes between agents, and what is to be marked read on opening it.
+// list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
+// page draws it, what of it is pinned and what streams, what the box at the bottom says things to, what a stage card's
+// facts are, and what is new for the owner to be told of.
 
-import type { Conversation, ConversationDetail, ConversationEntry } from './api';
+import type { Conversation, ConversationDetail, ConversationEntry, StageCard, WorkSummary } from './api';
 import { words } from './labelled';
 import { t } from './messages';
 
-/// The conversations in the order the list shows them: those where something waits for the owner first, then the rest,
-/// each part by its latest entry, newest first.
-export function conversationOrder(list: Conversation[]): Conversation[] {
-  const newest = [...list].sort((a, b) => b.last_at - a.last_at);
-  return [...newest.filter((c) => c.waiting > 0), ...newest.filter((c) => c.waiting === 0)];
+/// The parts of the list, in its order, which waiting and new entries never change: the one-to-ones with the
+/// architects and wf-agents' own; a group for each work, newest first; the groups of connected projects.
+export type ListPart = { part: 'top' | 'works' | 'projects'; conversations: Conversation[] };
+
+export function listParts(list: Conversation[]): ListPart[] {
+  const part = (p: ListPart['part'], kinds: string[]): ListPart => ({
+    part: p,
+    conversations: list.filter((c) => kinds.includes(c.kind)),
+  });
+  return [part('top', ['architect', 'wf_agents']), part('works', ['work']), part('projects', ['projects'])].filter(
+    (p) => p.conversations.length > 0,
+  );
 }
 
-export type ConversationGroup = {
-  /// The project; none for the group of conversations of no project, and for the one group when there is one project.
-  project: string | null;
-  conversations: Conversation[];
-  waiting: number;
-  unread: number;
-};
-
-/// The list in groups: by project when there are several, each in the order of its first conversation in the list,
-/// those of no project (between two projects' architects, and wf-agents') in a group of their own; one group when there
-/// is one project or none.
-export function conversationGroups(list: Conversation[]): ConversationGroup[] {
-  const ordered = conversationOrder(list);
-  const group = (project: string | null, conversations: Conversation[]): ConversationGroup => ({
-    project,
-    conversations,
-    waiting: conversations.reduce((n, c) => n + c.waiting, 0),
-    unread: conversations.reduce((n, c) => n + c.unread, 0),
-  });
-  const projects = [...new Set(ordered.map((c) => c.project).filter((p): p is string => p !== null))];
-  if (projects.length <= 1) return ordered.length === 0 ? [] : [group(null, ordered)];
-  const out = projects.map((p) => group(p, ordered.filter((c) => c.project === p)));
-  const none = ordered.filter((c) => c.project === null);
-  if (none.length > 0) out.push(group(null, none));
-  return out;
+/// How many things wait for the owner across the conversations, and how many entries are unread.
+export function totals(list: Conversation[]): { waiting: number; unread: number } {
+  return {
+    waiting: list.reduce((n, c) => n + c.waiting, 0),
+    unread: list.reduce((n, c) => n + c.unread, 0),
+  };
 }
 
 /// What a conversation is called in the list and over it.
-export function conversationTitle(c: Pick<Conversation, 'key' | 'work' | 'item' | 'title'>): string {
-  const at = c.key.indexOf(':');
-  const kind = at < 0 ? c.key : c.key.slice(0, at);
-  const rest = at < 0 ? '' : c.key.slice(at + 1);
-  if (kind === 'work') {
-    return c.item !== null
-      ? t('conv_work_item', { id: c.work ?? rest, item: c.item, title: c.title ?? '' })
-      : t('conv_work', { id: c.work ?? rest });
+export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'project' | 'projects' | 'work' | 'title'>): string {
+  switch (c.kind) {
+    case 'architect':
+      return t('conv_architect', { project: c.project ?? c.key.slice('architect:'.length) });
+    case 'work':
+      return t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' });
+    case 'projects':
+      return t('conv_projects', { projects: c.projects.join(', ') });
+    default:
+      return t('conv_wf_agents');
   }
-  if (kind === 'architect') return t('conv_architect', { project: rest });
-  if (kind === 'architects') {
-    const [a, b = ''] = rest.split('|');
-    return t('conv_architects', { a, b });
-  }
-  return t('conv_wf_agents');
 }
 
-/// Who a side of an entry is, in words: the owner, the engine, wf-agents, a line; for a message between two projects'
-/// architects, the architect of the project.
+/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; the page's
+/// own line for what the engine or a helper says; a card the engine writes from the flow (a stage, a matter, the
+/// policy, an observation); a fault of wf-agents, which the owner marks read; or nothing, for a design card the stage
+/// card that holds it shows.
+export type Voice = 'owner' | 'agent' | 'system' | 'card' | 'fault' | 'none';
+
+/// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
+const MEMBERS = ['engineer', 'architect'];
+
+export function voiceOf(e: ConversationEntry, held: ReadonlySet<number>): Voice {
+  switch (e.source) {
+    case 'stage':
+    case 'matter':
+    case 'policy':
+    case 'observation':
+      return 'card';
+    case 'notice':
+      return e.fault !== null ? 'fault' : 'system';
+    case 'card':
+      return e.design_card !== null && held.has(e.design_card) ? 'none' : 'system';
+    case 'between':
+      return 'agent';
+    default:
+      if (e.sender === 'owner') return 'owner';
+      return MEMBERS.includes(e.sender) ? 'agent' : 'system';
+  }
+}
+
+/// The design cards the stage cards of a conversation hold, which show there and not as entries of their own.
+export function heldCards(d: ConversationDetail): Set<number> {
+  return new Set(d.entries.flatMap((e) => e.stage?.design_cards.map((c) => c.id) ?? []));
+}
+
+/// Who a party of an entry is, in words: you, the engine, a line; in a group of projects, the architect of a project.
 export function party(e: ConversationEntry, side: string): string {
   if (e.source === 'between') return t('conv_architect_of', { project: side });
   if (side === 'owner') return t('conv_you');
   if (side === 'engine') return t('conv_engine');
   if (side === 'wf-agents') return t('conv_wf_agents');
+  if (side === 'architects') return t('conv_every_architect');
+  if (side === 'both') return t('conv_both');
   return words(side);
 }
 
-/// What of a conversation the owner sees pinned above its stream: the faults of wf-agents not read yet; the asks not
-/// answered and the design cards not ruled come with their forms beside. Everything else streams, in time order.
-export function pinnedOf(d: ConversationDetail): { faults: ConversationEntry[]; stream: ConversationEntry[] } {
-  return {
-    faults: d.entries.filter((e) => e.waiting && e.fault !== null),
-    stream: d.entries.filter((e) => !e.waiting),
-  };
+/// To whom an entry is said, as a group says it at the head of a message: @ and the member, or both.
+export function mention(e: ConversationEntry): string {
+  if (e.source === 'between') return `@${t('conv_architect_of', { project: e.recipient })}`;
+  if (e.recipient === 'both') return `@${t('conv_engineer')} @${t('conv_architect_short')}`;
+  if (e.recipient === 'owner') return `@${t('conv_you')}`;
+  if (e.recipient === 'architects') return `@${t('conv_every_architect')}`;
+  if (e.recipient === 'architect') return `@${t('conv_architect_short')}`;
+  return `@${words(e.recipient)}`;
 }
 
-/// The stream in runs: each entry to or from the owner on its own, and what passes between agents one after another in
-/// one run, which the view folds.
-export function runsOf(stream: ConversationEntry[]): Array<{ agents: boolean; entries: ConversationEntry[] }> {
-  const out: Array<{ agents: boolean; entries: ConversationEntry[] }> = [];
-  for (const e of stream) {
-    const last = out[out.length - 1];
-    if (e.agents && last !== undefined && last.agents) last.entries.push(e);
-    else out.push({ agents: e.agents, entries: [e] });
-  }
-  return out;
+/// What streams in a conversation, oldest first: everything but the asks pinned at its top, which take their place in
+/// the stream once answered, and the design cards its stage cards hold.
+export function streamOf(d: ConversationDetail): ConversationEntry[] {
+  const pinned = new Set(d.asks.map((a) => a.id));
+  const held = heldCards(d);
+  return d.entries.filter((e) => !(e.source === 'ask' && pinned.has(e.id)) && voiceOf(e, held) !== 'none');
 }
 
-/// What opening a conversation marks read: its agents' messages and the engine's notices unread, not the faults, which
-/// the owner marks read where they are pinned.
-export function toMarkRead(d: ConversationDetail): { ids: number[]; notices: number[] } {
-  const unread = d.entries.filter((e) => e.read_at === null && e.fault === null);
-  return {
-    ids: unread.filter((e) => e.source === 'message').map((e) => e.id),
-    notices: unread.filter((e) => e.source === 'notice').map((e) => e.id),
-  };
+/// The time of the latest entry of a conversation, up to which opening it reads it.
+export function latestAt(d: ConversationDetail): number | null {
+  return d.entries.reduce<number | null>((m, e) => (m === null || e.at > m ? e.at : m), null);
 }
 
 /// The owner's words in a conversation that the agent they are for has not taken up yet.
 export const pendingWords = (entries: ConversationEntry[]): ConversationEntry[] =>
   entries.filter((e) => e.pending && e.sender === 'owner');
+
+/// Whom the box at the bottom of a conversation can say something to: in a work's group its engineer (the first), its
+/// architect, or both; in a group of projects each project's architect, or every one; in the one-to-one the architect
+/// alone; in wf-agents' own, nobody.
+export function sayTo(c: Conversation): string[] {
+  if (c.kind === 'work') return ['engineer', 'architect', 'both'];
+  if (c.kind === 'projects') return [...c.projects, 'all'];
+  if (c.kind === 'architect') return ['architect'];
+  return [];
+}
+
+/// Why the box of a work's group cannot say anything now, or null when it can: the work is at its end or over, and
+/// its way on no longer changes.
+export function closedWhy(c: Conversation, w: WorkSummary | null): string | null {
+  if (c.kind !== 'work') return null;
+  if (c.over || (w !== null && (w.state === 'done' || w.state === 'ended'))) return t('conv_closed_over');
+  if (w !== null && w.at === 'E1') return t('conv_closed_end');
+  return null;
+}
+
+/// The facts the engine knows of a stretch of a work at a stage, each a few words: the design cards handed in, the
+/// fixes and reviews, the row it left by. Its time and cost are said apart.
+export function stageFacts(s: StageCard): string[] {
+  const out: string[] = [];
+  for (const c of s.design_cards) out.push(t('stage_card', { id: c.id, status: words(c.status) }));
+  if (s.reviews > 0) out.push(t('stage_reviews', { n: s.reviews }));
+  if (s.fixes > 0) out.push(t('stage_fixes', { n: s.fixes }));
+  if (s.left !== null) out.push(t('stage_left', { cell: s.left.cell, row: words(s.left.row) }));
+  return out;
+}
+
+/// What the page tells the owner of, by the browser's notifications: each thing that waits for the owner in a
+/// conversation and did not wait there when the list was read last, by the conversation; none the first time, when
+/// everything is old.
+export function newlyWaiting(before: ReadonlyMap<string, number> | null, now: Conversation[]): Conversation[] {
+  if (before === null) return [];
+  return now.filter((c) => c.waiting > (before.get(c.key) ?? 0));
+}
+
+/// What waits in each conversation, by its key, for the next comparison.
+export const waitingByKey = (list: Conversation[]): Map<string, number> => new Map(list.map((c) => [c.key, c.waiting]));

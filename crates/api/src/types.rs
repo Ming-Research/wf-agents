@@ -883,43 +883,56 @@ pub struct Architect {
     pub setting: Option<PolicySetting>,
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
-    pub understanding: Understanding,
     pub next: NextPlan,
     /// The project's observations: the open ones first, then those closed, each newest first.
     pub observations: Vec<Observation>,
     /// The project's tags for observations, each with what it covers.
     pub tags: Vec<Tag>,
+    /// Whether the project is wf-agents itself, whose observations wf-agents' own conversation holds; any other
+    /// project's are in its architect's one-to-one, where the owner closes them.
+    pub own: bool,
 }
 
-/// One of the owner's conversations, by its subject, as their list shows it.
+/// One of the owner's conversations, as their list shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Conversation {
-    /// Which: `work:<id>` for an engineer's work, `architect:<project>` for a project's architect,
-    /// `architects:<project>|<project>` for two projects' architects, `wf-agents` for wf-agents itself.
+    /// Which: `architect:<project>` for the owner's one-to-one with a project's architect, `wf-agents` for wf-agents
+    /// itself, `work:<id>` for a work's group of the owner, its engineer and its project's architect, and
+    /// `projects:<project>|<project>...` for the architects of projects the configuration connects.
     pub key: String,
-    /// The project it is about; none for one between two projects' architects, and for wf-agents'.
+    /// architect, wf_agents, work or projects.
+    pub kind: String,
+    /// The project it is about; none for wf-agents' and a group of projects.
     pub project: Option<String>,
-    /// For a work's: the work, its item and the item's title.
+    /// For a group of projects: its projects, in order.
+    pub projects: Vec<String>,
+    /// For a work's group: the work, its item, the item's title and the tier the item is at, and whether the work is
+    /// over (done or ended), which greys the group out in place.
     pub work: Option<i64>,
     pub item: Option<i64>,
     pub title: Option<String>,
-    /// How many things in it wait for the owner: asks not answered, design cards not ruled, faults not read.
+    pub level: Option<String>,
+    pub over: bool,
+    /// How many things in it wait for the owner: the open blockers the owner holds, design cards not ruled, faults not
+    /// read.
     pub waiting: i64,
-    /// How many of the messages and notices in it the owner has not read, faults aside.
+    /// How many of its entries from anyone but the owner came after the latest the owner read, what waits aside.
     pub unread: i64,
-    /// When its latest entry came.
-    pub last_at: i64,
+    /// When its latest entry came; none while it has none.
+    pub last_at: Option<i64>,
 }
 
-/// One entry of a conversation of the owner's, as `conversation_entries` gives it.
+/// One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+/// flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
-    /// What it is: message, notice, ask, answer, interjection, words, question, reply, advice_ask, advice, card,
-    /// ruling or between.
+    /// What it is: message, notice, ask, answer, interjection, words, question, report, reply, card, ruling, between;
+    /// stage, matter, policy or observation.
     pub source: String,
-    /// Its row in the table it comes from; for advice_ask and advice, the round's number in its work.
+    /// Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
     pub id: i64,
-    /// Who said it and to whom: a line, the owner, the engine or wf-agents; for between, the projects.
+    /// Who said it and to whom: a line, the owner, the engine or wf-agents; the owner's words in a work's group are to
+    /// the engineer, the architect or both; for between, the projects.
     pub sender: String,
     pub recipient: String,
     pub text: String,
@@ -927,43 +940,164 @@ pub struct ConversationEntry {
     /// The work and the round it came with, when it came with one.
     pub work: Option<i64>,
     pub round: Option<i64>,
-    /// For an ask and its answer, the ask; for a design card and a ruling on it, the card.
+    /// For an ask and its answer, the ask; for a design card and a ruling on it, the card; for what is or holds an
+    /// architect's matter, the matter.
     pub ask: Option<i64>,
     pub design_card: Option<i64>,
+    pub matter: Option<i64>,
     /// For a message or a notice: when the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
-    /// Whether it waits for the owner: an ask not answered, a design card not ruled, a fault not read.
+    /// Whether it waits for the owner: an open blocker the owner holds, a design card not ruled, a fault not read.
     pub waiting: bool,
     /// Whether the owner's words in it are not taken up yet.
     pub pending: bool,
-    /// Whether it passes between agents, not to or from the owner.
-    pub agents: bool,
+    /// Whether the owner's words in it were never taken in: the work ended first.
+    pub undelivered: bool,
+    /// Whether it is an engineer's question the architect holds now, which the owner may answer in the group.
+    pub answerable: bool,
     /// For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
     /// cache_miss or flow_anomaly.
     pub fault: Option<String>,
     /// For a notice of cache misses: the misses it tells of, the first and those added to it since.
     pub misses: Option<Misses>,
+    /// For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
+    /// since the owner last read it (`revisions`).
+    pub ask_detail: Option<OwnerAsk>,
+    pub revisions: Option<Value>,
+    /// For a stage card: the stage the work went through.
+    pub stage: Option<StageCard>,
+    /// For a matter card: where the matter stands with the architect.
+    pub matter_card: Option<MatterProgress>,
+    /// For the policy taking effect: the policy in force.
+    pub policy: Option<PolicyInForce>,
+    /// For an observation of wf-agents: the observation.
+    pub observation: Option<Observation>,
 }
 
-/// A conversation in full: its entries in time order, and what waits for the owner in it with its form: the asks not
-/// answered and the design cards not ruled.
+/// One stretch of a work at one stage (research, design, implementation, testing and fixing, merge, watching main),
+/// as the engine writes it from the flow: from the round that came into the stage to the round that left it. A stage
+/// the work comes back to is a stretch of its own, saying why it came back.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct StageCard {
+    /// The stage, as the flow names it.
+    pub stage: String,
+    /// How many stretches at this stage came before it.
+    pub again: i64,
+    /// Its rounds, by their numbers in the work: the first and the last.
+    pub first: i64,
+    pub last: i64,
+    /// When its first round started, and when its last ended; none while a round of it runs or it goes on.
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    /// What its rounds cost.
+    pub cost_usd: f64,
+    /// Whether the work is at this stage now, and its cell there, with the cell's title.
+    pub current: bool,
+    pub cell: Option<String>,
+    pub cell_title: Option<String>,
+    /// For a stretch after the first at the stage: the row that brought the work back, and what that round said.
+    pub back: Option<StageMove>,
+    /// For a stretch the work left: the row that took it on.
+    pub left: Option<StageMove>,
+    /// What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
+    /// approaches compared, the one chosen, the design and the acceptance.
+    pub shown: Vec<Shown>,
+    /// The design cards its rounds handed in, the one that waits for the owner's ruling among them.
+    pub design_cards: Vec<DesignCard>,
+    /// How many rounds at it fixed what the checks and reviews found, and how many reviewed.
+    pub fixes: i64,
+    pub reviews: i64,
+    /// What the last agent's round in it said it did, and that round.
+    pub said: Option<String>,
+    pub said_round: Option<i64>,
+}
+
+/// A row a work took from one stage to another: the round, its cell and the cell's title, and the row with its note.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct StageMove {
+    pub round: i64,
+    pub cell: String,
+    pub title: Option<String>,
+    pub row: String,
+    pub note: Option<String>,
+    /// What that round said it did, when an agent's round.
+    pub said: Option<String>,
+}
+
+/// Where a matter stands with its architect, as the engine writes it from the flow: queued, held by an ask of the
+/// owner, worked on at a cell, handled with what became of it, or withdrawn with why.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MatterProgress {
+    pub matter: i64,
+    pub kind: String,
+    pub detail: Option<String>,
+    /// What it is, in one sentence, as the engine wrote it.
+    pub what: String,
+    /// queued, held, working, done or withdrawn.
+    pub state: String,
+    /// While it is worked on: the cell the architect is at, with its title, and the wake's round there.
+    pub cell: Option<String>,
+    pub cell_title: Option<String>,
+    pub wake: Option<i64>,
+    pub round: Option<i64>,
+    /// The work it is about, whose group holds it in full, and that work's item.
+    pub work: Option<i64>,
+    pub item: Option<i64>,
+    /// Once handled: what became of it.
+    pub handled: Option<Handled>,
+    /// Once withdrawn: why.
+    pub withdrawn: Option<String>,
+    /// The ask of the owner that holds it, or held it.
+    pub asked: Option<i64>,
+}
+
+/// A conversation in full: its entries in time order; what is pinned at its top for the owner, the open blockers the
+/// owner holds with their forms (the asks, and the design cards whose ruling a work waits for); and how far the owner
+/// has read it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationDetail {
     pub key: String,
     pub entries: Vec<ConversationEntry>,
     pub asks: Vec<OwnerAsk>,
     pub design_cards: Vec<DesignCard>,
+    /// The time of the latest entry the owner read; none before the first.
+    pub read_to: Option<i64>,
 }
 
-/// What the owner says in a conversation about a work: to its engineer, or another of its lines, as an interjection;
-/// or to the architect of its project, as the owner's words naming the work.
+/// What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
+/// architect alone, the engineer is given it as a word that needs no answer; to the engineer alone, the architect is
+/// given it at its next pick. With `question`, it answers that question of the engineer's, which the architect holds:
+/// the answer is the reply, and the architect is told.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
-    /// The line it is for, `engineer` unless named; `architect` for the project's architect.
+    /// engineer (the default), architect or both.
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
+    /// The architect's matter that holds the question the words answer.
+    #[serde(default)]
+    #[ts(optional)]
+    pub question: Option<i64>,
+}
+
+/// What the owner says in a group of projects: to one of their architects, or to every one.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ProjectsSaid {
+    /// The group, by its key.
+    pub key: String,
+    pub text: String,
+    /// The project whose architect it is for; none for every architect of the group.
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
+}
+
+/// How far the owner has read a conversation: the time of the latest entry the page showed.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ReadTo {
+    pub key: String,
+    pub at: i64,
 }
 
 /// One wake of an architect.
@@ -1196,15 +1330,6 @@ pub struct Reading {
     pub verdict: Value,
 }
 
-/// What the project is now, as the architect last wrote it (cell `U1`): the state of each line of work, what changed
-/// and what it could not settle.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Understanding {
-    pub state: Option<Said>,
-    /// Every version of the understanding, newest first.
-    pub versions: Vec<StateVersion>,
-}
-
 /// What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
 /// most and whether what runs fits; none before the first plan.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1212,16 +1337,6 @@ pub struct NextPlan {
     pub plan: Option<Said>,
     /// The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
     pub matters: Vec<i64>,
-}
-
-/// One version of the understanding: what an understanding round answered, by the wake and its round.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct StateVersion {
-    pub work: i64,
-    pub round: i64,
-    pub cell: String,
-    pub at: Option<i64>,
-    pub state: Value,
 }
 
 /// How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what

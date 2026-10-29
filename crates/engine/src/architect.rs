@@ -33,7 +33,7 @@ pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
 /// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 23] = [
+pub const INPUTS: [&str; 24] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -57,6 +57,7 @@ pub const INPUTS: [&str; 23] = [
     "cross_project",
     "batch_changes",
     "changes_touch",
+    "group_talk",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -2929,6 +2930,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
+        "group_talk" => group_talk(e, w, project),
         other => Err(format!("no such engine input: {other}")),
     }
 }
@@ -3171,6 +3173,79 @@ fn wake_start(conn: &Connection, work: i64) -> Result<i64, String> {
         })
         .map_err(sql)?;
     Ok(at.unwrap_or_else(db::now))
+}
+
+/// What was said in the groups of a project's works since its architect last read it, at its last pick or wrap-up
+/// (`Q1`, `E1`), other than to the architect, oldest first: the owner's words to the engineers, what the engineers told
+/// the owner, and the owner's answers, to the engineers' asks and, in a group, to a question the architect held; each
+/// with its work and item. The architect gets it as information, which wakes it for nothing and needs no answer:
+/// everything said in a group reaches all three. A wake with one matter picks it with no pick of the architect's, and
+/// every wake ends at its wrap-up, so the wrap-up takes what no pick took. The first time, the week before the wake;
+/// none when nothing was said.
+fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let last: Option<i64> = conn
+        .query_row(
+            &format!(
+                "SELECT max(r.started_at) FROM rounds r JOIN works x ON x.id = r.work
+                 WHERE x.graph = 'architect' AND x.project = ?1 AND x.id <= ?2 AND r.cell IN {}
+                   AND r.ended_at IS NOT NULL",
+                db::cells_sql(ARCHITECT, &["Q1", "E1"])
+            ),
+            params![project, w.id],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    let since = match last {
+        Some(t) => t,
+        None => wake_start(conn, w.id)? - 7 * 24 * HOUR,
+    };
+    let said = query_json(
+        conn,
+        "SELECT * FROM (
+           SELECT j.work, w.item, i.title, 'owner' AS who, 'engineer' AS \"to\", j.text, NULL AS asked,
+             (SELECT min(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)) AS at
+           FROM interjections j JOIN works w ON w.id = j.work JOIN items i ON i.id = w.item
+           WHERE i.project = ?1 AND w.graph = 'engineer' AND j.speaker = 'owner' AND j.matter IS NULL
+             AND j.informs = 0 AND j.cancelled_item IS NULL AND j.text NOT LIKE 'Ruling on design card %'
+           UNION ALL
+           SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at)
+           FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+           JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
+           WHERE i.project = ?1 AND w.graph = 'engineer' AND coalesce(s.line, 'engineer') = 'engineer'
+           UNION ALL
+           SELECT a.work, w.item, i.title, 'owner', 'engineer', json_extract(a.answer, '$.text'),
+             (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
+              FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
+             json_extract(a.answer, '$.at')
+           FROM owner_asks a JOIN works w ON w.id = a.work JOIN items i ON i.id = w.item
+           WHERE i.project = ?1 AND w.graph = 'engineer' AND json_extract(a.answer, '$.by') = 'owner'
+           UNION ALL
+           SELECT m.work, w.item, i.title, 'owner', 'engineer', json_extract(m.reply, '$.text'), m.what,
+             json_extract(m.reply, '$.at')
+           FROM architect_matters m JOIN works w ON w.id = m.work JOIN items i ON i.id = w.item
+           WHERE m.project = ?1 AND w.graph = 'engineer' AND json_extract(m.reply, '$.by') = 'owner')
+         WHERE at > ?2 ORDER BY at",
+        &[&project, &since],
+        ROWS,
+    )?;
+    if said.is_empty() {
+        return Ok(None);
+    }
+    let said: Vec<Value> = said
+        .into_iter()
+        .map(|mut x| {
+            if let Some(at) = x["at"].as_i64() {
+                x["at"] = json!(utc_minute(at));
+            }
+            if let Some(o) = x.as_object_mut() {
+                o.retain(|_, v| !v.is_null());
+            }
+            x
+        })
+        .collect();
+    Ok(Some(json!({ "since": utc_minute(since), "said": said })))
 }
 
 /// What happened in a project since its architect's last wake started; at its first wake, in the week before it.

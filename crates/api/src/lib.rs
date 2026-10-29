@@ -18,6 +18,7 @@ mod read;
 mod settings;
 mod source;
 mod system;
+mod talk;
 mod types;
 mod typescript;
 mod view;
@@ -26,18 +27,19 @@ pub use bus::{Bus, Envelope};
 pub use control::{Asked, Control, Fresh, Next};
 pub use diff::diff;
 pub use events::events;
-pub use marks::mark_read;
+pub use marks::{mark_read, read_to};
 pub use owner::{
     answer, can_start, close_observation, interject, keep_warm_paused, pause, pause_wake, project_named, resume, rule,
-    say_to_work, set_keep_warm_paused,
+    say_to_projects, say_to_work, set_keep_warm_paused,
 };
 pub use read::{
-    Error, Flows, architect, compiled_flow, content, conversation, conversations, file, flow_view, flows, inputs_now,
-    item, items, round, version_of, work, works,
+    Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, round,
+    version_of, work, works,
 };
 pub use settings::{save_settings, set_level, settings};
 pub use source::{Sources, refs};
 pub use system::{SystemAsk, system};
+pub use talk::{Talks, conversation, conversations};
 pub use types::*;
 pub use typescript::typescript;
 pub use view::view;

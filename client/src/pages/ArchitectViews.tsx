@@ -1,14 +1,13 @@
 // What an architect hands back, each drawn by its shape in the flow's formats and in the page's shared parts (blocks
 // under who wrote them, sections that fold): the policy, the study of a new one, its probes and the readings of it by
-// a new architect, and the check of the policy in force; an item change its batch made; what the project is now, with
-// its versions; and the plan of what to do next. A value not of the shape expected is shown as labelled text, never as
-// a tree of JSON.
+// a new architect, and the check of the policy in force; an item change its batch made; and the plan of what to do next.
+// A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
-import { Button, Checkbox, FormControl, Label, type LabelColorOptions } from '@primer/react';
-import { type ReactNode, useState } from 'react';
+import { Label, type LabelColorOptions } from '@primer/react';
+import { type ReactNode } from 'react';
 
-import type { JsonValue, NextPlan, Said, Understanding } from '../api';
-import { againstInOrder, type LineChange, stateChanges } from '../architect';
+import type { JsonValue, NextPlan, Said } from '../api';
+import { againstInOrder } from '../architect';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
@@ -298,109 +297,8 @@ export function ChangeBlock({ value, before, by, children }: {
   );
 }
 
-/// The colour of a line of work compared with the version before: new, changed, gone.
-const LINE_TONE: Record<string, LabelColorOptions> = { added: 'success', changed: 'attention', removed: 'danger' };
-
 /// The colour of where the policy stands against an article of the constitution.
 const AGAINST_TONE: Record<string, LabelColorOptions> = { kept: 'success', at_risk: 'attention', broken: 'danger' };
-
-/// The fields of a line of work under its name, in the order they read, and the one folded under them.
-const LINE_PARTS = ['serves', 'approach', 'where', 'stuck', 'recent'] as const;
-
-/// One line of work as a block: its name as the heading, then its fields as short labelled paragraphs, how it knows
-/// folded under them. Compared with the version before, it is marked new, changed or gone, and a changed field shows
-/// what it was struck through beside what it is.
-function LineBlock({ l, compare }: { l: LineChange; compare: boolean }) {
-  const field = (name: string) => l.fields.find((f) => f.field === name);
-  const said = (f: LineChange['fields'][number] | undefined) => {
-    if (f === undefined) return null;
-    if (compare && f.changed) {
-      return (
-        <>
-          <del className="arch-was">
-            <MarkdownInline text={f.before ?? ''} />
-          </del>{' '}
-          <ins className="arch-now">
-            <MarkdownInline text={f.after ?? ''} />
-          </ins>
-        </>
-      );
-    }
-    return <MarkdownInline text={(l.kind === 'removed' ? f.before : f.after) ?? ''} />;
-  };
-  const has = (f: LineChange['fields'][number] | undefined) =>
-    f !== undefined && ((f.before ?? '') !== '' || (f.after ?? '') !== '');
-  const marked = compare && l.kind !== 'same';
-  const chip = l.kind === 'added' ? t('line_added') : l.kind === 'changed' ? t('line_changed') : t('line_removed');
-  const grounds = field('grounds');
-  const head = (
-    <>
-      {marked ? <Label variant={LINE_TONE[l.kind]}>{chip}</Label> : null}
-      <strong>{said(field('line'))}</strong>
-    </>
-  );
-  return (
-    <Block head={head} tone={marked ? `arch-line-${l.kind}` : undefined}>
-      {LINE_PARTS.map((name) =>
-        has(field(name)) ? (
-          <BlockField key={name} label={t(`line_${name}`)}>
-            {said(field(name))}
-          </BlockField>
-        ) : null,
-      )}
-      {has(grounds) ? <Section title={t('line_grounds')}>{said(grounds)}</Section> : null}
-    </Block>
-  );
-}
-
-/// Every version of the understanding, newest first, one at a time with the newer and older ones a click away: its
-/// wake and round, each line of work as a block; with the switch on, each line marked new, changed or gone since the
-/// version before it (a line written again in other words matched by what it says), the latest shown clean otherwise;
-/// and folded, what it says changed; each part naming the cell and round that wrote it.
-function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
-  const [at, setAt] = useState(0);
-  const [compare, setCompare] = useState(false);
-  const versions = u.versions;
-  const v = versions[Math.min(at, versions.length - 1)];
-  if (v === undefined) return null;
-  const k = Math.min(at, versions.length - 1);
-  const before = versions[k + 1];
-  const comparing = compare && before !== undefined;
-  const c = stateChanges(before !== undefined ? before.state : null, v.state);
-  const said: Said = { work: v.work, round: v.round, cell: v.cell, at: v.at, value: v.state };
-  const lines = c.lines.filter((l) => comparing || l.kind !== 'removed');
-  const from = wroteBy(said, onRound);
-  return (
-    <Section title={t('understanding_state')} open by={from}>
-      <span className="arch-versions">
-        <Button size="small" variant="invisible" disabled={k === 0} onClick={() => setAt(k - 1)}>
-          {t('understanding_newer')}
-        </Button>
-        <span className="muted">{t('understanding_version', { k: versions.length - k, n: versions.length })}</span>
-        <Button size="small" variant="invisible" disabled={k === versions.length - 1} onClick={() => setAt(k + 1)}>
-          {t('understanding_older')}
-        </Button>
-      </span>
-      {before !== undefined ? (
-        <FormControl layout="horizontal">
-          <Checkbox checked={compare} onChange={(e) => setCompare(e.target.checked)} />
-          <FormControl.Label>{t('understanding_compare')}</FormControl.Label>
-        </FormControl>
-      ) : null}
-      {comparing ? (
-        <p className="muted arch-since">{t('understanding_since', { round: `R${before.work}-${before.round}` })}</p>
-      ) : null}
-      {lines.map((l, i) => (
-        <LineBlock key={i} l={l} compare={comparing} />
-      ))}
-      {c.changed.after !== '' ? (
-        <Section title={t('understanding_changed')} by={from}>
-          <Markdown text={c.changed.after} />
-        </Section>
-      ) : null}
-    </Section>
-  );
-}
 
 /// A thing missing or a place to set straight that the plan of what to do next found, as a block: its kind, where, and
 /// the matter it became, which opens in the queue; what is wrong, and each step meant to be taken there.
@@ -431,33 +329,6 @@ function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefi
         </ol>
       ) : null}
     </Block>
-  );
-}
-
-/// What the project is now, as the architect last wrote it, each part naming the cell and round that wrote it: the state
-/// of things with its versions; then, folded under its title and how many it holds, what it could not settle.
-export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
-  if (u.state === null) return <p className="muted">{t('understanding_none')}</p>;
-  const state = isObj(u.state.value) ? u.state.value : null;
-  const unclear = objs(state?.unclear);
-  return (
-    <>
-      {u.versions.length > 0 ? <StateVersions u={u} onRound={onRound} /> : null}
-      <Section title={t('understanding_unclear')} n={unclear.length} by={wroteBy(u.state, onRound)}>
-        {unclear.map((x, i) => (
-          <Block
-            key={i}
-            head={
-              <strong>
-                <MarkdownInline text={str(x.what)} />
-              </strong>
-            }
-          >
-            <Markdown text={str(x.why)} />
-          </Block>
-        ))}
-      </Section>
-    </>
   );
 }
 

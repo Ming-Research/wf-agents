@@ -2,13 +2,13 @@
 // the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
 // on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
 // it took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits at why,
-// in a few words. The column holds on top the work's panel in tabs: its rounds, under how it goes on, the Step that
-// runs one being the icon in the line above with what it will do on hovering; its design cards, the one waiting for
-// the owner's ruling first with its controls; its conversation, the same the messages view shows: its asks waiting for
-// the owner's answer pinned with their forms, then what its agents, the owner, the architect and the engine said about
-// it. A round or a cell opened shows in the column's lower part, its cell brought into view.
+// in a few words. The page only reads the work: the owner acts on it in its group in the messages view, which its line
+// and what it waits for lead to. The column holds on top the work's panel in tabs: its rounds, under how it goes on;
+// its design cards, the one waiting for the owner's ruling first; what its helpers (the advisor, the review, the
+// adversarial testing) and its engineer said to each other, one thread for each helper, which is in no group; and its
+// usage. A round or a cell opened shows in the column's lower part, its cell brought into view.
 
-import { Button, CounterLabel, Flash as PrimerFlash, Label, UnderlineNav } from '@primer/react';
+import { CounterLabel, Flash as PrimerFlash, Label, UnderlineNav } from '@primer/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -29,11 +29,11 @@ import { cost, duration, roundName } from '../format';
 import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
-import { ItemRef, LinkButton, RoundLink } from '../parts';
-import { href, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
+import { By, ItemRef, LinkButton, RoundLink, Section } from '../parts';
+import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
+import { Markdown } from '../markdown';
 import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
-import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
 import { Usage } from './Usage';
 
@@ -141,12 +141,7 @@ export function Timeline(props: {
 /// How the work goes on, at the top of its rounds: whether a round of it runs (how long, and what the agent is doing),
 /// what holds it back and why in full, and what it waits for, with where the owner gives it; on an older flow version,
 /// that it is taken over when it goes on. The owner's controls of it are in its line above the chart.
-function Going({ d, onCard, onAsk }: {
-  d: WorkDetail;
-  /// Open the design card, or the ask, the work waits for, in its tab of the window.
-  onCard: (id: number) => void;
-  onAsk: (id: number) => void;
-}) {
+function Going({ d }: { d: WorkDetail }) {
   const status = useStatus();
   const w = d.work;
   const c = course(w, status);
@@ -185,19 +180,10 @@ function Going({ d, onCard, onAsk }: {
       {c.held === 'all' && !runs ? <p>{t('course_note_all')}</p> : null}
       {c.releasing ? <p>{t('course_releasing_why')}</p> : null}
       {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}
-      {waits?.kind === 'ruling' ? (
-        <div>
-          <Button size="small" onClick={() => onCard(waits.design_card)}>
-            {t('next_rule_card', { id: waits.design_card })}
-          </Button>
-        </div>
-      ) : null}
-      {waits?.kind === 'answer' ? (
-        <div>
-          <Button size="small" onClick={() => onAsk(waits.ask)}>
-            {t('next_answer_ask', { id: waits.ask })}
-          </Button>
-        </div>
+      {waits?.kind === 'ruling' || waits?.kind === 'answer' || waits?.kind === 'architect' ? (
+        <p>
+          <Link to={href({ page: 'messages', open: `work:${w.id}` })}>{t('go_to_conversation')}</Link>
+        </p>
       ) : null}
       {waits?.kind === 'items' ? (
         <p className="going-items">
@@ -242,8 +228,55 @@ function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) =
   );
 }
 
+/// The rounds of the engineer next to a helper's: the one that asked it, before it, and the one that took up what it
+/// said, after it, the engine's and the tools' rounds between them aside.
+function nextTo(rounds: RoundSummary[], i: number, step: number): RoundSummary | null {
+  for (let k = i + step; k >= 0 && k < rounds.length; k += step) {
+    const r = rounds[k];
+    if (r.line === 'engineer') return r;
+    if (r.line !== null) return null;
+  }
+  return null;
+}
+
+/// The helpers of a work, each the line that runs it: its talk with the engineer is a thread of its own.
+const HELPERS = ['advisor', 'review', 'adversarial'] as const;
+
+/// What a work's helpers and its engineer said to each other, read only, one thread for each helper and never mixed:
+/// each helper's rounds with the engineer's round that asked it before them and the one that took up what it said
+/// after them, each saying who, its round and what it said it did.
+function Helpers({ d, onRound }: { d: WorkDetail; onRound: (round: number) => void }) {
+  const threads = HELPERS.map((line) => {
+    const picked = new Map<number, RoundSummary>();
+    d.rounds.forEach((r, i) => {
+      if (r.line !== line) return;
+      for (const x of [nextTo(d.rounds, i, -1), r, nextTo(d.rounds, i, 1)]) if (x !== null) picked.set(x.n, x);
+    });
+    return { line, rounds: [...picked.values()].sort((a, b) => a.n - b.n) };
+  }).filter((x) => x.rounds.length > 0);
+  if (threads.length === 0) return <p className="muted">{t('helpers_none')}</p>;
+  return (
+    <>
+      {threads.map((x) => (
+        <Section key={x.line} title={t('helpers_thread', { line: words(x.line) })} n={x.rounds.length} open>
+          {x.rounds.map((r) => (
+            <div key={r.n} className="helper-said">
+              <By who={words(r.line ?? '')} cell={r.cell} at={r.ended_at ?? r.started_at} work={d.work.id} round={r.n} onRound={(_, n) => onRound(n)} />
+              {r.progress !== null && r.progress !== '' ? (
+                <div className="agent-box">
+                  <Markdown text={r.progress} />
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </Section>
+      ))}
+    </>
+  );
+}
+
 /// The work's panel, on top of the column docked at the right of its chart: its tabs, the rounds (under how the work
-/// goes on and its next round), the design cards and the messages.
+/// goes on), the design cards, its helpers' talk with its engineer, and its usage.
 function WorkPanel({ d, g, r, go }: {
   d: WorkDetail;
   g: CompiledGraph;
@@ -266,10 +299,8 @@ function WorkPanel({ d, g, r, go }: {
     go({ tab });
   };
   const onRound = (round: number) => go({ round, cell: null });
-  const onCard = (id: number) => show('cards', `design-card-${id}`);
-  const onAsk = (id: number) => show('messages', `ask-${id}`);
   const openCards = d.design_cards.filter((c) => c.status === 'open').length;
-  const openAsks = d.asks.filter((a) => a.answer === null).length;
+  const helped = d.rounds.filter((x) => x.line !== null && (HELPERS as readonly string[]).includes(x.line)).length;
   // Each tab's count, and what in it waits for the owner as a count of its own.
   const tabs: Array<{ tab: WorkTab; label: string; n: number | null; waiting: number; hint: string }> = [
     { tab: 'rounds', label: t('rounds'), n: d.rounds.length, waiting: 0, hint: '' },
@@ -280,13 +311,7 @@ function WorkPanel({ d, g, r, go }: {
       waiting: openCards,
       hint: t('open_design_cards_n', { n: openCards }),
     },
-    {
-      tab: 'messages',
-      label: t('work_messages_tab'),
-      n: d.messages.length + d.asks.length,
-      waiting: openAsks,
-      hint: t('open_asks_n', { n: openAsks }),
-    },
+    { tab: 'helpers', label: t('helpers_tab'), n: helped, waiting: 0, hint: '' },
     { tab: 'usage', label: t('us_tab'), n: null, waiting: 0, hint: '' },
   ];
   const shown = roundsShown(d.rounds, r.only);
@@ -318,7 +343,7 @@ function WorkPanel({ d, g, r, go }: {
       <div className="drawer-body" ref={body}>
         {r.tab === 'rounds' ? (
           <>
-            <Going d={d} onCard={onCard} onAsk={onAsk} />
+            <Going d={d} />
             {r.only !== null ? (
               <p className="rounds-only">
                 {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}{' '}
@@ -336,7 +361,7 @@ function WorkPanel({ d, g, r, go }: {
           </>
         ) : null}
         {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
-        {r.tab === 'messages' ? <ConversationView conversation={`work:${d.work.id}`} /> : null}
+        {r.tab === 'helpers' ? <Helpers d={d} onRound={onRound} /> : null}
         {r.tab === 'usage' ? <Usage d={d} g={g} /> : null}
       </div>
     </div>

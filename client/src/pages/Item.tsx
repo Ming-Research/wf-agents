@@ -1,64 +1,27 @@
-// An item, what needs the owner first: the design cards and asks of the owner its live work waits on; where the work
-// stands, as a checklist; the problem, as the engineer understands it once research has run; the design; the
-// acceptance; what changed on the way; what it depends on; and, folded, its history: earlier and replaced design
-// cards, answered asks, its works. Each block names the cell and round it came from. What the works hand back is
-// drawn by its shape in the flow's formats; a field the page does not know is shown as labelled text.
+// An item, read only: what waits for the owner first, the design cards and asks of the owner its live work waits on,
+// each saying where it is ruled on or answered, its work's group in the messages view; where its live work stands, at
+// the top, and as a checklist; the problem, as the engineer understands it once research has run; the design, saying
+// so while no approach is chosen; the acceptance; what changed on the way; what it depends on; and, folded, its
+// history: earlier and replaced design cards, answered asks, and the works that ended. Each block names the cell and
+// round it came from. What the works hand back is drawn by its shape in the flow's formats; a field the page does not
+// know is shown as labelled text.
 
-import { Flash, PageHeader, Select } from '@primer/react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Flash, PageHeader } from '@primer/react';
+import { useEffect, type ReactNode } from 'react';
 
-import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Settings, Shown } from '../api';
+import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
 import { DependencyKind, Facts, ItemBadge, Loaded, WorkBadge } from '../components';
 import { cost, time } from '../format';
 import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
-import { empty, isObj, label, Labelled, str } from '../labelled';
-import { postJson } from '../http';
-import { reread, useResource } from '../live';
+import { empty, isObj, label, Labelled, str, words } from '../labelled';
+import { waitsWords } from '../course';
+import { useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, RoundLink, Section, SubHeading } from '../parts';
-import { Link } from '../route';
+import { href, Link } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
-
-/// The tiers an item may be put at: those up to the highest an item may be at, in order.
-export function tiersAllowed(s: Settings): string[] {
-  const names = s.tiers.map((x) => x.name);
-  const top = s.highest_level === null ? -1 : names.indexOf(s.highest_level);
-  return top < 0 ? names : names.slice(0, top + 1);
-}
-
-/// The item's tier, which the owner changes here: a tier above the highest an item may be at is not offered. Its works
-/// run at the new tier from their next round.
-function Tier({ id, level }: { id: number; level: string }) {
-  const s = useResource<Settings>('settings', '/api/v1/settings');
-  const [error, setError] = useState<string | null>(null);
-  const allowed = s.data !== undefined ? tiersAllowed(s.data) : [];
-  const options = allowed.includes(level) ? allowed : [...allowed, level];
-  return (
-    <label className="item-tier">
-      {t('col_level')}
-      <Select
-        size="small"
-        value={level}
-        onChange={(e) => {
-          setError(null);
-          postJson(`/api/v1/items/${id}/level`, { level: e.target.value }).then(
-            () => reread(`item:${id}`, 'items'),
-            (x: unknown) => setError(x instanceof Error ? x.message : String(x)),
-          );
-        }}
-      >
-        {options.map((n) => (
-          <Select.Option key={n} value={n} disabled={!allowed.includes(n)}>
-            {n}
-          </Select.Option>
-        ))}
-      </Select>
-      {error !== null ? <span className="bad">{error}</span> : null}
-    </label>
-  );
-}
 
 /// Where a value shown on the item came from: the cell and the round, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
@@ -96,8 +59,13 @@ function done(shown: Map<string, Shown[]>, path: string): Shown[] {
 
 /// The values shown on the item, by path, oldest first, those with nothing left out.
 function byPath(d: ItemDetail): Map<string, Shown[]> {
+  return pathsOf(d.shown);
+}
+
+/// Values shown, by path, oldest first, those with nothing left out.
+function pathsOf(list: Shown[]): Map<string, Shown[]> {
   const out = new Map<string, Shown[]>();
-  for (const x of d.shown) {
+  for (const x of list) {
     if (empty(x.value)) continue;
     out.set(x.path, [...(out.get(x.path) ?? []), x]);
   }
@@ -177,23 +145,59 @@ function DesignOf({ round, shown }: { round: string; shown: Map<string, Shown[]>
   );
 }
 
-/// The design: the approach chosen as its heading, the design itself and the measure, then why this one, folded; the
-/// approaches compared folded; earlier versions folded.
-function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
+/// Whether a value shown came after another: a later work, or a later round of the same work.
+const after = (a: Shown, b: Shown): boolean => a.work > b.work || (a.work === b.work && a.round > b.round);
+
+/// While the approaches compared wait for one to be chosen: so, plainly, where the engineer stands on them as its
+/// latest round said it (`leans`), and what the choice waits for (`waits`), as its work says it.
+function NoChoice({ n, leans, waits }: { n: number; leans: string | null; waits: Waits | null }) {
+  return (
+    <Flash variant="warning" className="design-none">
+      <p>{t('design_none_chosen', { n })}</p>
+      {leans !== null ? (
+        <>
+          <p>{t('design_leans')}</p>
+          <div className="agent-box">
+            <Markdown text={leans} />
+          </div>
+        </>
+      ) : null}
+      {waits !== null ? <p>{t('design_waits', { what: waitsWords(waits) })}</p> : null}
+    </Flash>
+  );
+}
+
+/// The design as the rounds that wrote it handed it back: the approach chosen as its heading, the design itself and the
+/// measure, then why this one, folded; the approaches compared folded, the one chosen marked by the choice that came
+/// after them, and while none came, so, with where the engineer stands (`leans`) and what the choice waits for
+/// (`waits`); earlier versions folded. In a stage card of a work's group as on the item.
+export function DesignShown({ shown, leans, waits }: { shown: Shown[]; leans: string | null; waits: Waits | null }) {
+  return <DesignParts shown={pathsOf(shown)} leans={leans} waits={waits} acceptance />;
+}
+
+function DesignParts({ shown, leans, waits, acceptance = false }: {
+  shown: Map<string, Shown[]>;
+  leans: string | null;
+  waits: Waits | null;
+  acceptance?: boolean;
+}) {
   const marks = ['chosen', 'why', 'design', 'measure'].flatMap((p) => shown.get(p) ?? []);
   // The rounds that wrote a version, oldest first: by their works, then their numbers in the work.
   const rounds = [...new Map(marks.map((x) => [roundKey(x), x])).values()]
     .sort((a, b) => a.work - b.work || a.round - b.round)
     .map(roundKey);
   const options = newest(shown.get('options'));
-  if (rounds.length === 0 && options === undefined) return null;
   const round = rounds[rounds.length - 1];
-  const from = marks.find((x) => roundKey(x) === round);
-  const chosen = str(shown.get('chosen')?.find((x) => roundKey(x) === round)?.value);
+  const choice = shown.get('chosen')?.find((x) => roundKey(x) === round);
+  const chosen = str(choice?.value);
+  // The approaches compared are chosen among only by a choice made after them.
+  const chose = options !== undefined && choice !== undefined && after(choice, options) ? chosen : '';
   const n = options !== undefined && Array.isArray(options.value) ? options.value.length : 0;
+  const proposed = acceptance ? newest(shown.get('acceptance')) : undefined;
   return (
-    <Block title={t('design_title')} from={from ?? options}>
-      {chosen !== '' ? (
+    <>
+      {options !== undefined && chose === '' ? <NoChoice n={n} leans={leans} waits={waits} /> : null}
+      {chosen !== '' && (options === undefined || chose !== '') ? (
         <SubHeading className="design-chosen">
           <MarkdownInline text={chosen} />
         </SubHeading>
@@ -201,7 +205,12 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
       {round !== undefined ? <DesignOf round={round} shown={shown} /> : null}
       {options !== undefined ? (
         <Section title={t('design_options')} n={n} by={<From x={options} />}>
-          <Approaches value={options.value} chosen={chosen} />
+          <Approaches value={options.value} chosen={chose} />
+        </Section>
+      ) : null}
+      {proposed !== undefined ? (
+        <Section title={t('acceptance')} by={<From x={proposed} />}>
+          <Acceptance value={proposed.value} met={new Map()} />
         </Section>
       ) : null}
       {rounds.length > 1 ? (
@@ -223,6 +232,20 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
             })}
         </Section>
       ) : null}
+    </>
+  );
+}
+
+/// The design on the item: under its heading, as the rounds that wrote it handed it back; while no approach is chosen,
+/// where the engineer of its latest work stands and what the choice waits for.
+function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail }) {
+  const marks = ['chosen', 'why', 'design', 'measure', 'options'].flatMap((p) => shown.get(p) ?? []);
+  if (marks.length === 0) return null;
+  const from = marks.reduce((a, b) => (after(b, a) ? b : a));
+  const live = d.works.find((w) => w.state !== 'done' && w.state !== 'ended') ?? null;
+  return (
+    <Block title={t('design_title')} from={from}>
+      <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
     </Block>
   );
 }
@@ -328,11 +351,11 @@ function Linked({ list }: { list: LinkedItem[] }) {
   );
 }
 
-function Works({ d }: { d: ItemDetail }) {
+function Works({ works }: { works: ItemDetail['works'] }) {
   return (
     <table className="list">
       <tbody>
-        {d.works.map((w) => (
+        {works.map((w) => (
           <tr key={w.id}>
             <td>
               <Link to={`/works/${w.id}`}>#{w.id}</Link>
@@ -355,12 +378,13 @@ function Works({ d }: { d: ItemDetail }) {
   );
 }
 
-/// What the item went through, folded: earlier and replaced design cards, earlier asks, its works, what an import
-/// recorded; nothing when it has none of these.
+/// What the item went through, folded: earlier and replaced design cards, earlier asks, the works that ended, what an
+/// import recorded; nothing when it has none of these. The work that goes on is at the top of the page, once.
 function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks: OwnerAsk[] }) {
   const current = currentCard(d.design_cards);
   const imported = d.imported_from !== null || d.imported_branch !== null;
-  if (cards.length === 0 && asks.length === 0 && d.works.length === 0 && !imported) return null;
+  const ended = d.works.filter((w) => w.state === 'done' || w.state === 'ended');
+  if (cards.length === 0 && asks.length === 0 && ended.length === 0 && !imported) return null;
   return (
     <Section title={t('history')} open={false}>
       <Section title={t('history_cards')} n={cards.length} open>
@@ -374,8 +398,8 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
           <Ask key={a.id} a={a} />
         ))}
       </Section>
-      <Section title={t('history_works')} n={d.works.length} open>
-        <Works d={d} />
+      <Section title={t('history_works')} n={ended.length} open>
+        <Works works={ended} />
       </Section>
       {imported ? (
         <Section title={t('item_imported')}>
@@ -390,6 +414,25 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
         </Section>
       ) : null}
     </Section>
+  );
+}
+
+/// The work that goes on on the item, once, at the top: its number, how it stands, its stage and cell, and its group,
+/// where the owner speaks to it and its tier is set.
+function LiveWork({ d }: { d: ItemDetail }) {
+  const w = d.works.find((x) => x.state !== 'done' && x.state !== 'ended');
+  if (w === undefined) return null;
+  return (
+    <p className="item-live">
+      <Link to={`/works/${w.id}`}>{t('item_live_work', { id: w.id })}</Link>
+      <WorkBadge state={w.state} />
+      <span>{w.stage !== null ? words(w.stage) : ''}</span>
+      <span className="muted">
+        <span className="cell-id">{w.at}</span> {w.at_title}
+      </span>
+      {w.waits !== null ? <span className="muted">{waitsWords(w.waits)}</span> : null}
+      <Link to={href({ page: 'messages', open: `work:${w.id}` })}>{t('go_to_conversation')}</Link>
+    </p>
   );
 }
 
@@ -420,7 +463,7 @@ function Detail({ d }: { d: ItemDetail }) {
         </PageHeader.TitleArea>
         <PageHeader.Description className="item-head-facts">
           <span>{i.project}</span>
-          <Tier id={i.id} level={i.level} />
+          <span>{t('item_tier', { level: i.level })}</span>
           <span>
             {t('col_deliver')} {i.deliver}
           </span>
@@ -432,6 +475,7 @@ function Detail({ d }: { d: ItemDetail }) {
           {i.cancelled}
         </Flash>
       ) : null}
+      <LiveWork d={d} />
       {i.blocked_by.length > 0 || d.level_changes.length > 0 ? (
         <div className="item-head-notes muted">
           {i.blocked_by.length > 0 ? (
@@ -456,7 +500,7 @@ function Detail({ d }: { d: ItemDetail }) {
         <Progress d={d} />
       </Block>
       <Problem d={d} shown={shown} />
-      <DesignBlock shown={shown} />
+      <DesignBlock shown={shown} d={d} />
       <AcceptanceBlock d={d} shown={shown} />
       <Changes shown={shown} />
       <Others shown={shown} />

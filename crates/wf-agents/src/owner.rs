@@ -267,9 +267,14 @@ pub fn say_to_architect(data: &Path, project: Option<&str>, item: Option<i64>, t
     db::say_to_architect(&mut db, &project, item, None, text)
 }
 
-/// Says something to a running work's line, as the page does: an interjection, which the line gets in its next round.
-pub fn say(data: &Path, work: i64, line: &str, text: &str) -> Result<i64, String> {
-    api::interject(&mut open(data)?, work, line, text)
+/// Says something in a running work's group, as the page does: to its engineer, its project's architect or both.
+pub fn say(data: &Path, work: i64, to: &str, text: &str) -> Result<String, String> {
+    let said = api::WorkSaid {
+        text: text.to_string(),
+        to: Some(to.to_string()),
+        question: None,
+    };
+    api::say_to_work(&mut open(data)?, work, &said)
 }
 
 /// Lifts a work's pause, as its Start on the page does.

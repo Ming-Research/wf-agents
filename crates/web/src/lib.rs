@@ -144,6 +144,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/settings", get(settings).post(save_settings))
         .route("/api/v1/items/{id}/level", post(set_level))
         .route("/api/v1/messages/read", post(mark_read))
+        .route("/api/v1/conversations/read", post(read_to))
+        .route("/api/v1/projects/say", post(say_to_projects))
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
         .route("/api/v1/architect/say", post(say_to_architect))
@@ -503,16 +505,26 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
                 .collect()
         })
         .unwrap_or_default();
+    let own = c.wf_agents_project().as_deref() == Some(project.as_str());
     read(&app, move |conn, a| {
-        api::architect(conn, &a.flows, &project, projects, tags)
+        api::architect(conn, &a.flows, &project, projects, tags, own)
     })
     .await
     .map(Json)
 }
 
-/// The owner's conversations, each with what waits for the owner in it and what is unread.
+/// What the owner's conversations need of the configuration as committed: its projects, the one that is wf-agents
+/// itself, and the groups of projects it connects.
+fn talks(data: &std::path::Path) -> Result<api::Talks, api::Error> {
+    let c = config::committed(data).map_err(|e| api::Error::Failed(e.to_string()))?;
+    Ok(api::Talks::of(&c.config))
+}
+
+/// The owner's conversations in the list's order, each with what waits for the owner in it and what is unread.
 async fn conversations(State(app): State<App>) -> Result<Json<Vec<api::Conversation>>, Fail> {
-    read(&app, |c, _| api::conversations(c)).await.map(Json)
+    read(&app, |c, a| api::conversations(c, &talks(&a.data)?))
+        .await
+        .map(Json)
 }
 
 /// Which conversation a request is about, by its key.
@@ -526,13 +538,15 @@ async fn conversation(
     State(app): State<App>,
     Query(q): Query<OfConversation>,
 ) -> Result<Json<api::ConversationDetail>, Fail> {
-    read(&app, move |c, a| api::conversation(c, &a.flows, &q.key))
-        .await
-        .map(Json)
+    read(&app, move |c, a| {
+        api::conversation(c, &a.flows, &talks(&a.data)?, &q.key)
+    })
+    .await
+    .map(Json)
 }
 
-/// What the owner says in the conversation about a work: to its engineer or another of its lines, as an interjection,
-/// or to the architect of its project, as the owner's words naming the work.
+/// What the owner says in a work's group: to its engineer, to its project's architect or to both, or an answer to a
+/// question of the engineer's that the architect holds.
 async fn say_to_work(
     State(app): State<App>,
     Path(id): Path<i64>,
@@ -718,6 +732,29 @@ async fn decide(
     .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
     app.control.wake();
     Ok(Json(api::Done { done }))
+}
+
+/// What the owner says in a group of connected projects' architects: to one of them, or to every one.
+async fn say_to_projects(State(app): State<App>, Json(s): Json<api::ProjectsSaid>) -> Result<Json<api::Done>, Fail> {
+    let data = Arc::clone(&app.data);
+    decide(&app, move |db| {
+        let projects = talks(&data)
+            .map_err(|e| e.to_string())?
+            .set_of(&s.key)
+            .ok_or_else(|| format!("no group of projects {}", s.key))?;
+        api::say_to_projects(db, &projects, &s)
+    })
+    .await
+}
+
+/// Marks how far the owner has read a conversation, as the owner.
+async fn read_to(State(app): State<App>, Json(r): Json<api::ReadTo>) -> Result<Json<api::Marked>, Fail> {
+    let db = Arc::clone(&app.db);
+    tokio::task::spawn_blocking(move || api::read_to(&db, &r))
+        .await
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(Fail::from)
 }
 
 /// Marks messages to the owner read, as the owner.

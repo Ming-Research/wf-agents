@@ -185,8 +185,8 @@ function WorkRows({ list, status, at }: { list: WorkSummary[]; status: Status | 
   );
 }
 
-/// Each project's architect: awake, with its wake, or asleep; how many matters wait in its queue, and how long the
-/// oldest has waited.
+/// Each project's architect: working, paused or idle, with no word of its wakes; how many matters wait in its queue,
+/// which its one-to-one holds, and how long the oldest has waited.
 function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
   if (list.length === 0) return null;
   return (
@@ -215,7 +215,7 @@ function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
               )}
             </td>
             <td className="num">
-              {a.queue > 0 ? <Link to={architectHref({ project: a.project, tab: 'queue' })}>{a.queue}</Link> : 0}
+              {a.queue > 0 ? <Link to={href({ page: 'messages', open: `architect:${a.project}` })}>{a.queue}</Link> : 0}
             </td>
             <td className="num">{a.oldest !== null ? duration(at - a.oldest) : ''}</td>
           </tr>

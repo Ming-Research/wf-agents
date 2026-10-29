@@ -15,13 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, AskKind, Conversation, ConversationDetail, ConversationEntry, DesignCard, DispatchHold, Draft,
-    FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
-    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, Misses, NamedText, NextPlan,
-    Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
-    Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Said, Session, Shown, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
-    WorkSummary,
+    Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, Handled, HandledAction, InputsNow,
+    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
+    Matter, MatterCard, NamedText, NextPlan, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce,
+    PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
+    RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun, Waits, Wake, WorkDetail, WorkSession,
+    WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +71,7 @@ impl Flows {
     }
 
     /// The graph a work runs, when its flow version can be read.
-    fn graph(&self, conn: &Connection, version: i64, graph: &str) -> Option<CompiledGraph> {
+    pub(crate) fn graph(&self, conn: &Connection, version: i64, graph: &str) -> Option<CompiledGraph> {
         self.get(conn, version).ok()?.graph(graph).cloned()
     }
 }
@@ -678,7 +677,7 @@ LEFT JOIN rounds cr ON cr.work = c.work AND cr.n = c.round
 LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
 LEFT JOIN works nw ON nw.id = n.work";
 
-fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<DesignCard>> {
+pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<DesignCard>> {
     let mut st = conn.prepare(&format!("{DESIGN_CARD} {filter} ORDER BY c.id"))?;
     let rows = st.query_map(params_from_iter(args), |r| {
         let by: Option<i64> = r.get(7)?;
@@ -771,7 +770,7 @@ fn ask_kinds(body: &Value) -> Vec<AskKind> {
         .collect()
 }
 
-fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> {
+pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> {
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
     let rows = st.query_map(params_from_iter(args), |r| {
         let body = json(r.get(4)?).unwrap_or(Value::Null);
@@ -1674,12 +1673,18 @@ fn value_at(x: &Value, path: &str) -> Option<Value> {
 
 /// What the rounds of an item's works handed back that their flow versions show on the item, oldest first.
 fn shown(conn: &Connection, flows: &Flows, item: i64) -> Result<Vec<Shown>> {
-    let mut st = conn.prepare(
+    shown_where(conn, flows, "w.item = ?1", &[item])
+}
+
+/// What the rounds a filter on `rounds r` and `works w` selects handed back that their flow versions show on the
+/// item, oldest first.
+pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<Shown>> {
+    let mut st = conn.prepare(&format!(
         "SELECT r.n, r.work, r.cell, r.output, w.flow_version, w.graph FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.cell IS NOT NULL AND r.output IS NOT NULL AND r.transition IS NOT NULL
-         ORDER BY r.work, r.n",
-    )?;
-    let rows = st.query_map([item], |r| {
+         WHERE {filter} AND r.cell IS NOT NULL AND r.output IS NOT NULL AND r.transition IS NOT NULL
+         ORDER BY r.work, r.n"
+    ))?;
+    let rows = st.query_map(params_from_iter(args), |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, i64>(1)?,
@@ -1716,15 +1721,16 @@ fn shown(conn: &Connection, flows: &Flows, item: i64) -> Result<Vec<Shown>> {
     Ok(out)
 }
 
-/// A project's architect, as its tab shows it: `projects` are every project of the configuration, and `tags` the
-/// project's tags for observations, each with what it covers. Its cells are named as the views over its rounds name
-/// them.
+/// A project's architect, as its tab shows it: `projects` are every project of the configuration, `tags` the project's
+/// tags for observations, each with what it covers, and `own` whether the project is wf-agents itself. Its cells are
+/// named as the views over its rounds name them.
 pub fn architect(
     conn: &Connection,
     flows: &Flows,
     project: &str,
     projects: Vec<String>,
     tags: Vec<Tag>,
+    own: bool,
 ) -> Result<Architect> {
     // The project's wakes, and the settings of its policy beside them, by their numbers: the filter takes numbers only.
     let mine: Vec<i64> = {
@@ -1795,10 +1801,10 @@ pub fn architect(
         policy: policy(conn, project)?,
         setting,
         check: latest_of(conn, project, "P1")?,
-        understanding: understanding(conn, project)?,
         next: next(conn, project)?,
         observations: observations(conn, project)?,
         tags,
+        own,
     })
 }
 
@@ -1821,7 +1827,7 @@ fn returned(output: Option<String>, field: Option<&str>) -> Value {
 }
 
 /// The matter a wake handles now: the one its latest pick chose, while it is neither handled nor held by an ask.
-fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
+pub(crate) fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
     let picked: Option<Option<i64>> = conn
         .query_row(
             &format!(
@@ -1906,7 +1912,7 @@ fn first_why(v: &Value) -> Option<String> {
 /// path did, from the pick that took it to the round that closed it, as the records of what was done have it (the
 /// reply kept with the matter, the item changes it collected, the effects its rounds handed in and the engine carried
 /// out, what they told the owner, the ask put about it); and when nothing came of it, why.
-fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
+pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
     let mut st = conn.prepare(
         "SELECT m.id, m.kind, m.detail, m.what, m.handled_work, m.handled_round, coalesce(r.cell, ''), r.ended_at,
                 m.work, json_extract(m.reply, '$.text'), m.asked, r.output
@@ -2100,106 +2106,8 @@ fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// The owner's conversations, each with what waits for the owner in it, what is unread and when its latest entry came;
-/// a work's with its item.
-pub fn conversations(conn: &Connection) -> Result<Vec<Conversation>> {
-    let mut st = conn.prepare(
-        "SELECT c.conversation, c.project, c.last_at, c.waiting, c.unread, w.id, w.item, i.title FROM (
-           SELECT conversation, max(project) AS project, max(at) AS last_at, sum(waiting) AS waiting,
-             sum(source IN ('message', 'notice') AND read_at IS NULL AND fault IS NULL) AS unread
-           FROM conversation_entries GROUP BY conversation) c
-         LEFT JOIN works w ON c.conversation = 'work:' || w.id LEFT JOIN items i ON i.id = w.item
-         ORDER BY c.last_at DESC",
-    )?;
-    let rows = st.query_map([], |r| {
-        Ok(Conversation {
-            key: r.get(0)?,
-            project: r.get(1)?,
-            last_at: r.get(2)?,
-            waiting: r.get(3)?,
-            unread: r.get(4)?,
-            work: r.get(5)?,
-            item: r.get(6)?,
-            title: r.get(7)?,
-        })
-    })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
-}
-
-/// One of the owner's conversations in full: its entries in time order, and the asks of the owner and the design cards
-/// in it that wait for the owner, with their forms.
-pub fn conversation(conn: &Connection, flows: &Flows, key: &str) -> Result<ConversationDetail> {
-    let mut st = conn.prepare(
-        "SELECT source, id, sender, recipient, text, at, work, round, ask, design_card, read_at, waiting, pending, agents,
-                fault
-         FROM conversation_entries WHERE conversation = ?1 ORDER BY at, source, id",
-    )?;
-    let rows = st.query_map([key], |r| {
-        Ok(ConversationEntry {
-            source: r.get(0)?,
-            id: r.get(1)?,
-            sender: r.get(2)?,
-            recipient: r.get(3)?,
-            text: r.get(4)?,
-            at: r.get(5)?,
-            work: r.get(6)?,
-            round: r.get(7)?,
-            ask: r.get(8)?,
-            design_card: r.get(9)?,
-            read_at: r.get(10)?,
-            waiting: r.get(11)?,
-            pending: r.get(12)?,
-            agents: r.get(13)?,
-            fault: r.get(14)?,
-            misses: None,
-        })
-    })?;
-    let mut entries: Vec<ConversationEntry> = rows.collect::<rusqlite::Result<_>>()?;
-    let mut tally = conn.prepare(
-        "SELECT count(*), coalesce(sum(c.written), 0), coalesce(sum(c.cost_usd), 0.0), max(r.started_at)
-         FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.notice = ?1",
-    )?;
-    for e in entries.iter_mut().filter(|e| e.source == "notice" && e.fault.is_some()) {
-        let misses = tally.query_row([e.id], |r| {
-            Ok(Misses {
-                count: r.get(0)?,
-                written: r.get(1)?,
-                cost_usd: r.get(2)?,
-                last_at: r.get(3)?,
-            })
-        })?;
-        e.misses = (misses.count > 0).then_some(misses);
-    }
-    // The ids are numbers the view gave, listed into the filter as the architect's wakes are.
-    let waiting = |source: &str| -> String {
-        entries
-            .iter()
-            .filter(|e| e.waiting && e.source == source)
-            .map(|e| e.id.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let (open_asks, open_cards) = (waiting("ask"), waiting("card"));
-    let asks = if open_asks.is_empty() {
-        Vec::new()
-    } else {
-        asks(conn, &format!("WHERE a.id IN ({open_asks})"), &[])?
-    };
-    let design_cards = if open_cards.is_empty() {
-        Vec::new()
-    } else {
-        design_cards(conn, flows, &format!("WHERE c.id IN ({open_cards})"), &[])?
-    };
-    Ok(ConversationDetail {
-        key: key.to_string(),
-        entries,
-        asks,
-        design_cards,
-    })
-}
-
 /// A project's observations: the open ones first, then those closed, each newest first.
-fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
+pub(crate) fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
     let mut st = conn.prepare(
         "SELECT id, what, tags, source, times_reported, refs, folded_into, closed, closed_why, created, updated
          FROM observations_all WHERE project = ?1
@@ -2232,7 +2140,7 @@ fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
 }
 
 /// The policy in force for a project, with the round in which it took effect.
-fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyInForce>> {
+pub(crate) fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyInForce>> {
     Ok(conn
         .query_row(
             "SELECT p.work, p.round, r.ended_at, p.policy, coalesce(r.cell, '') FROM policy_current p
@@ -2313,47 +2221,6 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
         .optional()?
         .filter(|d| study.as_ref().is_none_or(|s| d.round > s.round));
     Ok(PolicySetting { work, study, draft })
-}
-
-/// Where a project stands, as its architect last wrote it.
-fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
-    let state = conn
-        .query_row(
-            "SELECT a.work, a.round, r.cell, r.ended_at, r.output FROM architect_state a
-             JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.project = ?1",
-            [project],
-            |r| {
-                Ok(Said {
-                    work: r.get(0)?,
-                    round: r.get(1)?,
-                    cell: r.get(2)?,
-                    at: r.get(3)?,
-                    value: returned(r.get(4)?, None),
-                })
-            },
-        )
-        .optional()?;
-    // Every version, read from the round records alone; a round that asked for tools or paused gave none.
-    let mut st = conn.prepare(&format!(
-        "SELECT r.work, r.n, r.cell, r.ended_at, json_extract(r.output, '$.outcome')
-         FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-           AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-         ORDER BY r.work DESC, r.n DESC",
-        db::cells_sql("architect", &["U1"])
-    ))?;
-    let versions = st
-        .query_map([project], |r| {
-            Ok(StateVersion {
-                work: r.get(0)?,
-                round: r.get(1)?,
-                cell: r.get(2)?,
-                at: r.get(3)?,
-                state: json(r.get(4)?).unwrap_or(Value::Null),
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(Understanding { state, versions })
 }
 
 /// The latest round of a project's architect at a cell that answered, by what it answered.
@@ -3265,28 +3132,39 @@ mod tests {
         s
     }
 
-    // The owner's conversations by subject: the architect's holds the owner's words, still waiting for it, what a wake
-    // told the owner and its asks, waiting for the owner, pinned with their forms; the work's what its agents told the
-    // owner and asked the architect. Another project's are its own.
+    // The owner's conversations: the one-to-ones with the architects and wf-agents' own first, then a group for each
+    // work. The architect's one-to-one holds the owner's words, still waiting for it, and its asks, waiting for the
+    // owner, pinned with their forms, beside a card for each of its matters, where it stands; what a wake told the owner
+    // while it handled a matter of a work, and what the work's engineer told the owner and asked the architect, are in
+    // the work's group, with a card for each stage the work went through. Another project's are its own.
     #[test]
     fn the_owner_s_conversations_gather_what_was_said_by_subject() {
         let s = architect_setup("talk");
-        let all = conversations(s.db.conn()).unwrap();
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            own: Some("p".into()),
+            sets: Vec::new(),
+        };
+        let all = crate::conversations(s.db.conn(), &t).unwrap();
+        let keys: Vec<&str> = all.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys[..4], ["architect:p", "architect:q", "wf-agents", "work:1"]);
         let p = all.iter().find(|c| c.key == "architect:p").unwrap();
         assert_eq!(
             (p.project.as_deref(), p.waiting, p.unread, p.work),
-            (Some("p"), 2, 1, None)
+            (Some("p"), 2, 0, None)
         );
         let w = all.iter().find(|c| c.key == "work:1").unwrap();
         assert_eq!(
-            (w.work, w.item, w.title.as_deref(), w.unread),
-            (Some(1), Some(1), Some("First"), 1)
+            (w.kind.as_str(), w.work, w.item, w.title.as_deref(), w.over),
+            ("work", Some(1), Some(1), Some("First"), false)
         );
-        let d = conversation(s.db.conn(), &Flows::default(), "architect:p").unwrap();
+        assert!(w.unread > 0, "{w:?}");
+        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
         type Seen<'a> = (&'a str, &'a str, &'a str, i64, bool, bool);
         let seen: Vec<Seen> = d
             .entries
             .iter()
+            .filter(|e| e.source != "matter" && e.source != "policy")
             .map(|e| {
                 (
                     e.source.as_str(),
@@ -3303,18 +3181,31 @@ mod tests {
             [
                 ("words", "owner", "Put the parser first.", 200, false, true),
                 ("ask", "architect", "", 209, true, false),
-                ("message", "architect", "Learned L", 209, false, false),
                 ("ask", "architect", "", 400, true, false)
             ]
         );
         assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [1, 2]);
         assert!(d.design_cards.is_empty());
-        let work = conversation(s.db.conn(), &Flows::default(), "work:1").unwrap();
-        let sources: Vec<(&str, bool)> = work.entries.iter().map(|e| (e.source.as_str(), e.agents)).collect();
+        let cards: Vec<(i64, &str, Option<i64>)> = d
+            .entries
+            .iter()
+            .filter_map(|e| e.matter_card.as_ref())
+            .map(|m| (m.matter, m.state.as_str(), m.work))
+            .collect();
+        assert_eq!(cards, [(1, "done", Some(1)), (2, "queued", None), (3, "held", Some(1))]);
+        let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
+        let said: Vec<(&str, &str, &str)> = work
+            .entries
+            .iter()
+            .map(|e| (e.source.as_str(), e.sender.as_str(), e.text.as_str()))
+            .collect();
         assert!(
-            sources.contains(&("message", false)) && sources.contains(&("question", true)),
-            "{sources:?}"
+            said.contains(&("message", "architect", "Learned L"))
+                && said.contains(&("message", "engineer", "told"))
+                && said.contains(&("question", "engineer", "Split #1?")),
+            "{said:?}"
         );
+        assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
     }
 
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card
@@ -3387,7 +3278,15 @@ mod tests {
             name: "perf".into(),
             desc: "How fast".into(),
         }];
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()], tags).unwrap();
+        let a = architect(
+            s.db.conn(),
+            &Flows::default(),
+            "p",
+            vec!["p".into(), "q".into()],
+            tags,
+            false,
+        )
+        .unwrap();
         assert_eq!((a.project.as_str(), a.projects.len(), a.tags.len()), ("p", 2, 1));
         assert_eq!(a.wakes.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
         let (now, last) = (&a.wakes[0], &a.wakes[1]);
@@ -3454,10 +3353,6 @@ mod tests {
         );
         assert_eq!(setting.draft, None);
 
-        let u = &a.understanding;
-        assert_eq!(u.state.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
-        assert_eq!(u.state.as_ref().unwrap().value["changed"], "c");
-        assert_eq!(u.versions.len(), 1);
         // The check of the policy in force, in the policy's part.
         assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 4)));
         assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
