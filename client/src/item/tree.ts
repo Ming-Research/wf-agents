@@ -59,10 +59,10 @@ export function depsDone(id: number, items: ItemSummary[], links: ItemLink[]): {
   return { done: deps.filter((l) => state.get(l.depends_on) === 'done').length, of: deps.length };
 }
 
-/// How far a stage is along the stages: from a little past nothing at the first to all at the last.
-export function stageShare(stage: string | null, stages: string[]): number | null {
+/// How far through the stages a stage is: its place among them, counting from 1, and how many there are; none for a
+/// stage not among them.
+export function stageAt(stage: string | null, stages: string[]): { at: number; of: number } | null {
   if (stage === null) return null;
   const at = stages.indexOf(stage);
-  if (at < 0 || stages.length === 0) return null;
-  return (at + 1) / stages.length;
+  return at < 0 ? null : { at: at + 1, of: stages.length };
 }

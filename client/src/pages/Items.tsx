@@ -2,13 +2,14 @@
 // items in each state; on the right, the item picked, in place. The split between them is dragged, and kept in this
 // browser. A row says the item's state by the colour of its edge, its number and title, what it needs from the owner,
 // the items it waits for before it starts, the kind of the dependency by which the item above depends on it, its
-// work's stage as a bar behind it, how many of what it depends on are done, and its place in the queue.
+// work's stage in words where the row has room, how far through the stages on hovering, how many of what it depends
+// on are done, and its place in the queue.
 
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { DependencyKind, Loaded } from '../components';
-import { depsDone, stageShare, STATES, tree, type TreeRow } from '../item/tree';
+import { depsDone, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
 import { navigate } from '../route';
@@ -72,15 +73,13 @@ function Row({ row, depth, data, place, selected, folded, onFold }: RowProps) {
     );
   }
   const deps = depsDone(i.id, data.items, data.links);
-  const share = i.state === 'done' || i.state === 'cancelled' ? null : stageShare(i.stage, i.stages);
+  const stage = i.state === 'done' || i.state === 'cancelled' ? null : stageAt(i.stage, i.stages);
   const open = !folded.has(i.id);
-  const style =
-    share !== null ? { ...pad, backgroundSize: `${Math.round(share * 100)}% 100%` } : pad;
   return (
     <>
       <div
-        className={`tree-row item-edge-${i.state}${share !== null ? ' tree-staged' : ''}${i.id === selected ? ' selected' : ''}`}
-        style={style}
+        className={`tree-row item-edge-${i.state}${i.id === selected ? ' selected' : ''}`}
+        style={pad}
         onClick={() => navigate(`/items/${i.id}`)}
       >
         {row.children.length > 0 ? (
@@ -111,11 +110,8 @@ function Row({ row, depth, data, place, selected, folded, onFold }: RowProps) {
         ) : null}
         <span className="tree-facts">
           <DependencyKind kind={row.kind} />
-          {share !== null && i.stage !== null ? (
-            <span
-              className="muted"
-              title={t('items_stage_title', { at: i.stages.indexOf(i.stage) + 1, of: i.stages.length })}
-            >
+          {stage !== null && i.stage !== null ? (
+            <span className="muted tree-stage" title={t('items_stage_title', stage)}>
               {words(i.stage)}
             </span>
           ) : null}

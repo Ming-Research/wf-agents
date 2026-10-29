@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, ItemLink, ItemSummary, RoundSummary } from './api';
 import { byStage, mainPath, progress, type Step } from './item/checklist';
-import { depsDone, stageShare, tree, type TreeRow } from './item/tree';
+import { depsDone, stageAt, tree, type TreeRow } from './item/tree';
 import { inline, parse } from './markdown';
 
 function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummary> = {}): ItemSummary {
@@ -85,9 +85,9 @@ describe('the tree of items', () => {
   it('counts what is done of what an item depends on, and how far its stage is', () => {
     expect(depsDone(1, items, links)).toEqual({ done: 1, of: 2 });
     expect(depsDone(6, items, links)).toEqual({ done: 0, of: 0 });
-    expect(stageShare('design', ['start', 'research', 'design', 'end'])).toBe(0.75);
-    expect(stageShare(null, ['start'])).toBeNull();
-    expect(stageShare('gone', ['start'])).toBeNull();
+    expect(stageAt('design', ['start', 'research', 'design', 'end'])).toEqual({ at: 3, of: 4 });
+    expect(stageAt(null, ['start'])).toBeNull();
+    expect(stageAt('gone', ['start'])).toBeNull();
   });
 });
 

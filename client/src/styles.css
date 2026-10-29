@@ -658,6 +658,14 @@ td.clip {
   padding: 8px 0 16px;
   background: var(--panel);
   border-right: 1px solid var(--line);
+  container-type: inline-size;
+}
+
+/* The stage an item's work is at, in words, only where the row has room for it beside the title. */
+@container (max-width: 420px) {
+  .tree-stage {
+    display: none;
+  }
 }
 
 .items-grip {
@@ -746,12 +754,6 @@ td.clip {
 .tree-row.selected {
   background-color: var(--accent-soft);
   font-weight: 600;
-}
-
-/* The stage the item's work is at, as a bar behind its row that fills as the work goes through the stages. */
-.tree-staged {
-  background-image: linear-gradient(color-mix(in srgb, var(--running) 13%, transparent), color-mix(in srgb, var(--running) 13%, transparent));
-  background-repeat: no-repeat;
 }
 
 .tree-ref {
