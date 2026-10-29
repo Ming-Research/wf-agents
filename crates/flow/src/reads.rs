@@ -202,6 +202,12 @@ impl Analysis<'_, '_> {
             let mut found = Vec::new();
             for s in (0..n).filter(|s| here(*s)) {
                 for &(r, s2, t) in &self.steps[s] {
+                    // A row that waits where the cell is, as a work behind another in the merge queue does, is taken
+                    // before the cell's step hands anything in: it drops nothing.
+                    let row = &c.rows[r];
+                    if row.waits && row.target == Target::Cell(ci) {
+                        continue;
+                    }
                     let mut held = Bits::new(nk);
                     for o in &self.takes[t] {
                         held.or(&self.rets[ci].outcomes[*o].pres);

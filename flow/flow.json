@@ -5989,7 +5989,7 @@
               ]
             },
             {
-              "what": "The checks after design: the answers of cells `D4`, `D5` and `D6`, the progress of cells `D7` and `D8`",
+              "what": "The checks after design: the answers of cells `D4` to `D8`, each with why",
               "from": [
                 [
                   "D4",
@@ -6005,11 +6005,11 @@
                 ],
                 [
                   "D7",
-                  "progress"
+                  "answer"
                 ],
                 [
                   "D8",
-                  "progress"
+                  "answer"
                 ]
               ]
             }
@@ -7013,11 +7013,11 @@
               "maybe": true
             },
             {
-              "what": "The returns of the research rounds: whether the work stands, and the reason of each check, each a column of its own; the reasons of the three questions on a gap in what is under test, being unsure and cost are in their answer, and for the other checks answered no, in their progress",
+              "what": "The returns of the research rounds: whether the work stands, and the reason of each check after design, each a column of its own, in each answer",
               "from": [
                 [
                   "R2",
-                  "progress"
+                  "answer"
                 ],
                 [
                   "R1",
@@ -7061,11 +7061,11 @@
                 ],
                 [
                   "D7",
-                  "progress"
+                  "answer"
                 ],
                 [
                   "D8",
-                  "progress"
+                  "answer"
                 ]
               ]
             },

@@ -712,9 +712,15 @@ pub fn columns(
                         .cell(c)
                         .and_then(|x| x.needs.as_deref())
                         .is_some_and(|need| project.is_some_and(|p| !p.has(need).unwrap_or(false)));
+                    // The outcome the check went on by, as a gate names it; a flow version before gates named their
+                    // outcomes answered no.
+                    let on = g
+                        .cell(c)
+                        .and_then(|x| x.outcomes.first().cloned())
+                        .unwrap_or_else(|| "no".into());
                     if g.cell(c).is_some() && !not_asked {
                         cols.push(format!(
-                            "The check of {what} answered \"no\" or not applicable: does its reason hold?"
+                            "The check of {what} answered \"{on}\" or not applicable: does its reason hold?"
                         ));
                     }
                 }
