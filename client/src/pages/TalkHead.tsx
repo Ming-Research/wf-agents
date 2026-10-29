@@ -200,10 +200,10 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
     const what = state.handling !== null ? matterSentence(state.handling) : null;
     return (
       <>
-        {c.held !== null ? (
+        {c.running !== null ? (
+          <Label variant="accent">{c.running === 'step' ? runningWords(c) : t('talk_architect_working')}</Label>
+        ) : c.held !== null ? (
           <Label variant="attention">{heldName(c).name}</Label>
-        ) : c.running !== null ? (
-          <Label variant="accent">{t('talk_architect_working')}</Label>
         ) : (
           <Label variant="secondary">{t('talk_architect_between')}</Label>
         )}

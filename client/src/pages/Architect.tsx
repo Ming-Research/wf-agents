@@ -39,6 +39,7 @@ import type {
 } from '../api';
 import { architectState, matterKind, matterSentence, observationsShown, overWake, shownWake } from '../architect';
 import { course, heldName, Loaded } from '../components';
+import { runningWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, time } from '../format';
 import { Labelled, words } from '../labelled';
@@ -86,7 +87,7 @@ function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) 
       <>
         {c.running !== null ? (
           <>
-            <Label variant="accent">{t('talk_architect_working')}</Label>
+            <Label variant="accent">{c.running === 'step' ? runningWords(c) : t('talk_architect_working')}</Label>
             {current.running ? <span className="muted">{duration(Math.max(0, now - current.running.started_at))}</span> : null}
           </>
         ) : c.held !== null ? (

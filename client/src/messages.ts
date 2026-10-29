@@ -356,7 +356,7 @@ const messages = {
   course_running_started: 'running (you started it)',
   course_ready_started: 'ready (you started it)',
   course_pausing: 'pausing after this round',
-  course_step: 'running one round',
+  course_step: 'running (single step)',
   course_paused: 'stopped (you paused it)',
   course_paused_why: 'stopped (you paused it): {why}',
   course_stopped: 'stopped (by the engine)',
