@@ -101,24 +101,12 @@
   gap: var(--base-size-4);
 }
 
-/* The architect's queue: one line that opens to its matters, the one in hand marked. */
-.talk-queue > summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--base-size-4) var(--base-size-12);
-  color: var(--fgColor-muted);
-  font-size: var(--text-body-size-small);
-  cursor: pointer;
-}
-
-.talk-queue-n {
-  color: var(--fgColor-default);
-}
-
+/* The architect's queue: a few words at the end of the head's row that open the list of its matters under the row,
+   the one in hand marked. */
 .talk-queue-list {
   display: grid;
   gap: var(--base-size-4);
-  margin: var(--base-size-8) 0 0;
+  margin: 0;
   padding-left: var(--base-size-24);
 }
 
@@ -490,13 +478,18 @@
   align-items: center;
 }
 
-/* What stops a project's new works from starting, at the right end of the architect's title row: a sign and words in
-   the attention colour, with no box, so that it reads apart from the architect's own state beside its name. */
-.talk-head-holds {
+/* The right end of the architect's row: what stops a project's new works from starting, a sign and words in the
+   attention colour with no box, so that it reads apart from the architect's own state beside its name; then its queue. */
+.talk-head-end {
   margin-left: auto;
   display: inline-flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--base-size-12);
+}
+
+.talk-head-name a {
+  color: inherit;
 }
 
 .talk-head-hold {

@@ -1,14 +1,15 @@
 // The head of a conversation, as a chat app's group information: what the conversation is about and the owner's
 // controls of it, which are here and nowhere else. A work's group says its work and item, the stage it is at, how it
-// goes on and what it cost so far, with the work's Start, Pause and Step and the tier its item is at; the one-to-one
-// with an architect says what the architect handles now, at which cell, or that it is idle, paused or waits for the
-// owner, with its Start, Pause and Step, and under it its queue: how many matters are left, the oldest wait and how
-// many it handled today, opening to the list with the matter in hand marked; wf-agents' own says where each new fault
+// goes on and what it cost so far, with the work's Start, Pause and Step first in its row and the tier its item is at;
+// the one-to-one with an architect is one row: its Start, Pause and Step first, its name leading to its page, what it
+// handles now, at which cell, or that it is idle, paused or waits for the owner, and at the row's end the holds on the
+// project's new works and its queue (how many matters are left, the oldest wait and how many it handled today), which
+// opens under the row to the list with the matter in hand marked; wf-agents' own says where each new fault
 // goes as it comes, which the owner sets there. The architect is always there to the owner: the page never names its
 // wakes.
 
-import { BlockedIcon } from '@primer/octicons-react';
-import { Label, Select } from '@primer/react';
+import { BlockedIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
+import { Button, Label, Select } from '@primer/react';
 import { useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
@@ -84,13 +85,14 @@ function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   return <Label variant="secondary">{t('state_ready')}</Label>;
 }
 
-/// The head of a work's group: the work, its item and title, its stage, how it goes on and what it cost, what it
-/// waits for, the tier its item is at, and its Start, Pause and Step; its rounds a link away.
+/// The head of a work's group: its Start, Pause and Step first, the work, its item and title, how it goes on; under
+/// them its stage, what it cost, what it waits for and the tier its item is at; its rounds a link away.
 export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const status = useStatus();
   return (
     <header className="talk-head">
       <div className="talk-head-title">
+        {w !== null && !c.over ? <WorkControls w={w} status={status} /> : null}
         <h2 className="talk-head-name">
           {t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' })}
         </h2>
@@ -103,7 +105,6 @@ export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
         {w !== null && w.waits !== null ? <span>{waitsWords(w.waits)}</span> : null}
         {c.work !== null ? <Link to={workHref(c.work)}>{t('talk_rounds')}</Link> : null}
         {c.item !== null && c.level !== null && !c.over ? <Tier item={c.item} level={c.level} /> : null}
-        {w !== null && !c.over ? <WorkControls w={w} status={status} /> : null}
       </div>
     </header>
   );
@@ -248,85 +249,104 @@ const today = (): number => {
   return d.getTime();
 };
 
-/// The architect's queue, pinned under the head: how many matters are left, how long the oldest has waited, and how
-/// many it handled today; opened, the matters left in the order they came, the one in hand marked, and those an ask of
-/// the owner holds.
-function QueueBar({ a }: { a: Architect }) {
+/// The architect's queue at the end of the head's row, in a few words: how many matters are left, how long the oldest
+/// has waited, and how many it handled today; a click opens the list under the row.
+function QueueSummary({ a, open, toggle }: { a: Architect; open: boolean; toggle: () => void }) {
   const { waiting, held } = queueParts(a.queue);
-  const state = architectState(a.wakes, a.queue);
-  const handling = state.kind === 'awake' ? (state.handling?.id ?? null) : null;
   const oldest = waiting.reduce<number | null>((m, x) => (m === null || x.at < m ? x.at : m), null);
   const from = today();
   const done = a.handled.filter((h) => h.at !== null && h.at >= from).length;
   const [now] = useState(() => Date.now());
+  const parts = [
+    t('talk_queue_left', { n: waiting.length }),
+    oldest !== null ? t('talk_queue_oldest', { for: duration(now - oldest) }) : null,
+    t('talk_queue_today', { n: done }),
+    held.length > 0 ? t('talk_queue_held', { n: held.length }) : null,
+  ].filter((x) => x !== null);
   return (
-    <details className="talk-queue">
-      <summary>
-        <span className="talk-queue-n">{t('talk_queue_left', { n: waiting.length })}</span>
-        {oldest !== null ? <span>{t('talk_queue_oldest', { for: duration(now - oldest) })}</span> : null}
-        <span>{t('talk_queue_today', { n: done })}</span>
-        {held.length > 0 ? <span>{t('talk_queue_held', { n: held.length })}</span> : null}
-      </summary>
-      <ol className="talk-queue-list">
-        {[...waiting, ...held].map((m) => (
-          <li key={m.id} className={m.id === handling ? 'talk-queue-current' : undefined}>
-            <span className="talk-card-kind">{matterKind(m.kind, m.detail)}</span> <span>{matterSentence(m)}</span>{' '}
-            <span className="talk-card-facts">{time(m.at)}</span>
-            {m.id === handling ? (
-              <>
-                {' '}
-                <Label variant="accent">{t('matter_working')}</Label>
-              </>
-            ) : null}
-            {held.includes(m) ? (
-              <>
-                {' '}
-                <Label variant="attention">{t('matter_held')}</Label>
-              </>
-            ) : null}
-            {m.work !== null && m.source === 'work' ? (
-              <>
-                {' '}
-                <Link to={`/messages?c=${encodeURIComponent(`work:${m.work}`)}`} muted>
-                  {t('matter_in_group', { work: m.work })}
-                </Link>
-              </>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </details>
+    <Button
+      className="talk-queue"
+      variant="invisible"
+      size="small"
+      aria-expanded={open}
+      trailingVisual={open ? ChevronUpIcon : ChevronDownIcon}
+      onClick={toggle}
+    >
+      {parts.join(' · ')}
+    </Button>
   );
 }
 
-/// The head of the one-to-one with a project's architect: whose architect, what it does now, its Start, Pause and
-/// Step, the holds on the project's new works, its page a link away; and its queue pinned under it.
+/// The architect's queue opened: the matters left in the order they came, the one in hand marked, and those an ask of
+/// the owner holds.
+function QueueList({ a }: { a: Architect }) {
+  const { waiting, held } = queueParts(a.queue);
+  const state = architectState(a.wakes, a.queue);
+  const handling = state.kind === 'awake' ? (state.handling?.id ?? null) : null;
+  return (
+    <ol className="talk-queue-list">
+      {[...waiting, ...held].map((m) => (
+        <li key={m.id} className={m.id === handling ? 'talk-queue-current' : undefined}>
+          <span className="talk-card-kind">{matterKind(m.kind, m.detail)}</span> <span>{matterSentence(m)}</span>{' '}
+          <span className="talk-card-facts">{time(m.at)}</span>
+          {m.id === handling ? (
+            <>
+              {' '}
+              <Label variant="accent">{t('matter_working')}</Label>
+            </>
+          ) : null}
+          {held.includes(m) ? (
+            <>
+              {' '}
+              <Label variant="attention">{t('matter_held')}</Label>
+            </>
+          ) : null}
+          {m.work !== null && m.source === 'work' ? (
+            <>
+              {' '}
+              <Link to={`/messages?c=${encodeURIComponent(`work:${m.work}`)}`} muted>
+                {t('matter_in_group', { work: m.work })}
+              </Link>
+            </>
+          ) : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/// The head of the one-to-one with a project's architect, in one row: its Start, Pause and Step, whose architect (a link
+/// to its page), what it does now, and at the row's end the holds on the project's new works and its queue, which opens
+/// under the row.
 export function ArchitectHead({ c }: { c: Conversation }) {
   const project = c.project ?? '';
   const status = useStatus();
   const r = useResource<Architect>('architect', forProject('/api/v1/architect', project));
   const a = r.data !== undefined && r.data.project === project ? r.data : null;
+  const [open, setOpen] = useState(false);
   return (
     <header className="talk-head">
       <div className="talk-head-title">
-        <h2 className="talk-head-name">{t('conv_architect', { project })}</h2>
+        {a !== null ? <ArchitectControls a={a} status={status} /> : null}
+        <h2 className="talk-head-name">
+          <Link to={architectHref({ project })} title={t('talk_architect_page')}>
+            {t('conv_architect', { project })}
+          </Link>
+        </h2>
         {a !== null ? <ArchitectNow a={a} status={status} /> : null}
-        {a !== null && a.holds.length > 0 ? (
-          <span className="talk-head-holds">
+        {a !== null ? (
+          <span className="talk-head-end">
             {a.holds.map((h) => (
               <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
                 <BlockedIcon size={16} />
                 {holdWords(h.reason)}
               </span>
             ))}
+            <QueueSummary a={a} open={open} toggle={() => setOpen((o) => !o)} />
           </span>
         ) : null}
       </div>
-      <div className="talk-head-facts">
-        <Link to={architectHref({ project })}>{t('talk_architect_page')}</Link>
-        {a !== null ? <ArchitectControls a={a} status={status} /> : null}
-      </div>
-      {a !== null ? <QueueBar a={a} /> : null}
+      {a !== null && open ? <QueueList a={a} /> : null}
     </header>
   );
 }

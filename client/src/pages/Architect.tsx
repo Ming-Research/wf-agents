@@ -145,7 +145,7 @@ function Line({ a, shown, current, pop, setPop }: {
       </span>
       {state.waiting > 0 ? <span className="muted">{t('talk_queue_left', { n: state.waiting })}</span> : null}
       {a.holds.length > 0 ? (
-        <span className="talk-head-holds">
+        <span className="talk-head-end">
           {a.holds.map((h) => (
             <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
               <BlockedIcon size={16} />

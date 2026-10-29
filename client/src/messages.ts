@@ -239,7 +239,7 @@ const messages = {
   talk_item: 'Item {id}',
   talk_rounds: 'Its rounds',
   talk_waits: 'waits',
-  talk_architect_page: "Its page",
+  talk_architect_page: "Open the architect's page",
   talk_architect_working: 'working',
   talk_architect_between: 'between rounds',
   talk_architect_handles: 'handles: {what} · at {at}',
