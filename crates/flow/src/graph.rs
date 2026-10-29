@@ -987,13 +987,20 @@ impl<'s> Graph<'s> {
             }
         }
         // A cell at no stage asks, answers or runs tools for another: it goes on only back to a cell the engine
-        // keeps track of, or into the asking part.
+        // keeps track of, into the asking part, or to a cell that answers it, as waiting for the owner's Start after a
+        // pause does.
+        let answers: BTreeSet<usize> = cells
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.rows.is_empty() && c.rows.iter().all(|r| r.target == Target::Caller))
+            .map(|(i, _)| i)
+            .collect();
         for (i, c) in cells.iter().enumerate() {
             let ok = stage.contains_key(&i)
                 || region.contains(&i)
                 || c.rows
                     .iter()
-                    .all(|r| !matches!(r.target, Target::Cell(t) if !region.contains(&t)));
+                    .all(|r| !matches!(r.target, Target::Cell(t) if !region.contains(&t) && !answers.contains(&t)));
             ensure!(ok, "a cell at no stage that goes on by itself: {}", c.id);
         }
         let mut into: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
