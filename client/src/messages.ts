@@ -610,7 +610,7 @@ const messages = {
   ground_confirm: 'How it will be confirmed',
   item_as_written: 'The item as written',
   design_title: 'The design',
-  design_why: 'Why this one',
+  design_why: 'Why this one, not the others',
   design_where: 'Where it changes',
   design_excluded: 'What it leaves out',
   design_pitfalls: 'Its cost and pitfalls',

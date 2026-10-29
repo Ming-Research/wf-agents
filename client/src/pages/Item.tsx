@@ -161,16 +161,22 @@ function DesignOf({ round, shown }: { round: string; shown: Map<string, Shown[]>
   const design = at('design');
   const measure = at('measure');
   const measured = measure !== undefined ? <Measure value={measure} /> : null;
+  // The design itself first, then, folded, why this one and not the others: the owner reads a design to see what it
+  // is.
   return (
     <>
-      {why !== undefined ? <Field label={t('design_why')} value={why} /> : null}
       {design !== undefined ? <Design value={design} after={measured} /> : measured}
+      {why !== undefined ? (
+        <Section title={t('design_why')} open={false}>
+          {typeof why === 'string' ? <Markdown text={why} /> : <Labelled value={why} />}
+        </Section>
+      ) : null}
     </>
   );
 }
 
-/// The design: the approach chosen as its heading, why, the design itself and the measure; the approaches compared
-/// folded; earlier versions folded.
+/// The design: the approach chosen as its heading, the design itself and the measure, then why this one, folded; the
+/// approaches compared folded; earlier versions folded.
 function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
   const marks = ['chosen', 'why', 'design', 'measure'].flatMap((p) => shown.get(p) ?? []);
   // The rounds that wrote a version, oldest first: by their works, then their numbers in the work.
