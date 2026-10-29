@@ -339,7 +339,7 @@ case!(a_form_for_no_such_line, "a form for no such line", |v| {
 // Every agent's cell runs at an effort the command line names; a cell that is not an agent's runs at none.
 case!(
     an_effort_the_command_line_does_not_name,
-    "an effort the command line does not name: implement",
+    "an effort the command line does not name: I1",
     |v| {
         node(v, "I1")["effort"] = json!("highest");
     }
@@ -353,7 +353,7 @@ case!(
 );
 case!(
     an_agents_cell_with_no_effort,
-    "an agent's cell declares no effort: implement",
+    "an agent's cell declares no effort: I1",
     |v| {
         obj(node(v, "I1")).remove("effort");
     }

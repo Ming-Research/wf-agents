@@ -171,7 +171,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     implement["rules"] = serde_json::json!(["design_tree_writing", "engineering"]);
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
-        e.contains("a cell names a rule every cell of its line is given: implement"),
+        e.contains("a cell names a rule every cell of its line is given: I1"),
         "{e}"
     );
 }
