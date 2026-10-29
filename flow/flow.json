@@ -2737,8 +2737,11 @@
       "remove_worktree": "Removes the work's worktree; its branch stays. A work taken over leaves it to the new work.",
       "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
-      "withdraw_question": "Withdraws the question the work waited on from the architect's queue, saying why.",
-      "tell_undelivered": "Tells the owner what was said to the work and never handed in, each with the line it was for: the work's way on no longer changes, and a change becomes a new item. A word that needs no answer is left out."
+      "tell_undelivered": "Tells the owner what was said to the work and never handed in, each with the line it was for: the work's way on no longer changes, and a change becomes a new item. A word that needs no answer is left out.",
+      "raise_blocker": "Raises the task's blocker at the cell where its problem arose: an engineer's question, an engine tool's failure, an ask of the owner, a wait for items to deliver or for the owner's ruling, held by the holder of the cell the row leads to. A cell where the work waits raises it with its row that waits, for what it waits for.",
+      "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
+      "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
+      "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -3127,6 +3130,15 @@
           "batch_changes",
           "changes_touch"
         ]
+      },
+      "blockers": {
+        "title": "Blockers",
+        "layer": "work",
+        "desc": "What each stopped task waits on: the cell that raised it, who holds it now, every hand-over, and how it ended",
+        "relations": [
+          "blockers"
+        ],
+        "owner": "answers what the owner holds, or rules on the design card the work waits for"
       }
     },
     "writes": {
@@ -3277,9 +3289,6 @@
       "queue_followup": [
         "architect_queue"
       ],
-      "withdraw_question": [
-        "architect_queue"
-      ],
       "tell_undelivered": [
         "owner_notices"
       ],
@@ -3311,6 +3320,22 @@
       ],
       "wake": [
         "sessions"
+      ],
+      "raise_blocker": [
+        "blockers"
+      ],
+      "resolve_blocker": [
+        "blockers"
+      ],
+      "withdraw_blocker": [
+        "blockers",
+        "architect_queue",
+        "owner_asks"
+      ],
+      "withdraw_blockers": [
+        "blockers",
+        "architect_queue",
+        "owner_asks"
       ]
     },
     "reads": {
@@ -3827,14 +3852,20 @@
             "desc": "This work's advisor, one level above you: technical judgment, such as whether the design, the approach or the acceptance must change, and what you are unsure of or cannot decide; when you must judge first to know whether it is for the owner, ask the advisor first too",
             "node": "A1",
             "row": "ask_advisor",
-            "fields": []
+            "fields": [],
+            "do": [
+              "raise_blocker"
+            ]
           },
           {
             "name": "architect",
             "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project",
             "node": "A2",
             "row": "ask_architect",
-            "fields": []
+            "fields": [],
+            "do": [
+              "raise_blocker"
+            ]
           },
           {
             "name": "owner",
@@ -3847,6 +3878,9 @@
                 "optional": true,
                 "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials, configuration). Write every text in it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
               }
+            ],
+            "do": [
+              "raise_blocker"
             ]
           }
         ],
@@ -5345,7 +5379,10 @@
               ],
               "to": "A2",
               "counts": "tool_failures",
-              "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed."
+              "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed.",
+              "do": [
+                "raise_blocker"
+              ]
             }
           ],
           "always": [
@@ -6887,7 +6924,10 @@
               ],
               "to": "A2",
               "counts": "tool_failures",
-              "note": "The engine asks the architect; when the reply comes, this cell runs again."
+              "note": "The engine asks the architect; when the reply comes, this cell runs again.",
+              "do": [
+                "raise_blocker"
+              ]
             }
           ],
           "inenums": {
@@ -7892,6 +7932,7 @@
               ],
               "to": "M1",
               "do": [
+                "raise_blocker",
                 "notify_pending_approvers"
               ],
               "waits": true,
@@ -7955,7 +7996,10 @@
                 ]
               ],
               "to": "M2",
-              "main": true
+              "main": true,
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "interjection",
@@ -7978,7 +8022,10 @@
               "to": "A4",
               "counts": "interjections",
               "interject": true,
-              "note": "The engine takes the interjection to choose the way on; if that carries on, the work comes back here and the engine judges again."
+              "note": "The engine takes the interjection to choose the way on; if that carries on, the work comes back here and the engine judges again.",
+              "do": [
+                "withdraw_blocker"
+              ]
             },
             {
               "name": "cancelled",
@@ -7994,7 +8041,10 @@
               "to": "A4",
               "counts": "interjections",
               "interject": true,
-              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on."
+              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on.",
+              "do": [
+                "withdraw_blocker"
+              ]
             }
           ],
           "inenums": {
@@ -8908,7 +8958,10 @@
               ],
               "to": "A2",
               "counts": "tool_failures",
-              "note": "The engine asks the architect; when the reply comes, this cell runs again."
+              "note": "The engine asks the architect; when the reply comes, this cell runs again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "behind",
@@ -9074,7 +9127,10 @@
               ],
               "to": "A2",
               "counts": "main_red",
-              "note": "Red on main's commit before the merge too: the environment changed. The architect fixes the environment, or adds the check to the table of known red checks with a work to fix it; when the reply comes, this cell runs again."
+              "note": "Red on main's commit before the merge too: the environment changed. The architect fixes the environment, or adds the check to the table of known red checks with a work to fix it; when the reply comes, this cell runs again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "broken_by_merge",
@@ -9112,7 +9168,10 @@
               ],
               "to": "A2",
               "counts": "tool_failures",
-              "note": "The engine asks the architect; when the reply comes, this cell runs again."
+              "note": "The engine asks the architect; when the reply comes, this cell runs again.",
+              "do": [
+                "raise_blocker"
+              ]
             }
           ]
         },
@@ -9298,7 +9357,10 @@
               ],
               "to": "A3",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: still researching, there is no design to change. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
+              "note": "A flow anomaly: still researching, there is no design to change. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "carry_on",
@@ -9381,7 +9443,10 @@
               ],
               "to": "A3",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: carrying on makes no sense after sub-items were split off (the design and estimate still cover the whole) or with a disagreement with the design card. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
+              "note": "A flow anomaly: carrying on makes no sense after sub-items were split off (the design and estimate still cover the whole) or with a disagreement with the design card. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "wait_for_items",
@@ -9411,7 +9476,8 @@
               ],
               "to": "A6",
               "do": [
-                "record_waits"
+                "record_waits",
+                "raise_blocker"
               ],
               "counts": "waits_for_items"
             },
@@ -9445,7 +9511,10 @@
               ],
               "to": "A3",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the architect's reply has the work wait for other items, and the engineer did not choose to wait. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
+              "note": "A flow anomaly: the architect's reply has the work wait for other items, and the engineer did not choose to wait. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "nothing_to_wait_for",
@@ -9475,7 +9544,10 @@
               ],
               "to": "A3",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the engineer chose to wait with no item to wait for. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
+              "note": "A flow anomaly: the engineer chose to wait with no item to wait for. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "all_to_sub_items",
@@ -9522,7 +9594,10 @@
               ],
               "to": "A3",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the architect gave all of the work to sub-items, so there is no design to change and nothing to research again. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
+              "note": "A flow anomaly: the architect gave all of the work to sub-items, so there is no design to change and nothing to research again. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
             }
           ],
           "inenums": {
@@ -9661,7 +9736,10 @@
                 ]
               ],
               "to": "A4",
-              "note": "The engine goes back to choose the way on with what they delivered."
+              "note": "The engine goes back to choose the way on with what they delivered.",
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "waiting",
@@ -9713,7 +9791,10 @@
               "to": "A4",
               "counts": "interjections",
               "interject": true,
-              "note": "The engine takes the interjection to choose the way on; if that still waits, the work comes back here to wait."
+              "note": "The engine takes the interjection to choose the way on; if that still waits, the work comes back here to wait.",
+              "do": [
+                "withdraw_blocker"
+              ]
             },
             {
               "name": "cancelled",
@@ -9729,7 +9810,10 @@
               "to": "A4",
               "counts": "interjections",
               "interject": true,
-              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on."
+              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on.",
+              "do": [
+                "withdraw_blocker"
+              ]
             }
           ],
           "inenums": {
@@ -9896,7 +9980,10 @@
                   "own"
                 ]
               ],
-              "to": "@asker"
+              "to": "@asker",
+              "do": [
+                "resolve_blocker"
+              ]
             }
           ],
           "always": [
@@ -9985,7 +10072,10 @@
                   ]
                 ]
               ],
-              "to": "@asker"
+              "to": "@asker",
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "cancelled",
@@ -10000,7 +10090,7 @@
               ],
               "to": "@asker",
               "do": [
-                "withdraw_question"
+                "withdraw_blocker"
               ],
               "note": "An item this work depended on was cancelled while it waited for the reply: the question leaves the architect's queue, and the cell that asked, through choosing the way on for the engineer's cells, takes the notice."
             }
@@ -10067,7 +10157,10 @@
                   "all"
                 ]
               ],
-              "to": "@asker"
+              "to": "@asker",
+              "do": [
+                "resolve_blocker"
+              ]
             }
           ]
         },
@@ -10104,6 +10197,7 @@
           "out": [],
           "cases": [],
           "do": [
+            "withdraw_blockers",
             "queue_followup",
             "withdraw_matters",
             "end_sessions",
@@ -10117,6 +10211,7 @@
           "title": "Cancelled or taken over",
           "step": "stop_work",
           "do": [
+            "withdraw_blockers",
             "withdraw_matters",
             "replace_design_cards",
             "close_asks",
@@ -10241,6 +10336,49 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          }
+        ]
+      },
+      "blockers": {
+        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, the architect at `A2`, the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on or the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, and the rows out of it resolve or withdraw it. A work's end withdraws its open blocker, with the end's reason.",
+        "cells": [
+          {
+            "cell": "A1",
+            "holders": [
+              "advisor"
+            ]
+          },
+          {
+            "cell": "A2",
+            "holders": [
+              "architect"
+            ]
+          },
+          {
+            "cell": "A3",
+            "holders": [
+              "owner"
+            ]
+          },
+          {
+            "cell": "A6",
+            "holders": [
+              "items"
+            ],
+            "fails": [
+              "cancelled"
+            ]
+          },
+          {
+            "cell": "M1",
+            "holders": [
+              "items",
+              "owner"
+            ],
+            "fails": [
+              "cancelled"
+            ],
+            "waits": true
           }
         ]
       },

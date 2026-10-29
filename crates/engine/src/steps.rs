@@ -888,6 +888,9 @@ pub fn finish(
             .last()
             .and_then(|c| g.cell(c))
             .map(|c| crate::line_of(g, c)),
+        row: row.clone(),
+        to: moved.pos.clone(),
+        blockers: g.blockers.clone(),
     };
     let ended = Ended {
         output: Some(output),
@@ -1378,6 +1381,12 @@ fn ask(
                 params![round.work, round.n, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
+            // The ask stands for the work's blocker before the owner while the owner holds it.
+            if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
+                && b.holder == "owner"
+            {
+                crate::blockers::set_ask(tx, b.id, id).map_err(db::Error::Abort)?;
+            }
             let told = format!("{text} (ask {id})");
             if anomaly {
                 actions::notify_fault_ask(tx, w.id, id, crate::faults::FLOW_ANOMALY, &told)

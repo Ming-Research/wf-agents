@@ -1919,7 +1919,12 @@ once?: Array<string>,
  * version stored before the flow said it in this form, which runs by the section of the flow built into the
  * engine.
  */
-rounds?: Rounds | null, cells: Array<CompiledCell>, };
+rounds?: Rounds | null, 
+/**
+ * The cells a stopped task stands at while its blocker is held, each with who holds it there; none in a graph whose
+ * works are no tasks, or in a flow version stored before blockers were.
+ */
+blockers?: Blockers | null, cells: Array<CompiledCell>, };
 
 export type Counter = { name: string, desc: string, 
 /**

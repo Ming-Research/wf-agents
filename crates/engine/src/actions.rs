@@ -40,6 +40,11 @@ pub struct Ctx {
     /// The line of the cell that called the cell the round is at, if one waits for it: the agent whose answers a cell
     /// that hands them on hands on.
     pub caller_line: Option<String>,
+    /// The row the return takes, and where it takes the work.
+    pub row: flow::CompiledRow,
+    pub to: flow::Position,
+    /// The cells of the work's graph where a stopped task stands while its blocker is held.
+    pub blockers: Option<flow::format::Blockers>,
 }
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -222,7 +227,7 @@ fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundI
 pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
     let w = ctx.work.id;
     let at_value = at.and_then(|p| ctx.at(p));
-    if crate::architect::act(ctx, tx, name, at_value.as_ref())? {
+    if crate::architect::act(ctx, tx, name, at_value.as_ref())? || crate::blockers::act(ctx, tx, name)? {
         return Ok(());
     }
     match name {
@@ -506,18 +511,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         // The session manager opens the new session as the round at the cell the row leads to starts, at the work's
         // first round there: the cell's `new_session`, which the compiler sets from this action.
         "open_session" => {}
-        "withdraw_question" => {
-            tx.execute(
-                "UPDATE architect_matters SET withdrawn = ?3
-                 WHERE work = ?1 AND round = ?2 AND handled_round IS NULL AND withdrawn IS NULL",
-                params![
-                    ctx.round.work,
-                    ctx.round.n,
-                    "the work stopped waiting for the reply: an item it depended on was cancelled"
-                ],
-            )
-            .map_err(sql)?;
-        }
         "wake_architect" => {
             // Each side report is one matter of the kind report for the architect of the work's project, queued once,
             // which wakes it when no wake of it runs; its queue marks one urgent.

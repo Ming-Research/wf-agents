@@ -12,8 +12,8 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, OPEN_SESSION, PromptBy, ReadBy,
-    Rounds, Rule, Src,
+    Always, Atom, BlockerCell, Blockers, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named,
+    OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -83,6 +83,10 @@ pub struct CompiledGraph {
     /// engine.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "stored_rounds")]
     pub rounds: Option<Rounds>,
+    /// The cells a stopped task stands at while its blocker is held, each with who holds it there; none in a graph whose
+    /// works are no tasks, or in a flow version stored before blockers were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Blockers>,
     pub cells: Vec<CompiledCell>,
 }
 
@@ -251,6 +255,12 @@ impl Compiled {
 impl CompiledGraph {
     pub fn cell(&self, id: &str) -> Option<&CompiledCell> {
         self.cells.iter().find(|c| c.id == id)
+    }
+
+    /// The cell a stopped task stands at while its blocker is held there, with who may hold it; none for any other
+    /// cell.
+    pub fn holder_cell(&self, id: &str) -> Option<&BlockerCell> {
+        self.blockers.as_ref()?.cells.iter().find(|c| c.cell == id)
     }
 
     /// The graph as a project's agents are asked it: each field of every return whose need the project does not meet
@@ -997,6 +1007,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             Some(r) => Some(rounds(r, &cells)?),
             None => None,
         },
+        blockers: f.blockers.clone(),
         cells,
     };
     Ok((out, stats))

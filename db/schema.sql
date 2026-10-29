@@ -611,6 +611,71 @@ CREATE TABLE architect_matters (
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
 ) STRICT;
 
+CREATE TABLE blockers (
+  -- What a stopped task waits on, one row for each stop: an engineer's question, an engine tool's failure, an ask of the
+  -- owner, a wait for items to deliver, or a wait for the owner's ruling on a design card. A task is an engineer's work;
+  -- a wake of the architect is never one. A blocker belongs to the task and the cell that raised it, and has exactly one
+  -- holder at a time, who must act: the work's advisor, a project's architect, the owner, or the items it waits for,
+  -- whose merge resolves it. A task stops on one blocker at a time, and stands at its holder's cell while it waits;
+  -- every move of a blocker is a row of the task's graph, which the engine records here.
+  -- Read by: the engine, which moves a blocker by the rows its task takes and checks that every chain closes; the
+  -- owner's interface, which reads the owner's conversations and what each work waits for from it.
+  id INTEGER PRIMARY KEY,
+  -- The task that stopped.
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- The cell that raised it, where its problem arose: the cell that asked, the tool cell whose tool failed, or the cell
+  -- where the work waits for items or rulings; and the round of the task that raised it there, NULL for one recorded
+  -- before blockers were.
+  cell TEXT NOT NULL,
+  round INTEGER,
+  -- question: an engineer's question; tool_failure: an engine tool that failed, or main's environment that changed;
+  -- owner_ask: an ask of the owner; items: a wait for items to deliver; ruling: a wait for the owner's ruling on the
+  -- design card before the merge.
+  kind TEXT NOT NULL CHECK (kind IN ('question', 'tool_failure', 'owner_ask', 'items', 'ruling')),
+  -- What the problem is, in one sentence, as the engine wrote it; the return of the round that raised it holds the
+  -- rest.
+  what TEXT NOT NULL,
+  -- Who holds it now: advisor, the work's advisor; architect, the architect of project; owner; items, the items it
+  -- waits for, whose merge resolves it.
+  holder TEXT NOT NULL CHECK (holder IN ('advisor', 'architect', 'owner', 'items')),
+  -- For an architect that holds it, the project whose architect it is, the work's own or a related one; NULL for any
+  -- other holder.
+  project TEXT,
+  -- For items that hold it, JSON list: each item waited for, with its project. NULL for any other holder.
+  items TEXT CHECK (items IS NULL OR json_valid(items)),
+  -- The matter in its architect's queue while an architect holds it, its latest one. Read by: the engine, which takes
+  -- the architect's reply from it and withdraws it when the blocker ends.
+  matter INTEGER REFERENCES architect_matters(id),
+  -- The ask put before the owner while the owner holds it, its latest one. Read by: the engine, which takes the owner's
+  -- answer from it and closes it when the blocker ends; the owner's interface.
+  ask INTEGER REFERENCES owner_asks(id),
+  -- When it was raised.
+  at INTEGER NOT NULL,
+  -- When its holder took it, or when its holder's wait was counted again: an architect's time to act on it is
+  -- measured from here. Read by: the engine's value that says it waited past its limit.
+  since INTEGER NOT NULL,
+  -- Every hand-over, JSON list in order: when, from which holder to which (with the project of an architect), why, and
+  -- what the holder that handed it on found.
+  moves TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(moves)),
+  -- What is said about it without resolving it or moving it, JSON list in order: when, by whom, and what, such as an
+  -- architect's reply that waits for its batch's review, or a resolution that came after it was withdrawn, which is
+  -- recorded here and moves nothing.
+  said TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(said)),
+  -- How it ended: resolved, by its holder; withdrawn, by its task's end or by a row that took the task on without it;
+  -- NULL while it is open.
+  ended TEXT CHECK (ended IN ('resolved', 'withdrawn')),
+  -- For one resolved, what was decided and done, JSON, as its holder gave it; for one withdrawn, why. NULL while it is
+  -- open.
+  outcome TEXT CHECK (outcome IS NULL OR json_valid(outcome)),
+  -- When it ended.
+  ended_at INTEGER,
+  CHECK ((holder = 'architect') = (project IS NOT NULL)),
+  CHECK ((holder = 'items') = (items IS NOT NULL)),
+  CHECK ((ended IS NULL) = (outcome IS NULL)),
+  CHECK ((ended IS NULL) = (ended_at IS NULL)),
+  FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+) STRICT;
+
 CREATE TABLE architect_item_changes (
   -- A change to the items a project's architect handed in while handling a matter: collected into its batch, made only
   -- once the review of the whole batch finds it sound, and kept as the log of every change made or dropped.
@@ -708,6 +773,8 @@ CREATE INDEX changes_by_row ON changes (table_name, row_key);
 CREATE INDEX outbox_by_run_after ON outbox (run_after);
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
+-- The open blocker of each task: one at most.
+CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
 -- The item changes of a batch still waiting for its review.
 CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
 -- A project's observations.

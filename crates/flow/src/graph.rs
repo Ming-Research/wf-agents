@@ -921,6 +921,8 @@ impl<'s> Graph<'s> {
             }
         }
 
+        blockers(flow, &cells, &at)?;
+
         // The blocks: every cell in exactly one; the asking part is one, its entries the cells that are asked.
         let mut block = vec![usize::MAX; cells.len()];
         let mut entries: Vec<BTreeSet<usize>> = Vec::new();
@@ -1190,6 +1192,98 @@ impl<'s> Graph<'s> {
         }
         Ok(())
     }
+}
+
+/// The cells a stopped task stands at while its blocker is held, and the rows that move the blocker: every move of a
+/// blocker is a row. A row into a holder's cell from any other cell raises it, unless the cell raises it with its own
+/// row that waits; a row out of a holder's cell to any other cell resolves or withdraws it, and a cell that raises it
+/// with its row that waits resolves it by one row at least and withdraws it by each row its holder fails it by.
+fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result<(), String> {
+    use crate::format::{HOLDERS, RAISE_BLOCKER, RESOLVE_BLOCKER, WITHDRAW_BLOCKER};
+    let Some(b) = &flow.blockers else { return Ok(()) };
+    let does = |r: &Row, name: &str| r.actions.iter().any(|d| d.name() == name);
+    let mut holding: BTreeMap<usize, &crate::format::BlockerCell> = BTreeMap::new();
+    for h in &b.cells {
+        let i = at
+            .get(&h.cell)
+            .copied()
+            .ok_or_else(|| format!("a blocker is held at no such cell: {}", h.cell))?;
+        ensure!(
+            !h.holders.is_empty() && h.holders.iter().all(|x| HOLDERS.contains(&x.as_str())),
+            "a blocker is held at {} by no such holder: {:?}",
+            h.cell,
+            h.holders
+        );
+        for f in &h.fails {
+            ensure!(
+                cells[i].rows.iter().any(|r| &r.name == f),
+                "a holder fails a blocker at {} by no such row: {f}",
+                h.cell
+            );
+        }
+        ensure!(
+            holding.insert(i, h).is_none(),
+            "a blocker is held twice at one cell: {}",
+            h.cell
+        );
+    }
+    let target = |r: &Row| at.get(&r.to).copied();
+    for (i, c) in cells.iter().enumerate() {
+        let here = holding.get(&i);
+        for r in &c.rows {
+            let to = target(r);
+            let into = to.and_then(|t| holding.get(&t).map(|h| (t, h)));
+            // Into a holder's cell from any other: the row raises the blocker, or the cell does with its row that waits.
+            if let Some((t, h)) = into
+                && here.is_none()
+                && !h.waits
+            {
+                ensure!(
+                    does(r, RAISE_BLOCKER),
+                    "a row into {} where a blocker is held does not raise it: {} {}",
+                    cells[t].id,
+                    c.id,
+                    r.name
+                );
+            }
+            let Some(h) = here else { continue };
+            if h.waits && r.waits && to == Some(i) {
+                ensure!(
+                    does(r, RAISE_BLOCKER),
+                    "the row that waits at {} does not raise the blocker it waits on: {}",
+                    c.id,
+                    r.name
+                );
+                continue;
+            }
+            // Out of a holder's cell to any cell where none is held: the row resolves the blocker or withdraws it.
+            let stays = r.waits && to == Some(i) || into.is_some();
+            if stays || r.common {
+                continue;
+            }
+            let ends = does(r, RESOLVE_BLOCKER) || does(r, WITHDRAW_BLOCKER);
+            ensure!(
+                ends || h.waits,
+                "a row out of {} where a blocker is held neither resolves nor withdraws it: {}",
+                c.id,
+                r.name
+            );
+            ensure!(
+                !h.fails.contains(&r.name) || does(r, WITHDRAW_BLOCKER),
+                "a row by which the holder fails the blocker at {} does not withdraw it: {}",
+                c.id,
+                r.name
+            );
+        }
+        if let Some(h) = here.filter(|h| h.waits) {
+            ensure!(
+                c.rows.iter().any(|r| does(r, RESOLVE_BLOCKER)),
+                "no row of {} resolves the blocker it waits on",
+                h.cell
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Whether a field holds, at any depth, a union whose branches are `what`.

@@ -1262,7 +1262,14 @@ pub fn ask_architect(
                 item: Some(item.id),
                 raised: Some((round.work, round.n)),
             };
-            queue_matter(tx, &m)
+            let matter = queue_matter(tx, &m)?;
+            // The matter stands for the work's blocker in the architect's queue while the architect holds it.
+            if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
+                && b.holder == "architect"
+            {
+                crate::blockers::set_matter(tx, b.id, matter).map_err(db::Error::Abort)?;
+            }
+            Ok(matter)
         })
         .map_err(sql)?;
     (e.say)(&format!(
@@ -1584,11 +1591,17 @@ fn send_held_replies(
             })
             .map_err(sql)?;
         let Some(reply) = json_col(held) else { continue };
+        let reply = numbered(&reply, keys);
         tx.execute(
             "UPDATE architect_matters SET reply = ?2, reply_held = NULL WHERE id = ?1",
-            params![m, numbered(&reply, keys).to_string()],
+            params![m, reply.to_string()],
         )
         .map_err(sql)?;
+        if let Some(b) = crate::blockers::of_matter(tx, *m)?
+            && b.ended.is_some()
+        {
+            crate::blockers::say(tx, b.id, "architect", "late", &reply)?;
+        }
     }
     Ok(())
 }
@@ -1776,12 +1789,22 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 return Ok(true);
             };
             let m = matter_of(tx, w)?;
-            let column = if changes_items(ctx) { "reply_held" } else { "reply" };
+            let held = changes_items(ctx);
+            let column = if held { "reply_held" } else { "reply" };
             tx.execute(
                 &format!("UPDATE architect_matters SET {column} = ?2 WHERE id = ?1"),
                 params![m, reply.to_string()],
             )
             .map_err(sql)?;
+            // A reply to a blocker its work no longer waits on is recorded with it and moves nothing; one that waits
+            // for its batch's review is said about it until then.
+            if let Some(b) = crate::blockers::of_matter(tx, m)? {
+                if b.ended.is_some() {
+                    crate::blockers::say(tx, b.id, "architect", "late", reply)?;
+                } else if held {
+                    crate::blockers::say(tx, b.id, "architect", "held_reply", reply)?;
+                }
+            }
         }
         "answer_architect" => {
             let Some(words) = at.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) else {

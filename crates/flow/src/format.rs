@@ -252,6 +252,36 @@ pub struct Flow {
     pub interject: Option<Interject>,
     /// What the engine does with an agent's round that does not end in a return the cell takes.
     pub rounds: Option<Rounds>,
+    /// What a stopped task of this graph waits on: the cells it stands at while each holder holds its blocker.
+    pub blockers: Option<Blockers>,
+}
+
+/// What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by
+/// one holder at a time, at whose cell the task stands. Every move of a blocker is a row: the rows into a holder's cell
+/// raise it, the rows between holders' cells hand it on, and the rows out of them resolve or withdraw it.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Blockers {
+    pub desc: String,
+    /// The cells a stopped task stands at, each with whom it is held by there.
+    pub cells: Vec<BlockerCell>,
+}
+
+/// A cell a stopped task stands at while its blocker is held there.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct BlockerCell {
+    pub cell: String,
+    /// Who may hold the blocker while the task stands here: advisor, architect, owner or items.
+    pub holders: Vec<String>,
+    /// The rows that take the task on when its holder fails it, each named after the way it fails, such as an item it
+    /// waits for cancelled.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fails: Vec<String>,
+    /// The task stands here on its blocker only once it took the cell's row that waits, which raises it; without, from
+    /// the row that brought it here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits: bool,
 }
 
 /// What the engine does with an agent's round that does not end in a return the cell takes: a return sent back, or
@@ -687,6 +717,18 @@ pub struct Node {
 /// The action on a row that opens a new session of the line of the cell it leads to, at the work's first round there:
 /// a place the flow fixes for a line's session to start afresh.
 pub const OPEN_SESSION: &str = "open_session";
+
+/// The action on a row into a holder's cell that raises the task's blocker there.
+pub const RAISE_BLOCKER: &str = "raise_blocker";
+
+/// The action on a row out of a holder's cell that resolves the task's blocker, with what its holder decided.
+pub const RESOLVE_BLOCKER: &str = "resolve_blocker";
+
+/// The action on a row out of a holder's cell that withdraws the task's blocker, saying why.
+pub const WITHDRAW_BLOCKER: &str = "withdraw_blocker";
+
+/// Who may hold a blocker.
+pub const HOLDERS: [&str; 4] = ["advisor", "architect", "owner", "items"];
 
 /// The reasoning efforts an agent's cell may run at, as the command line names them.
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];

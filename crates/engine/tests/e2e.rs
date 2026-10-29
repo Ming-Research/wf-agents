@@ -6574,3 +6574,284 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     assert!(!api::keep_warm_paused(e.db.conn()).unwrap());
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// The same sequence of numbers for the same seed: the random tests' dice.
+struct Dice(std::cell::Cell<u64>);
+
+impl Dice {
+    fn new(seed: u64) -> Dice {
+        Dice(std::cell::Cell::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1))
+    }
+
+    /// A number below `n`.
+    fn roll(&self, n: u64) -> u64 {
+        let mut x = self.0.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0.set(x);
+        x % n.max(1)
+    }
+}
+
+/// What a round hands in, at random: an ask of the advisor, the architect or the owner, or its own answer.
+type Picked = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
+
+fn random_ask(dice: &Dice) -> Picked {
+    let (to, kind) = match dice.roll(10) {
+        0 | 1 => ("advisor", "unsure"),
+        2 | 3 => ("architect", "split"),
+        4 => ("owner", "permission"),
+        _ => return (Vec::new(), Vec::new()),
+    };
+    (
+        vec![
+            ("outcome", "ask"),
+            ("outcome.ask", to),
+            ("outcome.ask.points[].kind", kind),
+        ],
+        vec![("outcome.ask.points[].what", json!(format!("A point for the {to}.")))],
+    )
+}
+
+/// A work of the engineer's graph not ended, at random, if there is one.
+fn a_work(e: &Engine, dice: &Dice) -> Option<i64> {
+    let ids: Vec<i64> = engine::query_json(
+        e.db.conn(),
+        "SELECT id FROM works WHERE graph = 'engineer' AND ended IS NULL ORDER BY id",
+        &[],
+        1000,
+    )
+    .unwrap()
+    .iter()
+    .filter_map(|r| r["id"].as_i64())
+    .collect();
+    (!ids.is_empty()).then(|| ids[dice.roll(ids.len() as u64) as usize])
+}
+
+/// The asks of the owner that engineers' works put and the owner has not answered.
+fn open_asks(e: &Engine) -> Vec<i64> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT a.id FROM owner_asks a JOIN works w ON w.id = a.work
+         WHERE a.answer IS NULL AND w.graph = 'engineer' ORDER BY a.id",
+        &[],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .filter_map(|r| r["id"].as_i64())
+    .collect()
+}
+
+/// One random sequence of events over three items: steps of the engine, whose rounds ask the advisor, the architect
+/// and the owner and have the architect reply, sometimes with an item to wait for; the owner's answers; interjections;
+/// cancels; and takeovers by a new flow version. After each, every chain of blockers closes.
+fn random_events(seed: u64, events: usize) {
+    let s = setup(&format!("blockers-{seed}"));
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!(
+            "{}\n[agents.levels.m]\ndesc = \"one level up\"\ncli = \"claude\"\nmodel = \"m-up\"\n",
+            install.replace("slots = 1", "slots = 2")
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a level above, and two slots"]);
+    let dice = Rc::new(Dice::new(seed));
+    let mut agents = scripts();
+    for cell in ["R1", "D1", "T3"] {
+        let d = dice.clone();
+        agents.insert(cell, Box::new(move |_: &Request, _: usize| random_ask(&d)));
+    }
+    let path = config::database(&s.data);
+    // The architect's reply has the work wait, now and then, for an item made after its own, so that no cycle closes.
+    let (d, p) = (dice.clone(), path.clone());
+    agents.insert(
+        "H3",
+        Box::new(move |r: &Request, _: usize| {
+            let c = db::open_read(&p).unwrap();
+            let asked: Option<i64> = c
+                .query_row(
+                    "SELECT m.item FROM architect_matters m
+                     JOIN rounds x ON x.work = ?1 AND x.n = (SELECT max(n) FROM rounds WHERE work = ?1)
+                     WHERE m.kind = 'engineer_question' AND m.handled_round IS NULL AND m.withdrawn IS NULL
+                     ORDER BY m.id LIMIT 1",
+                    [r.work],
+                    |x| x.get(0),
+                )
+                .ok()
+                .flatten();
+            let later: Option<i64> = asked.and_then(|i| {
+                c.query_row(
+                    "SELECT id FROM items WHERE id > ?1 AND cancelled IS NULL ORDER BY id LIMIT 1",
+                    [i],
+                    |x| x.get(0),
+                )
+                .ok()
+            });
+            let mut reply = json!({ "text": "Go on as you planned.", "why": "It holds." });
+            if let Some(i) = later.filter(|_| d.roll(3) == 0) {
+                reply["waits"] = json!([{ "key": i.to_string(), "title": "the other", "delivers": "its part" }]);
+            }
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
+    );
+    // Choosing the way on waits when the reply says to and carries on otherwise, but now and then chooses wrong,
+    // which asks the owner.
+    let (d, p) = (dice.clone(), path.clone());
+    agents.insert(
+        "A4",
+        Box::new(move |r: &Request, _: usize| {
+            let c = db::open_read(&p).unwrap();
+            let waits: Option<String> = c
+                .query_row(
+                    "SELECT json_extract(output, '$.reply.waits') FROM rounds WHERE work = ?1 AND cell = 'A2'
+                       AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
+                    [r.work],
+                    |x| x.get(0),
+                )
+                .ok()
+                .flatten();
+            let next = match (waits.is_some(), d.roll(8)) {
+                (true, 0) | (false, 1..) => "carry_on",
+                _ => "wait_for_items",
+            };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let items: Vec<i64> = (0..3)
+        .map(|i| {
+            e.db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'It is missing.', 'People need it.', 'change', 'l')",
+                    [format!("Add part {i}")],
+                )?;
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                    params![id, i as f64],
+                )?;
+                Ok(id)
+            })
+            .unwrap()
+        })
+        .collect();
+    let mut after = None;
+    let mut versions = 0;
+    let mut log = Vec::new();
+    for n in 0..events {
+        let event = match dice.roll(100) {
+            0..=11 => match open_asks(&e).first() {
+                Some(ask) => {
+                    let answer = api::Answer {
+                        text: "Go on.".into(),
+                        why: None,
+                        reply: None,
+                        choice: None,
+                    };
+                    api::answer(&mut e.db, *ask, &answer).unwrap();
+                    format!("the owner answers ask {ask}")
+                }
+                None => "no ask to answer".into(),
+            },
+            12..=19 => match a_work(&e, &dice) {
+                Some(w) => {
+                    e.db.write(Actor::Owner, |tx| {
+                        tx.execute(
+                            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
+                            params![w, "Mind the tests."],
+                        )?;
+                        Ok(())
+                    })
+                    .unwrap();
+                    format!("the owner interjects into work {w}")
+                }
+                None => "no work to interject into".into(),
+            },
+            20..=22 if n > events / 3 => {
+                let item = items[dice.roll(items.len() as u64) as usize];
+                let projects = e.config.config.projects.clone();
+                e.db.write(Actor::Owner, |tx| {
+                    engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects)
+                        .map_err(db::Error::Abort)
+                })
+                .unwrap();
+                format!("the owner cancels item {item}")
+            }
+            23..=25 => match a_work(&e, &dice) {
+                Some(w) => {
+                    versions += 1;
+                    let now = e.flow_now;
+                    e.db.write(Actor::Engine, |tx| {
+                        tx.execute(
+                            "INSERT INTO flow_versions (digest, compiled)
+                             SELECT ?2, compiled FROM flow_versions WHERE id = ?1",
+                            params![now, format!("older {versions}")],
+                        )?;
+                        let v = tx.last_insert_rowid();
+                        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![w, v])?;
+                        Ok(())
+                    })
+                    .unwrap();
+                    format!("work {w} is on an older flow version")
+                }
+                None => "no work to take over".into(),
+            },
+            _ => {
+                let stepped = e.step(after).unwrap();
+                after = stepped.work;
+                format!("a step of work {:?}: {:?}", stepped.work, stepped.cell)
+            }
+        };
+        log.push(event);
+        let broken = engine::blockers::invariants(&mut e).unwrap();
+        assert!(
+            broken.is_empty(),
+            "seed {seed}, event {n}: {broken:?}\nevents:\n{}\nengine:\n{}",
+            log.join("\n"),
+            said.borrow().join("\n")
+        );
+    }
+    // Nothing the engine could not do paused a work.
+    let paused = engine::query_json(
+        e.db.conn(),
+        "SELECT id, paused FROM works WHERE paused_by = 'engine'",
+        &[],
+        100,
+    )
+    .unwrap();
+    assert!(
+        paused.is_empty(),
+        "seed {seed}: {paused:?}\nevents:\n{}\nengine:\n{}",
+        log.join("\n"),
+        said.borrow().join("\n")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Random sequences of events (asks of the advisor, the architect and the owner, the architect's replies, the owner's
+// answers, interjections, cancels, ends and takeovers by a new flow version) leave every chain of blockers closed after
+// each event: every stopped task has exactly one open blocker, raised at the cell it stopped at and held by the holder
+// of the cell it stands at; every open blocker's holder exists; no ended task has an open blocker; and the items
+// waited for form no cycle.
+macro_rules! random_events {
+    ($($name:ident: $seed:expr),*) => {$(
+        #[test]
+        fn $name() {
+            random_events($seed, 100);
+        }
+    )*};
+}
+
+random_events!(
+    every_chain_of_blockers_closes_under_random_events_1: 1,
+    every_chain_of_blockers_closes_under_random_events_2: 2,
+    every_chain_of_blockers_closes_under_random_events_3: 3,
+    every_chain_of_blockers_closes_under_random_events_4: 4,
+    every_chain_of_blockers_closes_under_random_events_5: 5
+);

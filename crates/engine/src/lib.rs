@@ -12,6 +12,7 @@
 //! In this version the engine and the session manager are one process on one machine, and the engine takes one work
 //! one step at a time: a long round of one work holds up the others.
 
+pub mod blockers;
 pub mod database;
 pub mod ending;
 pub mod git;

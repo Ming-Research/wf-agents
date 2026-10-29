@@ -63,6 +63,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0033.sql"),
     include_str!("../../../db/migrations/0034.sql"),
     include_str!("../../../db/migrations/0035.sql"),
+    include_str!("../../../db/migrations/0036.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1936,5 +1937,102 @@ mod tests {
             })
             .unwrap();
         assert_eq!(plan, 0);
+    }
+
+    // What a stopped task waits on becomes one record: each ask of the owner, each engineer's question with the
+    // architect's reply, the wait at `A6` and the merge gate's wait are blockers, those still open the open blocker of
+    // their work, held by the owner, the project's architect, or the items not merged yet.
+    #[test]
+    fn what_stopped_tasks_wait_on_becomes_their_blockers() {
+        let mut old = at_version(35);
+        old.write(Actor::Engine, |tx| {
+            for t in ["asks", "asks again", "waits", "merges", "needed"] {
+                item(tx, t)?;
+            }
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            // Work 1 asked the owner, who answered, then asked again; work 2 asked the architect, which replied;
+            // work 3 waits at A6 for item 5; work 4 waits at the merge gate for it.
+            for (item, at) in [(1, "A3"), (2, "A4"), (3, "A6"), (4, "M1")] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', ?2)",
+                    params![item, at],
+                )?;
+            }
+            let rounds: [(i64, i64, &str, Option<&str>); 9] = [
+                (1, 1, "R1", Some("ask_owner")),
+                (1, 2, "A3", Some("answered")),
+                (1, 3, "D1", Some("ask_owner")),
+                (1, 4, "A3", None),
+                (2, 1, "D1", Some("ask_architect")),
+                (2, 2, "A2", Some("answered")),
+                (3, 1, "A4", Some("wait_for_items")),
+                (4, 1, "T4", Some("done")),
+                (4, 2, "M1", Some("wait")),
+            ];
+            for (work, n, cell, t) in rounds {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, '{}', ?4, 'c', ?2, ?2)",
+                    params![work, n, cell, t],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 2, '{\"to\":\"owner\"}', '{\"text\":\"yes\"}')",
+                [],
+            )?;
+            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (1, 4, '{\"to\":\"owner\"}')", [])?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at, reply)
+                 VALUES ('p', 'engineer_question', 'which', '{}', 2, 2, 2, 5, '{\"text\":\"this\"}')",
+                [],
+            )?;
+            for i in [3, 4] {
+                tx.execute(
+                    "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (?1, 5, 'it', 'parallel')",
+                    [i],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        type Row = (i64, String, String, String, Option<String>, Option<String>);
+        let rows: Vec<Row> = {
+            let mut st = old
+                .conn()
+                .prepare("SELECT work, cell, kind, holder, items, ended FROM blockers ORDER BY id")
+                .unwrap();
+            st.query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+        };
+        let waited = Some(r#"[{"item":5,"project":"p"}]"#.to_string());
+        assert_eq!(
+            rows,
+            [
+                (
+                    1,
+                    "R1".into(),
+                    "owner_ask".into(),
+                    "owner".into(),
+                    None,
+                    Some("resolved".into())
+                ),
+                (1, "D1".into(), "owner_ask".into(), "owner".into(), None, None),
+                (
+                    2,
+                    "D1".into(),
+                    "question".into(),
+                    "architect".into(),
+                    None,
+                    Some("resolved".into())
+                ),
+                (3, "A6".into(), "items".into(), "items".into(), waited.clone(), None),
+                (4, "M1".into(), "items".into(), "items".into(), waited, None),
+            ]
+        );
     }
 }

@@ -85,6 +85,7 @@ pub fn end(
         End::Stopped(why) | End::TakenOver(why) => Some(why),
     };
     let engineer = graph == crate::ENGINEER;
+    withdraw_blockers(tx, work, why)?;
     if engineer {
         withdraw_matters(tx, work, why)?;
     }
@@ -124,6 +125,17 @@ pub fn end(
 
 // The shared ending, by the names the flow gives it on the cells a work ends at (`E1`, and `C1` for a work cancelled
 // or taken over): each is one part of [`end`], which says when it is done.
+
+/// `withdraw_blockers`: a task's end ends its open blocker, withdrawn with the end's reason; its holder is told (its
+/// matter leaves the architect's queue, its ask of the owner needs no answer), and a resolution that comes for it
+/// later is recorded with it and moves nothing.
+fn withdraw_blockers(tx: &Transaction<'_>, work: i64, why: Option<&str>) -> Result<(), String> {
+    let withdrawn = match why {
+        Some(why) => format!("its work ended: {why}"),
+        None => "its work is done".to_string(),
+    };
+    crate::blockers::end_of(tx, work, &withdrawn)
+}
 
 /// `withdraw_matters`: what the work raised that waits on it leaves the architect's queue, saying why.
 fn withdraw_matters(tx: &Transaction<'_>, work: i64, why: Option<&str>) -> Result<(), String> {

@@ -432,7 +432,8 @@ case!(
     |v| {
         rows(v, "A1").insert(
             0,
-            json!({ "name": "answered_new_acceptance", "if": [["own"], ["has", "reply.new_acceptance"]], "to": "A5" }),
+            json!({ "name": "answered_new_acceptance", "if": [["own"], ["has", "reply.new_acceptance"]], "to": "A5",
+                    "do": ["resolve_blocker"] }),
         );
     }
 );
