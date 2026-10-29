@@ -113,33 +113,93 @@ export type LineChange = {
 /// The fields a line of work holds, in the order the page shows them.
 export const LINE_FIELDS = ['line', 'serves', 'approach', 'where', 'stuck', 'recent', 'grounds'] as const;
 
+/// How alike two lines of work are by what they say, from 0 to 1: the share of the words they have in common, all
+/// fields together, of the words either has. A word is one of three letters or more in a script that spaces its words,
+/// and each two characters in a row of Chinese, which does not; so a line written again in other words still comes out
+/// close in either.
+export function lineLikeness(a: Obj, b: Obj): number {
+  const words = (o: Obj) => {
+    const text = LINE_FIELDS.map((f) => str(o[f]))
+      .join(' ')
+      .toLowerCase();
+    const out = new Set<string>();
+    for (const w of text.match(/[\p{L}\p{N}]+/gu) ?? []) {
+      const chars = [...w];
+      if (/\p{Script=Han}/u.test(w)) {
+        for (let i = 0; i + 1 < chars.length; i++) out.add(chars[i] + chars[i + 1]);
+        if (chars.length === 1) out.add(w);
+      } else if (chars.length >= 3) {
+        out.add(w);
+      }
+    }
+    return out;
+  };
+  const x = words(a);
+  const y = words(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both += 1;
+  return both / (x.size + y.size - both);
+}
+
+/// How alike two lines must be, by [`lineLikeness`], for a line of a new version that has no line of its name in the
+/// version before to be taken for one of that version's written again; the likest pairs are taken first. Lines of one
+/// project written apart share a few words, a line written again in other words shares more.
+export const SAME_LINE = 0.15;
+
 /// What changed from one version of the understanding to the next, part by part: the lines of work of its state of
-/// things, matched by their name, in the new version's order with those gone after them; and what it says changed.
-/// With no version before it, everything is new.
+/// things, each matched to the line of the version before of its name, or else to the one most like it by what it says,
+/// so that a line written again in other words reads as changed and not as gone and new; in the new version's order
+/// with those gone after them; and what it says changed. With no version before it, everything is new.
 export function stateChanges(
   before: JsonValue | null,
   after: JsonValue,
 ): { lines: LineChange[]; changed: { before: string | null; after: string } } {
   const rows = (v: JsonValue | null): Obj[] => (isObj(v) && Array.isArray(v.state) ? v.state.filter(isObj) : []);
   const key = (o: Obj) => str(o.line).trim();
-  const old = new Map(rows(before).map((o) => [key(o), o]));
+  const olds = rows(before);
   const now = rows(after);
-  const seen = new Set(now.map(key));
+  // Which line of the version before each new line is, by its index: the same name first, then the likest by content.
+  const of = new Map<number, number>();
+  const taken = new Set<number>();
+  now.forEach((n, i) => {
+    const j = olds.findIndex((o, k) => !taken.has(k) && key(o) === key(n));
+    if (j >= 0) {
+      of.set(i, j);
+      taken.add(j);
+    }
+  });
+  const alike: Array<{ i: number; j: number; s: number }> = [];
+  now.forEach((n, i) => {
+    if (of.has(i)) return;
+    olds.forEach((o, j) => {
+      if (taken.has(j)) return;
+      const s = lineLikeness(o, n);
+      if (s >= SAME_LINE) alike.push({ i, j, s });
+    });
+  });
+  alike.sort((a, b) => b.s - a.s);
+  for (const x of alike) {
+    if (of.has(x.i) || taken.has(x.j)) continue;
+    of.set(x.i, x.j);
+    taken.add(x.j);
+  }
   const fields = (o: Obj | undefined, n: Obj | undefined) =>
     LINE_FIELDS.map((f) => {
       const b = o !== undefined ? str(o[f]) : null;
       const a = n !== undefined ? str(n[f]) : null;
       return { field: f, before: b, after: a, changed: o !== undefined && n !== undefined && b !== a };
     });
-  const lines: LineChange[] = now.map((n) => {
-    const o = before === null ? undefined : old.get(key(n));
+  const lines: LineChange[] = now.map((n, i) => {
+    const j = of.get(i);
+    const o = j !== undefined ? olds[j] : undefined;
     const f = fields(o, n);
     const kind: LineChange['kind'] = o === undefined ? 'added' : f.some((x) => x.changed) ? 'changed' : 'same';
     return { line: key(n), kind, fields: f };
   });
-  for (const [k, o] of old) {
-    if (!seen.has(k)) lines.push({ line: k, kind: 'removed', fields: fields(o, undefined) });
-  }
+  olds.forEach((o, j) => {
+    if (!taken.has(j)) lines.push({ line: key(o), kind: 'removed', fields: fields(o, undefined) });
+  });
   return {
     lines,
     changed: { before: isObj(before) ? str(before.changed) : null, after: isObj(after) ? str(after.changed) : '' },

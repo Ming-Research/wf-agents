@@ -7,7 +7,7 @@
 import { type ReactNode, useState } from 'react';
 
 import type { JsonValue, LogEntry, Said, Understanding } from '../api';
-import { againstInOrder, LINE_FIELDS, stateChanges } from '../architect';
+import { againstInOrder, type LineChange, stateChanges } from '../architect';
 import { time } from '../format';
 import { Field, Fold } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
@@ -361,21 +361,77 @@ export function LogEntryView({ e, open, live, title, onRound }: {
   );
 }
 
+/// The fields of a line of work under its name, in the order they read, and the one folded under them.
+const LINE_PARTS = ['serves', 'approach', 'where', 'stuck', 'recent'] as const;
+
+/// One line of work as a block: its name as the heading, then its fields as short labelled paragraphs, how it knows
+/// folded under them. Compared with the version before, it is marked new, changed or gone, and a changed field shows
+/// what it was struck through beside what it is.
+function LineBlock({ l, compare }: { l: LineChange; compare: boolean }) {
+  const field = (name: string) => l.fields.find((f) => f.field === name);
+  const said = (f: LineChange['fields'][number] | undefined) => {
+    if (f === undefined) return null;
+    if (compare && f.changed) {
+      return (
+        <>
+          <del className="arch-was">
+            <MarkdownInline text={f.before ?? ''} />
+          </del>{' '}
+          <ins className="arch-now">
+            <MarkdownInline text={f.after ?? ''} />
+          </ins>
+        </>
+      );
+    }
+    return <MarkdownInline text={(l.kind === 'removed' ? f.before : f.after) ?? ''} />;
+  };
+  const has = (f: LineChange['fields'][number] | undefined) =>
+    f !== undefined && ((f.before ?? '') !== '' || (f.after ?? '') !== '');
+  const marked = compare && l.kind !== 'same';
+  const chip = l.kind === 'added' ? t('line_added') : l.kind === 'changed' ? t('line_changed') : t('line_removed');
+  const grounds = field('grounds');
+  return (
+    <div className={marked ? `arch-block arch-line-${l.kind}` : 'arch-block'}>
+      <div className="arch-block-h">
+        {marked ? <span className={`badge arch-chip-${l.kind}`}>{chip}</span> : null}
+        <strong>{said(field('line'))}</strong>
+      </div>
+      {LINE_PARTS.map((name) =>
+        has(field(name)) ? (
+          <p key={name} className="arch-block-field">
+            <span className="arch-block-label">{t(`line_${name}`)}</span> {said(field(name))}
+          </p>
+        ) : null,
+      )}
+      {has(grounds) ? <Fold title={t('line_grounds')}>{said(grounds)}</Fold> : null}
+    </div>
+  );
+}
+
+/// A part of the understanding folded under its title and how many it holds, closed unless `open`; none when it holds
+/// nothing.
+function Section({ title, n, open = false, children }: { title: string; n?: number; open?: boolean; children: ReactNode }) {
+  if (n === 0) return null;
+  return <Fold title={n !== undefined ? t('understanding_count', { title, n }) : title} open={open}>{children}</Fold>;
+}
+
 /// Every version of the understanding, newest first, one at a time with the newer and older ones a click away: its
-/// wake and round, each line of work of its state of things marked new, changed or gone since the version before it
-/// (what a changed field was struck through, what it is now marked), the direction, what it says changed and what the
-/// wrap-ups after it learned; the first version is all new.
+/// wake and round, each line of work as a block; with the switch on, each line marked new, changed or gone since the
+/// version before it (a line written again in other words matched by what it says), the latest shown clean otherwise;
+/// where it heads, open; and folded, what it says changed and what the wrap-ups after it learned.
 function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
   const [at, setAt] = useState(0);
+  const [compare, setCompare] = useState(false);
   const versions = u.versions;
   const v = versions[Math.min(at, versions.length - 1)];
   if (v === undefined) return null;
   const k = Math.min(at, versions.length - 1);
   const before = versions[k + 1];
+  const comparing = compare && before !== undefined;
   const c = stateChanges(before !== undefined ? before.state : null, v.state);
   const said: Said = { work: v.work, round: v.round, cell: v.cell, at: v.at, value: v.state };
-  const chip = (kind: string) =>
-    kind === 'added' ? t('line_added') : kind === 'changed' ? t('line_changed') : kind === 'removed' ? t('line_removed') : '';
+  const lines = c.lines.filter((l) => comparing || l.kind !== 'removed');
+  const learned = Array.isArray(v.learned) ? v.learned.filter((x) => str(x) !== '') : [];
   return (
     <section className="arch-part">
       <div className="work-item-head">
@@ -391,141 +447,117 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
           </button>
         </span>
       </div>
-      <p className="muted arch-since">
-        {before === undefined ? t('understanding_first') : t('understanding_since', { round: `R${before.work}-${before.round}` })}
-      </p>
-      {c.lines.length > 0 ? (
-        <div className="arch-table-wrap">
-          <table className="list arch-lines">
-            <thead>
-              <tr>
-                <th />
-                {LINE_FIELDS.map((f) => (
-                  <th key={f}>{t(`line_${f}`)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {c.lines.map((l, i) => (
-                <tr key={i} className={`arch-line-${l.kind}`}>
-                  <td className="nowrap">{l.kind !== 'same' ? <span className={`badge arch-chip-${l.kind}`}>{chip(l.kind)}</span> : null}</td>
-                  {l.fields.map((f) => (
-                    <td key={f.field}>
-                      {f.changed ? (
-                        <>
-                          <del className="arch-was">
-                            <MarkdownInline text={f.before ?? ''} />
-                          </del>{' '}
-                          <ins className="arch-now">
-                            <MarkdownInline text={f.after ?? ''} />
-                          </ins>
-                        </>
-                      ) : (
-                        <MarkdownInline text={(l.kind === 'removed' ? f.before : f.after) ?? ''} />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {before !== undefined ? (
+        <label className="arch-compare">
+          <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} />{' '}
+          {t('understanding_compare')}
+        </label>
       ) : null}
-      {isObj(v.state) ? <Field label={t('understanding_direction')} value={v.state.direction} /> : null}
-      <Field label={t('understanding_changed')} value={c.changed.after} />
-      <Texts label={t('understanding_learned_wake')} value={v.learned} />
+      {comparing ? (
+        <p className="muted arch-since">{t('understanding_since', { round: `R${before.work}-${before.round}` })}</p>
+      ) : null}
+      {lines.map((l, i) => (
+        <LineBlock key={i} l={l} compare={comparing} />
+      ))}
+      {isObj(v.state) && str(v.state.direction) !== '' ? (
+        <Section title={t('understanding_direction')} open>
+          <Markdown text={str(v.state.direction)} />
+        </Section>
+      ) : null}
+      {c.changed.after !== '' ? (
+        <Section title={t('understanding_changed')}>
+          <Markdown text={c.changed.after} />
+        </Section>
+      ) : null}
+      <Section title={t('understanding_learned_wake')} n={learned.length}>
+        <ul className="arch-list">
+          {learned.map((x, i) => (
+            <li key={i}>
+              <MarkdownInline text={str(x)} />
+            </li>
+          ))}
+        </ul>
+      </Section>
     </section>
   );
 }
 
-/// Where the project stands, as its architect last wrote it: its understanding with its versions (each line of work as
-/// a row of a table, the direction, what changed and what was learned since), the notes written since, where the facts
-/// no longer match an earlier judgment and what it could not settle; then the policy's check against the constitution,
-/// the articles broken and at risk first and those kept folded.
+/// Where the project stands, as its architect last wrote it: its understanding with its versions; then, each folded
+/// under its title and how many it holds, the notes written since, where the facts no longer match an earlier judgment
+/// and what it could not settle, each as blocks; and the policy's check against the constitution, its counts by status
+/// in its title, the articles broken and at risk first.
 export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
   if (u.state === null && u.against === null) return <p className="muted">{t('understanding_none')}</p>;
   const state = u.state !== null && isObj(u.state.value) ? u.state.value : null;
   const against = u.against !== null && isObj(u.against.value) ? u.against.value : null;
   const rows = againstInOrder(against?.against ?? null);
-  const kept = rows.filter((r) => r.status === 'kept');
-  const notKept = rows.filter((r) => r.status !== 'kept');
   const mismatches = objs(state?.mismatches);
   const unclear = objs(state?.unclear);
   const notes = objs(u.notes);
-  const article = (r: Obj, i: number) => (
-    <li key={i}>
-      <span className={`badge arch-${str(r.status)}`}>{words(str(r.status))}</span> <strong>{str(r.article)}</strong>
-      {str(r.where) !== '' ? (
-        <span className="muted" title={t('against_where')}>
-          {' · '}
-          <MarkdownInline text={str(r.where)} />
-        </span>
-      ) : null}
-      <Markdown text={str(r.grounds)} />
-    </li>
-  );
+  const count = (status: string) => rows.filter((r) => str(r.status) === status).length;
+  const counts = (
+    [
+      ['broken', 'against_broken'],
+      ['at_risk', 'against_at_risk'],
+      ['kept', 'against_kept'],
+    ] as const
+  )
+    .filter(([s]) => count(s) > 0)
+    .map(([s, key]) => t(key, { n: count(s) }));
   return (
     <>
       {u.versions.length > 0 ? <StateVersions u={u} onRound={onRound} /> : null}
-      {notes.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('understanding_notes')}</span>
-          <ul className="arch-list">
-            {notes.map((n, i) => (
-              <li key={i}>
-                {n.item !== null && n.item !== undefined ? <strong>#{str(n.item)} </strong> : null}
-                <MarkdownInline text={str(n.text)} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {mismatches.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('understanding_mismatches')}</span>
-          <ul className="arch-list">
-            {mismatches.map((m, i) => (
-              <li key={i}>
-                <strong>
-                  <MarkdownInline text={str(m.what)} />
-                </strong>
-                <Field label={t('mismatch_fact')} value={m.fact} />
-                <Field label={t('mismatch_involved')} value={m.involved} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {unclear.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('understanding_unclear')}</span>
-          <ul className="arch-list">
-            {unclear.map((x, i) => (
-              <li key={i}>
-                <strong>
-                  <MarkdownInline text={str(x.what)} />
-                </strong>{' '}
-                <span className="muted">
-                  <MarkdownInline text={str(x.why)} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {u.against !== null ? (
-        <section className="arch-part">
-          <div className="work-item-head">
-            <span className="decision-label">{t('understanding_against')}</span>
-            <From said={u.against} onRound={onRound} />
+      <Section title={t('understanding_notes')} n={notes.length}>
+        {notes.map((n, i) => (
+          <div key={i} className="arch-block">
+            {n.item !== null && n.item !== undefined ? <strong>#{str(n.item)} </strong> : null}
+            <MarkdownInline text={str(n.text)} />
           </div>
-          {notKept.length > 0 ? <ul className="arch-list">{notKept.map(article)}</ul> : null}
-          {kept.length > 0 ? (
-            <Fold title={t('against_kept', { n: kept.length })}>
-              <ul className="arch-list">{kept.map(article)}</ul>
-            </Fold>
-          ) : null}
-        </section>
+        ))}
+      </Section>
+      <Section title={t('understanding_mismatches')} n={mismatches.length}>
+        {mismatches.map((m, i) => (
+          <div key={i} className="arch-block">
+            <div className="arch-block-h">
+              <strong>
+                <MarkdownInline text={str(m.what)} />
+              </strong>
+            </div>
+            <Field label={t('mismatch_fact')} value={m.fact} />
+            <Field label={t('mismatch_involved')} value={m.involved} />
+          </div>
+        ))}
+      </Section>
+      <Section title={t('understanding_unclear')} n={unclear.length}>
+        {unclear.map((x, i) => (
+          <div key={i} className="arch-block">
+            <div className="arch-block-h">
+              <strong>
+                <MarkdownInline text={str(x.what)} />
+              </strong>
+            </div>
+            <Markdown text={str(x.why)} />
+          </div>
+        ))}
+      </Section>
+      {u.against !== null ? (
+        <Section title={[t('understanding_against'), ...counts].join(' · ')}>
+          <From said={u.against} onRound={onRound} />
+          {rows.map((r, i) => (
+            <div key={i} className="arch-block">
+              <div className="arch-block-h">
+                <span className={`badge arch-${str(r.status)}`}>{words(str(r.status))}</span>
+                <strong>{str(r.article)}</strong>
+              </div>
+              {str(r.where) !== '' ? (
+                <p className="arch-block-field">
+                  <span className="arch-block-label">{t('against_where')}</span> <MarkdownInline text={str(r.where)} />
+                </p>
+              ) : null}
+              <Markdown text={str(r.grounds)} />
+            </div>
+          ))}
+        </Section>
       ) : null}
     </>
   );

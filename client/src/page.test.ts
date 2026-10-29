@@ -1060,6 +1060,28 @@ describe("the architect's state of things", () => {
     expect(c.changed).toEqual({ before: 'c1', after: 'c2' });
     expect(stateChanges(null, after).lines.map((l) => l.kind)).toEqual(['added', 'added']);
   });
+
+  it('takes a line written again in other words for the line it was, by what it says', () => {
+    const before: JsonValue = {
+      state: [
+        { line: 'Parser', approach: 'A recursive descent parser written by hand', where: 'Half of the grammar' },
+        { line: 'Docs', approach: 'The commands documented in the README', where: 'Not started' },
+      ],
+    };
+    const after: JsonValue = {
+      state: [
+        { line: 'The parser', approach: 'A recursive descent parser, written by hand', where: 'Half of the grammar' },
+        { line: 'Releases', approach: 'Tagged builds uploaded by CI', where: 'Planned' },
+      ],
+    };
+    const c = stateChanges(before, after);
+    expect(c.lines.map((l) => [l.line, l.kind])).toEqual([
+      ['The parser', 'changed'],
+      ['Releases', 'added'],
+      ['Docs', 'removed'],
+    ]);
+    expect(c.lines[0].fields.filter((f) => f.changed).map((f) => f.field)).toEqual(['line', 'approach']);
+  });
 });
 
 describe('a ruling on a design card', () => {

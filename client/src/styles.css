@@ -3833,15 +3833,45 @@ details.dc[open] > summary::before,
   font-size: 12px;
 }
 
-.arch-line-added > td {
+/* A line of work of the state of things, or another part of the understanding, as a block: its name as the heading,
+   its fields as short labelled paragraphs under it. */
+.arch-block {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.arch-block-h {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.arch-block-field {
+  margin: 3px 0;
+}
+
+.arch-block-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.arch-compare {
+  display: block;
+  margin: 2px 0 6px;
+  font-size: 12.5px;
+}
+
+.arch-line-added {
   background: color-mix(in srgb, var(--good) 10%, transparent);
 }
 
-.arch-line-changed > td {
+.arch-line-changed {
   background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 
-.arch-line-removed > td {
+.arch-line-removed {
   color: var(--muted);
   text-decoration: line-through;
 }
@@ -4315,16 +4345,3 @@ summary > .work-item-head {
 }
 
 /* The lines of work as a table: every column wraps, so that the table fits the column it is in. */
-.arch-table-wrap {
-  overflow-x: auto;
-}
-
-.arch-lines {
-  width: 100%;
-  font-size: 12.5px;
-}
-
-.arch-lines td {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
