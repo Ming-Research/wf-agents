@@ -88,7 +88,7 @@ fn before(graph: &str, name: &str) -> &'static [&'static str] {
 
 /// Whether `id`, as a work or a round of any flow version has it, is the cell of `graph` named `name`.
 pub fn is_cell(graph: &str, name: &str, id: &str) -> bool {
-    id == name || before(graph, name).iter().any(|b| *b == id)
+    id == name || before(graph, name).contains(&id)
 }
 
 /// The cells of `graph` named `names`, as an SQL list of every id works and rounds of any flow version give them:
