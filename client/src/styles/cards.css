@@ -1,0 +1,329 @@
+/* The card every card the page shows the owner shares, a design card and an ask of the owner alike, wherever it is
+   shown, drawn as GitHub draws a comment: a box, its head on the muted background (its name, its status as a Label,
+   the round it came from, its facts); where it stands with the owner as a Flash; and boxes that hold what the agent
+   wrote, word for word, each under the page's label for it. A folded card is its head on one line. */
+
+.dc-lead {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.dc {
+  min-width: 0;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+  overflow: hidden;
+}
+
+.dc + .dc {
+  margin-top: var(--base-size-16);
+}
+
+.dc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  padding: var(--base-size-8) var(--base-size-16);
+  background: var(--bgColor-muted);
+}
+
+.dc[open] > .dc-head,
+div.dc > .dc-head {
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.dc-name {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+details.dc > summary,
+.dc-dec > summary {
+  cursor: pointer;
+}
+
+details.dc > summary::-webkit-details-marker,
+.dc-dec > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.dc > summary,
+.dc-dec > summary {
+  list-style: none;
+}
+
+details.dc > summary > svg,
+.dc-dec > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+details.dc[open] > summary > .fold-closed,
+details.dc:not([open]) > summary > .fold-open,
+.dc-dec[open] > summary > .fold-closed,
+.dc-dec:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+.dc-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding: var(--base-size-16);
+}
+
+.dc-body > p {
+  margin: 0;
+}
+
+.dc-note {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* Where the card stands with the owner, and who ruled when. */
+.dc-band {
+  font-size: var(--text-body-size-medium);
+}
+
+/* A box of what the agent wrote, word for word, under the page's label for it and its note. */
+.dc-f {
+  display: grid;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+
+.dc-fl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.dc-val {
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  overflow-wrap: anywhere;
+}
+
+.dc-val-chg {
+  border-color: var(--borderColor-accent-emphasis);
+}
+
+.dc-val-was {
+  color: var(--fgColor-muted);
+  text-decoration: line-through;
+}
+
+.dc-val-warn {
+  border-color: var(--borderColor-attention-emphasis);
+}
+
+/* A decision of a design card: a numbered fold, its first sentence its title only while folded. */
+.dc-dec {
+  padding-top: var(--base-size-12);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.dc-dec > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.dc-dn {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.dc-node {
+  margin-left: auto;
+}
+
+.dc-dt {
+  flex-basis: 100%;
+  padding-left: var(--base-size-24);
+  color: var(--fgColor-muted);
+}
+
+.dc-dec[open] .dc-dt {
+  display: none;
+}
+
+.dc-db {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding: var(--base-size-12) 0 0 var(--base-size-24);
+}
+
+/* How sure the agent is: five dots, those it reached filled. */
+.dc-pips {
+  display: inline-flex;
+  gap: var(--base-size-2);
+  vertical-align: middle;
+}
+
+.dc-pip {
+  width: var(--base-size-8);
+  height: var(--base-size-8);
+  border: var(--borderWidth-thin) solid var(--fgColor-success);
+  border-radius: var(--borderRadius-full);
+}
+
+.dc-pip.on {
+  background: var(--fgColor-success);
+}
+
+.dc-point {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-8);
+}
+
+/* Options and approaches, each a box of its own, one under another: its name over what it does and why. The one the
+   agent recommends has a Label and a thick edge in the success colour; the one the owner clicked an accent outline
+   and background; both can be one. */
+.option-boxes {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.option-box {
+  display: grid;
+  gap: var(--base-size-8);
+  padding: var(--base-size-8) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+
+.option-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+/* An option's name heads its box, a step above the names of its fields. */
+.option-head strong {
+  font: var(--text-title-shorthand-small);
+}
+
+.option-box.recommended {
+  border-left: var(--borderWidth-thick) solid var(--borderColor-success-emphasis);
+}
+
+.option-box.pickable {
+  cursor: pointer;
+}
+
+.option-box.pickable:hover {
+  background: var(--bgColor-neutral-muted);
+}
+
+.option-box.picked {
+  border-color: var(--borderColor-accent-emphasis);
+  background: var(--bgColor-accent-muted);
+}
+
+.pick-hint {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.card-was[open] > summary {
+  margin-bottom: var(--base-size-8);
+}
+
+/* An ask's kind, in the display colour of its group, so that the sort of question shows at a glance; a kind of no
+   group, and the views not yet converted, set --kind themselves. */
+.kind {
+  border-color: var(--kind, var(--borderColor-default));
+  color: var(--kind, var(--fgColor-default));
+}
+
+.kind-technical {
+  --kind: var(--display-indigo-fgColor);
+}
+
+.kind-coordination {
+  --kind: var(--display-teal-fgColor);
+}
+
+.kind-owner_only {
+  --kind: var(--display-coral-fgColor);
+}
+
+.kind-environment {
+  --kind: var(--display-yellow-fgColor);
+}
+
+/* The owner's verdict on a decision, and the form that sends the verdicts. */
+.decide {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-8);
+}
+
+.decide > textarea,
+.decide > span {
+  justify-self: stretch;
+}
+
+.decide-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.decide-options {
+  display: grid;
+  gap: var(--base-size-2);
+}
+
+.rule-summary {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.rule-summary ul {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+/* A button of markup that does not use Primer's Button yet, drawn as Primer's small Button, the one set as its
+   primary; the views drop the class for the Button as each is converted to the UI spec. */
+.decide-button {
+  height: var(--control-small-size);
+  padding: 0 var(--control-small-paddingInline-condensed);
+  border: var(--borderWidth-thin) solid var(--button-default-borderColor-rest);
+  border-radius: var(--borderRadius-medium);
+  background: var(--button-default-bgColor-rest);
+  color: var(--button-default-fgColor-rest);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-medium);
+  cursor: pointer;
+}
+
+.decide-button:hover {
+  background: var(--button-default-bgColor-hover);
+}
+
+.decide-button:disabled {
+  color: var(--fgColor-disabled);
+  cursor: default;
+}
+
+.decide-button.on {
+  border-color: var(--button-primary-borderColor-rest);
+  background: var(--button-primary-bgColor-rest);
+  color: var(--button-primary-fgColor-rest);
+}

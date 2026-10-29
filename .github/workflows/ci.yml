@@ -48,6 +48,11 @@ jobs:
       - name: Lint the page
         working-directory: client
         run: npm run lint
+      # Every colour, size and spacing in the page's styles is a token, as its UI spec says
+      # (design/harness/owner-interface/ui-spec.md); the tests of the next step leave this to it.
+      - name: Check the page against its UI spec
+        working-directory: client
+        run: npm run check:ui
       - name: Test the page
         working-directory: client
         run: npm test

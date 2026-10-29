@@ -1,9 +1,12 @@
-// The parts the page shows like things with, each with one look wherever the page shows it: a round, by its name; who
-// wrote something (the cell, or who to whom), when, and its round; what an agent wrote, as a block, its head and who
-// wrote it over its text; a section under its title and how many it holds, folded or open; an item, by its number and
-// title; and the form that answers or says something, its words and the button that sends them.
+// The parts the page shows like things with, each with one look wherever the page shows it, as the UI spec maps them
+// to Primer: a round, by its name; who wrote something (the cell, or who to whom), when, and its round; what an agent
+// wrote, as a block, its head and who wrote it over its text; a section under its heading and how many it holds,
+// folded or open, and a sub-heading inside it; an item, by its number and title; and the form that answers or says
+// something, its words and the button that sends them.
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { Button, CounterLabel, Details, Flash, Heading, Link as PrimerLink, Textarea } from '@primer/react';
+import { createContext, createElement, useContext, type ReactNode } from 'react';
 
 import { roundName, time } from './format';
 import { Link, workHref } from './route';
@@ -22,16 +25,17 @@ export function RoundLink({ work, round, onRound }: { work: number; round: numbe
     );
   }
   return (
-    <button
+    <PrimerLink
+      as="button"
       type="button"
-      className="link round-link"
-      onClick={(e) => {
+      className="round-link"
+      onClick={(e: { stopPropagation: () => void }) => {
         e.stopPropagation();
         onRound(work, round);
       }}
     >
       {roundName(work, round)}
-    </button>
+    </PrimerLink>
   );
 }
 
@@ -90,7 +94,7 @@ export function Block({ id, head, by, tone, children }: {
   );
 }
 
-/// A short labelled paragraph of a block.
+/// A short labelled paragraph of a block: its name run in before its text.
 export function BlockField({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <p className="block-field">
@@ -99,8 +103,19 @@ export function BlockField({ label, children }: { label: ReactNode; children: Re
   );
 }
 
-/// A section: its title, how many it holds (`n`) and who wrote it, over what it holds, folded unless `open`; none when
-/// it holds nothing.
+/// The level the next heading takes where it stands: a page converted to the UI spec gives its sections 2, and each
+/// section gives what it holds one more. Elsewhere a section's heading is a sub-heading.
+export const HeadingLevel = createContext(3);
+
+/// A sub-heading: the name of a part inside a section, at the level it stands at, in the sub-heading's step.
+export function SubHeading({ children, className }: { children: ReactNode; className?: string }) {
+  const level = Math.min(useContext(HeadingLevel), 6);
+  return createElement(`h${level}`, { className: className !== undefined ? `sub-heading ${className}` : 'sub-heading' }, children);
+}
+
+/// A section: its heading, how many it holds (`n`) and who wrote it on the line that folds it, over what it holds,
+/// folded unless `open`; none when it holds nothing. A section at level 2 is a page's own, its heading in the section
+/// step with a rule under it; one inside another is a sub-heading.
 export function Section({ title, n, open = false, by, id, children }: {
   title: ReactNode;
   n?: number;
@@ -109,16 +124,27 @@ export function Section({ title, n, open = false, by, id, children }: {
   id?: string;
   children: ReactNode;
 }) {
+  const level = Math.min(useContext(HeadingLevel), 6);
   if (n === 0) return null;
   return (
-    <details className="section" open={open} id={id}>
+    <Details className="section" data-level={level} open={open} id={id}>
       <summary>
-        <span className="section-title">{title}</span>
-        {n !== undefined ? <span className="section-n">{t('section_n', { n })}</span> : null}
+        <ChevronRightIcon className="fold-closed" />
+        <ChevronDownIcon className="fold-open" />
+        {level === 2 ? (
+          <Heading as="h2" variant="small" className="section-title">
+            {title}
+          </Heading>
+        ) : (
+          createElement(`h${level}`, { className: 'section-title sub-heading' }, title)
+        )}
+        {n !== undefined ? <CounterLabel>{n}</CounterLabel> : null}
         {by}
       </summary>
-      <div className="section-body">{children}</div>
-    </details>
+      <div className="section-body">
+        <HeadingLevel.Provider value={level + 1}>{children}</HeadingLevel.Provider>
+      </div>
+    </Details>
   );
 }
 
@@ -153,7 +179,9 @@ export function SendForm({ above, words, label, ready, busy, why, onSend, error 
     <div className="send-form">
       {above}
       {words !== undefined ? (
-        <textarea
+        <Textarea
+          block
+          resize="vertical"
           value={words.text}
           rows={words.rows ?? 3}
           placeholder={words.placeholder}
@@ -169,11 +197,11 @@ export function SendForm({ above, words, label, ready, busy, why, onSend, error 
         />
       ) : null}
       <div className="send-form-row">
-        <button type="button" className="decide-button" onClick={onSend} disabled={!can} title={ready ? undefined : why}>
+        <Button variant="primary" onClick={onSend} disabled={!can} title={ready ? undefined : why}>
           {label}
-        </button>
+        </Button>
       </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
     </div>
   );
 }

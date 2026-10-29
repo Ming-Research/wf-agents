@@ -2,24 +2,28 @@
 // what it rests on, the approaches compared, the measure, the design, the acceptance and how it was met, the
 // deviations. A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
+import { Label, type LabelColorOptions } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { JsonValue } from '../api';
 import { empty, isObj, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Section } from '../parts';
+import { Section, SubHeading } from '../parts';
 import { t, type Key } from '../text';
 
-/// A labelled text, when there is any.
+/// A labelled text, when there is any: its name as a sub-heading over it.
 export function Field({ label, value }: { label: string; value: JsonValue | undefined }) {
   if (empty(value)) return null;
   return (
     <div className="field">
-      <span className="decision-label">{label}</span>
+      <SubHeading>{label}</SubHeading>
       {typeof value === 'string' ? <Markdown text={value} /> : <Labelled value={value} />}
     </div>
   );
 }
+
+/// A ground checked is done; one inferred waits for its check.
+const GROUND_TONE: Record<string, LabelColorOptions> = { verified: 'success', inferred: 'attention' };
 
 /// What a claim rests on: each verified or inferred, the claim, and where it was checked, or what it follows from and
 /// how it will be confirmed.
@@ -29,7 +33,8 @@ export function Grounds({ value }: { value: JsonValue }) {
     <ul className="grounds">
       {value.filter(isObj).map((g, i) => (
         <li key={i}>
-          <span className={`badge ground-${str(g.kind)}`}>{words(str(g.kind))}</span> <MarkdownInline text={str(g.claim)} />
+          <Label variant={GROUND_TONE[str(g.kind)] ?? 'secondary'}>{words(str(g.kind))}</Label>{' '}
+          <MarkdownInline text={str(g.claim)} />
           <Field label={t('ground_where')} value={g.where} />
           <Field label={t('ground_from')} value={g.from} />
           <Field label={t('ground_confirm')} value={g.confirm} />
@@ -163,8 +168,8 @@ export function OptionBoxes(props: {
               <strong>
                 <MarkdownInline text={name} />
               </strong>
-              {recommended ? <span className="option-recommended">{props.mark}</span> : null}
-              {mine ? <span className="option-picked">{t('option_yours')}</span> : null}
+              {recommended ? <Label variant="success">{props.mark}</Label> : null}
+              {mine ? <Label variant="accent">{t('option_yours')}</Label> : null}
             </div>
             {props.fields.map(([k, label, ifRecommended]) => (
               <Field key={k} label={recommended && ifRecommended !== undefined ? ifRecommended : label} value={o[k]} />
@@ -234,7 +239,7 @@ export function Deviation({ value }: { value: JsonValue }) {
   if (!isObj(value) || typeof value.kind !== 'string') return <Labelled value={value} />;
   return (
     <div className="deviation">
-      <span className="badge">{words(value.kind)}</span> <MarkdownInline text={str(value.what)} />
+      <Label variant="secondary">{words(value.kind)}</Label> <MarkdownInline text={str(value.what)} />
       <Field label={t('deviation_why')} value={value.why} />
     </div>
   );

@@ -2,17 +2,21 @@
 // how many things in them wait for the owner and how many messages are unread), and how the engine stands: running,
 // paused (saying which works the owner started run meanwhile), pausing while the last round finishes, or waiting for
 // what stops every work, with the switch that pauses every work or starts them all, the switch that keeps waiting
-// sessions warm while every work is paused, and the slots in use. The engine starts with every work paused.
+// sessions warm while every work is paused, and the slots in use. The engine starts with every work paused. Drawn as
+// the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words, its switch a Button and keep-warm
+// a ToggleSwitch.
 
-import { useState } from 'react';
+import { DotFillIcon } from '@primer/octicons-react';
+import { Button, CounterLabel, ToggleSwitch, UnderlineNav } from '@primer/react';
+import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 
 import type { Conversation, Status, WorkSummary } from './api';
 import { course } from './components';
 import { time } from './format';
 import { postJson } from './http';
 import { reread, useOnline, useResource, useStatus } from './live';
-import { Link, type Route } from './route';
-import { t } from './text';
+import { navigate, type Route } from './route';
+import { t, type Key } from './text';
 
 /// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
 /// asked for, or of a work the owner started.
@@ -51,19 +55,19 @@ function KeepWarm({ status }: { status: Status }) {
   };
   return (
     <>
-      <button
-        type="button"
-        className={`keep-warm${status.keep_warm ? ' on' : ''}`}
-        aria-pressed={status.keep_warm}
-        onClick={flip}
-        disabled={busy}
-        title={status.keep_warm ? t('keep_warm_on_hint') : t('keep_warm_off_hint')}
-      >
-        <span className="keep-warm-box" aria-hidden="true">
-          {status.keep_warm ? '✓' : ''}
-        </span>
-        {t('keep_warm')}
-      </button>
+      <span className="keep-warm" title={status.keep_warm ? t('keep_warm_on_hint') : t('keep_warm_off_hint')}>
+        <span id="keep-warm-label">{t('keep_warm')}</span>
+        <ToggleSwitch
+          aria-labelledby="keep-warm-label"
+          checked={status.keep_warm}
+          onClick={flip}
+          loading={busy}
+          loadingLabel={t('loading')}
+          buttonLabelOn={t('switch_on')}
+          buttonLabelOff={t('switch_off')}
+          statusLabelPosition="end"
+        />
+      </span>
       {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
     </>
   );
@@ -103,15 +107,14 @@ function Switch({ status }: { status: Status }) {
   };
   return (
     <>
-      <button
-        type="button"
-        className="engine-switch"
+      <Button
+        variant={status.paused ? 'primary' : 'default'}
         onClick={press}
         disabled={busy}
         title={status.paused ? t('start_all_hint') : t('pause_all_hint')}
       >
         {status.paused ? t('start_all') : t('pause_all')}
-      </button>
+      </Button>
       {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
     </>
   );
@@ -123,17 +126,19 @@ function Engine() {
   if (!online || !status) {
     return (
       <div className="engine">
-        <span className="dot dot-off" />
-        <span title={t('engine_offline_hint')}>{t('engine_offline')}</span>
+        <span className="engine-state" title={t('engine_offline_hint')}>
+          <DotFillIcon className="engine-dot engine-dot-off" />
+          {t('engine_offline')}
+        </span>
       </div>
     );
   }
   const dot =
-    status.halt !== null ? 'dot-halt' : !status.paused ? 'dot-run' : finishing(status) > 0 ? 'dot-pausing' : 'dot-paused';
+    status.halt !== null ? 'off' : !status.paused ? 'run' : finishing(status) > 0 ? 'pausing' : 'paused';
   return (
     <div className="engine">
       <span className="engine-state" title={status.halt?.why ?? (status.paused ? t('engine_paused_hint') : undefined)}>
-        <span className={`dot ${dot}`} />
+        <DotFillIcon className={`engine-dot engine-dot-${dot}`} />
         <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
       </span>
       <Switch status={status} />
@@ -145,58 +150,60 @@ function Engine() {
   );
 }
 
-/// The view of the owner's conversations, with how many things in them wait for the owner (asks not answered, design
-/// cards not ruled, faults of wf-agents not read) in a badge of its own, and how many messages are unread.
-function Unread({ className }: { className: string }) {
-  const r = useResource<Conversation[]>('messages', '/api/v1/conversations');
-  const list = r.data ?? [];
+/// A view of the bar: its place, the pages that are it, and its name.
+type View = { to: string; pages: Route['page'][]; name: Key };
+
+const VIEWS: View[] = [
+  { to: '/works', pages: ['works', 'work'], name: 'nav_works' },
+  { to: '/architect', pages: ['architect'], name: 'nav_architect' },
+  { to: '/items', pages: ['items', 'item'], name: 'nav_items' },
+  { to: '/flow', pages: ['flow'], name: 'nav_flow' },
+  { to: '/system', pages: ['system'], name: 'nav_system' },
+  { to: '/settings', pages: ['settings'], name: 'nav_settings' },
+  { to: '/messages', pages: ['messages'], name: 'nav_messages' },
+];
+
+/// Moves to a view within the page; a click with a modifier key opens it as the browser would.
+const go = (to: string) => (e: MouseEvent<HTMLAnchorElement> | KeyboardEvent<HTMLAnchorElement>) => {
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || ('button' in e && e.button !== 0)) return;
+  e.preventDefault();
+  navigate(to);
+};
+
+/// The bar: the views, the owner's conversations with how many things in them wait for the owner (asks not answered,
+/// design cards not ruled, faults of wf-agents not read) in a count of its own and how many messages are unread, and
+/// how the engine stands with the switch of every work. A view's own controls stay in the view.
+export function TopBar({ route }: { route: Route }) {
+  const conversations = useResource<Conversation[]>('messages', '/api/v1/conversations');
+  const list = conversations.data ?? [];
   const waiting = list.reduce((n, c) => n + c.waiting, 0);
   const unread = list.reduce((n, c) => n + c.unread, 0);
   return (
-    <Link to="/messages" className={className}>
-      {t('nav_messages')}
-      {waiting > 0 ? (
-        <span className="nav-count nav-fault" title={t('nav_waiting', { n: waiting })}>
-          {waiting}
-        </span>
-      ) : null}
-      {unread > 0 ? (
-        <span className="nav-count" title={t('nav_unread', { n: unread })}>
-          {unread}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
-
-/// The bar: the views, and how the engine stands with the switch of every work. A view's own controls stay in the
-/// view.
-export function TopBar({ route }: { route: Route }) {
-  const on = (pages: Route['page'][]) => (pages.includes(route.page) ? 'nav nav-on' : 'nav');
-  return (
-    <nav className="topbar">
+    <header className="topbar">
       <span className="brand">wf-agents</span>
-      <Link to="/works" className={on(['works', 'work'])}>
-        {t('nav_works')}
-      </Link>
-      <Link to="/architect" className={on(['architect'])}>
-        {t('nav_architect')}
-      </Link>
-      <Link to="/items" className={on(['items', 'item'])}>
-        {t('nav_items')}
-      </Link>
-      <Link to="/flow" className={on(['flow'])}>
-        {t('nav_flow')}
-      </Link>
-      <Link to="/system" className={on(['system'])}>
-        {t('nav_system')}
-      </Link>
-      <Link to="/settings" className={on(['settings'])}>
-        {t('nav_settings')}
-      </Link>
-      <Unread className={on(['messages'])} />
-      <span className="bar-gap" />
+      <UnderlineNav aria-label={t('nav_views')} className="topbar-nav">
+        {VIEWS.map((v) => (
+          <UnderlineNav.Item
+            key={v.to}
+            href={v.to}
+            onSelect={go(v.to)}
+            aria-current={v.pages.includes(route.page) ? 'page' : undefined}
+          >
+            {t(v.name)}
+            {v.to === '/messages' && waiting > 0 ? (
+              <CounterLabel variant="primary" className="topbar-count" title={t('nav_waiting', { n: waiting })}>
+                {waiting}
+              </CounterLabel>
+            ) : null}
+            {v.to === '/messages' && unread > 0 ? (
+              <CounterLabel className="topbar-count" title={t('nav_unread', { n: unread })}>
+                {unread}
+              </CounterLabel>
+            ) : null}
+          </UnderlineNav.Item>
+        ))}
+      </UnderlineNav>
       <Engine />
-    </nav>
+    </header>
   );
 }

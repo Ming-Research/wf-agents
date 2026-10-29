@@ -2,12 +2,15 @@
 // at now, with what it waits for and its latest progress note, open; the cells ahead on the main path. Each line opens
 // to its progress notes, newest first, and leads to its rounds on the work's chart.
 
+import { CheckCircleFillIcon, CircleIcon, DotFillIcon } from '@primer/octicons-react';
+import { Link as PrimerLink } from '@primer/react';
+
 import type { Compiled, CompiledGraph, ItemDetail, RoundSummary, WorkDetail, WorkSummary } from '../api';
 import { liveState, Loaded, OutcomeBadge } from '../components';
 import { words } from '../labelled';
 import { useResource, useStatus } from '../live';
 import { MarkdownInline } from '../markdown';
-import { RoundLink } from '../parts';
+import { RoundLink, SubHeading } from '../parts';
 import { bringIntoView } from '../pages/Decide';
 import { Link } from '../route';
 import { t } from '../text';
@@ -21,16 +24,16 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
   const show = (id: string) => () => bringIntoView(id);
   if (card !== undefined) {
     return (
-      <button type="button" className="link step-waits" onClick={show(`design-card-${card.id}`)}>
+      <PrimerLink as="button" type="button" className="step-waits" onClick={show(`design-card-${card.id}`)}>
         {t('progress_waits_card', { id: card.id })}
-      </button>
+      </PrimerLink>
     );
   }
   if (ask !== undefined) {
     return (
-      <button type="button" className="link step-waits" onClick={show(`ask-${ask.id}`)}>
+      <PrimerLink as="button" type="button" className="step-waits" onClick={show(`ask-${ask.id}`)}>
         {t('progress_waits_ask', { id: ask.id })}
-      </button>
+      </PrimerLink>
     );
   }
   if (w.paused !== null) {
@@ -67,13 +70,15 @@ function Note({ r, work }: { r: RoundSummary; work: number }) {
   );
 }
 
-const MARK: Record<Step['state'], string> = { done: '✓', now: '●', ahead: '○' };
+/// A cell done, the cell the work is at, and a cell ahead.
+const MARK = { done: CheckCircleFillIcon, now: DotFillIcon, ahead: CircleIcon } as const;
 
 function Line({ s, d, w }: { s: Step; d: ItemDetail; w: WorkSummary }) {
+  const Mark = MARK[s.state];
   const head = (
     <>
       <span className="step-mark" title={t(`progress_${s.state}`)}>
-        {MARK[s.state]}
+        <Mark />
       </span>
       <span className="cell-id">{s.cell}</span> <span className="step-title">{s.title}</span>
       {s.passes > 1 ? (
@@ -97,7 +102,7 @@ function Line({ s, d, w }: { s: Step; d: ItemDetail; w: WorkSummary }) {
             <Note key={r.n} r={r} work={w.id} />
           ))}
         </ul>
-        <Link to={`/works/${w.id}?cell=${encodeURIComponent(s.cell)}`} className="shown-from">
+        <Link to={`/works/${w.id}?cell=${encodeURIComponent(s.cell)}`} className="shown-from" muted>
           {t('progress_on_chart')}
         </Link>
       </div>
@@ -115,7 +120,7 @@ function Checklist({ d, detail, g }: { d: ItemDetail; detail: WorkDetail; g: Com
       {w.state === 'ended' ? <p className="warn">{t('progress_stopped', { why: w.ended ?? '' })}</p> : null}
       {byStage(g, steps).map((group) => (
         <div key={group.stage ?? ''} className="checklist-stage">
-          {group.stage !== null ? <div className="checklist-stage-name">{words(group.stage)}</div> : null}
+          {group.stage !== null ? <SubHeading className="checklist-stage-name">{words(group.stage)}</SubHeading> : null}
           {group.steps.map((s) => (
             <Line key={s.cell} s={s} d={d} w={w} />
           ))}

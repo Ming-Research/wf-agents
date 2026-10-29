@@ -11,6 +11,8 @@
 // group, and for a decision the options with the one recommended; while it waits, the owner clicks an option and says
 // what more there is to say. Both write what the command line writes, and the engine goes on at once.
 
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { Button, ButtonGroup, Flash, Label, Textarea, type FlashProps, type LabelColorOptions } from '@primer/react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
@@ -20,7 +22,7 @@ import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { SendForm } from '../parts';
+import { SendForm, SubHeading } from '../parts';
 import { navigate } from '../route';
 import { t } from '../text';
 
@@ -52,7 +54,11 @@ export function CardFrame({ id, head, folded = false, children }: {
   if (folded) {
     return (
       <details className="dc dc-folded" id={id}>
-        <summary className="dc-head">{head}</summary>
+        <summary className="dc-head">
+          <ChevronRightIcon className="fold-closed" />
+          <ChevronDownIcon className="fold-open" />
+          {head}
+        </summary>
         <div className="dc-body">{children}</div>
       </details>
     );
@@ -68,13 +74,26 @@ export function CardFrame({ id, head, folded = false, children }: {
 /// How a card stands, as a chip: done with the owner, waiting for the owner, replaced, or disagreed with.
 type Tone = 'ok' | 'wait' | 'old' | 'no';
 
+const CHIP: Record<Tone, LabelColorOptions> = { ok: 'success', wait: 'attention', old: 'secondary', no: 'danger' };
+
+const BAND: Record<Tone, NonNullable<FlashProps['variant']>> = {
+  ok: 'success',
+  wait: 'warning',
+  old: 'default',
+  no: 'danger',
+};
+
 function StatusChip({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className={`dc-st dc-st-${tone}`}>{children}</span>;
+  return <Label variant={CHIP[tone]}>{children}</Label>;
 }
 
 /// Where a card stands with the owner, in a band under its head.
 function Band({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <div className={`dc-band dc-band-${tone}`}>{children}</div>;
+  return (
+    <Flash variant={BAND[tone]} className="dc-band">
+      {children}
+    </Flash>
+  );
 }
 
 /// What an agent wrote, word for word, in a box under a label of the page's and its note; `was` strikes it through,
@@ -89,7 +108,7 @@ function Box({ label, note = null, tone = null, bare = false, children }: {
   return (
     <div className="dc-f">
       <div className="dc-fl">
-        <b>{label}</b>
+        <SubHeading>{label}</SubHeading>
         {note !== null ? <span className="dc-note">{note}</span> : null}
       </div>
       {bare ? children : <div className={`dc-val${tone !== null ? ` dc-val-${tone}` : ''}`}>{children}</div>}
@@ -159,28 +178,30 @@ export function pickApproach(v: Verdict, name: string, recommended: string): Ver
 function RuleDecision({ v, set }: { v: Verdict; set: (v: Verdict) => void }) {
   return (
     <div className="decide decision-rule">
-      <div className="decide-row">
-        <button
-          type="button"
-          className={`decide-button${v.verdict === 'confirm' ? ' on' : ''}`}
+      <ButtonGroup>
+        <Button
+          size="small"
+          leadingVisual={v.verdict === 'confirm' ? CheckIcon : undefined}
           onClick={() => set({ verdict: 'confirm', text: '', option: '' })}
           aria-pressed={v.verdict === 'confirm'}
         >
           {t('rule_confirm')}
-        </button>
-        <button
-          type="button"
-          className={`decide-button${v.verdict === 'disagree' ? ' on' : ''}`}
+        </Button>
+        <Button
+          size="small"
+          leadingVisual={v.verdict === 'disagree' ? CheckIcon : undefined}
           onClick={() => set({ ...v, verdict: 'disagree' })}
           aria-pressed={v.verdict === 'disagree'}
         >
           {t('rule_disagree')}
-        </button>
-      </div>
+        </Button>
+      </ButtonGroup>
       {v.verdict === 'disagree' ? (
         <>
           {v.option !== '' ? <p className="muted pick-hint">{t('rule_chosen_option', { option: v.option })}</p> : null}
-          <textarea
+          <Textarea
+            block
+            resize="vertical"
             value={v.text}
             rows={2}
             placeholder={t(v.option !== '' ? 'rule_why_more_hint' : 'rule_why_hint')}
@@ -227,14 +248,18 @@ function Decision(props: { d: Obj; n: number; v: Verdict | null; set: ((v: Verdi
   return (
     <details className="dc-dec" open>
       <summary>
+        <ChevronRightIcon className="fold-closed" />
+        <ChevronDownIcon className="fold-open" />
         <span className="dc-dn">{n}</span>
         {change !== '' ? (
-          <span className="dc-chip">{change === 'add' ? t('dc_new') : change === 'remove' ? t('dc_removed') : t('dc_changed')}</span>
+          <Label variant="secondary">
+            {change === 'add' ? t('dc_new') : change === 'remove' ? t('dc_removed') : t('dc_changed')}
+          </Label>
         ) : null}
         {settled !== '' ? (
-          <span className={`dc-chip dc-chip-${settled}`}>
+          <Label variant={settled === 'settled' ? 'success' : 'attention'}>
             {settled === 'settled' ? t('dc_settled') : settled === 'provisional' ? t('dc_provisional') : words(settled)}
-          </span>
+          </Label>
         ) : null}
         {str(d.node) !== '' ? <code className="dc-node">{str(d.node)}</code> : null}
         <span className="dc-dt">
@@ -359,7 +384,7 @@ function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
     <SendForm
       above={
         <div className="rule-summary">
-          <span className="decision-label">{t('rule_summary_title')}</span>
+          <SubHeading>{t('rule_summary_title')}</SubHeading>
           <ul>
             {verdicts.map((v, i) => (
               <li key={i} className={verdictReady(v) ? undefined : 'muted'}>
@@ -416,7 +441,7 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
   ].filter((x) => x !== null);
   const head = (
     <>
-      <b>{t('dc_name', { id: c.id })}</b>
+      <span className="dc-name">{t('dc_name', { id: c.id })}</span>
       <StatusChip tone={tone}>
         {tone === 'wait' ? t('dc_waits') : tone === 'old' ? t('dc_replaced') : tone === 'no' ? t('dc_disagreed') : t('dc_confirmed')}
       </StatusChip>
@@ -477,12 +502,12 @@ export function currentCard(cards: DesignCard[]): number | null {
 /// a glance.
 export function KindChip({ k }: { k: AskKind }) {
   return (
-    <span
-      className={`badge kind kind-${k.group ?? 'none'}`}
+    <Label
+      className={`kind kind-${k.group ?? 'none'}`}
       title={k.group !== null ? t('kind_group', { group: words(k.group) }) : undefined}
     >
       {words(k.kind)}
-    </span>
+    </Label>
   );
 }
 
@@ -554,7 +579,7 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
   const waits = answer === null;
   const head = (
     <>
-      <b>{t('ask_head', { id: a.id })}</b>
+      <span className="dc-name">{t('ask_head', { id: a.id })}</span>
       <StatusChip tone={waits ? 'wait' : 'ok'}>{waits ? t('dc_waits') : t('ask_answered')}</StatusChip>
       {round}
       {body.to === 'architect' ? <span className="dc-note">{t('ask_for_architect')}</span> : null}

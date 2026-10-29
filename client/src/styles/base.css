@@ -1,0 +1,228 @@
+/* The page's base, as the UI spec (design/harness/owner-interface/ui-spec.md) sets it: Primer's type, colours and
+   sizes on the plain elements, the words of a state in its colour, and tables. Every value is a Primer token. */
+
+body {
+  margin: 0;
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+  font: var(--text-body-shorthand-medium);
+}
+
+/* The page's title, a section's heading, and a sub-heading: the three heading steps of the type scale. */
+h1 {
+  margin: 0;
+  font: var(--text-title-shorthand-medium);
+}
+
+h2 {
+  margin: 0;
+  font: var(--text-title-shorthand-small);
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: var(--text-body-lineHeight-medium);
+}
+
+h3 {
+  margin: 0;
+}
+
+b,
+strong {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--fontStack-monospace);
+}
+
+code {
+  font-size: var(--text-codeInline-size);
+}
+
+pre {
+  font-size: var(--text-codeBlock-size);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* An action written as a link inside a line of text. */
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fgColor-accent);
+  cursor: pointer;
+}
+
+button.link:hover {
+  text-decoration: underline;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A view that is not a chart or a split: the whole width, with the pane's space round it. */
+.page {
+  width: 100%;
+  padding: var(--base-size-16);
+}
+
+/* Words in the colour of what they say: facts about a thing, something that waits, something wrong, something done. */
+.muted {
+  color: var(--fgColor-muted);
+}
+
+.warn {
+  color: var(--fgColor-attention);
+}
+
+.bad,
+.error {
+  color: var(--fgColor-danger);
+}
+
+.good {
+  color: var(--fgColor-success);
+}
+
+/* Why something stopped, held back or ended, as the engine or an agent said it. */
+.why {
+  max-width: 60ch;
+  color: var(--fgColor-attention);
+  font-size: var(--text-body-size-small);
+  white-space: pre-wrap;
+}
+
+/* A code the flow names a thing by, such as a cell's: monospace, in the colour of the text round it. */
+.cell-id {
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeInline-size);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* A table, in Primer DataTable's look with a header that is not muted: a box, its header row on the muted background,
+   lines between the rows. */
+table.list {
+  width: 100%;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--bgColor-default);
+  overflow: hidden;
+}
+
+table.list th,
+table.list td {
+  padding: var(--base-size-8) var(--base-size-12);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+  text-align: left;
+  vertical-align: top;
+}
+
+table.list tr:last-child > td {
+  border-bottom: 0;
+}
+
+table.list th {
+  background: var(--bgColor-muted);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+table.list .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover,
+tr.selected {
+  background: var(--bgColor-neutral-muted);
+}
+
+td.clip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A state or a kind in markup that does not use Primer's Label yet, drawn as a Label: an outlined pill in the colour
+   of its meaning. The views drop the class for the Label as each is converted to the UI spec. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--base-size-20);
+  padding: 0 var(--base-size-6);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-full);
+  color: var(--fgColor-default);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.state-running,
+.outcome-running,
+.item-working {
+  border-color: var(--borderColor-accent-emphasis);
+  color: var(--fgColor-accent);
+}
+
+.state-asking,
+.state-waiting,
+.state-paused,
+.outcome-sent_back,
+.item-queued,
+.ground-inferred {
+  border-color: var(--borderColor-attention-emphasis);
+  color: var(--fgColor-attention);
+}
+
+.state-done,
+.outcome-took,
+.item-done,
+.ground-verified,
+.verdict-good {
+  border-color: var(--borderColor-success-emphasis);
+  color: var(--fgColor-success);
+}
+
+.state-ended,
+.state-stopped,
+.outcome-failed,
+.outcome-interrupted,
+.item-stopped,
+.item-cancelled,
+.verdict-bad {
+  border-color: var(--borderColor-danger-emphasis);
+  color: var(--fgColor-danger);
+}

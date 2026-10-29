@@ -146,6 +146,7 @@ const messages = {
   sys_main_broken: 'broken by the merge',
   sys_main_known_red: 'red only on known red checks',
   nav_messages: 'Messages',
+  nav_views: 'Views',
   nav_waiting: '{n} things wait for you: asks to answer, design cards to rule on, faults of wf-agents to read',
   nav_unread: '{n} messages unread',
   message_mark_read: 'Mark read',
@@ -183,7 +184,6 @@ const messages = {
   conv_say_architect: 'Say something to the architect',
   conv_send: 'Send',
   send_keys_hint: 'Ctrl or Cmd with Enter sends it too.',
-  section_n: '({n})',
   message_misses:
     '{n} misses with this cause on this line so far, the latest {at}: {written} tokens written to the cache again, about {cost} more than reading them.',
   engine_offline: 'Offline',
@@ -195,6 +195,8 @@ const messages = {
   engine_paused_runs: 'Paused · running: {which}',
   engine_runs_architect: 'the architect of {project}',
   keep_warm: 'Keep warm',
+  switch_on: 'On',
+  switch_off: 'Off',
   keep_warm_on_hint:
     'On: while every work is paused, a waiting session gets a keep-warm ping 55 minutes after its last call, so that its next round reads the cache instead of writing it again whole. Click to send none while every work is paused.',
   keep_warm_off_hint:

@@ -1,0 +1,236 @@
+/* The parts the page shows like things with (parts.tsx, labelled.tsx, markdown.tsx, components.tsx), one look wherever
+   they are, as the UI spec draws them. */
+
+/* A sub-heading: the name of a part inside a section, in the default colour and semibold at the body's size. The
+   views not yet converted still call it decision-label. */
+.sub-heading,
+.decision-label {
+  margin: 0;
+  color: var(--fgColor-default);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: var(--text-body-lineHeight-medium);
+}
+
+/* A section: the line that folds it (the chevron, its heading, its count, who wrote it), what it holds under it. A
+   page's own section has a rule under its line and room before the next; one inside another is a sub-heading, its
+   body set in by the chevron's width. */
+.section > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  cursor: pointer;
+}
+
+.section > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.section[open] > summary > .fold-closed,
+.section:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+.section-title {
+  min-width: 0;
+}
+
+.section[data-level='2'] {
+  margin-top: var(--base-size-24);
+}
+
+.section[data-level='2'] > summary {
+  padding-bottom: var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.section-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding-top: var(--base-size-12);
+  overflow-x: auto;
+}
+
+/* A paragraph of the page's own in a section is spaced by the section's rhythm, not by its own margins. */
+.section-body > p {
+  margin: 0;
+}
+
+.section:not([data-level='2']) > .section-body {
+  padding-top: var(--base-size-8);
+  padding-left: var(--base-size-24);
+}
+
+/* What an agent wrote, as a block: a line above it, its head (chips, a title, who wrote it), its text under it. */
+.block {
+  padding: var(--base-size-8) 0;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+  overflow-wrap: anywhere;
+}
+
+.block-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.block-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-4);
+  min-width: 0;
+  margin-top: var(--base-size-4);
+}
+
+.block-field {
+  margin: 0;
+}
+
+/* A short labelled paragraph's name, run in before its text. */
+.block-label {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+/* The facts under a block's text, on one line as room allows. */
+.block-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4) var(--base-size-12);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* Who wrote something: who to whom, or the cell; when; the round. Small, muted but for who. */
+.by {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-normal);
+}
+
+.by-who {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.round-link {
+  white-space: nowrap;
+}
+
+/* An item, by its number and title: its number muted, its title in the colour of the text it is in. */
+.item-ref {
+  color: inherit;
+}
+
+.item-ref-n {
+  color: var(--fgColor-muted);
+}
+
+/* The form that answers or says something: what goes above, the words, the button that sends them on the right. */
+.send-form {
+  display: grid;
+  gap: var(--base-size-8);
+  padding-top: var(--base-size-12);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.send-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--base-size-8);
+}
+
+/* Label and value pairs: the name muted and never bold, the value in the text's colour. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--base-size-4) var(--base-size-16);
+  margin: 0;
+}
+
+.fact {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--fgColor-muted);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Text an agent or the owner wrote, as one document in the page's font: paragraphs and list items apart by the
+   rhythm, the agent's headings as sub-headings, code as Primer's markdown draws it. */
+.prose {
+  margin: 0;
+  line-height: var(--text-body-lineHeight-medium);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md {
+  display: grid;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.md-list {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+.md-list li + li {
+  margin-top: var(--base-size-4);
+}
+
+.md-h {
+  margin: var(--base-size-4) 0 0;
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.prose code,
+.md-list code,
+.md-h code {
+  padding: var(--base-size-2) var(--base-size-4);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-neutral-muted);
+}
+
+.code-block {
+  margin: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+  font: var(--text-codeBlock-shorthand);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* A value whose shape the page does not know: its fields each under its name, a list as a list. */
+.labelled {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+.labelled-field,
+.field {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.labelled-list {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}

@@ -4,6 +4,7 @@
 // cards, answered asks, its works. Each block names the cell and round it came from. What the works hand back is
 // drawn by its shape in the flow's formats; a field the page does not know is shown as labelled text.
 
+import { Flash, PageHeader, Select } from '@primer/react';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Settings, Shown } from '../api';
@@ -15,7 +16,7 @@ import { empty, isObj, label, Labelled, str } from '../labelled';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { By, ItemRef, RoundLink, Section } from '../parts';
+import { By, HeadingLevel, ItemRef, RoundLink, Section, SubHeading } from '../parts';
 import { Link } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
@@ -35,9 +36,10 @@ function Tier({ id, level }: { id: number; level: string }) {
   const allowed = s.data !== undefined ? tiersAllowed(s.data) : [];
   const options = allowed.includes(level) ? allowed : [...allowed, level];
   return (
-    <span>
-      {t('col_level')}{' '}
-      <select
+    <label className="item-tier">
+      {t('col_level')}
+      <Select
+        size="small"
         value={level}
         onChange={(e) => {
           setError(null);
@@ -48,13 +50,13 @@ function Tier({ id, level }: { id: number; level: string }) {
         }}
       >
         {options.map((n) => (
-          <option key={n} value={n} disabled={!allowed.includes(n)}>
+          <Select.Option key={n} value={n} disabled={!allowed.includes(n)}>
             {n}
-          </option>
+          </Select.Option>
         ))}
-      </select>
-      {error !== null ? <span className="bad"> {error}</span> : null}
-    </span>
+      </Select>
+      {error !== null ? <span className="bad">{error}</span> : null}
+    </label>
   );
 }
 
@@ -192,9 +194,9 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
   return (
     <Block title={t('design_title')} from={from ?? options}>
       {chosen !== '' ? (
-        <h3 className="design-chosen">
+        <SubHeading className="design-chosen">
           <MarkdownInline text={chosen} />
-        </h3>
+        </SubHeading>
       ) : null}
       {round !== undefined ? <DesignOf round={round} shown={shown} /> : null}
       {options !== undefined ? (
@@ -212,9 +214,9 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
               return (
                 <div key={r} className="shown-old">
                   {x !== undefined ? <From x={x} /> : null}
-                  <h3 className="design-chosen">
+                  <SubHeading className="design-chosen">
                     <MarkdownInline text={str(shown.get('chosen')?.find((y) => roundKey(y) === r)?.value)} />
-                  </h3>
+                  </SubHeading>
                   <DesignOf round={r} shown={shown} />
                 </div>
               );
@@ -276,7 +278,10 @@ function Changes({ shown }: { shown: Map<string, Shown[]> }) {
       ))}
       {followup !== undefined ? (
         <div className="change">
-          <span className="decision-label">{t('change_followup')}</span> <From x={followup} />
+          <div className="change-head">
+            <SubHeading>{t('change_followup')}</SubHeading>
+            <From x={followup} />
+          </div>
           <Labelled value={followup.value} />
         </div>
       ) : null}
@@ -294,7 +299,10 @@ function Others({ shown }: { shown: Map<string, Shown[]> }) {
         const x = newest(shown.get(p));
         return x === undefined ? null : (
           <div key={p} className="field">
-            <span className="decision-label">{label(p)}</span> <From x={x} />
+            <div className="change-head">
+              <SubHeading>{label(p)}</SubHeading>
+              <From x={x} />
+            </div>
             <Labelled value={x.value} />
           </div>
         );
@@ -308,8 +316,11 @@ function Linked({ list }: { list: LinkedItem[] }) {
     <ul className="linked">
       {list.map((l) => (
         <li key={l.item.id}>
-          <ItemRef id={l.item.id} title={l.item.title} />{' '}
-          <ItemBadge state={l.item.state} /> <DependencyKind kind={l.kind} />
+          <div className="linked-head">
+            <ItemRef id={l.item.id} title={l.item.title} />
+            <ItemBadge state={l.item.state} />
+            <DependencyKind kind={l.kind} />
+          </div>
           <div className="muted">{l.needs}</div>
         </li>
       ))}
@@ -397,32 +408,40 @@ function Detail({ d }: { d: ItemDetail }) {
     if (at !== '') bringIntoView(at);
   }, [i.id]);
   return (
-    <>
-      <header className="work-head">
-        <h1>
-          {t('item_title', { id: i.id })} <span className="head-item">{i.title}</span>
-          <ItemBadge state={i.state} />
-        </h1>
-        <div className="head-facts">
+    <HeadingLevel.Provider value={2}>
+      <PageHeader as="header" className="item-head">
+        <PageHeader.TitleArea>
+          <PageHeader.Title as="h1">
+            <span className="item-head-id">{t('item_title', { id: i.id })}</span> {i.title}
+          </PageHeader.Title>
+          <PageHeader.TrailingVisual>
+            <ItemBadge state={i.state} />
+          </PageHeader.TrailingVisual>
+        </PageHeader.TitleArea>
+        <PageHeader.Description className="item-head-facts">
           <span>{i.project}</span>
           <Tier id={i.id} level={i.level} />
           <span>
             {t('col_deliver')} {i.deliver}
           </span>
           {i.pr !== null ? <span>PR #{i.pr}</span> : null}
+        </PageHeader.Description>
+      </PageHeader>
+      {i.cancelled ? (
+        <Flash variant="warning" className="item-cancelled">
+          {i.cancelled}
+        </Flash>
+      ) : null}
+      {i.blocked_by.length > 0 || d.level_changes.length > 0 ? (
+        <div className="item-head-notes muted">
+          {i.blocked_by.length > 0 ? (
+            <div>{t('item_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}</div>
+          ) : null}
+          {d.level_changes.map((c, k) => (
+            <div key={k}>{t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) })}</div>
+          ))}
         </div>
-        {i.cancelled ? <div className="why">{i.cancelled}</div> : null}
-        {i.blocked_by.length > 0 ? (
-          <div className="muted">
-            {t('item_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
-          </div>
-        ) : null}
-        {d.level_changes.map((c, k) => (
-          <div key={k} className="muted">
-            {t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) })}
-          </div>
-        ))}
-      </header>
+      ) : null}
       {cards.length > 0 || asks.length > 0 ? (
         <Section title={t('needs_you')} open>
           {asks.map((a) => (
@@ -456,7 +475,7 @@ function Detail({ d }: { d: ItemDetail }) {
         </div>
       ) : null}
       <History d={d} cards={earlierCards} asks={earlierAsks} />
-    </>
+    </HeadingLevel.Provider>
   );
 }
 

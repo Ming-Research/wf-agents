@@ -1,9 +1,10 @@
 // A value an agent handed back whose shape the page does not draw in a way of its own: as labelled text, by its
 // shape, never as a tree of JSON. Text reads as the agent wrote it, a list as a list, an object as its fields each
-// under its name.
+// under its name as a sub-heading.
 
 import type { JsonValue } from './api';
 import { Markdown } from './markdown';
+import { SubHeading } from './parts';
 
 export type Obj = { [key in string]: JsonValue };
 
@@ -52,7 +53,7 @@ export function Labelled({ value }: { value: JsonValue | undefined }) {
     <div className="labelled">
       {fields.map(([k, v]) => (
         <div key={k} className="labelled-field">
-          <span className="decision-label">{label(k)}</span>
+          <SubHeading>{label(k)}</SubHeading>
           <Labelled value={v} />
         </div>
       ))}

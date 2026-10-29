@@ -27,8 +27,8 @@ configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds
 ## Checks
 
 Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as errors, and the tests, on the toolchain
-`rust-toolchain.toml` pins; the page's type check, lint, tests and build, which come before any cargo step that
-compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
+`rust-toolchain.toml` pins; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
+build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out).
 

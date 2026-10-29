@@ -1,5 +1,6 @@
 // Small parts every view uses.
 
+import { Flash, Label, type LabelColorOptions } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { ItemState, JsonValue, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
@@ -156,12 +157,42 @@ export function heldWords(c: Course, why: string | null): string {
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 
+/// The colour of a state, as the UI spec gives each its meaning: going on, waiting for someone, done, gone wrong, or
+/// none of these.
+const WORK_TONE: Record<WorkState, LabelColorOptions> = {
+  running: 'accent',
+  ready: 'secondary',
+  asking: 'attention',
+  waiting: 'attention',
+  paused: 'attention',
+  done: 'success',
+  ended: 'danger',
+};
+
+const ITEM_TONE: Record<ItemState, LabelColorOptions> = {
+  new: 'secondary',
+  queued: 'attention',
+  working: 'accent',
+  done: 'success',
+  stopped: 'danger',
+  cancelled: 'danger',
+};
+
+const OUTCOME_TONE: Record<RoundOutcome, LabelColorOptions> = {
+  running: 'accent',
+  took: 'success',
+  sent_back: 'attention',
+  failed: 'danger',
+  interrupted: 'danger',
+  ended: 'secondary',
+};
+
 export function WorkBadge({ state }: { state: WorkState }) {
-  return <span className={`badge state-${state}`}>{t(`state_${state}`)}</span>;
+  return <Label variant={WORK_TONE[state]}>{t(`state_${state}`)}</Label>;
 }
 
 export function ItemBadge({ state }: { state: ItemState }) {
-  return <span className={`badge item-${state}`}>{t(`item_${state}`)}</span>;
+  return <Label variant={ITEM_TONE[state]}>{t(`item_${state}`)}</Label>;
 }
 
 /// The kind of a dependency in a word, blocking or parallel, with what it means; nothing for none.
@@ -176,12 +207,12 @@ export function DependencyKind({ kind }: { kind: string | null }) {
 }
 
 export function OutcomeBadge({ outcome }: { outcome: RoundOutcome }) {
-  return <span className={`badge outcome-${outcome}`}>{t(`outcome_${outcome}`)}</span>;
+  return <Label variant={OUTCOME_TONE[outcome]}>{t(`outcome_${outcome}`)}</Label>;
 }
 
 /// What a read gives: its view when it came, or that it is still coming, or why it failed.
 export function Loaded<T>({ r, children }: { r: Resource<T>; children: (data: T) => ReactNode }) {
   if (r.data !== undefined) return <>{children(r.data)}</>;
-  if (r.error !== null) return <div className="error">{t('error', { error: r.error })}</div>;
+  if (r.error !== null) return <Flash variant="danger">{t('error', { error: r.error })}</Flash>;
   return <div className="muted">{t('loading')}</div>;
 }

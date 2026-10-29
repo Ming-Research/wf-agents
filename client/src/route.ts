@@ -1,5 +1,6 @@
 // The page's addresses: each view has a path, so it can be reloaded, linked and gone back to.
 
+import { Link as PrimerLink } from '@primer/react';
 import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 
 import { roundName } from './format';
@@ -247,14 +248,19 @@ export function useRoute(): Route {
   }, [at]);
 }
 
-/// A link that moves within the page without loading it again; a click with a modifier key opens it as the browser
-/// would. The click stays with the link, so a link in a row that opens something else when clicked opens only its own.
-export function Link(props: { to: string; className?: string; title?: string; children: ReactNode }) {
+/// A link that moves within the page without loading it again, drawn as Primer's Link (`muted` in small text); a click
+/// with a modifier key opens it as the browser would. The click stays with the link, so a link in a row that opens
+/// something else when clicked opens only its own.
+export function Link(props: { to: string; className?: string; title?: string; muted?: boolean; children: ReactNode }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.stopPropagation();
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     navigate(props.to);
   };
-  return createElement('a', { href: props.to, className: props.className, title: props.title, onClick }, props.children);
+  return createElement(
+    PrimerLink,
+    { href: props.to, className: props.className, title: props.title, muted: props.muted, onClick },
+    props.children,
+  );
 }

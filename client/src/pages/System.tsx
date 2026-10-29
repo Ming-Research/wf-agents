@@ -20,7 +20,7 @@ import { course, heldWords } from '../components';
 import { runningWords, waitsWords } from '../course';
 import { cost, day, duration, roundName, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { ItemRef, RoundLink, Section } from '../parts';
+import { HeadingLevel, ItemRef, RoundLink, Section } from '../parts';
 import { architectHref, href, Link, type Period, PERIODS, workHref } from '../route';
 import { tokens } from '../round';
 import { spendTable } from '../spend';
@@ -42,22 +42,25 @@ export function System({ period }: { period: Period }) {
   });
   return (
     <div className="page sys" onMouseMove={tip.move} onMouseLeave={tip.leave}>
-      <Section {...part(t('sys_now'), t('sys_now_for'))} open>
-        <Now s={s} works={works.data ?? []} status={status} />
-      </Section>
-      <PeriodSwitch period={period} />
-      <Section {...part(t('sys_output'), t('sys_output_for'))} open>
-        <Output s={s} status={status} />
-      </Section>
-      <Section {...part(t('sys_spend'), t('sys_spend_for'))} open>
-        <Spend s={s} />
-      </Section>
-      <Section {...part(t('sys_waste'), t('sys_waste_for'))} open>
-        <Waste s={s} />
-      </Section>
-      <Section {...part(t('sys_anomalies'), t('sys_anomalies_for'))} open>
-        <Anomalies s={s} />
-      </Section>
+      {/* The view's five parts are its own sections, as the UI spec heads a page's sections. */}
+      <HeadingLevel.Provider value={2}>
+        <Section {...part(t('sys_now'), t('sys_now_for'))} open>
+          <Now s={s} works={works.data ?? []} status={status} />
+        </Section>
+        <PeriodSwitch period={period} />
+        <Section {...part(t('sys_output'), t('sys_output_for'))} open>
+          <Output s={s} status={status} />
+        </Section>
+        <Section {...part(t('sys_spend'), t('sys_spend_for'))} open>
+          <Spend s={s} />
+        </Section>
+        <Section {...part(t('sys_waste'), t('sys_waste_for'))} open>
+          <Waste s={s} />
+        </Section>
+        <Section {...part(t('sys_anomalies'), t('sys_anomalies_for'))} open>
+          <Anomalies s={s} />
+        </Section>
+      </HeadingLevel.Provider>
       {tip.shown}
     </div>
   );
