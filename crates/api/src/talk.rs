@@ -110,8 +110,12 @@ fn over_sql() -> String {
 pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> {
     let read_to = reads(conn)?;
     let mut tally: HashMap<String, Tally> = HashMap::new();
-    let mut st =
-        conn.prepare("SELECT conversation, at, sender, waiting, fault IS NOT NULL FROM conversation_entries")?;
+    // An ask the owner answered is read: the owner answered it where it was asked.
+    let mut st = conn.prepare(
+        "SELECT conversation, at, sender, waiting, fault IS NOT NULL,
+                source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL)
+         FROM conversation_entries",
+    )?;
     let rows = st.query_map([], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -119,16 +123,17 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
             r.get::<_, String>(2)?,
             r.get::<_, bool>(3)?,
             r.get::<_, bool>(4)?,
+            r.get::<_, bool>(5)?,
         ))
     })?;
     for row in rows {
-        let (raw, at, sender, waiting, fault) = row?;
+        let (raw, at, sender, waiting, fault, answered) = row?;
         let key = t.key(&raw);
         let read = read_to.get(&key).copied().unwrap_or(0);
         let x = tally.entry(key).or_default();
         if waiting {
             x.waiting += 1;
-        } else if !fault && sender != "owner" && at > read {
+        } else if !fault && !answered && sender != "owner" && at > read {
             x.unread += 1;
         }
         x.last_at = Some(x.last_at.map_or(at, |l| l.max(at)));
