@@ -3,6 +3,10 @@
    these names or Primer's. */
 
 :root {
+  /* The bar's height, as tall as Primer's UnderlineNav: a view that fills the window under it, with parts that scroll
+     on their own (the messages view), takes what is left. */
+  --bar-height: 48px;
+
   /* The chart's corner badges (a cell's reasoning effort, its rounds, a row's number) keep their small text, which
      the owner kept: Primer's smallest text step is 12px. The chart reads it to measure the badges. */
   --chart-badge-text-size: 10px;
