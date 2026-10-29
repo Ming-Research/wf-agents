@@ -6,9 +6,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Compiled, FlowView } from './api';
-import { cellWhere, enteredFrom, leavesTo } from './flow/CellPanel';
+import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
-import { sizes } from './graph/flowDraw';
+import { labelSize, sizes } from './graph/flowDraw';
+import { layoutChart } from './graph/flowLayout';
 import { cellActions, cellNode, chart, moves } from './graph/flowModel';
 import { storeLinks, storeUses } from './graph/stores';
 import { stagesOf } from './item/checklist';
@@ -63,6 +64,65 @@ describe('the flow as the engine stores it', () => {
         }
         expect(() => storeLinks(engine, g, c)).not.toThrow();
         for (const store of Object.keys(engine.stores ?? {})) expect(() => storeUses(engine, g, store)).not.toThrow();
+      });
+
+      it('lays the actions on lines into a cell out just above it, in its box, with no cell between', async () => {
+        const c = chart(g, v, engine);
+        const measured = sizes(g, c);
+        const edges = new Map(c.edges.map((e) => [e.id, e]));
+        const laid = await layoutChart(
+          c,
+          (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+          (id) => {
+            const e = edges.get(id);
+            return e ? labelSize(e, true) : null;
+          },
+        );
+        const box = (id: string) => laid.nodes.get(id) ?? { x: 0, y: 0, width: 0, height: 0 };
+        const nodes = new Map(c.nodes.map((n) => [n.id, n]));
+        for (const n of c.nodes) {
+          const into = nodes.get(cellNode(n.cell));
+          if (n.kind !== 'action' || into === undefined || into.part !== n.part) continue;
+          expect(n.group, n.id).toBe(into.group);
+          const a = box(n.id);
+          const t = box(into.id);
+          expect(a.y + a.height <= t.y, n.id).toBe(true);
+          const between = c.nodes.filter((x) => {
+            const b = box(x.id);
+            return x.kind === 'cell' && x.part === n.part && b.y >= a.y + a.height && b.y + b.height <= t.y;
+          });
+          expect(between.map((x) => x.cell), n.id).toEqual([]);
+        }
+      });
+
+      it('draws the way back from an ask only into the cells whose own answers asked', () => {
+        const c = chart(g, v, engine);
+        const views = new Map(v.cells.map((x) => [x.id, x]));
+        const asked = (t: string, by: string) =>
+          (g.cells.find((x) => x.id === t)?.rows ?? []).some(
+            (r, j) => !r.common && r.fallback !== true && (views.get(t)?.targets[j] ?? []).includes(by),
+          );
+        for (const x of g.cells) {
+          x.rows.forEach((r, i) => {
+            if (r.to !== '@asker') return;
+            for (const t of views.get(x.id)?.targets[i] ?? []) {
+              // Straight into the cell, through the actions beside it, or through the circles between parts.
+              const into = (to: string) =>
+                to === cellNode(t) || to === `o:${t}:${x.id}` || to.startsWith(`a:${t}:`) || to.startsWith(`a:${x.id}>${t}:`);
+              const drawn = c.edges.some((e) => e.cell === x.id && e.rows.includes(i) && into(e.target));
+              expect(drawn, `${x.id} ${r.name} into ${t}`).toBe(asked(t, x.id));
+            }
+          });
+        }
+      });
+
+      it("lists in a cell's panel every move of its own, or names it as in the legend", () => {
+        for (const c of g.cells) {
+          const own = ownMoves(g, c);
+          const listed = new Set([...own.rows.map((i) => c.rows[i].name), ...own.legend]);
+          for (const i of leavesTo(c).moves) expect(listed.has(c.rows[i].name), `${c.id} ${c.rows[i].name}`).toBe(true);
+          for (const m of own.lacks) expect(c.rows.some((r) => r.name === m.row), `${c.id} ${m.row}`).toBe(false);
+        }
       });
 
       it("opens every cell's panel", () => {

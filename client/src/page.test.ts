@@ -15,12 +15,24 @@ import type {
   RoundSummary,
   RoundTokens,
   Status,
+  Use,
   WorkSummary,
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
 import { held, runningWords, stepWhyNot } from './course';
-import { cellTab, cellTabs, cellWhere, enteredFrom, fallbackWords, leavesTo, numbered, telling } from './flow/CellPanel';
-import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
+import {
+  cellTab,
+  cellTabs,
+  cellWhere,
+  counterFirst,
+  enteredFrom,
+  fallbackWords,
+  leavesTo,
+  numbered,
+  ownMoves,
+  telling,
+} from './flow/CellPanel';
+import { conditionsWords, conditionWords, fieldActions, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
@@ -329,9 +341,10 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
 }
 
 // A start; four agent cells, each with the moves of its own its forms give it: every one runs tools and pauses, all
-// but `d` ask `q`, and only `a` searches, which only the engineer line may; `a` and `c` lead into `b` through the
-// same actions, and `d` is reached by no row; an engine step that decides by a value of the engine's and waits through
-// an action; the tools, the search, the pause, an asking part that answers back, and the end.
+// but `d` ask `q`, and only `a` searches, which only the engineer line may; `b` and `c` also go to `q` by answers of
+// their own; `a` and `c` lead into `b` through the same actions, and `d` is reached by no row; an engine step that
+// decides by a value of the engine's and waits through an action; the tools, the search, the pause, an asking part
+// that answers back, and the end.
 // A form as the compiled flow writes it: the field and the lines left out when it has none.
 const form = (field: string | null, lines: string[] | null = null): Form => ({
   say: '',
@@ -380,14 +393,22 @@ const graph: CompiledGraph = {
     ),
     cell(
       'b',
-      [asks, row('done', 'z', { main: true }), row('back', 'a'), move('tools', 't'), move('pause', 'p'), sentBack],
+      [
+        asks,
+        row('done', 'z', { main: true }),
+        row('back', 'a'),
+        move('tools', 't'),
+        move('pause', 'p'),
+        row('unsure', 'q'),
+        sentBack,
+      ],
       { line: 'review', forms: without('search'), always: [told, { at: 'card', view: null, do: 'update_card' }] },
     ),
-    cell('c', [asks, row('ok', 'b', { do: ['lock', 'post'] }), move('tools', 't'), move('pause', 'p'), sentBack], {
-      line: 'observer',
-      forms: without('search'),
-      always: [told],
-    }),
+    cell(
+      'c',
+      [asks, row('ok', 'b', { do: ['lock', 'post'] }), row('unsure', 'q'), move('tools', 't'), move('pause', 'p'), sentBack],
+      { line: 'observer', forms: without('search'), always: [told] },
+    ),
     cell('d', [row('ok', 'm'), move('tools', 't'), move('pause', 'p'), sentBack], {
       forms: without('search', 'ask'),
       always: [told],
@@ -502,8 +523,11 @@ describe('the chart of a flow', () => {
     expect(c.groups.every((g) => g.letter === '')).toBe(true);
   });
 
-  it('draws the actions on rows into the same cell as one node in the middle of their lines', () => {
+  it('draws the actions on rows into the same cell as one node on their way into it, in its box and laid out before it', () => {
     expect(node('a:b:lock+post')).toMatchObject({ kind: 'action', cell: 'b', actions: ['lock', 'post'], group: 'stage:build' });
+    const at = (id: string) => c.nodes.findIndex((n) => n.id === id);
+    expect(at('a:b:lock+post')).toBe(at('c:b') - 1);
+    expect(at('a:m:notify')).toBe(at('c:m') - 1);
     expect(edge('c:a->a:b:lock+post')).toMatchObject({ label: 'done', rows: [1], main: true });
     expect(edge('c:c->a:b:lock+post')).toMatchObject({ label: 'ok', rows: [1] });
     expect(edge('a:b:lock+post->c:b')).toMatchObject({
@@ -570,9 +594,10 @@ describe('the chart of a flow', () => {
     expect(related(c.edges, 'a:b:lock+post->c:b')).toEqual(
       new Set(['a:b:lock+post->c:b', 'c:a->a:b:lock+post', 'c:c->a:b:lock+post']),
     );
-    // The asking part answers back into each cell that asked: pointing at the way into a lights that way alone.
-    expect(related(c.edges, 'i:q:a->c:a')).toEqual(new Set(['i:q:a->c:a', 'c:q->o:a:q']));
-    expect(related(c.edges, 'c:q->o:b:q')).toEqual(new Set(['c:q->o:b:q', 'i:q:b->c:b']));
+    // The asking part answers back into each cell whose own answer asked: pointing at the way into b lights that way
+    // alone.
+    expect(related(c.edges, 'i:q:b->c:b')).toEqual(new Set(['i:q:b->c:b', 'c:q->o:b:q']));
+    expect(related(c.edges, 'c:q->o:c:q')).toEqual(new Set(['c:q->o:c:q', 'i:q:c->c:c']));
     expect(related(c.edges, 'c:t->o:r:t')).toEqual(new Set(['c:t->o:r:t']));
     expect(related(c.edges, 'r:tree:a->c:a')).toEqual(new Set(['r:tree:a->c:a']));
     expect(related(c.edges, null).size).toBe(0);
@@ -580,8 +605,11 @@ describe('the chart of a flow', () => {
 
   it('draws a row to another part as a circle beside the cell, and one beside the cell it comes back into', () => {
     expect(node('o:r:t')).toMatchObject({ kind: 'out', cell: 't', part: 't' });
-    expect(node('o:a:q')).toMatchObject({ kind: 'out', cell: 'q', part: ASKING });
-    expect(node('i:q:a')).toMatchObject({ kind: 'in', cell: 'a', part: MAIN });
+    expect(node('o:b:q')).toMatchObject({ kind: 'out', cell: 'q', part: ASKING });
+    expect(node('i:q:b')).toMatchObject({ kind: 'in', cell: 'b', part: MAIN });
+    // The way back from an ask a cell made by a move, which the legend names, is drawn for no cell.
+    expect(node('o:a:q')).toBeUndefined();
+    expect(node('i:q:a')).toBeUndefined();
     // Back to where the work stopped: from the cell whose row decided it.
     expect(node('i:t:a')).toMatchObject({ kind: 'in', cell: 'a' });
     expect(edge('i:t:a->c:a')).toMatchObject({ label: 'failed', numbers: [[1, 1]] });
@@ -733,6 +761,27 @@ describe("a cell's panel", () => {
     // The main path first.
     expect(leavesTo(cellOf('m')).answers).toEqual([1, 0]);
     expect(fallbackWords(graph, sentBack)).toBe('Sent back to be written again.');
+  });
+
+  it('lists only the moves of its own the legend does not say, and the rest in one line', () => {
+    // A search is drawn as a line and listed; asks, tools and pauses are as in the legend.
+    expect(ownMoves(graph, cellOf('a'))).toEqual({ rows: [5], legend: ['ask_q', 'tools', 'pause'], lacks: [] });
+    // A cell the legend marks as not asking says so.
+    const d = ownMoves(graph, cellOf('d'));
+    expect([d.rows, d.legend, d.lacks.map((m) => m.row)]).toEqual([[], ['tools', 'pause'], ['ask_q']]);
+    // A counter's description once, on the first row that counts it.
+    const k = cell('k', [row('x', 'a', { counts: 'asks' }), row('y', 'b', { counts: 'asks' }), row('z', 'c', { counts: 'turns' })]);
+    expect(counterFirst(k, [1, 0, 2])).toEqual(new Set([1, 2]));
+  });
+
+  it('puts what the engine does every time the return holds a field beside that field, and the rest as what reads it', () => {
+    const uses: Use[] = [
+      { kind: 'check', cell: 'h', check: 'nonempty' },
+      { kind: 'always', cell: 'h', view: null, action: 'apply_effects' },
+      { kind: 'always', cell: 'h', view: 'open_cards', action: null },
+      { kind: 'always', cell: 'g', view: null, action: 'interject_card' },
+    ];
+    expect(fieldActions(uses, 'h')).toEqual(['apply_effects']);
   });
 
   it('shows a condition only where it says more than the row', () => {

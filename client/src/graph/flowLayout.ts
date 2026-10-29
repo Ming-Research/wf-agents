@@ -63,11 +63,22 @@ const options: Record<string, string> = {
 /// is at, which an arrow starts and ends at.
 export const STRAIGHT = 16;
 
-// Inside a stage box elkjs takes the box's own spacing, not the chart's; without this, arrows there left a cell and
-// came into one with a piece too short to carry a head.
+// Inside a stage box elkjs takes the box's own options, not the chart's: without its spacing, arrows there left a cell
+// and came into one with a piece too short to carry a head; without its node placement, the actions on a line into a
+// cell there were placed toward the cells the line leaves, away from the cell they lead into.
 const groupOptions: Record<string, string> = {
   'elk.layered.spacing.edgeNodeBetweenLayers': String(STRAIGHT),
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
   'elk.padding': `[top=${TITLE},left=20,bottom=20,right=20]`,
+};
+
+// The arrow out of the actions on a line points down, is short and straight: the actions are laid out just above the
+// cell they lead into, or the circle that names it, on the way in, rather than anywhere between the cells their lines
+// leave and it.
+const WAY_IN: Record<string, string> = {
+  'elk.layered.priority.direction': '20',
+  'elk.layered.priority.shortness': '20',
+  'elk.layered.priority.straightness': '20',
 };
 
 async function layPart(
@@ -95,6 +106,7 @@ async function layPart(
     inside.forEach((m) => placed.add(m.id));
     children.push({ id: `g:${n.group}`, layoutOptions: groupOptions, children: inside.map((m) => child(m.id)) });
   }
+  const byId = new Map(members.map((n) => [n.id, n]));
   const edges: ElkExtendedEdge[] = c.edges
     .filter((e) => ids.has(e.source) && ids.has(e.target))
     .map((e) => {
@@ -104,6 +116,7 @@ async function layPart(
         sources: [e.source],
         targets: [e.target],
         labels: l ? [{ id: `l:${e.id}`, text: e.label, ...l }] : undefined,
+        layoutOptions: byId.get(e.source)?.kind === 'action' ? WAY_IN : undefined,
       };
     });
   const out: ElkNode = await elk.layout({ id: `part:${part}`, layoutOptions: options, children, edges });

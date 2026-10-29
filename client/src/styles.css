@@ -1711,6 +1711,9 @@ svg.fc {
   font-size: 12px;
   box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
   max-width: min(420px, calc(100vw - 32px));
+  /* No taller than the chart, below the flow's tools over its top left corner; what does not fit scrolls inside. */
+  max-height: calc(100% - 66px);
+  overflow-y: auto;
 }
 
 /* The legend opens from a "?" in the chart's corner, and is the box it opens to. */
@@ -1720,6 +1723,9 @@ svg.fc {
 }
 
 .legend summary {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
   cursor: pointer;
   color: var(--accent);
   list-style: none;
@@ -1734,6 +1740,14 @@ svg.fc {
 
 .legend summary::-webkit-details-marker {
   display: none;
+}
+
+/* Open, the "?" heads the legend across its width and stays at its top while the rest scrolls under it. */
+.legend[open] summary {
+  top: -4px;
+  width: auto;
+  justify-content: flex-start;
+  padding-left: 9px;
 }
 
 .legend ul {

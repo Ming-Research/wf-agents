@@ -1,15 +1,16 @@
 // A flow's state machine as the chart draws it, before it is laid out: the cells, each in the part of the chart it is
 // drawn in and the stage box around it; an arrow for each cell's own answers to another cell in the same part, named,
-// with their numbers for the chart to draw or leave out, through a node in the middle of the line for what the engine
-// does on the rows (lines with the same actions into the same cell share one); a small circle beside a cell for a row
-// to another part, and a shaded one beside the cell it enters; the actions a cell does every time beside it; the rules
-// beside the cells that are given them; the interjection beside the engine's steps that take one; and what the engine
-// does on a row back to whichever cell called, which is not drawn, beside the cell it leaves. What an agent's cell
-// may do of its own (run tools, search, ask, pause, answer, redirect) is drawn in three tiers by how many of the cells
-// that could do it do: every one, in the legend; more than half, in the legend with a mark on each cell that does
-// not; half or fewer, as a line from each cell that does. What the engine does when a round ends in no return is the
-// same for every cell and not drawn. The places the engine keeps what it writes are drawn apart (`stores.tsx`). Pure,
-// so that it is tested on its own.
+// with their numbers for the chart to draw or leave out, through a node for what the engine does on the rows, in the
+// box of the cell the line goes into and just before it (lines with the same actions into the same cell share one);
+// a small circle beside a cell for a row to another part, and a shaded one beside the cell it enters; the actions a
+// cell does every time beside it; the rules beside the cells that are given them; the interjection beside the engine's
+// steps that take one; and what the engine does on a row back to whichever cell called, which is not drawn, beside
+// the cell it leaves. What an agent's cell may do of its own (run tools, search, ask, pause, answer, redirect) is
+// drawn in three tiers by how many of the cells that could do it do: every one, in the legend; more than half, in the
+// legend with a mark on each cell that does not; half or fewer, as a line from each cell that does. The way back from
+// such a move is drawn for no cell: an answer back to whichever cell asked goes only into the cells whose own answers
+// asked. What the engine does when a round ends in no return is the same for every cell and not drawn. The places the
+// engine keeps what it writes are drawn apart (`stores.tsx`). Pure, so that it is tested on its own.
 
 import type { Atom, CompiledCell, CompiledGraph, CompiledRow, EngineNames, GraphView, RoundSummary } from '../api';
 
@@ -338,7 +339,8 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
   for (const c of g.cells) node({ id: cellNode(c.id), kind: 'cell', cell: c.id, other: null });
   // A row to a cell: an arrow within a part; between parts, a circle beside the cell it leaves, and a shaded one
   // beside the cell it enters when it comes back into the main part. A row the engine acts on goes through the node of
-  // its actions, in the part of the cell it leaves: one node for the rows with the same actions into the same cell.
+  // its actions: one node for the rows with the same actions into the same cell, beside that cell and in its box, on
+  // the way in, so that it is not read as part of another line; to another part, beside the circle it leaves by.
   const toCell = (c: CompiledCell, row: number, t: string) => {
     if (!cells.has(t)) return;
     const same = parts.get(t) === parts.get(c.id);
@@ -347,9 +349,6 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     if (acts.length > 0) {
       const id = same ? `a:${t}:${acts.join('+')}` : `a:${c.id}>${t}:${acts.join('+')}`;
       node({ id, kind: 'action', cell: t, other: null, beside: same ? t : c.id, actions: acts });
-      const n = nodes.get(id);
-      // Lines from a cell in another box than the node's go through it outside the boxes.
-      if (n !== undefined && n.group !== groupOf(c.id)) n.group = null;
       arrow(cellNode(c.id), id, c, row);
       from = id;
     }
@@ -368,20 +367,30 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       arrow(into, cellNode(t), c, row);
     }
   };
+  // A row back to whichever cell asked is drawn into each cell whose own answer asked. A cell that asked by a move the
+  // legend names comes back as from any move, which is drawn for no cell, as a row back to the cell that called is not.
+  const askedBy = (t: string, asked: string): boolean =>
+    (cells.get(t)?.rows ?? []).some(
+      (r, i) => !r.common && !fallback(r) && (views.get(t)?.targets[i] ?? [r.to]).includes(asked),
+    );
   // What the engine does on a row back to the cell that called, which is not drawn, is drawn beside the cell.
   const back = new Map<string, string[]>();
+  const besideCell = (c: CompiledCell, r: CompiledRow) => {
+    const acts = back.get(c.id) ?? [];
+    for (const a of rowActions(r)) if (!acts.includes(a)) acts.push(a);
+    if (acts.length > 0) back.set(c.id, acts);
+  };
   for (const c of g.cells) {
     const cv = views.get(c.id);
     c.rows.forEach((r, i) => {
       if (fallback(r) || (r.common && !drawn.has(r.name))) return;
       if (r.to === SELF || r.to === CALLER) {
-        const acts = back.get(c.id) ?? [];
-        for (const a of rowActions(r)) if (!acts.includes(a)) acts.push(a);
-        if (acts.length > 0) back.set(c.id, acts);
+        besideCell(c, r);
         return;
       }
       if (r.to === STOPPED) return;
-      const targets = r.to === ASKER ? (cv?.targets[i] ?? []) : [r.to];
+      const targets = r.to === ASKER ? (cv?.targets[i] ?? []).filter((t) => askedBy(t, c.id)) : [r.to];
+      if (targets.length === 0) besideCell(c, r);
       for (const t of targets) toCell(c, i, t);
     });
   }
@@ -460,7 +469,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
   }
   const partList = [MAIN, ...new Set([...parts.values()].filter((p) => p !== MAIN))];
   return {
-    nodes: [...nodes.values()],
+    nodes: wayIn([...nodes.values()], parts),
     edges: [...edges.values()],
     groups,
     parts: partList,
@@ -468,6 +477,19 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     shared: acting.shared,
     notes,
   };
+}
+
+/// The nodes in the order the chart is laid out by, each node of the actions on lines into a cell of its own part
+/// just before that cell, so that the layout, which keeps that order from top to bottom, puts it on the way in.
+function wayIn(all: ChartNode[], parts: Map<string, string>): ChartNode[] {
+  const into = (n: ChartNode) => n.kind === 'action' && n.part === (parts.get(n.cell) ?? MAIN);
+  const out: ChartNode[] = [];
+  for (const n of all) {
+    if (into(n)) continue;
+    if (n.kind === 'cell') out.push(...all.filter((a) => into(a) && a.cell === n.cell));
+    out.push(n);
+  }
+  return out;
 }
 
 /// The arrows that light up with the arrow under the pointer: itself; on the way on, the arrow out of the actions it

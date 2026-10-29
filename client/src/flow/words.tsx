@@ -5,6 +5,7 @@
 import { Fragment, type ReactNode } from 'react';
 
 import type { Atom, CompiledCell, Src, Use } from '../api';
+import { actionWords } from '../graph/flowModel';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 
@@ -255,15 +256,45 @@ function CheckLine({ check }: { check: string }) {
   );
 }
 
-/// The uses of a field: first the checks on it, each with what it checks; then what else reads it, after a label.
+/// What the engine does every time the cell's return holds a field, where the field is: the action in words and what
+/// it does.
+function ActionLine({ action }: { action: string }) {
+  const f = useFlow();
+  return (
+    <div className="use-check">
+      <span className="ul">{t('row_action')}</span>
+      {actionWords(action)} <span className="fw">{f.compiled.engine.actions[action] ?? ''}</span>
+    </div>
+  );
+}
+
+/// The action the engine does every time `here`'s return holds the field, if a use is one.
+function doneHere(u: Use, here: string): string | null {
+  return u.kind === 'always' && u.cell === here && u.action != null ? u.action : null;
+}
+
+/// What the engine does every time `here`'s return holds a field, by the field's uses.
+export function fieldActions(uses: Use[], here: string): string[] {
+  return uses.flatMap((u) => {
+    const a = doneHere(u, here);
+    return a !== null ? [a] : [];
+  });
+}
+
+/// The uses of a field: first the checks on it, each with what it checks, and what the engine does every time the
+/// return holds it; then what else reads it, after a label.
 export function Uses({ uses, here, label }: { uses: Use[]; here: string; label?: string }) {
   if (uses.length === 0) return null;
   const checks = uses.flatMap((u) => (u.kind === 'check' ? [u.check] : []));
-  const rest = uses.filter((u) => u.kind !== 'check');
+  const actions = fieldActions(uses, here);
+  const rest = uses.filter((u) => u.kind !== 'check' && doneHere(u, here) === null);
   return (
     <>
       {checks.map((k, i) => (
         <CheckLine key={`${k}:${i}`} check={k} />
+      ))}
+      {actions.map((a, i) => (
+        <ActionLine key={`${a}:${i}`} action={a} />
       ))}
       {rest.length > 0 ? (
         <div className="uses">

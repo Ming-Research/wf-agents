@@ -1,7 +1,7 @@
 // What a cell hands back, as the owner's approved page showed it: for an agent's cell, the field that holds exactly
 // one form, each form it may hand in as a block of its own with "or" between them, then the fields every return
-// holds; each field with its type, whether it may be left out, what it is, its values and what reads it, and the
-// fields it holds folded away behind a toggle.
+// holds; each field with its type, whether it may be left out, what it is, its values, the checks on it, what the
+// engine does every time the return holds it and what reads it, and the fields it holds folded away behind a toggle.
 
 import { createContext, Fragment, useContext, useState } from 'react';
 

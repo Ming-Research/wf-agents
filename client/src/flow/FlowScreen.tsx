@@ -14,7 +14,7 @@ import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
 import { t } from '../text';
-import { CellPanel, type CellTab, cellDoes, cellWhere } from './CellPanel';
+import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
@@ -331,7 +331,7 @@ export function FlowScreen(props: FlowScreenProps) {
               {where !== null ? <span className="panel-where"> ({where})</span> : null}
             </>
           ),
-          who: cellDoes(x.g, c),
+          who: null,
           body: (
             <CellPanel
               c={c}

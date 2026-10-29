@@ -1,13 +1,13 @@
-// A cell, as its panel explains it: under its title, where it stands on the chart when the chart does not show it
-// plainly, and what the engine does every time it returns; then tabs. For an agent's cell: its inputs, first the
-// message as the engine sends it every time the cell is entered, in the order sent (why the round happens, what is
-// given, the task word for word, what to work from, the review table if any, what to hand in), with what the engine
-// fills in each round shown as a placeholder, then the conditional inputs that message gives or points at by their
-// numbers; what it hands back, each field with the checks on it, what is shown on the item and what others read;
-// where it is entered from and where it leaves to, by kind: its own answers, the moves it makes of its own, and the
-// engine's fallback apart. For an engine step, a tool or the owner: what the step does and what it reads, which never
-// goes into any agent's context, and the same after. A work's chart adds its rounds at the cell; a comparison, what
-// changed.
+// A cell, as its panel explains it: after its title, where it stands on the chart when the chart does not show it
+// plainly; then tabs. For an agent's cell: its inputs, first the message as the engine sends it every time the cell
+// is entered, in the order sent (why the round happens, what is given, the task word for word, what to work from, the
+// review table if any, what to hand in), with what the engine fills in each round shown as a placeholder, then the
+// conditional inputs that message gives or points at by their numbers; what it hands back, each field with the checks
+// on it and what the engine does every time the return holds it, what is shown on the item and what others read;
+// where it is entered from and where it leaves to, by kind: what the engine does every time with no field to set it
+// off, its own answers, the moves it makes of its own that the legend does not say, and the engine's fallback apart.
+// For an engine step, a tool or the owner: what the step does and what it reads, which never goes into any agent's
+// context, and the same after. A work's chart adds its rounds at the cell; a comparison, what changed.
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
@@ -27,7 +27,7 @@ import type {
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
 import { styleOf } from '../graph/flowDraw';
-import { actionWords, cellActions, fallback, letterOf, rowActions } from '../graph/flowModel';
+import { actionWords, fallback, letterOf, type Move, moves, rowActions } from '../graph/flowModel';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { type Key, t } from '../text';
@@ -66,24 +66,6 @@ export function cellWhere(g: CompiledGraph, c: CompiledCell): string | null {
   }
   if (styleOf(c) === 'line-other' && c.line != null) parts.push(t('panel_line', { line: c.line }));
   return parts.length > 0 ? parts.join('; ') : null;
-}
-
-/// The line under a cell's title: what the engine does every time the cell returns what sets it off, or, at a cell
-/// a work ends at, as the work ends; none for a cell that does nothing every time but what every agent's cell does.
-export function cellDoes(g: CompiledGraph, c: CompiledCell): ReactNode {
-  const own = cellActions(g).own.get(c.id) ?? [];
-  if (own.length === 0) return null;
-  const at = (a: string) => (c.always ?? []).find((x) => x.do === a)?.at ?? null;
-  return inline(
-    t('panel_does', {
-      actions: own
-        .map((a) => {
-          const on = at(a);
-          return on !== null ? t('panel_does_on', { action: actionWords(a), at: `\`${on}\`` }) : actionWords(a);
-        })
-        .join('; '),
-    }),
-  );
 }
 
 /// The tabs of a cell's panel.
@@ -552,6 +534,37 @@ export function leavesTo(c: CompiledCell): { answers: number[]; moves: number[];
   };
 }
 
+/// The moves of its own a cell's panel lists, apart from what the legend says of every cell: the rows of the moves
+/// drawn as lines, and of any the legend does not name, by their places; the moves the legend gives this cell with the
+/// others, by name, for one line saying so; and the moves the legend gives most cells that could make them, which this
+/// one does not.
+export function ownMoves(g: CompiledGraph, c: CompiledCell): { rows: number[]; legend: string[]; lacks: Move[] } {
+  const all = moves(g);
+  const rows: number[] = [];
+  const legend: string[] = [];
+  for (const i of leavesTo(c).moves) {
+    const m = all.find((x) => x.row === c.rows[i].name);
+    if (m === undefined || m.tier === 'lines' || !m.cells.includes(c.id)) rows.push(i);
+    else if (!legend.includes(m.row)) legend.push(m.row);
+  }
+  const lacks = all.filter((m) => m.tier === 'marked' && m.could.includes(c.id) && !m.cells.includes(c.id));
+  return { rows, legend, lacks };
+}
+
+/// The rows of a cell whose counter's description its panel gives, in the order it lists them: the first row of each
+/// counter; the others name the counter alone.
+export function counterFirst(c: CompiledCell, listed: number[]): Set<number> {
+  const seen = new Set<string>();
+  const out = new Set<number>();
+  for (const i of listed) {
+    const k = c.rows[i]?.counts;
+    if (k == null || seen.has(k)) continue;
+    seen.add(k);
+    out.add(i);
+  }
+  return out;
+}
+
 /// The longest a condition is written out before it is folded.
 const LONG = 140;
 
@@ -570,18 +583,20 @@ function Condition({ r }: { r: CompiledRow }) {
   );
 }
 
-/// One row the cell leaves by: its number, name and target, and what the engine does on it, counts and records.
-function RowItem({ c, i, on }: { c: CompiledCell; i: number; on: boolean }) {
+/// One row the cell leaves by: its number, name and target, and what the engine does on it, counts and records; the
+/// main path only on the cell's own answers, a move being on none; the counter's description where `counter` says.
+function RowItem({ c, i, on, counter }: { c: CompiledCell; i: number; on: boolean; counter: boolean }) {
   const f = useFlow();
   const r = c.rows[i];
   const acts = rowActions(r);
+  const counted = counter ? (f.g.counters.find((k) => k.name === r.counts)?.desc ?? '') : '';
   return (
     <li className={on ? 'tt-on' : undefined}>
       <RowNo row={i} />
       <div className="tb">
         <div>
           <strong>{r.name}</strong> → <Target c={c} row={i} />
-          {r.main ? <span className="tag tag-main">{t('row_main')}</span> : null}
+          {r.main && !r.common ? <span className="tag tag-main">{t('row_main')}</span> : null}
           {r.waits ? <span className="tag">{t('row_waits')}</span> : null}
           {r.pauses ? <span className="tag">{t('row_pauses')}</span> : null}
           {r.interject ? <span className="tag">{t('row_interjection')}</span> : null}
@@ -602,7 +617,7 @@ function RowItem({ c, i, on }: { c: CompiledCell; i: number; on: boolean }) {
           <div className="tx">
             <span className="ul">{t('row_counts')}</span>
             <code>{r.counts}</code>
-            <span className="fw">{f.g.counters.find((k) => k.name === r.counts)?.desc ?? ''}</span>
+            {counter ? <span className="fw">{counted}</span> : null}
           </div>
         ) : null}
         {Object.entries(r.sets ?? {}).length > 0 ? (
@@ -668,6 +683,9 @@ function Route({ c, highlight, onReturns }: { c: CompiledCell; highlight: number
   const f = useFlow();
   const into = enteredFrom(f.g, f.cellView(c.id)?.entered_from ?? [], c.id);
   const out = leavesTo(c);
+  const own = ownMoves(f.g, c);
+  const counter = counterFirst(c, [...out.answers, ...own.rows]);
+  const does = c.actions ?? [];
   const none = into.answers.length + into.back.length + into.moves.length === 0 && !into.fallback;
   return (
     <>
@@ -715,22 +733,47 @@ function Route({ c, highlight, onReturns }: { c: CompiledCell; highlight: number
         {into.fallback ? <p className="fmt">{t('entered_fallback')}</p> : null}
       </Section>
       <Section title={t('sec_leaves')}>
+        {does.length > 0 ? (
+          <div className="tx">
+            <span className="ul">{t('leaves_does')}</span>
+            {does.map((a, j) => (
+              <span key={a} title={f.compiled.engine.actions[a] ?? ''}>
+                {j > 0 ? ' · ' : null}
+                {actionWords(a)}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {out.answers.length + out.moves.length + out.fallback.length === 0 ? <p className="fmt">{t('leaves_none')}</p> : null}
         {out.answers.length > 0 ? (
           <ol className="tt">
             {out.answers.map((i) => (
-              <RowItem key={i} c={c} i={i} on={highlight.includes(i)} />
+              <RowItem key={i} c={c} i={i} on={highlight.includes(i)} counter={counter.has(i)} />
             ))}
           </ol>
         ) : null}
-        {out.moves.length > 0 ? (
+        {own.rows.length + own.lacks.length + own.legend.length > 0 ? (
           <>
             <h5 className="ds-sub">{t('leaves_moves')}</h5>
-            <ol className="tt">
-              {out.moves.map((i) => (
-                <RowItem key={i} c={c} i={i} on={highlight.includes(i)} />
-              ))}
-            </ol>
+            {own.rows.length > 0 ? (
+              <ol className="tt">
+                {own.rows.map((i) => (
+                  <RowItem key={i} c={c} i={i} on={highlight.includes(i)} counter={counter.has(i)} />
+                ))}
+              </ol>
+            ) : null}
+            {own.lacks.length > 0 ? (
+              <ul className="bl">
+                {own.lacks.map((m) => (
+                  <li key={m.row} title={t(m.engine ? 'leaves_lacks_engine' : 'chart_lacks_title', { cell: c.id, move: actionWords(m.row), to: m.to })}>
+                    {t('chart_lacks', { move: actionWords(m.row) })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {own.legend.length > 0 ? (
+              <p className="fmt">{t('leaves_moves_legend', { moves: own.legend.map(actionWords).join(', ') })}</p>
+            ) : null}
           </>
         ) : null}
         {out.fallback.length > 0 ? (
