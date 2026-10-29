@@ -400,7 +400,7 @@ merge_checks = ["check"]
 fn scripts() -> BTreeMap<&'static str, Script> {
     let mut s: BTreeMap<&'static str, Script> = BTreeMap::new();
     s.insert(
-        "choose",
+        "design.choose",
         Box::new(|_: &Request, _: usize| {
             (
                 vec![
@@ -415,11 +415,11 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     s.insert(
-        "rethink_design",
+        "design.rethink",
         Box::new(|_: &Request, _: usize| (vec![("outcome.better", "no")], Vec::new())),
     );
     s.insert(
-        "adversarial_needed",
+        "design.adversarial_needed",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "no")], Vec::new())),
     );
     // Implementing: the first round changes the code and asks for ci; the second hands in the end.
@@ -446,7 +446,7 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     s.insert(
-        "table_review",
+        "test.table_review",
         Box::new(|r: &Request, _: usize| {
             let cols: Vec<Value> = columns(&r.prompt)
                 .into_iter()
@@ -474,7 +474,7 @@ fn quiet(e: &mut Engine) {
         let wake = tx.last_insert_rowid();
         tx.execute(
             "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-             VALUES (?1, 1, 'what_runs', '{}', '{}', 'done', 'c', ?2, ?2)",
+             VALUES (?1, 1, 'handle.what_runs', '{}', '{}', 'done', 'c', ?2, ?2)",
             params![wake, db::now()],
         )?;
         tx.execute(
@@ -604,9 +604,9 @@ fn an_item_goes_from_the_queue_to_main() {
         "start:started",
         "implement:tools",
         "tools:ran",
-        "full_ci:review_first",
-        "blind_review:done",
-        "merge_queue:merged",
+        "test.full_ci:review_first",
+        "test.blind_review:done",
+        "merge.queue:merged",
         "watch_main:green",
         "end:-",
     ] {
@@ -632,12 +632,12 @@ fn an_item_goes_from_the_queue_to_main() {
                 .unwrap();
         db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
     };
-    let columns = input_of("table_review")["engine"]["columns"].to_string();
+    let columns = input_of("test.table_review")["engine"]["columns"].to_string();
     assert!(!columns.contains("a gap in what is under test"), "{columns}");
     assert!(!columns.contains("cross-project dependency"), "{columns}");
     assert!(columns.contains("unsure facts"), "{columns}");
     // The review line's session is given the worktree once, at its first round, the blind review.
-    let blind = input_of("blind_review");
+    let blind = input_of("test.blind_review");
     let message = blind["message"].as_str().unwrap_or_default();
     assert!(
         message.contains("you only read it, and change and commit nothing there"),
@@ -657,7 +657,7 @@ fn building_a_message_writes_nothing() {
     }
     let log = said.borrow().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "stands", "{log}");
+    assert_eq!(at, "research.stands", "{log}");
     // The work runs on a flow version the engine no longer has built in.
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -697,7 +697,7 @@ fn building_a_message_writes_nothing() {
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
     let m = engine::next_message(&mut r, work).unwrap();
-    assert!(m.text.contains("cell stands"), "{}", m.text);
+    assert!(m.text.contains("cell research.stands"), "{}", m.text);
     drop(r);
     assert_eq!(state_of(), before);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -736,12 +736,12 @@ fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
                 [work, round],
             )?;
             let card = tx.last_insert_rowid();
-            tx.execute("UPDATE works SET at = 'merge_gate' WHERE id = ?1", [work])?;
+            tx.execute("UPDATE works SET at = 'merge.gate' WHERE id = ?1", [work])?;
             Ok(card)
         })
         .unwrap();
     let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!(next.cell, "merge_gate", "{log}");
+    assert_eq!(next.cell, "merge.gate", "{log}");
     assert_eq!(
         next.waits.as_deref(),
         Some(format!("the owner's ruling on design card {card}").as_str()),
@@ -770,7 +770,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
     let s = setup("earlier-attempt");
     let mut agents = scripts();
     agents.insert(
-        "rethink_design",
+        "design.rethink",
         Box::new(|r: &Request, n: usize| {
             let wt = &r.worktree;
             if n == 1 {
@@ -791,7 +791,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
             e.db.conn()
                 .prepare(
                     "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
-                     WHERE w.item = ?1 AND r.cell = 'rethink_design' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
+                     WHERE w.item = ?1 AND r.cell = 'design.rethink' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
                 )
                 .unwrap();
         st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -951,7 +951,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
-        "rethink_design",
+        "design.rethink",
         Box::new(move |r: &Request, n: usize| {
             if n == 1 {
                 main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
@@ -970,7 +970,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     );
     let (mut e, said, item) = start(&s, agents);
     step_to(&mut e, item, "implement");
-    let rethinks = ended_at(&e, item, "rethink_design");
+    let rethinks = ended_at(&e, item, "design.rethink");
     assert_eq!(rethinks.len(), 1, "{rethinks:?}\n{}", said.borrow().join("\n"));
     assert!(rethinks[0].0.is_some(), "{rethinks:?}");
     let (work, _, _) = state(&e, item).unwrap();
@@ -1006,7 +1006,7 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
-        "rethink_design",
+        "design.rethink",
         Box::new(move |r: &Request, n: usize| {
             let wt = &r.worktree;
             if n == 1 {
@@ -1025,13 +1025,13 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
     );
     let (mut e, said, item) = start(&s, agents);
     for _ in 0..40 {
-        if ended_at(&e, item, "rethink_design").iter().any(|(t, _)| t.is_some()) {
+        if ended_at(&e, item, "design.rethink").iter().any(|(t, _)| t.is_some()) {
             break;
         }
         e.step(None).unwrap();
     }
     let log = said.borrow().join("\n");
-    let rounds = ended_at(&e, item, "rethink_design");
+    let rounds = ended_at(&e, item, "design.rethink");
     assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
     let first = rounds[0].1.clone().unwrap_or_default();
     assert!(
@@ -1163,10 +1163,10 @@ fn an_ask_waiting_for_its_answer_offers_no_round() {
     let (work, _, _) = state(&e, item).unwrap();
     let ask =
         e.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE works SET at = 'to_owner' WHERE id = ?1", [work])?;
+            tx.execute("UPDATE works SET at = 'ask.owner' WHERE id = ?1", [work])?;
             let round = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'to_owner', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'ask.owner', '{}', 'c', 1)",
                 [work, round],
             )?;
             tx.execute(
@@ -1211,10 +1211,10 @@ fn a_settled_row_leaves_the_fix_table() {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, ?2, 'full_ci', '{}', ?3, 'next', 'c', 1, 2)",
+                 VALUES (?1, ?2, 'test.full_ci', '{}', ?3, 'next', 'c', 1, 2)",
                 params![work, next_round(tx, work)?, output.to_string()],
             )?;
-            tx.execute("UPDATE works SET at = 'fix' WHERE id = ?1", [work])?;
+            tx.execute("UPDATE works SET at = 'test.fix' WHERE id = ?1", [work])?;
             Ok(())
         })
         .unwrap();
@@ -1271,7 +1271,7 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let s = setup("tell");
     let mut scripts = scripts();
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(|_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -1286,7 +1286,7 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert!(at != "start" && at != "research", "{log}");
+    assert!(at != "start" && at != "research.problem", "{log}");
     let (cell, text, read): (String, String, Option<i64>) = e
         .db
         .conn()
@@ -1298,7 +1298,7 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
         .unwrap();
     assert_eq!(
         (cell.as_str(), text.as_str(), read),
-        ("research", "The item's example does not run as written.", None)
+        ("research.problem", "The item's example does not run as written.", None)
     );
     assert_eq!(told(&s, "tells you: The item's example"), 1);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -1331,7 +1331,7 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     }
     let log = said.borrow().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "stands", "{log}");
+    assert_eq!(at, "research.stands", "{log}");
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -1340,13 +1340,13 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
                 |r| r.get(0),
             )
             .unwrap();
-    // The engine stops while cell `stands` runs.
+    // The engine stops while cell `research.stands` runs.
     let cut = e
         .db
         .write(Actor::Engine, |tx| {
             let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, 'stands', ?3, '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, 'research.stands', ?3, '{}', 'c', 1)",
                 params![work, n, session],
             )?;
             Ok(n)
@@ -1355,11 +1355,11 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     e.step(None).unwrap();
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = rounds.last().unwrap();
-    assert_eq!(cell, "stands");
+    assert_eq!(cell, "research.stands");
     let m = input["message"].as_str().unwrap();
     assert!(
         m.starts_with(&format!(
-            "# {id} · cell stands\n\nR{work}-{cut} was cut off midway. First look at the worktree"
+            "# {id} · cell research.stands\n\nR{work}-{cut} was cut off midway. First look at the worktree"
         )),
         "{m}"
     );
@@ -1370,8 +1370,8 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
 
 // When the flow moves to a new version, a work on the old one is not taken over when the engine starts: the owner still
 // answers its asks. Once it goes on, it stops, saying why, and its item gets a new work at once: it takes over the
-// branch, the worktree and the pull request, its cell `research` is told what exists, and what the owner answered stays
-// the owner's answer. An item whose works ended can be queued again.
+// branch, the worktree and the pull request, its cell `research.problem` is told what exists, and what the owner
+// answered stays the owner's answer. An item whose works ended can be queued again.
 #[test]
 fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     let s = setup("version");
@@ -1490,7 +1490,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     let input: String =
         e.db.conn()
             .query_row(
-                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'research'",
+                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'research.problem'",
                 [new],
                 |r| r.get(0),
             )
@@ -1562,10 +1562,13 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
         )
     };
     let left = open_round(&mut e);
-    e.pause(work, "cell research: the return does not fit").unwrap();
+    e.pause(work, "cell research.problem: the return does not fit").unwrap();
     let (ended, why) = rejected(&e, left);
     assert!(ended.is_some());
-    assert_eq!(why, json!({ "error": "cell research: the return does not fit" }));
+    assert_eq!(
+        why,
+        json!({ "error": "cell research.problem: the return does not fit" })
+    );
     let told: String =
         e.db.conn()
             .query_row("SELECT text FROM engine_notices WHERE work = ?1", [work], |r| r.get(0))
@@ -1583,7 +1586,7 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     assert!(ended.is_some(), "{log}");
     assert_eq!(
         why,
-        json!({ "error": "the work was paused: cell research: the return does not fit" }),
+        json!({ "error": "the work was paused: cell research.problem: the return does not fit" }),
         "{log}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -1646,14 +1649,14 @@ fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
     let s = setup("gate-preview");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..40 {
-        if state(&e, item).is_some_and(|(_, at, _)| at == "gap_under_test") {
+        if state(&e, item).is_some_and(|(_, at, _)| at == "design.gap_under_test") {
             break;
         }
         e.step(None).unwrap();
     }
     let log = said.borrow().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "gap_under_test", "{log}");
+    assert_eq!(at, "design.gap_under_test", "{log}");
     let next = engine::next_round(&mut e, work).unwrap();
     assert_eq!((next.kind.as_str(), &next.message, &next.line), ("agent", &None, &None));
     let why = next.not_asked.unwrap_or_default();
@@ -1665,7 +1668,7 @@ fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
     let (output, input): (String, String) =
         e.db.conn()
             .query_row(
-                "SELECT output, input FROM rounds WHERE work = ?1 AND cell = 'gap_under_test'",
+                "SELECT output, input FROM rounds WHERE work = ?1 AND cell = 'design.gap_under_test'",
                 [work],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -1700,7 +1703,7 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
                 )?;
                 let item = tx.last_insert_rowid();
                 tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'research')",
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'research.problem')",
                     params![item, v],
                 )?;
                 items.push(item);
@@ -1739,8 +1742,8 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An item imported with a branch and its pull request takes them over in its first work, and its cell `research` is
-// told where it came from.
+// An item imported with a branch and its pull request takes them over in its first work, and its cell
+// `research.problem` is told where it came from.
 #[test]
 fn an_imported_item_takes_over_its_branch_and_pull_request() {
     let s = setup("imported");
@@ -1790,7 +1793,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let mut scripts = scripts();
     let max = pause_after();
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(move |_: &Request, n: usize| {
             let bad = vec![("outcome", json!("the JSON text of an object"))];
             (Vec::new(), if n <= max { bad } else { Vec::new() })
@@ -1819,7 +1822,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "research", "{log}");
+    assert_ne!(at, "research.problem", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1881,7 +1884,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..100 {
         e.tick().unwrap();
-        if agent_rounds(&e, item).iter().any(|r| r.1 == "blind_review") {
+        if agent_rounds(&e, item).iter().any(|r| r.1 == "test.blind_review") {
             break;
         }
     }
@@ -1898,13 +1901,13 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
         let m = input["message"].as_str().unwrap();
         assert!(m.starts_with(&format!("# {id} · cell {cell} · ")), "{m}");
     }
-    let (first, second) = (&at("research"), &at("stands"));
+    let (first, second) = (&at("research.problem"), &at("research.stands"));
     let (work, _, _) = state(&e, item).unwrap();
     let workspace = format!("work:{work}");
     for a in [
         "format:common",
-        "format:research",
-        "inputs:research",
+        "format:research.problem",
+        "inputs:research.problem",
         "rule:ground",
         "rule:general",
         "rule:engineering",
@@ -1919,7 +1922,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let m = first["message"].as_str().unwrap();
     assert!(m.contains("\n1. item:"), "{m}");
     assert!(m.contains(&format!("Worktree: {workspace}")), "{m}");
-    assert_eq!(given(second, "format:stands"), Some(true));
+    assert_eq!(given(second, "format:research.stands"), Some(true));
     // The project guide is an input every agent's cell has: given in a session's first round, before anything else,
     // referred to after, and given again to the review's session.
     let guide = |input: &Value| -> Option<(String, bool)> {
@@ -1929,13 +1932,13 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
                 .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
         })
     };
-    let (address, sent) = guide(first).expect("the project guide in cell research's round");
+    let (address, sent) = guide(first).expect("the project guide in cell research.problem's round");
     assert!(sent, "{address}");
     let m = first["message"].as_str().unwrap();
     let at_guide = m.find(&format!("### {address}")).unwrap();
     assert!(at_guide < m.find("### format:common").unwrap(), "{m}");
     assert_eq!(guide(second).map(|g| g.1), Some(false));
-    assert_eq!(guide(&at("blind_review")).map(|g| g.1), Some(true));
+    assert_eq!(guide(&at("test.blind_review")).map(|g| g.1), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
     let m = first["message"].as_str().unwrap();
@@ -1947,21 +1950,21 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
     assert!(m.contains("- items (id, project, title, "), "{m}");
     assert!(!m.contains("CREATE TABLE"), "{m}");
-    let design = &rounds.iter().rev().find(|r| r.1 == "choose").unwrap().0;
-    let acceptance = format!("{design}·choose·acceptance");
+    let design = &rounds.iter().rev().find(|r| r.1 == "design.choose").unwrap().0;
+    let acceptance = format!("{design}·design.choose·acceptance");
     assert_eq!(
-        given(&at("adversarial_needed"), &acceptance),
+        given(&at("design.adversarial_needed"), &acceptance),
         Some(false),
         "{}",
-        at("adversarial_needed")
+        at("design.adversarial_needed")
     );
     // Implementing starts a new session, which holds nothing: the acceptance is given whole again.
     assert_eq!(given(&at("implement"), &acceptance), Some(true), "{}", at("implement"));
     assert_eq!(
-        given(&at("blind_review"), &acceptance),
+        given(&at("test.blind_review"), &acceptance),
         Some(true),
         "{}",
-        at("blind_review")
+        at("test.blind_review")
     );
     assert!(
         !rounds
@@ -2026,7 +2029,7 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     let s = setup("again");
     let mut scripts = scripts();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@compactions", json!(1))])),
     );
     let (mut e, said, item) = start(&s, scripts);
@@ -2040,7 +2043,11 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     let log = said.borrow().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["research", "stands", "compare"], "{log}");
+    assert_eq!(
+        &cells[..3],
+        ["research.problem", "research.stands", "design.compare"],
+        "{log}"
+    );
     let (a, b, c) = (&rounds[0].2, &rounds[1].2, &rounds[2].2);
     assert_eq!(given(b, "rule:ground"), Some(true));
     assert_ne!(hash_of(a, "rule:ground"), hash_of(b, "rule:ground"));
@@ -2063,7 +2070,7 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     assert_eq!(given(c, "format:common"), Some(true));
     assert_eq!(given(c, "rule:ground"), Some(true));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
-    let understanding = format!("{}·research·understanding", rounds[0].0);
+    let understanding = format!("{}·research.problem·understanding", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
     assert!(m.contains(&format!("compacted in {}", rounds[1].0)), "{m}");
@@ -2107,7 +2114,11 @@ fn a_works_own_edits_to_its_design_tree_do_not_give_the_guide_again() {
     let log = said.borrow().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["research", "stands", "compare"], "{log}");
+    assert_eq!(
+        &cells[..3],
+        ["research.problem", "research.stands", "design.compare"],
+        "{log}"
+    );
     let (address, sent) = guide_in(&rounds[0].2).unwrap();
     assert!(sent, "{address}");
     for (id, _, input) in &rounds[1..3] {
@@ -2141,7 +2152,11 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
     let log = said.borrow().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["research", "stands", "compare"], "{log}");
+    assert_eq!(
+        &cells[..3],
+        ["research.problem", "research.stands", "design.compare"],
+        "{log}"
+    );
     let (first, _) = guide_in(&rounds[0].2).unwrap();
     let (changed, sent) = guide_in(&rounds[1].2).unwrap();
     assert!(sent, "{changed}");
@@ -2191,11 +2206,11 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "stands", "{log}");
+    assert_eq!(at, "research.stands", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
         paused.starts_with(&format!(
-            "cell stands: the message of R{work}-3 was not sent, since it would repeat what its session holds: \
+            "cell research.stands: the message of R{work}-3 was not sent, since it would repeat what its session holds: \
              rule:ground (12 characters) would be given whole again, though the session got the same content in \
              R{work}-2 as rule:elsewhere"
         )),
@@ -2222,7 +2237,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let s = setup("pause");
     let mut scripts = scripts();
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
     );
     let (mut e, said, item) = start(&s, scripts);
@@ -2259,11 +2274,11 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     }
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "research", "{log}");
+    assert_eq!(at, "research.problem", "{log}");
     assert!(
         paused
             .as_deref()
-            .is_some_and(|p| p.starts_with("2 returns of cell research in a row were sent back")),
+            .is_some_and(|p| p.starts_with("2 returns of cell research.problem in a row were sent back")),
         "{paused:?}\n{log}"
     );
     // After a return sent back the message only says why, and that the return is to be rewritten.
@@ -2271,21 +2286,22 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (id, _, again) = &rounds[1];
     let m = again["message"].as_str().unwrap();
     assert!(
-        m.starts_with(&format!("# {id} · cell research\n\nYour return was sent back: "))
-            && m.ends_with("\nRewrite it (format:research).\n"),
+        m.starts_with(&format!(
+            "# {id} · cell research.problem\n\nYour return was sent back: "
+        )) && m.ends_with("\nRewrite it (format:research.problem).\n"),
         "{m}"
     );
     assert_eq!(again["conditional"], json!([]));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// The engine over a setup whose cell `research` ends its first `times` runs without a return, the CLI reporting
-/// `report`.
+/// The engine over a setup whose cell `research.problem` ends its first `times` runs without a return, the CLI
+/// reporting `report`.
 fn failing(name: &str, report: String, times: usize) -> (Setup, Engine, Rc<RefCell<Vec<String>>>, i64) {
     let s = setup(name);
     let mut scripts = scripts();
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(move |_: &Request, n: usize| {
             let fail = vec![("@error", json!(report))];
             (Vec::new(), if n <= times { fail } else { Vec::new() })
@@ -2357,7 +2373,7 @@ fn a_usage_limit_stops_every_work_until_it_resets() {
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "research", "{log}");
+    assert_ne!(at, "research.problem", "{log}");
     assert_eq!(failed_kinds(&e), ["usage_limit"]);
     assert_eq!(sent_back(&e), 0);
     assert_eq!(told(&s, "usage_limit"), 1);
@@ -2381,7 +2397,7 @@ fn no_network_stops_every_work_until_it_is_back() {
     e.tick().unwrap();
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None);
-    assert_ne!(at, "research");
+    assert_ne!(at, "research.problem");
     assert_eq!(failed_kinds(&e), ["offline"]);
     assert_eq!(sent_back(&e), 0);
     assert_eq!(told(&s, "offline"), 1);
@@ -2395,13 +2411,13 @@ fn a_passing_failure_runs_again_until_it_passes() {
     let (s, mut e, said, item) = failing("transient", "API Error: 529 Overloaded".to_string(), 3);
     for _ in 0..10 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "research" {
+        if state(&e, item).unwrap().1 != "research.problem" {
             break;
         }
     }
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_ne!(at, "research", "{log}");
+    assert_ne!(at, "research.problem", "{log}");
     assert_eq!(paused, None, "{log}");
     assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
     assert_eq!(sent_back(&e), 0);
@@ -2427,7 +2443,7 @@ fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "research", "{log}");
+    assert_ne!(at, "research.problem", "{log}");
     assert_eq!(failed_kinds(&e), ["cannot_run"]);
     assert_eq!(sent_back(&e), 0);
     let asks: i64 =
@@ -2451,7 +2467,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     }
     let log = said.borrow().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "research", "{log}");
+    assert_eq!(at, "research.problem", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(paused.contains("prompt_too_long"), "{paused}");
     // The owner is told when the outbox is carried out, at the start of the next pass; the paused work stays.
@@ -2462,14 +2478,14 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     api::resume(&mut e.db, work).unwrap();
     for _ in 0..5 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "research" {
+        if state(&e, item).unwrap().1 != "research.problem" {
             break;
         }
     }
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "research", "{log}");
+    assert_ne!(at, "research.problem", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -2488,9 +2504,9 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     let s = setup("pause_round");
     let mut scripts = scripts();
     let path = config::database(&s.data);
-    // The owner pauses the work on the page while the round of cell `research` runs.
+    // The owner pauses the work on the page while the round of cell `research.problem` runs.
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(move |_: &Request, _: usize| {
             let mut db = db::Db::open(&path).unwrap();
             let work: i64 = db
@@ -2509,13 +2525,13 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     e.step(first.work).unwrap();
     let log = said.borrow().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "stands", "{log}");
+    assert_eq!(at, "research.stands", "{log}");
     assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER), "{log}");
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
     let took: Option<String> =
         e.db.conn()
             .query_row(
-                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'research'",
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'research.problem'",
                 [work],
                 |r| r.get(0),
             )
@@ -2550,13 +2566,13 @@ fn start_all_lifts_no_work_s_own_pause() {
     api::resume(&mut e.db, work).unwrap();
     assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
     assert_eq!(rounds_count(&e), n + 1);
-    e.pause(work, "cell stands: the return does not fit").unwrap();
+    e.pause(work, "cell research.stands: the return does not fit").unwrap();
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
     let log = said.borrow().join("\n");
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new(), "{log}");
     assert_eq!(
         state(&e, item).unwrap().2.as_deref(),
-        Some("cell stands: the return does not fit")
+        Some("cell research.stands: the return does not fit")
     );
     api::resume(&mut e.db, work).unwrap();
     assert_eq!(e.step(Some(work)).unwrap().work, Some(work));
@@ -2584,7 +2600,7 @@ fn a_step_runs_one_round_of_a_paused_work_which_stays_paused() {
     assert_ne!(at, before, "{log}");
     assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER));
     assert_eq!(e.step(Some(work)).unwrap().work, None);
-    e.pause(work, "cell stands: the return does not fit").unwrap();
+    e.pause(work, "cell research.stands: the return does not fit").unwrap();
     let stepped = e.step_work(work).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(stepped.rounds.len(), 1, "{stepped:?}\n{log}");
@@ -2617,7 +2633,7 @@ fn a_work_s_pause_is_kept_across_a_restart() {
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
     api::resume(&mut e.db, work).unwrap();
-    e.pause(work, "cell research: the return does not fit").unwrap();
+    e.pause(work, "cell research.problem: the return does not fit").unwrap();
     drop(e);
     let (mut e, _) = engine(&s, scripts());
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
@@ -2690,7 +2706,7 @@ fn project_of(r: &Request) -> String {
 fn picks_first(s: &Setup, scripts: &mut BTreeMap<&'static str, Script>) {
     let path = config::database(&s.data);
     scripts.insert(
-        "pick",
+        "pick.choose",
         Box::new(move |r: &Request, _: usize| {
             let c = db::open_read(&path).unwrap();
             let first: i64 = c
@@ -2823,7 +2839,7 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
                          "reason": "Clearer." });
     let given = change.clone();
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -2835,7 +2851,7 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
         }),
     );
     agents.insert(
-        "review",
+        "batch.review",
         Box::new(|_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -2852,7 +2868,7 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     say(&mut e, "Make the parser's item clearer.");
     let woke = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("wake"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("wake.start"), "{log}");
     let wake = woke.work.unwrap();
     let project: Option<String> =
         e.db.conn()
@@ -2868,18 +2884,18 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
     assert_eq!(
         path_of(&e, wake),
         [
-            "wake",
-            "understood",
-            "state",
-            "policy_right",
-            "fit",
-            "anything",
-            "route",
-            "owner_words",
-            "batch_done",
-            "review",
-            "rethink",
-            "anything",
+            "wake.start",
+            "wake.understood",
+            "understand.state",
+            "understand.policy",
+            "understand.fit",
+            "pick.anything",
+            "pick.route",
+            "handle.owner_words",
+            "handle.batch_done",
+            "batch.review",
+            "batch.rethink",
+            "pick.anything",
             "wrap_up",
             "record"
         ],
@@ -2940,11 +2956,15 @@ fn a_wake_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
         (r["cell"].as_str().unwrap().to_string(), args[at + 1].clone())
     })
     .collect();
-    assert!(schemas.iter().any(|x| x.0 == "rethink"), "{schemas:?}");
+    assert!(schemas.iter().any(|x| x.0 == "batch.rethink"), "{schemas:?}");
     assert!(schemas.iter().all(|x| x.1 == schemas[0].1), "{schemas:?}");
     // The wrap-up is referred to the state of things its session wrote at the understanding, not given it again.
     let wrap_up = &inputs_at(&e, wake, "wrap_up")[0];
-    assert_eq!(given_ending(wrap_up, "·state·state"), Some(false), "{wrap_up}");
+    assert_eq!(
+        given_ending(wrap_up, "·understand.state·state"),
+        Some(false),
+        "{wrap_up}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -2962,13 +2982,13 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
     let work =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'research')",
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'research.problem')",
                 params![item, v],
             )?;
             Ok(tx.last_insert_rowid())
         })
         .unwrap();
-    let wake = wake_at(&mut e, "state");
+    let wake = wake_at(&mut e, "understand.state");
     let mut lines = 0;
     for id in [work, wake] {
         let w = e.work(id).unwrap();
@@ -3031,14 +3051,14 @@ fn a_resumed_session_goes_from_waking_to_the_queue() {
     assert_eq!(
         path_of(&e, second),
         [
-            "wake",
-            "understood",
-            "anything",
-            "route",
-            "owner_words",
-            "batch_done",
-            "rethink",
-            "anything",
+            "wake.start",
+            "wake.understood",
+            "pick.anything",
+            "pick.route",
+            "handle.owner_words",
+            "handle.batch_done",
+            "batch.rethink",
+            "pick.anything",
             "wrap_up",
             "record"
         ],
@@ -3071,7 +3091,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let s = setup("question");
     let mut agents = scripts();
     agents.insert(
-        "research",
+        "research.problem",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return (
@@ -3092,7 +3112,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let reply = json!({ "text": "Keep it one work.", "why": "Both changes share their tests." });
     let given = reply.clone();
     agents.insert(
-        "ways",
+        "handle.ways",
         Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", given.clone())])),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -3100,7 +3120,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
         e.db.conn()
             .query_row(
                 "SELECT r.output, r.ended_at FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = 'to_architect' ORDER BY r.n DESC LIMIT 1",
+                 WHERE w.item = ?1 AND r.cell = 'ask.architect' ORDER BY r.n DESC LIMIT 1",
                 [item],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -3127,11 +3147,15 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let log = said.borrow().join("\n");
     assert!(replied, "{log}");
     let path = path_of(&e, wake);
-    let at = path.iter().position(|c| c == "crux").expect(&log);
-    assert_eq!(&path[at - 1..at + 3], ["route", "crux", "ways", "batch_done"], "{log}");
+    let at = path.iter().position(|c| c == "handle.crux").expect(&log);
+    assert_eq!(
+        &path[at - 1..at + 3],
+        ["pick.route", "handle.crux", "handle.ways", "handle.batch_done"],
+        "{log}"
+    );
     // The ways were given the crux by its address in the session, not again.
-    let ways = message_at(&e, wake, "ways", false);
-    assert!(ways.contains("·crux·crux"), "{ways}");
+    let ways = message_at(&e, wake, "handle.ways", false);
+    assert!(ways.contains("·handle.crux·crux"), "{ways}");
     assert!(ways.contains("What is asked is whether to split the work"), "{ways}");
     let (output, _) = question(&e).unwrap();
     let output: Value = serde_json::from_str(&output.unwrap()).unwrap();
@@ -3141,12 +3165,12 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
         e.db.conn()
             .query_row(
                 "SELECT q.transition, r.cell FROM rounds q JOIN rounds r ON r.work = q.work AND r.n = q.n + 1
-                 WHERE q.work = ?1 AND q.cell = 'to_architect'",
+                 WHERE q.work = ?1 AND q.cell = 'ask.architect'",
                 [work],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-    assert_eq!((took.as_str(), next.as_str()), ("answered", "way_on"), "{log}");
+    assert_eq!((took.as_str(), next.as_str()), ("answered", "ask.way_on"), "{log}");
     assert_eq!(matters(&e), [("engineer_question".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3158,7 +3182,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     let s = setup("revise");
     let mut agents = scripts();
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(|_: &Request, _: usize| {
             let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "parser", "reason": "r" });
             (
@@ -3168,7 +3192,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
         }),
     );
     agents.insert(
-        "review",
+        "batch.review",
         Box::new(|_: &Request, n: usize| {
             let row = if n == 1 {
                 json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
@@ -3181,7 +3205,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     );
     let path = config::database(&s.data);
     agents.insert(
-        "revise",
+        "batch.revise",
         Box::new(move |_: &Request, _: usize| {
             let c = db::open_read(&path).unwrap();
             let matter: i64 = c
@@ -3211,8 +3235,12 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     );
     let log = said.borrow().join("\n");
     let path = path_of(&e, wake);
-    let at = path.iter().position(|c| c == "review").expect(&log);
-    assert_eq!(&path[at..at + 4], ["review", "revise", "review", "rethink"], "{log}");
+    let at = path.iter().position(|c| c == "batch.review").expect(&log);
+    assert_eq!(
+        &path[at..at + 4],
+        ["batch.review", "batch.revise", "batch.review", "batch.rethink"],
+        "{log}"
+    );
     let title: String =
         e.db.conn()
             .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
@@ -3238,7 +3266,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(|r: &Request, _: usize| {
             if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
                 return (
@@ -3269,17 +3297,17 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     let log = said.borrow().join("\n");
     let path = path_of(&e, wake);
-    let asked = path.iter().position(|c| c == "to_owner").expect(&log);
+    let asked = path.iter().position(|c| c == "ask.owner").expect(&log);
     assert_eq!(
         &path[asked - 1..asked + 6],
         [
-            "owner_words",
-            "to_owner",
-            "batch_done",
-            "anything",
-            "route",
-            "owner_words",
-            "batch_done"
+            "handle.owner_words",
+            "ask.owner",
+            "handle.batch_done",
+            "pick.anything",
+            "pick.route",
+            "handle.owner_words",
+            "handle.batch_done"
         ],
         "{log}"
     );
@@ -3294,7 +3322,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
             )
             .unwrap();
     let ask = held.1.expect(&log);
-    assert_eq!((held.2.as_deref(), held.3), (Some("owner_words"), None), "{log}");
+    assert_eq!((held.2.as_deref(), held.3), (Some("handle.owner_words"), None), "{log}");
     assert_eq!(
         matters(&e),
         [
@@ -3320,10 +3348,14 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     let log = said.borrow().join("\n");
     let path = path_of(&e, again);
-    let at = path.iter().position(|c| c == "route").expect(&log);
-    assert_eq!(&path[at..at + 3], ["route", "owner_words", "batch_done"], "{log}");
+    let at = path.iter().position(|c| c == "pick.route").expect(&log);
+    assert_eq!(
+        &path[at..at + 3],
+        ["pick.route", "handle.owner_words", "handle.batch_done"],
+        "{log}"
+    );
     assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_owner_words"));
-    let answered = message_at(&e, again, "owner_words", false);
+    let answered = message_at(&e, again, "handle.owner_words", false);
     assert!(answered.contains("Yes, hold it."), "{answered}");
     let handled: Option<i64> =
         e.db.conn()
@@ -3349,7 +3381,7 @@ fn the_search_of_observations_hands_back_candidates() {
     git(&s.data, &["commit", "-q", "-am", "the observer's level"]);
     let mut agents = scripts();
     agents.insert(
-        "take_in",
+        "handle.take_in",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let search = json!({ "look_for": "A slow parse of large files.", "tags": [], "purpose": "same" });
@@ -3411,7 +3443,13 @@ fn the_search_of_observations_hands_back_candidates() {
     let at = path.iter().position(|c| c == "search").expect(&log);
     assert_eq!(
         &path[at - 2..at + 3],
-        ["what_is_it", "take_in", "search", "take_in", "batch_done"],
+        [
+            "handle.what_is_it",
+            "handle.take_in",
+            "search",
+            "handle.take_in",
+            "handle.batch_done"
+        ],
         "{log}"
     );
     let (line, model): (String, String) =
@@ -3424,7 +3462,7 @@ fn the_search_of_observations_hands_back_candidates() {
             )
             .unwrap();
     assert_eq!((line.as_str(), model.as_str()), ("observer", "m-cheap"));
-    let back = message_at(&e, wake, "take_in", true);
+    let back = message_at(&e, wake, "handle.take_in", true);
     assert!(back.contains("It records the same slowness."), "{back}");
     // The observer writes what the owner reads in the owner's language, as every line does.
     let search = message_at(&e, wake, "search", false);
@@ -3448,7 +3486,7 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     let s = setup("policy-stays");
     let mut agents = scripts();
     agents.insert(
-        "policy_right",
+        "understand.policy",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return (vec![("outcome.verdict", "set_again")], Vec::new());
@@ -3477,7 +3515,14 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     let log = said.borrow().join("\n");
     assert_eq!(
         path_of(&e, wake),
-        ["wake", "understood", "state", "policy_right", "study", "owner_reads"],
+        [
+            "wake.start",
+            "wake.understood",
+            "understand.state",
+            "understand.policy",
+            "policy.study",
+            "policy.owner_reads"
+        ],
         "{log}"
     );
     let holds = |e: &Engine| -> Vec<(String, String)> {
@@ -3508,10 +3553,10 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     let rows = cells_of(&e, wake);
     let at = rows
         .iter()
-        .position(|c| c.0 == "owner_reads" && c.1.is_some())
+        .position(|c| c.0 == "policy.owner_reads" && c.1.is_some())
         .expect(&log);
     assert_eq!(rows[at].1.as_deref(), Some("policy_stays"), "{log}");
-    assert_eq!(rows[at + 1].0, "fit", "{log}");
+    assert_eq!(rows[at + 1].0, "understand.fit", "{log}");
     assert_eq!(holds(&e), Vec::<(String, String)>::new(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3539,14 +3584,14 @@ fn two_projects_architects_send_each_other_messages() {
     git(&s.data, &["commit", "-q", "-m", "a second project"]);
     let mut agents = scripts();
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(|_: &Request, _: usize| {
             let message = json!({ "project": "q", "text": "Does q still need the old format?" });
             (Vec::new(), vec![("outcome.effects", json!({ "messages": [message] }))])
         }),
     );
     agents.insert(
-        "answer_architect",
+        "handle.answer_architect",
         Box::new(|r: &Request, _: usize| {
             if project_of(r) == "q" {
                 return (Vec::new(), vec![("outcome.answer.reply", json!("No, drop it."))]);
@@ -3585,7 +3630,10 @@ fn two_projects_architects_send_each_other_messages() {
     let ws = projects(&e);
     let names: Vec<&str> = ws.iter().map(|w| w.1.as_str()).collect();
     assert_eq!(names, ["p", "q", "p"], "{log}");
-    assert!(path_of(&e, ws[1].0).contains(&"answer_architect".to_string()), "{log}");
+    assert!(
+        path_of(&e, ws[1].0).contains(&"handle.answer_architect".to_string()),
+        "{log}"
+    );
     let messages: Vec<(String, String, String)> = {
         let mut st =
             e.db.conn()
@@ -3623,7 +3671,7 @@ fn side_reports_come_to_the_architect_as_reports() {
         })
     };
     agents.insert(
-        "research",
+        "research.problem",
         reporting(json!({ "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true })),
     );
     let (mut e, said, _) = start(&s, agents);
@@ -3640,7 +3688,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
     let woke = e.step(work).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("wake"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("wake.start"), "{log}");
     let wake = woke.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| wake_done(e, wake)),
@@ -3648,7 +3696,7 @@ fn side_reports_come_to_the_architect_as_reports() {
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
-    assert!(path_of(&e, wake).contains(&"what_is_it".to_string()), "{log}");
+    assert!(path_of(&e, wake).contains(&"handle.what_is_it".to_string()), "{log}");
     assert_eq!(matters(&e), [("report".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3686,7 +3734,7 @@ fn a_design_card_the_architect_finds_unsound_is_told_to_the_engineer() {
     );
     let look = "Decision 1 chose an approach that does not hold in the whole: the parser already does this.";
     agents.insert(
-        "card_sound",
+        "handle.card_sound",
         Box::new(move |_: &Request, _: usize| {
             (
                 vec![("outcome.card", "unsound")],
@@ -3736,7 +3784,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
     let mut agents = scripts();
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let pause = json!({ "kind": "pause_work", "item": 1, "reason": "It waits for the parser." });
@@ -3750,7 +3798,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     say(&mut e, "Stop the feature until the parser is in.");
     let woke = e.step(Some(work)).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("wake"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("wake.start"), "{log}");
     let wake = woke.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
     assert!(steps_until(&mut e, 40, stopped), "{}", said.borrow().join("\n"));
@@ -3834,11 +3882,11 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     say(&mut e, "Look at the queue.");
     let wake = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| ran(e, wake, "state").is_some()),
+        steps_until(&mut e, 10, |e| ran(e, wake, "understand.state").is_some()),
         "{}",
         said.borrow().join("\n")
     );
-    let (model, call) = ran(&e, wake, "state").unwrap();
+    let (model, call) = ran(&e, wake, "understand.state").unwrap();
     let want = (
         "m-two".to_string(),
         json!("2"),
@@ -3855,7 +3903,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, project)
-                 SELECT NULL, flow_version, graph, 'fresh_read', project FROM works WHERE id = ?1",
+                 SELECT NULL, flow_version, graph, 'policy.fresh_read', project FROM works WHERE id = ?1",
                 [wake],
             )?;
             Ok(tx.last_insert_rowid())
@@ -3863,7 +3911,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
         .unwrap();
     e.step_work(reading).unwrap();
     let log = said.borrow().join("\n");
-    let (model, call) = ran(&e, reading, "fresh_read").expect(&log);
+    let (model, call) = ran(&e, reading, "policy.fresh_read").expect(&log);
     assert_eq!(at_level(&model, &call), want, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3876,7 +3924,7 @@ fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
     let (mut e, said) = engine(&s, scripts());
     let woke = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(woke.cell.as_deref(), Some("wake"), "{log}");
+    assert_eq!(woke.cell.as_deref(), Some("wake.start"), "{log}");
     let wake = woke.work.unwrap();
     let body: String =
         e.db.conn()
@@ -3892,7 +3940,7 @@ fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
         "{}",
         said.borrow().join("\n")
     );
-    assert!(path_of(&e, wake).contains(&"what_runs".to_string()));
+    assert!(path_of(&e, wake).contains(&"handle.what_runs".to_string()));
     assert_eq!(e.step(None).unwrap().work, None);
     let count = |e: &Engine| -> i64 {
         e.db.conn()
@@ -3915,7 +3963,7 @@ fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
     .unwrap();
     let again = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("wake"), "{log}");
+    assert_eq!(again.cell.as_deref(), Some("wake.start"), "{log}");
     assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3984,7 +4032,11 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     say(&mut e, "Look at the queue.");
     let first = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("wake"), 1), "{log}");
+    assert_eq!(
+        (first.cell.as_deref(), first.rounds.len()),
+        (Some("wake.start"), 1),
+        "{log}"
+    );
     let wake = first.work.unwrap();
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
@@ -3992,14 +4044,14 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     let log = said.borrow().join("\n");
     assert_eq!(
         (second.cell.as_deref(), second.rounds.len()),
-        (Some("understood"), 1),
+        (Some("wake.understood"), 1),
         "{log}"
     );
     let third = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(wake), Some("state"), 1),
+        (Some(wake), Some("understand.state"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, wake).as_deref(), Some("owner"));
@@ -4041,7 +4093,7 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
             let merged_round = json!({ "result": { "verdict": "merged", "merge_commit": merged } });
             for (n, cell, output, row) in [
                 (1, "implement", implemented, "done"),
-                (2, "merge_queue", merged_round, "merged"),
+                (2, "merge.queue", merged_round, "merged"),
             ] {
                 tx.execute(
                     "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
@@ -4213,7 +4265,7 @@ fn given_ending(input: &Value, end: &str) -> Option<bool> {
 fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     let s = setup("rotate");
     let (mut e, said, item) = start(&s, scripts());
-    step_to(&mut e, item, "next_step");
+    step_to(&mut e, item, "test.next_step");
     let (work, _, _) = state(&e, item).unwrap();
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
@@ -4240,10 +4292,10 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     let item_address = format!("item:{item}");
     for end in [
         item_address.as_str(),
-        "·research·understanding",
-        "·choose·chosen",
-        "·choose·estimate",
-        "·cross_project·progress",
+        "·research.problem·understanding",
+        "·design.choose·chosen",
+        "·design.choose·estimate",
+        "·design.cross_project·progress",
     ] {
         assert_eq!(
             given_ending(implements[0], end),
@@ -4258,7 +4310,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
             implements[1]["conditional"]
         );
     }
-    move_to(&mut e, work, "fix");
+    move_to(&mut e, work, "test.fix");
     e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let lines = line_sessions(&e, work, "engineer");
@@ -4266,16 +4318,16 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert!(lines[1].1, "{lines:?}");
     assert_eq!(
         (lines[2].0.as_str(), lines[2].1, lines[2].2.as_str()),
-        ("cell", false, "fix"),
+        ("cell", false, "test.fix"),
         "{log}"
     );
-    move_to(&mut e, work, "fix");
+    move_to(&mut e, work, "test.fix");
     e.step(None).unwrap();
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.borrow().join("\n"));
-    assert_eq!(lines[2].2, "fix,fix");
+    assert_eq!(lines[2].2, "test.fix,test.fix");
     let rounds = agent_rounds(&e, item);
-    let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "fix").map(|r| &r.2).collect();
+    let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "test.fix").map(|r| &r.2).collect();
     for end in [
         item_address.as_str(),
         "·choose·acceptance",
@@ -4306,13 +4358,13 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     let s = setup("limit");
     let mut scripts = scripts();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 499_997))])),
     );
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "compare", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "design.compare", "{}", said.borrow().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
@@ -4323,14 +4375,14 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(
         lines,
         [
-            ("line".to_string(), true, "research,stands".to_string()),
-            ("limit".to_string(), false, "compare".to_string())
+            ("line".to_string(), true, "research.problem,research.stands".to_string()),
+            ("limit".to_string(), false, "design.compare".to_string())
         ],
         "{log}"
     );
     let rounds = agent_rounds(&e, item);
     let two = &rounds[2].2;
-    for a in ["format:common", "format:compare", "rule:ground"] {
+    for a in ["format:common", "format:design.compare", "rule:ground"] {
         assert_eq!(given(two, a), Some(true), "{a}");
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
@@ -4346,15 +4398,15 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let s = setup("warm");
     let mut scripts = scripts();
     scripts.insert(
-        "research",
+        "research.problem",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
     );
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.5, 9_500))])),
     );
     scripts.insert(
-        "compare",
+        "design.compare",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(3.0, 10_000))])),
     );
     let seen: Rc<RefCell<Vec<Replayed>>> = Rc::default();
@@ -4375,7 +4427,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "compare", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "design.compare", "{}", said.borrow().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
@@ -4394,7 +4446,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     for (waited, _) in &pings {
         assert_eq!(
             *waited,
-            json!({ "cell": "compare", "on": "pause", "what": "to look at it" })
+            json!({ "cell": "design.compare", "on": "pause", "what": "to look at it" })
         );
     }
     // Each ping cost what the session grew by since the call before it.
@@ -4423,7 +4475,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let cost: f64 =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND cell = 'compare'",
+                "SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND cell = 'design.compare'",
                 [work],
                 |r| r.get(0),
             )
@@ -4439,7 +4491,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let s = setup("no-warm");
     let mut scripts = scripts();
     scripts.insert(
-        "adversarial_needed",
+        "design.adversarial_needed",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "no")], vec![("@usage", used(1.0, 9_000))])),
     );
     let (mut e, said, item) = start(&s, scripts);
@@ -4449,7 +4501,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let from = last_call(&e, work);
     assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
-    move_to(&mut e, work, "adversarial_needed");
+    move_to(&mut e, work, "design.adversarial_needed");
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -4463,7 +4515,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             let n = next_round(tx, work)?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (?1, ?2, 'adversarial_needed', ?3, '{}', 'c', ?4)",
+                 VALUES (?1, ?2, 'design.adversarial_needed', ?3, '{}', 'c', ?4)",
                 params![work, n, session, from],
             )?;
             Ok(n)
@@ -4491,22 +4543,22 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     let s = setup("warm-owner");
     let mut scripts = scripts();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
     );
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "compare", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "design.compare", "{}", said.borrow().join("\n"));
     let ask =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "UPDATE works SET at = 'to_owner', resume_at = 'compare', waiting = '[\"compare\"]' WHERE id = ?1",
+                "UPDATE works SET at = 'ask.owner', resume_at = 'design.compare', waiting = '[\"design.compare\"]' WHERE id = ?1",
                 [work],
             )?;
             let round = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'to_owner', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'ask.owner', '{}', 'c', 1)",
                 [work, round],
             )?;
             tx.execute(
@@ -4526,7 +4578,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     let pings = pings_of(&e, work);
     assert_eq!(
         pings[0].0,
-        json!({ "cell": "to_owner", "on": "owner", "what": format!("the owner's answer to ask {ask}") })
+        json!({ "cell": "ask.owner", "on": "owner", "what": format!("the owner's answer to ask {ask}") })
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -4543,7 +4595,7 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     let read: Rc<RefCell<Option<GivenAgain>>> = Rc::default();
     let seen = read.clone();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(move |r: &Request, _: usize| {
             let file = r.regive.clone().unwrap();
             let text = std::fs::read_to_string(&file).unwrap_or_default();
@@ -4555,13 +4607,13 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     agent_rounds_to(&mut e, item, 2);
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
-    assert_eq!(cell, "stands", "{}", said.borrow().join("\n"));
+    assert_eq!(cell, "research.stands", "{}", said.borrow().join("\n"));
     let (file, text) = read.borrow().clone().expect("the file the hook gives again");
     // The session holds the shared formats, so the message only refers to them; the file gives them whole.
     assert_eq!(given(input, "format:common"), Some(false));
     assert!(
         text.starts_with(&format!("Your session was compacted in the middle of {id}"))
-            && text.contains(&format!("# {id} · cell stands"))
+            && text.contains(&format!("# {id} · cell research.stands"))
             && text.contains("### format:common"),
         "{text}"
     );
@@ -4586,7 +4638,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let mut scripts = scripts();
     let data = s.data.clone();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(move |r: &Request, _: usize| {
             // What the hook does after a tool use, while the owner interjects.
             let mut db = engine::database::open(&data).unwrap();
@@ -4620,7 +4672,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let log = said.borrow().join("\n");
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
-    assert_eq!(cell, "stands", "{log}");
+    assert_eq!(cell, "research.stands", "{log}");
     let (work, _, _) = state(&e, item).unwrap();
     let (transition, delivered): (Option<String>, Option<i64>) =
         e.db.conn()
@@ -4667,15 +4719,15 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     assert_eq!(
         line_sessions(&e, work, "engineer"),
         [
-            ("line".to_string(), true, "research,stands".to_string()),
-            ("model".to_string(), false, "compare".to_string())
+            ("line".to_string(), true, "research.problem,research.stands".to_string()),
+            ("model".to_string(), false, "design.compare".to_string())
         ],
         "{log}"
     );
     let model: String =
         e.db.conn()
             .query_row(
-                "SELECT model FROM rounds WHERE work = ?1 AND cell = 'compare'",
+                "SELECT model FROM rounds WHERE work = ?1 AND cell = 'design.compare'",
                 [work],
                 |r| r.get(0),
             )
@@ -4684,16 +4736,19 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Before the owner approves a new policy, `holds_up` asks of the draft the question `policy_right` asks of the policy
-// in force: one that holds goes on to the owner's approval, and one that would need setting again at once goes back to
-// correct the text.
+// Before the owner approves a new policy, `policy.holds_up` asks of the draft the question `understand.policy` asks of
+// the policy in force: one that holds goes on to the owner's approval, and one that would need setting again at once
+// goes back to correct the text.
 #[test]
 fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
-    for (verdict, then) in [("holds", "owner_approves"), ("needs_setting_again", "correct")] {
+    for (verdict, then) in [
+        ("holds", "policy.owner_approves"),
+        ("needs_setting_again", "policy.correct"),
+    ] {
         let s = setup(&format!("p11-{verdict}"));
         let mut agents = scripts();
         agents.insert(
-            "holds_up",
+            "policy.holds_up",
             Box::new(move |_: &Request, _: usize| (vec![("outcome.report", verdict)], Vec::new())),
         );
         let (mut e, said) = engine(&s, agents);
@@ -4702,7 +4757,7 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
         let wake =
             e.db.write(Actor::Engine, |tx| {
                 tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'holds_up', 'p')",
+                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'policy.holds_up', 'p')",
                     [v],
                 )?;
                 Ok(tx.last_insert_rowid())
@@ -4710,15 +4765,16 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
             .unwrap();
         e.step_work(wake).unwrap();
         let log = said.borrow().join("\n");
-        let (at, transition): (String, Option<String>) =
-            e.db.conn()
-                .query_row(
-                    "SELECT w.at, (SELECT r.transition FROM rounds r WHERE r.work = w.id AND r.cell = 'holds_up')
+        let (at, transition): (String, Option<String>) = e
+            .db
+            .conn()
+            .query_row(
+                "SELECT w.at, (SELECT r.transition FROM rounds r WHERE r.work = w.id AND r.cell = 'policy.holds_up')
                      FROM works w WHERE w.id = ?1",
-                    [wake],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .unwrap();
+                [wake],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!((at.as_str(), transition.as_deref()), (then, Some(verdict)), "{log}");
         let _ = std::fs::remove_dir_all(&s.root);
     }
@@ -4789,7 +4845,7 @@ fn the_first_wake_is_told_the_week_before_it_and_every_item_not_done() {
             )?;
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, resume_at, paused, paused_by)
-                 VALUES (?1, ?2, 'engineer', 'to_owner', 'implement', 'later', 'owner')",
+                 VALUES (?1, ?2, 'engineer', 'ask.owner', 'implement', 'later', 'owner')",
                 params![asking, v],
             )?;
             tx.execute(
@@ -4803,7 +4859,7 @@ fn the_first_wake_is_told_the_week_before_it_and_every_item_not_done() {
             )?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, 1, 'merge_queue', '{}', '{\"result\":{\"merge_commit\":\"abc\"}}', 'merged', 'c', ?2, ?2)",
+                 VALUES (?1, 1, 'merge.queue', '{}', '{\"result\":{\"merge_commit\":\"abc\"}}', 'merged', 'c', ?2, ?2)",
                 params![tx.last_insert_rowid(), ago],
             )?;
             Ok((stopped, asking, tools))
@@ -4812,11 +4868,11 @@ fn the_first_wake_is_told_the_week_before_it_and_every_item_not_done() {
     say(&mut e, "Look at the items.");
     let wake = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "state")),
+        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "understand.state")),
         "{}",
         said.borrow().join("\n")
     );
-    let m = message_at(&e, wake, "state", false);
+    let m = message_at(&e, wake, "understand.state", false);
     let since = given_value(&m, "·engine·since_last_wake").expect(&m);
     assert_eq!(since["first_wake"], true, "{since}");
     assert_eq!(since["merged"][0]["item"], merged, "{since}");
@@ -4845,7 +4901,7 @@ fn the_numbers_hold_through_a_wake_and_split_what_was_spent() {
     let v = e.flow_now;
     let ago = db::now() - 3_600_000;
     e.db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE rounds SET usage = '{\"cost_usd\":0.25}' WHERE cell = 'what_runs'", [])?;
+        tx.execute("UPDATE rounds SET usage = '{\"cost_usd\":0.25}' WHERE cell = 'handle.what_runs'", [])?;
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'implement', 'stopped: by hand')",
             params![item, v],
@@ -4861,18 +4917,18 @@ fn the_numbers_hold_through_a_wake_and_split_what_was_spent() {
     say(&mut e, "Look at the numbers.");
     let wake = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "fit")),
+        steps_until(&mut e, 10, |e| path_of(e, wake).iter().any(|c| c == "understand.fit")),
         "{}",
         said.borrow().join("\n")
     );
-    let understanding = message_at(&e, wake, "state", false);
+    let understanding = message_at(&e, wake, "understand.state", false);
     let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
     assert_eq!(
         numbers["weeks"][0]["spent_usd"],
         json!({ "items": 0.5, "architect": 0.25 }),
         "{numbers}"
     );
-    let policy_right = &inputs_at(&e, wake, "policy_right")[0];
+    let policy_right = &inputs_at(&e, wake, "understand.policy")[0];
     assert_eq!(
         given_ending(policy_right, "·engine·numbers"),
         Some(false),
@@ -4889,7 +4945,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     let s = setup("understand-tools");
     let mut agents = scripts();
     agents.insert(
-        "state",
+        "understand.state",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
@@ -4907,7 +4963,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
         move |e: &mut Engine| {
             cells_of(e, wake)
                 .iter()
-                .any(|c| c.0 == "state" && c.1.as_deref() == Some(row))
+                .any(|c| c.0 == "understand.state" && c.1.as_deref() == Some(row))
         }
     };
     let states = |e: &Engine| -> i64 {
@@ -4926,8 +4982,8 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     );
     assert_eq!(states(&e), 1);
     let (first, second) = (
-        message_at(&e, wake, "state", false),
-        message_at(&e, wake, "state", true),
+        message_at(&e, wake, "understand.state", false),
+        message_at(&e, wake, "understand.state", true),
     );
     for m in [&first, &second] {
         assert!(m.contains("This is the project's first wake"), "{m}");
@@ -4935,7 +4991,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     let w = e.work(wake).unwrap();
     let g = e.graph_of(&w).unwrap();
     let numbered: Vec<&flow::CompiledInput> = g
-        .cell("state")
+        .cell("understand.state")
         .unwrap()
         .inputs
         .iter()
@@ -4967,7 +5023,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let s = setup("draft");
     let mut agents = scripts();
     agents.insert(
-        "write",
+        "policy.write",
         Box::new(|_: &Request, _: usize| {
             let policy = json!({ "goal": "Ship the parser.", "why": "Users wait for it.",
                                  "points": [{ "no": 1, "text": "Parse before checking." }], "stages": ["Lex."],
@@ -4977,7 +5033,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
         }),
     );
     agents.insert(
-        "judge_read",
+        "policy.judge_read",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -4993,7 +5049,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
         }),
     );
     agents.insert(
-        "correct",
+        "policy.correct",
         Box::new(|_: &Request, n: usize| {
             let probe = |id: &str| json!({ "id": id, "ask": "What first?", "points": [1], "expect": "Point 1." });
             let probes = if n == 1 {
@@ -5014,7 +5070,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let wake =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'write', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'policy.write', 'p')",
                 [v],
             )?;
             Ok(tx.last_insert_rowid())
@@ -5023,7 +5079,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let judged = |e: &Engine| {
         cells_of(e, wake)
             .iter()
-            .filter(|c| c.0 == "judge_read" && c.1.is_some())
+            .filter(|c| c.0 == "policy.judge_read" && c.1.is_some())
             .count()
     };
     for _ in 0..20 {
@@ -5034,15 +5090,18 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     }
     let log = said.borrow().join("\n");
     assert_eq!(judged(&e), 2, "{log}\n{:?}", cells_of(&e, wake));
-    let (judged, corrected) = (inputs_at(&e, wake, "judge_read"), inputs_at(&e, wake, "correct"));
+    let (judged, corrected) = (
+        inputs_at(&e, wake, "policy.judge_read"),
+        inputs_at(&e, wake, "policy.correct"),
+    );
     for input in [&judged[0], &corrected[0]] {
-        assert_eq!(given_ending(input, "·write·policy"), Some(false), "{input}");
-        assert_eq!(given_ending(input, "·write·probes"), Some(false), "{input}");
+        assert_eq!(given_ending(input, "·policy.write·policy"), Some(false), "{input}");
+        assert_eq!(given_ending(input, "·policy.write·probes"), Some(false), "{input}");
     }
     // The correction changed a passage: the text the engine put together from it is given whole, the new probes are
     // the session's own return.
     assert_eq!(
-        given_ending(&judged[1], "·correct·revision.probes"),
+        given_ending(&judged[1], "·policy.correct·revision.probes"),
         Some(false),
         "{}",
         judged[1]
@@ -5066,7 +5125,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     assert_eq!(text, [json!("Ship the parser first.")]);
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'correct' AND rejected IS NOT NULL",
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'policy.correct' AND rejected IS NOT NULL",
         &[&wake],
         10,
     )
@@ -5118,37 +5177,44 @@ fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
         .unwrap_or_else(|| panic!("{m}"))
 }
 
-// `fit` is given the study of a new policy and the owner's answer to it only when the owner's latest answer to a study
-// in the wake said the policy in force stays, not when the owner was satisfied with the study.
+// `understand.fit` is given the study of a new policy and the owner's answer to it only when the owner's latest answer
+// to a study in the wake said the policy in force stays, not when the owner was satisfied with the study.
 #[test]
 fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays() {
     let s = setup("stays");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let wake = wake_at(&mut e, "fit");
+    let wake = wake_at(&mut e, "understand.fit");
     let study =
         json!({ "outcome": { "study": { "intent": "Faster parsing." } }, "progress": "Studied.", "tell_owner": [] });
     let ruling = |choice: &str| json!({ "ruling": { "choice": choice, "text": "Seen." } });
     e.db.write(Actor::Engine, |tx| {
-        record_round(tx, wake, 1, "study", &study, "studied")?;
-        record_round(tx, wake, 2, "owner_reads", &ruling("satisfied"), "satisfied")
+        record_round(tx, wake, 1, "policy.study", &study, "studied")?;
+        record_round(tx, wake, 2, "policy.owner_reads", &ruling("satisfied"), "satisfied")
     })
     .unwrap();
     assert_eq!(next_listed(&mut e, wake, 8), "8. none");
     e.db.write(Actor::Engine, |tx| {
-        record_round(tx, wake, 3, "owner_reads", &ruling("policy_stays"), "policy_stays")
+        record_round(
+            tx,
+            wake,
+            3,
+            "policy.owner_reads",
+            &ruling("policy_stays"),
+            "policy_stays",
+        )
     })
     .unwrap();
     let stays = next_listed(&mut e, wake, 8);
     assert!(
-        stays.contains("·study·study") && stays.contains(&format!("R{wake}-3·owner_reads·ruling")),
+        stays.contains("·policy.study·study") && stays.contains(&format!("R{wake}-3·policy.owner_reads·ruling")),
         "{stays}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `policy_right` is given only the signals of the policy in force that the engine measures, each with its numbers: a
-// signal that names a measure of the numbers by its name. When the policy has none such, the input is none.
+// `understand.policy` is given only the signals of the policy in force that the engine measures, each with its numbers:
+// a signal that names a measure of the numbers by its name. When the policy has none such, the input is none.
 #[test]
 fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbers() {
     let s = setup("signals");
@@ -5163,12 +5229,12 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, ?1, 'architect', 'wake', 'over', 'p')",
+                 VALUES (NULL, ?1, 'architect', 'wake.start', 'over', 'p')",
                 [v],
             )?;
             let set = tx.last_insert_rowid();
-            record_round(tx, set, 1, "write", &written, "written")?;
-            record_round(tx, set, 2, "takes_effect", &json!({}), "new_architect")
+            record_round(tx, set, 1, "policy.write", &written, "written")?;
+            record_round(tx, set, 2, "policy.takes_effect", &json!({}), "new_architect")
         })
         .unwrap();
     };
@@ -5177,7 +5243,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         json!([{ "what": "Fewer items merged", "how": "merged below 1 a week" },
                { "what": "The owner is unhappy", "how": "something the owner says" }]),
     );
-    let wake = wake_at(&mut e, "policy_right");
+    let wake = wake_at(&mut e, "understand.policy");
     let m = engine::next_message(&mut e, wake).unwrap().text;
     let signals = given_value(&m, "·engine·policy_signals").expect(&m);
     assert_eq!(
@@ -5231,13 +5297,13 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let item = a_ready_item(&mut e, "Lex it");
-    let wake = wake_at(&mut e, "anything");
+    let wake = wake_at(&mut e, "pick.anything");
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = ?1",
             [wake],
         )?;
-        record_round(tx, wake, 1, "owner_words", &json!({}), "done")?;
+        record_round(tx, wake, 1, "handle.owner_words", &json!({}), "done")?;
         let m = a_matter(tx, "Order the items.", None, json!({}))?;
         let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "dependency": "blocking",
                              "reason": "r" });
@@ -5281,9 +5347,9 @@ fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work that waits for the items its item depends on (`wait_items`) goes on at once to choose the way on (`way_on`)
-// when one of them is cancelled, told which, why and what it needed of it; its item no longer depends on the cancelled
-// one.
+// A work that waits for the items its item depends on (`ask.wait_items`) goes on at once to choose the way on
+// (`ask.way_on`) when one of them is cancelled, told which, why and what it needed of it; its item no longer depends on
+// the cancelled one.
 #[test]
 fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     let s = setup("cancelled-dependency");
@@ -5296,7 +5362,7 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
         e.db.write(Actor::Engine, |tx| {
             db::add_dependency(tx, parser, lexer, "its tokens", "parallel")?;
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'wait_items')",
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'ask.wait_items')",
                 params![parser, v],
             )?;
             Ok(tx.last_insert_rowid())
@@ -5308,14 +5374,14 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
             .unwrap()
     };
     e.step_work(work).unwrap();
-    assert_eq!(at(&e), "wait_items", "{}", said.borrow().join("\n"));
+    assert_eq!(at(&e), "ask.wait_items", "{}", said.borrow().join("\n"));
     let projects = e.config.config.projects.clone();
     e.db.write(Actor::Owner, |tx| {
         engine::ending::cancel_item(tx, lexer, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
     })
     .unwrap();
     e.step_work(work).unwrap();
-    assert_eq!(at(&e), "way_on", "{}", said.borrow().join("\n"));
+    assert_eq!(at(&e), "ask.way_on", "{}", said.borrow().join("\n"));
     let told: String =
         e.db.conn()
             .query_row("SELECT text FROM interjections WHERE work = ?1", [work], |r| r.get(0))
@@ -5332,14 +5398,14 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `fit` hands in one row for each place to set straight, with every step it means to take there, and the engine queues
-// the row as one matter, which says its steps.
+// `understand.fit` hands in one row for each place to set straight, with every step it means to take there, and the
+// engine queues the row as one matter, which says its steps.
 #[test]
 fn a_place_to_set_straight_is_one_matter_with_its_steps() {
     let s = setup("straight");
     let mut agents = scripts();
     agents.insert(
-        "fit",
+        "understand.fit",
         Box::new(|_: &Request, _: usize| {
             let fixes = json!([{ "where": "The policy's second stage", "kind": "missing", "wrong": "No item does it.",
                                  "steps": ["Make the items lex and parse", "Rank them before #5",
@@ -5353,7 +5419,7 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     // A new session understands the project from its first question on.
-    let wake = wake_at(&mut e, "state");
+    let wake = wake_at(&mut e, "understand.state");
     let straight = |e: &Engine| -> Vec<String> {
         engine::query_json(
             e.db.conn(),
@@ -5396,7 +5462,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
         { "kind": "move", "item": "spend", "to": { "place": "before", "item": "1" }, "reason": "r" },
     ]);
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -5405,7 +5471,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
         }),
     );
     agents.insert(
-        "review",
+        "batch.review",
         Box::new(|_: &Request, _: usize| {
             let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
             (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
@@ -5439,7 +5505,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
 }
 
 // A design card matter whose card needs no look any longer, confirmed by the owner or replaced by another, is closed by
-// the engine as it looks at the queue, saying why, and never reaches `card_sound`.
+// the engine as it looks at the queue, saying why, and never reaches `handle.card_sound`.
 #[test]
 fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
     let s = setup("settled-card");
@@ -5487,7 +5553,7 @@ fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
-    assert!(!path_of(&e, wake).contains(&"card_sound".to_string()), "{log}");
+    assert!(!path_of(&e, wake).contains(&"handle.card_sound".to_string()), "{log}");
     let closed: Vec<(String, String)> = engine::query_json(
         e.db.conn(),
         "SELECT r.cell, json_extract(r.output, '$.progress') AS said FROM architect_matters m
@@ -5505,7 +5571,7 @@ fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
     })
     .collect();
     assert_eq!(closed.len(), 2, "{log}");
-    assert!(closed.iter().all(|c| c.0 == "anything"), "{closed:?}");
+    assert!(closed.iter().all(|c| c.0 == "pick.anything"), "{closed:?}");
     assert!(
         closed[0].1.contains("confirmed by the owner") && closed[0].1.contains("replaced by another"),
         "{closed:?}"
@@ -5522,7 +5588,7 @@ fn a_matter_s_items_are_not_taken_from_numbers_in_its_material() {
     quiet(&mut e);
     let named = a_ready_item(&mut e, "Lex it");
     let other = a_ready_item(&mut e, "Print it");
-    let wake = wake_at(&mut e, "owner_words");
+    let wake = wake_at(&mut e, "handle.owner_words");
     e.db.write(Actor::Engine, |tx| {
         let body = json!({ "said": format!("See PR #{other} for the parser.") });
         let m = a_matter(tx, &format!("Look at item {named}."), None, body)?;
@@ -5530,7 +5596,7 @@ fn a_matter_s_items_are_not_taken_from_numbers_in_its_material() {
             tx,
             wake,
             1,
-            "anything",
+            "pick.anything",
             &json!({ "queue": { "verdict": "one", "matter": m } }),
             "one",
         )
@@ -5549,7 +5615,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
     let s = setup("report-again");
     let mut agents = scripts();
     agents.insert(
-        "research",
+        "research.problem",
         Box::new(|_: &Request, n: usize| {
             let r = |what: &str| json!({ "kind": "other", "what": what, "urgent": false });
             let reports = if n == 1 {
@@ -5591,7 +5657,7 @@ fn a_new_session_in_the_middle_of_a_wake_understands_the_project_first() {
     say(&mut e, "Two.");
     let wake = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 20, |e| e.work(wake).unwrap().pos.at == "owner_words"),
+        steps_until(&mut e, 20, |e| e.work(wake).unwrap().pos.at == "handle.owner_words"),
         "{}",
         said.borrow().join("\n")
     );
@@ -5603,17 +5669,17 @@ fn a_new_session_in_the_middle_of_a_wake_understands_the_project_first() {
     );
     let log = said.borrow().join("\n");
     let path = path_of(&e, wake);
-    // The wake was at `owner_words`, the matter picked, when the new session was asked for.
-    let back = path.iter().rposition(|c| c == "understood").expect(&log);
+    // The wake was at `handle.owner_words`, the matter picked, when the new session was asked for.
+    let back = path.iter().rposition(|c| c == "wake.understood").expect(&log);
     assert_eq!(
         &path[back - 1..back + 3],
-        ["route", "understood", "state", "policy_right"],
+        ["pick.route", "wake.understood", "understand.state", "understand.policy"],
         "{path:?}\n{log}"
     );
-    assert!(path[back..].contains(&"owner_words".to_string()), "{path:?}");
+    assert!(path[back..].contains(&"handle.owner_words".to_string()), "{path:?}");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
-    assert!(lines[1].2.starts_with("state,"), "{lines:?}");
+    assert!(lines[1].2.starts_with("understand.state,"), "{lines:?}");
     assert_eq!(
         matters(&e),
         [
@@ -5632,7 +5698,7 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     let s = setup("close-folded");
     let mut agents = scripts();
     agents.insert(
-        "owner_words",
+        "handle.owner_words",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -5665,7 +5731,7 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     );
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'owner_words' AND rejected IS NOT NULL",
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'handle.owner_words' AND rejected IS NOT NULL",
         &[&wake],
         10,
     )
@@ -5940,7 +6006,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let (mut e, said, item) = start(&s, scripts());
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "compare", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "design.compare", "{}", said.borrow().join("\n"));
     let c = api::Control::default();
     c.ask_step(work, true).unwrap();
     turn(&mut e, &c, None);
@@ -5949,14 +6015,14 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     assert_eq!(
         lines,
         [
-            ("line".to_string(), true, "research,stands".to_string()),
-            ("owner".to_string(), false, "compare".to_string())
+            ("line".to_string(), true, "research.problem,research.stands".to_string()),
+            ("owner".to_string(), false, "design.compare".to_string())
         ],
         "{log}"
     );
     let rounds = agent_rounds(&e, item);
     let two = &rounds[2].2;
-    for a in ["format:common", "format:compare", "rule:ground"] {
+    for a in ["format:common", "format:design.compare", "rule:ground"] {
         assert_eq!(given(two, a), Some(true), "{a}");
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
@@ -6013,14 +6079,21 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     let log = said.borrow().join("\n");
     assert_eq!(
         path_of(&e, wake),
-        ["wake", "understood", "state", "understood", "state", "policy_right"],
+        [
+            "wake.start",
+            "wake.understood",
+            "understand.state",
+            "wake.understood",
+            "understand.state",
+            "understand.policy"
+        ],
         "{log}"
     );
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");
     assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
-    assert_eq!(lines[1].2, "state,policy_right", "{lines:?}\n{log}");
+    assert_eq!(lines[1].2, "understand.state,understand.policy", "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -6032,13 +6105,13 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     let s = setup("warm-paused");
     let mut scripts = scripts();
     scripts.insert(
-        "stands",
+        "research.stands",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
     );
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "compare", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "design.compare", "{}", said.borrow().join("\n"));
     let from = last_call(&e, work);
     let due = from + 55 * 60_000 + 1_000;
     // Works going on wait on nothing.
@@ -6058,7 +6131,7 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     );
     assert_eq!(
         pings_of(&e, work)[0].0,
-        json!({ "cell": "compare", "on": "pause", "what": "the owner paused every work" })
+        json!({ "cell": "design.compare", "on": "pause", "what": "the owner paused every work" })
     );
     // The owner's switch is kept in the database, as the owner's, across a restart.
     assert!(api::keep_warm_paused(e.db.conn()).unwrap());

@@ -14,7 +14,7 @@
    "given": {}
   }
  ],
- "research": [
+ "research.problem": [
   {
    "row": "done",
    "json": {
@@ -67,7 +67,7 @@
    "given": {}
   }
  ],
- "stands": [
+ "research.stands": [
   {
    "row": "no",
    "json": {
@@ -103,7 +103,7 @@
    "given": {}
   }
  ],
- "compare": [
+ "design.compare": [
   {
    "row": "tools",
    "json": {
@@ -159,7 +159,7 @@
    "given": {}
   }
  ],
- "choose": [
+ "design.choose": [
   {
    "row": "first",
    "json": {
@@ -259,7 +259,7 @@
    "given": {}
   }
  ],
- "rethink_design": [
+ "design.rethink": [
   {
    "row": "no",
    "json": {
@@ -280,7 +280,7 @@
    "given": {}
   }
  ],
- "gap_under_test": [
+ "design.gap_under_test": [
   {
    "row": "no",
    "json": {
@@ -297,7 +297,7 @@
    "given": {}
   }
  ],
- "sure": [
+ "design.sure": [
   {
    "row": "no",
    "json": {
@@ -314,7 +314,7 @@
    "given": {}
   }
  ],
- "cost": [
+ "design.cost": [
   {
    "row": "no",
    "json": {
@@ -331,7 +331,7 @@
    "given": {}
   }
  ],
- "cross_project": [
+ "design.cross_project": [
   {
    "row": "no",
    "json": {
@@ -343,7 +343,7 @@
    "given": {}
   }
  ],
- "split": [
+ "design.split": [
   {
    "row": "implementation",
    "json": {
@@ -433,7 +433,7 @@
    "given": {}
   }
  ],
- "next_step": [
+ "test.next_step": [
   {
    "row": "adversarial",
    "json": {
@@ -447,7 +447,7 @@
    }
   }
  ],
- "blind_review": [
+ "test.blind_review": [
   {
    "row": "done",
    "json": {
@@ -474,7 +474,7 @@
    "given": {}
   }
  ],
- "table_review": [
+ "test.table_review": [
   {
    "row": "done",
    "json": {
@@ -549,7 +549,7 @@
    }
   }
  ],
- "tree_review": [
+ "test.tree_review": [
   {
    "row": "done",
    "json": {
@@ -599,7 +599,7 @@
    "given": {}
   }
  ],
- "adversarial": [
+ "test.adversarial": [
   {
    "row": "for_engineer",
    "json": {
@@ -681,7 +681,7 @@
    "given": {}
   }
  ],
- "fix": [
+ "test.fix": [
   {
    "row": "done",
    "json": {
@@ -724,7 +724,7 @@
    "given": {}
   }
  ],
- "merge_queue": [
+ "merge.queue": [
   {
    "row": "merged",
    "json": {
@@ -747,7 +747,7 @@
    "given": {}
   }
  ],
- "way_on": [
+ "ask.way_on": [
   {
    "row": "carry_on",
    "json": {
@@ -766,7 +766,7 @@
    }
   }
  ],
- "advisor": [
+ "ask.advisor": [
   {
    "row": "answered",
    "json": {
@@ -803,7 +803,7 @@
    "given": {}
   }
  ],
- "to_architect": [
+ "ask.architect": [
   {
    "row": "answered",
    "json": {
@@ -825,7 +825,7 @@
    "given": {}
   }
  ],
- "to_owner": [
+ "ask.owner": [
   {
    "row": "answered",
    "json": {
@@ -892,7 +892,7 @@
    "given": {}
   }
  ],
- "adversarial_needed": [
+ "design.adversarial_needed": [
   {
    "row": "yes",
    "json": {

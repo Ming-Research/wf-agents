@@ -1065,7 +1065,7 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     let commit: Option<String> = conn
         .query_row(
             "SELECT json_extract(output, '$.result.merge_commit') FROM rounds
-             WHERE work = ?1 AND cell = 'merge_queue' AND transition = 'merged' ORDER BY n DESC LIMIT 1",
+             WHERE work = ?1 AND cell = 'merge.queue' AND transition = 'merged' ORDER BY n DESC LIMIT 1",
             [w.id],
             |r| r.get(0),
         )
@@ -1103,8 +1103,8 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     }))
 }
 
-/// Cell `to_owner`: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell
-/// `to_architect` that an earlier engine put to the owner, who answered for the architect in the architect's form, is
+/// Cell `ask.owner`: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell
+/// `ask.architect` that an earlier engine put to the owner, who answered for the architect in the architect's form, is
 /// completed by the owner's answer the same way.
 fn ask(
     e: &mut Engine,
@@ -1226,17 +1226,17 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// Cell `next_step`: what runs next, from what the design chose, what the review accepted, whether the change changed
-/// since each side last looked, and what the fix answered.
+/// Cell `test.next_step`: what runs next, from what the design chose, what the review accepted, whether the change
+/// changed since each side last looked, and what the fix answered.
 fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let reviews = inputs::answered(e, w, g, "table_review")?;
-    let adversarial = inputs::answered(e, w, g, "adversarial")?;
-    let fixes = inputs::answered(e, w, g, "fix")?;
-    let chose = inputs::last_return(e, w, g, "adversarial_needed", "adversarial")?
+    let reviews = inputs::answered(e, w, g, "test.table_review")?;
+    let adversarial = inputs::answered(e, w, g, "test.adversarial")?;
+    let fixes = inputs::answered(e, w, g, "test.fix")?;
+    let chose = inputs::last_return(e, w, g, "design.adversarial_needed", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "yes");
-    let not_accepted = inputs::last_return(e, w, g, "table_review", "no_adversarial")?
+    let not_accepted = inputs::last_return(e, w, g, "test.table_review", "no_adversarial")?
         .and_then(|r| at_path(&r, "no_adversarial.verdict"))
         .is_some_and(|v| v == "does_not_stand");
     let now = w

@@ -39,9 +39,9 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   project: 'p',
   graph: 'architect',
   flow_version: 2,
-  at: 'A12',
+  at: 'record',
   at_title: 'This wake is done',
-  stage: 'asleep',
+  stage: 'record',
   state: 'done',
   paused: null,
   paused_by: null,
@@ -93,7 +93,7 @@ const observation = (id: number, extra: Partial<Observation> = {}): Observation 
   id,
   what: `observation ${id}`,
   tags: [],
-  source: 'the architect, at cell ways',
+  source: 'the architect, at cell handle.ways',
   times_reported: 1,
   refs: [],
   folded_into: null,
@@ -106,7 +106,7 @@ const observation = (id: number, extra: Partial<Observation> = {}): Observation 
 
 describe("the architect's page", () => {
   it('shows the wake the address names, else the one going on, else the latest', () => {
-    const wakes = [wake(9), wake(8, { state: 'asking', at: 'owner_reads' }), wake(7)];
+    const wakes = [wake(9), wake(8, { state: 'asking', at: 'policy.owner_reads' }), wake(7)];
     expect(shownWake(wakes, 7)?.work.id).toBe(7);
     expect(shownWake(wakes, null)?.work.id).toBe(8);
     expect(shownWake(wakes, 99)?.work.id).toBe(8);
@@ -118,8 +118,8 @@ describe("the architect's page", () => {
     const queue = [
       matter(1, { kind: 'engineer_question', detail: 'split', waits: 'agent', source: 'work', work: 4, round: 2 }),
       matter(2),
-      matter(3, { kind: 'failure', waits: null, asked: 5, resume_cell: 'have_fixed' }),
-      matter(4, { kind: 'report', waits: 'none', asked: 6, resume_cell: 'take_in', answered: true }),
+      matter(3, { kind: 'failure', waits: null, asked: 5, resume_cell: 'handle.have_fixed' }),
+      matter(4, { kind: 'report', waits: 'none', asked: 6, resume_cell: 'handle.take_in', answered: true }),
     ];
     const parts = queueParts(queue);
     expect(parts.waiting.map((m) => m.id)).toEqual([1, 2, 4]);
@@ -128,14 +128,14 @@ describe("the architect's page", () => {
     expect(architectState([wake(9), wake(7)], queue)).toEqual({ kind: 'asleep', since: 950, waiting: 3 });
     expect(architectState([], queue)).toEqual({ kind: 'never', waiting: 3 });
     // Awake, handling the matter its latest pick chose.
-    const awake = wake(10, { state: 'running', at: 'ways' }, 1);
+    const awake = wake(10, { state: 'running', at: 'handle.ways' }, 1);
     expect(architectState([awake, wake(9)], queue)).toEqual({
       kind: 'awake',
       wake: awake.work,
       handling: queue[0],
       waiting: 3,
     });
-    expect(architectState([wake(10, { state: 'running', at: 'anything' })], [])).toMatchObject({ handling: null, waiting: 0 });
+    expect(architectState([wake(10, { state: 'running', at: 'pick.anything' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
   it('shows the observations of the tag chosen and the words searched for, those closed only when asked', () => {
@@ -150,7 +150,7 @@ describe("the architect's page", () => {
     expect(ids(observationsShown(all, 'perf', '', true))).toEqual([2, 1]);
     expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
     expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
-    expect(ids(observationsShown(all, 'ui', 'cell WAYS', false))).toEqual([3, 2]);
+    expect(ids(observationsShown(all, 'ui', 'cell HANDLE.WAYS', false))).toEqual([3, 2]);
   });
 
   it('sends a ruling with words unless the owner agrees', () => {
@@ -188,7 +188,7 @@ describe("the architect's page", () => {
       { ...architect, tab: 'queue' },
       { ...architect, project: 'p', tab: 'observations' },
       { ...architect, wake: 12, round: 3, tab: 'rounds' },
-      { ...architect, wake: 12, cell: 'A6' },
+      { ...architect, wake: 12, cell: 'handle.ways' },
     ];
     for (const r of routes) {
       const at = href(r);
@@ -215,7 +215,7 @@ describe("the architect's page", () => {
       what: 'Split #3?',
       work: 9,
       round: 12,
-      cell: 'ways',
+      cell: 'handle.ways',
       at: 1,
       reply: null,
       reply_to: null,
@@ -288,7 +288,7 @@ describe("the architect's page", () => {
     // Held back while every work is paused, unless the owner started it.
     expect(wordsWait([said(true)], asleep, status(true), 'p')).toBe('held');
     expect(wordsWait([said(true)], asleep, status(true, ['p']), 'p')).toBe('asleep');
-    const awake = architectState([wake(10, { state: 'running', at: 'owner_words' })], []);
+    const awake = architectState([wake(10, { state: 'running', at: 'handle.owner_words' })], []);
     expect(wordsWait([said(true)], awake, status(false), 'p')).toBe('awake');
     const paused = architectState([wake(10, { state: 'paused', paused: 'to look', paused_by: 'owner' })], []);
     expect(wordsWait([said(true)], paused, status(false), 'p')).toBe('paused');
@@ -327,8 +327,8 @@ const view = (name: string): GraphView => ({ name, lines: [], cells: [], common_
 
 describe('the flow page with both graphs', () => {
   const graphs = [
-    { g: graph('engineer', ['start', 'research', 'tools', 'end']), view: view('engineer') },
-    { g: graph('architect', ['wake', 'understood', 'tools', 'record']), view: view('architect') },
+    { g: graph('engineer', ['start', 'research.problem', 'tools', 'end']), view: view('engineer') },
+    { g: graph('architect', ['wake.start', 'wake.understood', 'tools', 'record']), view: view('architect') },
   ];
 
   it('lays the graphs side by side, their tops in line under their names', () => {
@@ -342,9 +342,9 @@ describe('the flow page with both graphs', () => {
   });
 
   it('opens a cell in the graph that has it, and what a panel opens in its own graph', () => {
-    expect(graphOfCell(graphs, 'understood')?.g.name).toBe('architect');
-    expect(graphOfCell(graphs, 'research')?.g.name).toBe('engineer');
-    expect(withGraph({ kind: 'cell', cell: 'wake' }, graphs)).toEqual({ kind: 'cell', cell: 'wake', graph: 'architect' });
+    expect(graphOfCell(graphs, 'wake.understood')?.g.name).toBe('architect');
+    expect(graphOfCell(graphs, 'research.problem')?.g.name).toBe('engineer');
+    expect(withGraph({ kind: 'cell', cell: 'wake.start' }, graphs)).toEqual({ kind: 'cell', cell: 'wake.start', graph: 'architect' });
     // A name both graphs have is the first graph's, unless the subject names its graph.
     expect(graphOfCell(graphs, 'tools')?.g.name).toBe('engineer');
     expect(withGraph({ kind: 'cell', cell: 'tools', graph: 'architect' }, graphs)).toEqual({
@@ -353,16 +353,16 @@ describe('the flow page with both graphs', () => {
       graph: 'architect',
     });
     expect(withGraph({ kind: 'rule', rule: 'general' }, graphs)).toEqual({ kind: 'rule', rule: 'general', graph: 'engineer' });
-    expect(withGraph({ kind: 'cell', cell: 'wake', graph: 'engineer' }, graphs)).toEqual({
+    expect(withGraph({ kind: 'cell', cell: 'wake.start', graph: 'engineer' }, graphs)).toEqual({
       kind: 'cell',
-      cell: 'wake',
+      cell: 'wake.start',
       graph: 'engineer',
     });
     expect(inGraph({ kind: 'rule', rule: 'general' }, 'architect')).toEqual({ kind: 'rule', rule: 'general', graph: 'architect' });
     expect(inGraph({ kind: 'round', round: 3 }, 'architect')).toEqual({ kind: 'round', round: 3 });
     // A subject is the same whatever order its fields were written in.
-    expect(subjectKey({ graph: 'architect', kind: 'cell', cell: 'wake' })).toBe(
-      subjectKey({ kind: 'cell', cell: 'wake', graph: 'architect' }),
+    expect(subjectKey({ graph: 'architect', kind: 'cell', cell: 'wake.start' })).toBe(
+      subjectKey({ kind: 'cell', cell: 'wake.start', graph: 'architect' }),
     );
   });
 
@@ -373,15 +373,15 @@ describe('the flow page with both graphs', () => {
           name: 'engineer',
           status: 'changed',
           changes: [],
-          cells: [{ id: 'research', title: 'research', status: 'changed', changes: [] }],
+          cells: [{ id: 'research.problem', title: 'research.problem', status: 'changed', changes: [] }],
         },
-        { name: 'architect', status: 'added', changes: [], cells: [{ id: 'wake', title: 'wake', status: 'added', changes: [] }] },
+        { name: 'architect', status: 'added', changes: [], cells: [{ id: 'wake.start', title: 'wake.start', status: 'added', changes: [] }] },
       ],
     };
     const marks = diffMarks(graphs, diff);
-    expect([...marks[0].changed]).toEqual(['research']);
+    expect([...marks[0].changed]).toEqual(['research.problem']);
     expect([...marks[0].added]).toEqual([]);
-    expect([...marks[1].added]).toEqual(['wake']);
+    expect([...marks[1].added]).toEqual(['wake.start']);
     expect(diffMarks(graphs, null).every((m) => m.added.size === 0 && m.changed.size === 0)).toBe(true);
   });
 });

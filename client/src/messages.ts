@@ -598,7 +598,7 @@ const messages = {
   chart_shared_title: 'The rows every agent cell shares',
   chart_added: 'added',
   chart_changed: 'changed',
-  chart_asking_part: 'Asking part',
+  chart_asking_part: 'Asking part: ask',
   chart_stage: 'Stage: {stage}',
   chart_shared_1: 'shared',
   chart_shared_2: 'rows',

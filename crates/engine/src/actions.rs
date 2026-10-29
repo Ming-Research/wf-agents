@@ -265,7 +265,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "lock_acceptance" => {
-            let Some((round, acceptance)) = ctx.last(tx, "choose", &format!("{}.acceptance", ctx.within))? else {
+            let Some((round, acceptance)) = ctx.last(tx, "design.choose", &format!("{}.acceptance", ctx.within))?
+            else {
                 return Err("no design handed in acceptance conditions to lock".into());
             };
             let item = ctx.item_id()?;
@@ -299,7 +300,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 return Ok(());
             }
             let path = format!("{}.design_tree.design_card", ctx.within);
-            let Some((round, body)) = ctx.last(tx, "choose", &path)? else {
+            let Some((round, body)) = ctx.last(tx, "design.choose", &path)? else {
                 return Ok(());
             };
             let posted: Option<i64> = tx
@@ -400,7 +401,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "revert_merge" => {
             let project = ctx.project()?;
-            let Some((_, merged)) = ctx.last(tx, "merge_queue", "result.merge_commit")? else {
+            let Some((_, merged)) = ctx.last(tx, "merge.queue", "result.merge_commit")? else {
                 return Err("no merge to revert".into());
             };
             outbox(
@@ -444,7 +445,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )?;
         }
         "record_waits" => {
-            let Some((_, waits)) = ctx.last(tx, "to_architect", "reply.waits")? else {
+            let Some((_, waits)) = ctx.last(tx, "ask.architect", "reply.waits")? else {
                 return Ok(());
             };
             let item = ctx.item_id()?;
@@ -476,7 +477,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         "hand_over_to_sub_items" => {
             let Some(pr) = ctx.work.pr else { return Ok(()) };
             let children = ctx
-                .last(tx, "to_architect", "reply.children")?
+                .last(tx, "ask.architect", "reply.children")?
                 .map(|(_, v)| v)
                 .unwrap_or(Value::Null);
             let list: Vec<String> = children

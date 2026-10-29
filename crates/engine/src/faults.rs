@@ -199,7 +199,7 @@ mod tests {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             for _ in 0..2 {
                 tx.execute(
-                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'to_owner')",
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'ask.owner')",
                     [],
                 )?;
             }
@@ -231,7 +231,7 @@ mod tests {
             "p",
             "work 7 (a wake of the architect)",
             RoundId::new(7, 5),
-            "rethink",
+            "batch.rethink",
             "architect",
             &m,
         );
@@ -250,7 +250,7 @@ mod tests {
             before: Some("2.1.3".into()),
             after: Some("2.1.4".into()),
         }];
-        let text = told("p", "work 7", RoundId::new(7, 5), "rethink", "architect", &m);
+        let text = told("p", "work 7", RoundId::new(7, 5), "batch.rethink", "architect", &m);
         assert!(
             text.ends_with("differs from the session's round before, R7-4, in: the CLI's version (2.1.3 → 2.1.4)."),
             "{text}"
@@ -269,12 +269,12 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'rethink', 'p')",
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'batch.rethink', 'p')",
                 [],
             )?;
             for n in 1..=6 {
                 tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'rethink', '{}', 'c', ?1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'batch.rethink', '{}', 'c', ?1)",
                     [n],
                 )?;
             }

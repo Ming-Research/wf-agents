@@ -56,7 +56,7 @@ describe('the addresses', () => {
     const routes: Route[] = [
       { page: 'works' },
       { ...work, round: 240 },
-      { ...work, cell: 'choose' },
+      { ...work, cell: 'design.choose' },
       { ...work, tab: 'cards' },
       { ...work, tab: 'messages', round: 7 },
       { ...work, only: 'failed' },
@@ -94,7 +94,7 @@ describe('how a work goes on', () => {
     project: 'p',
     graph: 'engineer',
     flow_version: 2,
-    at: 'to_owner',
+    at: 'ask.owner',
     at_title: 'Owner',
     stage: null,
     state: 'ready',
@@ -329,7 +329,7 @@ const graph: CompiledGraph = {
   rules: [{ name: 'tree', desc: 'How the tree is written', text: ['Write it so.'] }],
   interject: { name: 'interjection', desc: 'What is said', text: [], from: [] },
   cells: [
-    cell('s', [row('started', 'a', { main: true })], { kind: 'engine', line: null, stage: 'queued' }),
+    cell('s', [row('started', 'a', { main: true })], { kind: 'engine', line: null, stage: 'start' }),
     cell(
       'a',
       [
@@ -558,7 +558,7 @@ describe("a cell's panel", () => {
       inputs: [
         { id: null, what: 'the item', from: [{ db: 'item_body', by: 'item' }], maybe: false },
         { id: null, what: 'the code', from: ['self'], maybe: false },
-        { id: null, what: 'the design', from: [['choose', 'design']], maybe: false },
+        { id: null, what: 'the design', from: [['design.choose', 'design']], maybe: false },
       ],
     });
     expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
@@ -606,10 +606,10 @@ describe('an ask', () => {
 
 describe('a round', () => {
   it('reads the numbers of the list to work from, names a model as people do, and reads a value at an address', () => {
-    const workFrom = ['1. R6-12·choose·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
+    const workFrom = ['1. R6-12·design.choose·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
     expect(addressesByNumber(workFrom)).toEqual(
       new Map([
-        [1, ['R6-12·choose·ask']],
+        [1, ['R6-12·design.choose·ask']],
         [3, ['R6-15·engine·work_counters']],
       ]),
     );
@@ -623,12 +623,12 @@ describe('a round', () => {
   });
 
   it('cuts a message at its headings and keeps every character', () => {
-    const message = '# R9-12 · cell rethink_design\n\nCame from cell choose.\n\n## Given\n\n### format:rethink_design\n\nThe answer\n## Task\nThink.\n';
+    const message = '# R9-12 · cell design.rethink\n\nCame from cell design.choose.\n\n## Given\n\n### format:design.rethink\n\nThe answer\n## Task\nThink.\n';
     const parts = messageParts(message);
     expect(parts.filter((p) => 'heading' in p)).toEqual([
-      { heading: '# R9-12 · cell rethink_design' },
+      { heading: '# R9-12 · cell design.rethink' },
       { heading: '## Given' },
-      { heading: '### format:rethink_design' },
+      { heading: '### format:design.rethink' },
       { heading: '## Task' },
     ]);
     expect(parts.map((p) => ('heading' in p ? p.heading : p.text)).join('\n')).toBe(message);
@@ -965,7 +965,7 @@ describe("a work's usage", () => {
       id: 1,
       session: 1,
       line: 'engineer',
-      cell: 'to_owner',
+      cell: 'ask.owner',
       on: 'owner',
       what: "the owner's answer to ask 3",
       started_at: 2,

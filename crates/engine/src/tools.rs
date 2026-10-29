@@ -1,6 +1,7 @@
-//! The tool cells: the tools agents ask for (cell `tools`, in each graph), the full CI on the draft (`full_ci`), the
-//! merge queue (`merge_queue`) and watching main (`watch_main`). Each attempt of a tool is a row of tool_runs under the
-//! cell's round. A tool that fails is tried twice more; a refusal is a result, not a failure, and is not tried again.
+//! The tool cells: the tools agents ask for (cell `tools`, in each graph), the full CI on the draft (`test.full_ci`),
+//! the merge queue (`merge.queue`) and watching main (`watch_main`). Each attempt of a tool is a row of tool_runs under
+//! the cell's round. A tool that fails is tried twice more; a refusal is a result, not a failure, and is not tried
+//! again.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -435,7 +436,7 @@ pub fn run_tools(
     let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
     let mut only: Option<Vec<String>> = None;
-    if w.pos.from.as_deref() == Some("to_architect") {
+    if w.pos.from.as_deref() == Some("ask.architect") {
         let last = work::rounds_at(e.db.conn(), w.id, "tools")?
             .into_iter()
             .find(|r| r.transition.is_some());
@@ -711,7 +712,7 @@ fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Fa
     })
 }
 
-// Cell `full_ci`.
+// Cell `test.full_ci`.
 
 /// Catches the branch up with main, pushes it, and runs the full CI on it; a red check is run again once.
 pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
@@ -773,7 +774,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
     Ok(json!({ "result": { "kind": kind, "checks": checks_json(&again) } }))
 }
 
-// Cell `merge_queue`.
+// Cell `merge.queue`.
 
 /// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it.
 pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
@@ -838,7 +839,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
             ),
         ));
     }
-    let merged = crate::inputs::last_return(e, w, g, "merge_queue", "result")?
+    let merged = crate::inputs::last_return(e, w, g, "merge.queue", "result")?
         .and_then(|r| r["result"]["merge_commit"].as_str().map(str::to_string))
         .ok_or("the work has no merge commit")?;
     let wt = w.worktree.clone().unwrap_or_else(|| project.checkout.clone());

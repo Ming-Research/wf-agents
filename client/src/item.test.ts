@@ -85,9 +85,9 @@ describe('the tree of items', () => {
   it('counts what is done of what an item depends on, and how far its stage is', () => {
     expect(depsDone(1, items, links)).toEqual({ done: 1, of: 2 });
     expect(depsDone(6, items, links)).toEqual({ done: 0, of: 0 });
-    expect(stageShare('design', ['queued', 'research', 'design', 'done'])).toBe(0.75);
-    expect(stageShare(null, ['queued'])).toBeNull();
-    expect(stageShare('gone', ['queued'])).toBeNull();
+    expect(stageShare('design', ['start', 'research', 'design', 'end'])).toBe(0.75);
+    expect(stageShare(null, ['start'])).toBeNull();
+    expect(stageShare('gone', ['start'])).toBeNull();
   });
 });
 
@@ -148,7 +148,7 @@ const graph: CompiledGraph = {
   rules: [],
   interject: null,
   cells: [
-    cell('s', 'queued', [row('started', 'a', { main: true })], engine),
+    cell('s', 'start', [row('started', 'a', { main: true })], engine),
     cell('a', 'research', [row('done', 'g', { main: true }), row('tools', 't', { ...shared, main: true }), row('ask', 'q', shared)]),
     cell('g', 'research', [row('no', 'b', { main: true }), row('tools', 't', shared)], { gate: true }),
     cell('b', 'design', [row('done', 'k', { main: true }), row('tools', 't', shared), row('ask', 'q', shared)]),
@@ -158,7 +158,7 @@ const graph: CompiledGraph = {
     cell('m', 'merge', [row('wait', 'm', { main: true, waits: true }), row('clear', 'z', { main: true })], engine),
     noStage(cell('t', null, [row('ran', '@caller', { main: true })], { kind: 'tool', line: null })),
     noStage(cell('q', null, [row('answered', '@asker')], { kind: 'owner', line: null })),
-    cell('z', 'done', [], engine),
+    cell('z', 'end', [], engine),
   ],
 };
 

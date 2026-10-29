@@ -152,7 +152,7 @@ pub fn end(
                 &format!(
                     "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
                                     WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
-                    db::cells_sql(crate::ENGINEER, &["merge_queue"])
+                    db::cells_sql(crate::ENGINEER, &["merge.queue"])
                 ),
                 params![item, n],
                 |r| r.get(0),
@@ -174,9 +174,9 @@ pub fn end(
 /// Cancels an item, as `by`, the owner or its project's architect, does: it is not to be done, it leaves the owner's
 /// queue, every work on it that has not ended ends, saying why, and it no longer depends on any item or holds any back.
 /// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
-/// a work standing at an engine step, such as waiting for the items it depends on (`wait_items`) or to enter the merge
-/// queue (`merge_gate`), takes at once to choose the way on (`way_on`); an item with no work running, by a matter for
-/// its project's architect, to set straight.
+/// a work standing at an engine step, such as waiting for the items it depends on (`ask.wait_items`) or to enter the
+/// merge queue (`merge.gate`), takes at once to choose the way on (`ask.way_on`); an item with no work running, by a
+/// matter for its project's architect, to set straight.
 pub fn cancel_item(
     tx: &Transaction<'_>,
     item: i64,
@@ -426,7 +426,7 @@ mod tests {
         let mut db = Db::in_memory().unwrap();
         let (_, done) = db.write(Actor::Engine, |tx| a_work(tx, "Done", "end", 1)).unwrap();
         let (_, taken) = db
-            .write(Actor::Engine, |tx| a_work(tx, "Taken", "blind_review", 2))
+            .write(Actor::Engine, |tx| a_work(tx, "Taken", "test.blind_review", 2))
             .unwrap();
         let (_, merged) = db
             .write(Actor::Engine, |tx| a_work(tx, "Merged", "watch_main", 3))
@@ -434,7 +434,7 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, 2, 'merge_queue', '{}', '{}', 'merged', 'c', 2, 2)",
+                 VALUES (?1, 2, 'merge.queue', '{}', '{}', 'merged', 'c', 2, 2)",
                 [merged],
             )?;
             end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)?;
@@ -476,7 +476,7 @@ mod tests {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Architect, |tx| {
             let (lexer, _) = a_work(tx, "Lexer", "implement", 1)?;
-            let (waiting, w) = a_work(tx, "Waiting", "merge_gate", 2)?;
+            let (waiting, w) = a_work(tx, "Waiting", "merge.gate", 2)?;
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Idle', 'x', 'y', 'change', 'l')",
                 [],

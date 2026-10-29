@@ -56,6 +56,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0026.sql"),
     include_str!("../../../db/migrations/0027.sql"),
     include_str!("../../../db/migrations/0028.sql"),
+    include_str!("../../../db/migrations/0029.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1079,7 +1080,7 @@ mod tests {
             )?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, 1, 'merge_queue', '{}', '{}', 'merged', 'c', 1, 2)",
+                 VALUES (1, 1, 'merge.queue', '{}', '{}', 'merged', 'c', 1, 2)",
                 [],
             )?;
             Ok(())
@@ -1159,7 +1160,7 @@ mod tests {
         }
         assert_eq!(
             first_sentence(
-                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell `fix`.\n  SELECT 1"
+                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell `test.fix`.\n  SELECT 1"
             ),
             "Rows the work holds: its findings, as the review wrote them."
         );
@@ -1845,7 +1846,7 @@ mod tests {
             [
                 m("engineer_question", Some("split"), None, None, None),
                 m("set_straight", Some("tidy_board"), None, None, None),
-                m("failure", Some("tool_failed"), Some(2), Some("have_fixed"), None),
+                m("failure", Some("tool_failed"), Some(2), Some("handle.have_fixed"), None),
                 m("advance", None, None, None, Some(1)),
             ]
         );

@@ -212,13 +212,13 @@ mod tests {
             next_cells(&g, &at("implement", &[], None)),
             Some(vec!["implement".to_string()])
         );
-        let asked = next_cells(&g, &at("to_owner", &["implement"], Some("implement"))).unwrap();
+        let asked = next_cells(&g, &at("ask.owner", &["implement"], Some("implement"))).unwrap();
         assert!(
             asked
                 .iter()
                 .all(|c| g.cell(c).unwrap().line.as_deref() == Some("engineer")),
             "{asked:?}"
         );
-        assert_eq!(next_cells(&g, &at("merge_gate", &[], None)), None);
+        assert_eq!(next_cells(&g, &at("merge.gate", &[], None)), None);
     }
 }

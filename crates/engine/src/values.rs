@@ -55,7 +55,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             if item.deliver == "report" {
                 return s("report");
             }
-            let tree = last_return(e, w, g, "choose", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
+            let tree =
+                last_return(e, w, g, "design.choose", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
             if tree.as_ref().and_then(Value::as_str) == Some("design_paths_only") {
                 s("design_paths_only")
             } else {
@@ -63,8 +64,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
         }
         "review_round" => {
-            let reviewed =
-                !answered(e, w, g, "blind_review")?.is_empty() || !answered(e, w, g, "table_review")?.is_empty();
+            let reviewed = !answered(e, w, g, "test.blind_review")?.is_empty()
+                || !answered(e, w, g, "test.table_review")?.is_empty();
             s(if reviewed { "table" } else { "blind" })
         }
         "tree" => {
@@ -117,8 +118,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             let from = w.pos.from.clone().unwrap_or_default();
             let fc = g.cell(&from);
             s(match fc {
-                Some(c) if matches!(c.id.as_str(), "advisor" | "to_architect" | "to_owner") => "reply",
-                Some(c) if c.id == "wait_items" => "waited",
+                Some(c) if matches!(c.id.as_str(), "ask.advisor" | "ask.architect" | "ask.owner") => "reply",
+                Some(c) if c.id == "ask.wait_items" => "waited",
                 Some(c) if c.kind == "agent" => "interjection",
                 _ => "interjection_at_engine",
             })
@@ -159,7 +160,7 @@ fn brought_back(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>
     let Some(from) = w.pos.from.as_deref() else {
         return Ok(None);
     };
-    if !matches!(from, "advisor" | "to_architect" | "to_owner") {
+    if !matches!(from, "ask.advisor" | "ask.architect" | "ask.owner") {
         return Ok(None);
     }
     Ok(last_return(e, w, g, from, "reply")?.and_then(|r| r.get("reply").cloned()))
@@ -189,7 +190,7 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
                 &format!(
                     "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
                      WHERE w.item = ?1 AND r.cell IN {} AND r.transition = 'merged'",
-                    db::cells_sql(ENGINEER, &["merge_queue"])
+                    db::cells_sql(ENGINEER, &["merge.queue"])
                 ),
                 [item],
                 |r| r.get(0),
@@ -287,7 +288,7 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
 
 /// The head the last review started from; none before the first review.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
-    head_reviewed_by(e, w, g, "table_review")
+    head_reviewed_by(e, w, g, "test.table_review")
 }
 
 /// The head a review cell last looked at: that of its newest answered round, if any.

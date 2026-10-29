@@ -286,8 +286,13 @@ mod tests {
     #[test]
     fn a_sessions_context_is_its_latest_last_call() {
         let rs = [
-            round(1, "research", Some(calls(&[(3, 0, 9_000), (2, 9_000, 1_000)])), None),
-            round(2, "compare", Some(json!({ "started": true })), None),
+            round(
+                1,
+                "research.problem",
+                Some(calls(&[(3, 0, 9_000), (2, 9_000, 1_000)])),
+                None,
+            ),
+            round(2, "design.compare", Some(json!({ "started": true })), None),
         ];
         assert_eq!(context(&rs), Some(10_002));
         assert_eq!(context(&rs[1..]), None);
@@ -301,7 +306,7 @@ mod tests {
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
         let g = f.graph("engineer").unwrap();
         assert_eq!(effort(g.cell("implement").unwrap()).as_deref(), Some("xhigh"));
-        assert_eq!(effort(g.cell("stands").unwrap()).as_deref(), Some("medium"));
+        assert_eq!(effort(g.cell("research.stands").unwrap()).as_deref(), Some("medium"));
         let mut older = g.cell("implement").unwrap().clone();
         older.effort = None;
         assert_eq!(effort(&older), None);
@@ -312,7 +317,7 @@ mod tests {
     fn only_a_return_sent_back_stays_for_its_rewrite() {
         let sent = [round(1, "implement", None, Some(json!({ "check": "no head" })))];
         assert!(rewrites(&sent, "implement"));
-        assert!(!rewrites(&sent, "fix"));
+        assert!(!rewrites(&sent, "test.fix"));
         let failed = [round(
             1,
             "implement",

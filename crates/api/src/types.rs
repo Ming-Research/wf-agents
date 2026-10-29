@@ -608,7 +608,7 @@ pub struct RoundInput {
 /// One conditional input of an agent round's message.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundConditional {
-    /// Its address, such as `R5-12·choose·design`, `rule:ground` or `format:common`.
+    /// Its address, such as `R5-12·design.choose·design`, `rule:ground` or `format:common`.
     pub address: String,
     /// The hash of its content, which tells two versions under one address apart.
     pub hash: String,

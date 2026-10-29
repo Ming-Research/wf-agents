@@ -29,11 +29,11 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-// The architect's graph compiles with no finding, as the design the owner approved: its wake (`wake`, `understood`,
-// `state`, `policy_right`, `fit`), the queue (`anything`) and each matter's path, the review of a batch of item changes
-// (`batch_done`, `review`, `revise`, `rethink`), the wrap-up (`wrap_up`, `record`), the owner's ask (`to_owner`), the
-// tools (`tools`), the observer (`search`) and the study of a new policy (`study` to `takes_effect`): as many cells,
-// rows and states.
+// The architect's graph compiles with no finding, as the design the owner approved: its wake (`wake.start`,
+// `wake.understood`, `understand.state`, `understand.policy`, `understand.fit`), the queue (`pick.anything`) and each
+// matter's path, the review of a batch of item changes (`handle.batch_done`, `batch.review`, `batch.revise`,
+// `batch.rethink`), the wrap-up (`wrap_up`, `record`), the owner's ask (`ask.owner`), the tools (`tools`), the observer
+// (`search`) and the study of a new policy (`policy.study` to `policy.takes_effect`): as many cells, rows and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
@@ -48,7 +48,7 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
 fn a_part_several_cells_hold_alike_is_given_once() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let straight = flow::formats::cell_format(g, g.cell("set_straight").unwrap(), &[]);
+    let straight = flow::formats::cell_format(g, g.cell("handle.set_straight").unwrap(), &[]);
     assert!(
         straight.contains(r#""effects":{"$ref":"format:common#/$defs/effects"}"#),
         "{straight}"
@@ -61,9 +61,9 @@ fn a_part_several_cells_hold_alike_is_given_once() {
             .filter(|x| x.kind == "agent" && &x.line == line)
             .collect()
     };
-    let architect = flow::formats::common_format_of(g, &line("set_straight"), &[]);
+    let architect = flow::formats::common_format_of(g, &line("handle.set_straight"), &[]);
     assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
-    let review = flow::formats::common_format_of(g, &line("review"), &[]);
+    let review = flow::formats::common_format_of(g, &line("batch.review"), &[]);
     assert!(!review.contains(r#""item_changes""#), "{review}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
@@ -121,7 +121,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
     }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "to_owner".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "ask.owner".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(e.contains("unknown field `then`"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
@@ -183,7 +183,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
 fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let s = g.cell("have_fixed").unwrap().schema.clone().unwrap();
+    let s = g.cell("handle.have_fixed").unwrap().schema.clone().unwrap();
     let mut ret = serde_json::json!({
         "outcome": {
             "fix": { "way": "nothing", "why": "It passed." },
@@ -243,16 +243,19 @@ fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let s = &samples["advisor"][0]["json"];
+    let s = &samples["ask.advisor"][0]["json"];
     let mut flat = s["outcome"].as_object().unwrap().clone();
     flat.insert("side_reports".into(), Value::Array(Vec::new()));
     flat.insert("progress".into(), "x".into());
-    let e = g.take("advisor", &Value::Object(flat), &Map::new()).unwrap_err();
+    let e = g.take("ask.advisor", &Value::Object(flat), &Map::new()).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
-    let s = &samples["next_step"][0];
+    let s = &samples["test.next_step"][0];
     let mut given = s["given"].as_object().unwrap().clone();
     given.insert("interjection".into(), "yes".into());
-    assert_eq!(g.take("next_step", &s["json"], &given).unwrap().name, "interjection");
+    assert_eq!(
+        g.take("test.next_step", &s["json"], &given).unwrap().name,
+        "interjection"
+    );
 }
 
 // A return that does not fit says where and how, following the alternative it picks.
@@ -261,11 +264,11 @@ fn a_return_that_does_not_fit_says_where() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let sample = &samples["rethink_design"][0]["json"];
+    let sample = &samples["design.rethink"][0]["json"];
     let refused = |edit: &dyn Fn(&mut Value)| {
         let mut x = sample.clone();
         edit(&mut x);
-        g.take("rethink_design", &x, &Map::new()).unwrap_err()
+        g.take("design.rethink", &x, &Map::new()).unwrap_err()
     };
     let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
     assert!(
@@ -315,33 +318,45 @@ fn a_work_moves_by_its_rows() {
     let p = g.start_position();
     assert_eq!(p.at, "start");
     let p = take(&p, "started");
-    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("research", "research"));
+    assert_eq!(
+        (p.at.as_str(), p.recorded["stage"].as_str()),
+        ("research.problem", "research")
+    );
     let p = take(&p, "tools");
     assert_eq!(
         (p.at.as_str(), p.callers.as_slice()),
-        ("tools", ["research".to_string()].as_slice())
+        ("tools", ["research.problem".to_string()].as_slice())
     );
     let p = take(&p, "ran");
     assert_eq!(
         (p.at.as_str(), p.from.as_deref(), p.callers.len()),
-        ("research", Some("tools"), 0)
+        ("research.problem", Some("tools"), 0)
     );
     let p = take(&p, "ask_advisor");
     assert_eq!(
         (p.at.as_str(), p.stopped.as_deref(), p.pointer("@caller")),
-        ("advisor", Some("research"), Some("research"))
+        ("ask.advisor", Some("research.problem"), Some("research.problem"))
     );
     let p = take(&p, "answered");
     assert_eq!(
         (p.at.as_str(), p.stopped.as_deref(), p.from.as_deref()),
-        ("way_on", Some("research"), Some("advisor"))
+        ("ask.way_on", Some("research.problem"), Some("ask.advisor"))
     );
     let p = take(&p, "carry_on");
-    assert_eq!(p.at, "back");
+    assert_eq!(p.at, "ask.back");
     let p = take(&p, "back");
-    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("research", None));
+    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("research.problem", None));
     let p = take(&p, "done");
-    assert_eq!((p.at.as_str(), p.recorded["rethought"].as_str()), ("stands", "no"));
-    let wrong = g.cell("back").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
+    assert_eq!(
+        (p.at.as_str(), p.recorded["rethought"].as_str()),
+        ("research.stands", "no")
+    );
+    let wrong = g
+        .cell("ask.back")
+        .unwrap()
+        .rows
+        .iter()
+        .find(|r| r.name == "back")
+        .unwrap();
     assert!(g.step(&p, wrong).is_err());
 }
