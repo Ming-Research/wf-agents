@@ -4098,7 +4098,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
         "·R1·understanding",
         "·D2·chosen",
         "·D2·estimate",
-        "·D7·progress",
+        "·D7·answer",
     ] {
         assert_eq!(
             given_ending(implements[0], end),
@@ -5442,9 +5442,9 @@ fn a_new_session_in_the_middle_of_a_wake_understands_the_project_first() {
     );
     let log = said.borrow().join("\n");
     let path = path_of(&e, wake);
-    // The wake was at `H8`, the matter picked, when the new session was asked for.
+    // The wake was at `H8`, the matter picked, when the new session was asked for: it took the row for that there.
     let back = path.iter().rposition(|c| c == "W1").expect(&log);
-    assert_eq!(&path[back - 1..back + 3], ["Q2", "W1", "U1", "P1"], "{path:?}\n{log}");
+    assert_eq!(&path[back - 1..back + 3], ["H8", "W1", "U1", "P1"], "{path:?}\n{log}");
     assert!(path[back..].contains(&"H8".to_string()), "{path:?}");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
@@ -5824,7 +5824,8 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
 }
 
 // The architect's Step in a new session starts one for its wake, recorded as the owner's; the wake's next rounds go on
-// in it, the understanding of the project first, since the session is new in the middle of the wake.
+// in it, the understanding of the project first, since the session is new in the middle of the wake: the cell it would
+// have started at takes the row back to understanding.
 #[test]
 fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     let s = setup("own-new-wake-session");
@@ -5841,12 +5842,12 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
     turn(&mut e, &c, None);
-    for _ in 0..2 {
+    for _ in 0..3 {
         c.ask_step_architect("p", false).unwrap();
         turn(&mut e, &c, None);
     }
     let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, wake), ["W0", "W1", "U1", "W1", "U1", "P1"], "{log}");
+    assert_eq!(path_of(&e, wake), ["W0", "W1", "U1", "P1", "W1", "U1", "P1"], "{log}");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");
