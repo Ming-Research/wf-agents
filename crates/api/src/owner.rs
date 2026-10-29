@@ -76,9 +76,12 @@ pub fn interject_architect(db: &mut Db, project: &str, works: &[i64], text: &str
     if works.is_empty() {
         return Err("an interjection names the architect's work it is for".into());
     }
+    // A work as told apart here: its graph, its project, why it ended, the cell it is at, and whether a round there ran
+    // to the end.
+    type Found = (String, Option<String>, Option<String>, String, bool);
     let mut lines = Vec::new();
     for &work in works {
-        let found: Option<(String, Option<String>, Option<String>, String, bool)> = db
+        let found: Option<Found> = db
             .conn()
             .query_row(
                 "SELECT w.graph, w.project, w.ended, w.at,
