@@ -258,7 +258,7 @@ mod tests {
             (0..n)
                 .map(|i| Round {
                     id: RoundId::new(1, n - i),
-                    cell: Some("research.problem".into()),
+                    cell: Some("R1".into()),
                     session: None,
                     input: json!({}),
                     output: None,

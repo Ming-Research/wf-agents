@@ -168,29 +168,22 @@ mod tests {
         let g = f.graph("engineer").unwrap();
         let all = flow::formats::common_format(g, &[]);
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()), &[]);
-        assert_eq!(of("research.problem"), of("test.fix"));
-        assert_eq!(of("test.blind_review"), of("test.table_review"));
-        for cell in [
-            "research.problem",
-            "test.blind_review",
-            "test.adversarial",
-            "ask.advisor",
-        ] {
+        assert_eq!(of("R1"), of("T6"));
+        assert_eq!(of("T3"), of("T4"));
+        for cell in ["R1", "T3", "T1", "A1"] {
             assert!(of(cell).len() <= all.len(), "{cell}");
         }
         assert!(
-            all.contains("`redirect`") && !of("ask.advisor").contains("`redirect`"),
+            all.contains("`redirect`") && !of("A1").contains("`redirect`"),
             "{}",
-            of("ask.advisor")
+            of("A1")
         );
-        let cells: Vec<&str> = format_cells(g, g.cell("test.table_review").unwrap())
+        let cells: Vec<&str> = format_cells(g, g.cell("T4").unwrap())
             .iter()
             .map(|c| c.id.as_str())
             .collect();
         assert!(
-            cells.contains(&"test.blind_review")
-                && cells.contains(&"test.tree_review")
-                && !cells.contains(&"implement"),
+            cells.contains(&"T3") && cells.contains(&"T5") && !cells.contains(&"I1"),
             "{cells:?}"
         );
     }
@@ -206,6 +199,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["implement", "test.fix"]);
+        assert_eq!(starts, ["I1", "T6"]);
     }
 }

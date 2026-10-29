@@ -202,8 +202,8 @@ impl Engine {
     /// Takes over works on an older flow version, which the engine does when each next goes on, instead of taking its
     /// step: each stops, saying why, as every work ends ([`ending::end`]: the round it was in is cut off, its design
     /// cards are replaced, its asks of the owner need no answer, its questions to the architect are withdrawn and its
-    /// sessions end), and its item gets a new work on this version, whose cell `start` takes over the stopped work's
-    /// branch, worktree and pull request and whose cell `research.problem` is told what exists, the questions withdrawn
+    /// sessions end), and its item gets a new work on this version, whose cell `S0` takes over the stopped work's
+    /// branch, worktree and pull request and whose cell `R1` is told what exists, the questions withdrawn
     /// included. Until then the owner still rules on its design cards and answers its asks, and the new work is given
     /// them. A new work is paused as the owner had paused the old one, so that a work the owner steps stays in the
     /// owner's hands. Every work given is stopped before any new one starts, so that the slots they held are free; a

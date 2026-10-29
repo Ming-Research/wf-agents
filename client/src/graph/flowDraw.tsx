@@ -386,7 +386,9 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
           <g key={gr.id} className="fc-group">
             <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={4} />
             <text x={box.x + 12} y={box.y + 21}>
-              {gr.id === 'asking' ? t('chart_asking_part') : t('chart_stage', { stage: gr.label })}
+              {gr.id === 'asking'
+                ? t(gr.letter ? 'chart_asking_part_letter' : 'chart_asking_part', { letter: gr.letter })
+                : t(gr.letter ? 'chart_stage_letter' : 'chart_stage', { stage: gr.label, letter: gr.letter })}
             </text>
           </g>
         );

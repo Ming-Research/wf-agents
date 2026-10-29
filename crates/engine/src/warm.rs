@@ -208,17 +208,14 @@ mod tests {
     #[test]
     fn the_next_round_is_where_every_way_from_the_wait_leads() {
         let g = graph();
-        assert_eq!(
-            next_cells(&g, &at("implement", &[], None)),
-            Some(vec!["implement".to_string()])
-        );
-        let asked = next_cells(&g, &at("ask.owner", &["implement"], Some("implement"))).unwrap();
+        assert_eq!(next_cells(&g, &at("I1", &[], None)), Some(vec!["I1".to_string()]));
+        let asked = next_cells(&g, &at("A3", &["I1"], Some("I1"))).unwrap();
         assert!(
             asked
                 .iter()
                 .all(|c| g.cell(c).unwrap().line.as_deref() == Some("engineer")),
             "{asked:?}"
         );
-        assert_eq!(next_cells(&g, &at("merge.gate", &[], None)), None);
+        assert_eq!(next_cells(&g, &at("M1", &[], None)), None);
     }
 }

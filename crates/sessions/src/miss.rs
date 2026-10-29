@@ -299,7 +299,7 @@ mod tests {
     fn round(n: i64, usage: Value, ended_at: i64) -> Round {
         Round {
             id: RoundId::new(1, n),
-            cell: Some("batch.rethink".into()),
+            cell: Some("B4".into()),
             session: Some(1),
             input: json!({ "call": call("high", "2.1.3", &n.to_string(), n > 1) }),
             output: None,
@@ -316,11 +316,11 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'batch.rethink', 'p')",
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B4', 'p')",
                 [],
             )?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'batch.rethink', '{}', 'c', ?2)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'B4', '{}', 'c', ?2)",
                 params![n, at],
             )?;
             Ok(())

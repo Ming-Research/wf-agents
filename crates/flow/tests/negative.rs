@@ -76,49 +76,49 @@ macro_rules! case {
 
 // The format and the names.
 case!(a_row_with_two_targets, "expected a string", |v| {
-    row(v, "test.next_step", "adversarial")["to"] = json!(["test.adversarial", "test.blind_review"]);
+    row(v, "T7", "adversarial")["to"] = json!(["T1", "T3"]);
 });
 case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
-    node(v, "design.compare")["inputs"][0]["from"][0] = json!("session");
+    node(v, "D1")["inputs"][0]["from"][0] = json!("session");
 });
 case!(an_unknown_key, "unknown field", |v| {
-    node(v, "design.compare")["colour"] = json!("red");
+    node(v, "D1")["colour"] = json!("red");
 });
 case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");
 });
 case!(no_such_engine_action, "no such engine action: nope", |v| {
-    row(v, "design.split", "report")["do"] = json!(["lock_acceptance", "post_design_card", "nope"]);
+    row(v, "D8", "report")["do"] = json!(["lock_acceptance", "post_design_card", "nope"]);
 });
 case!(
     a_line_mixing_low_with_other_efforts,
     "a line mixes the effort low, which does not think, with others: engineer",
     |v| {
-        node(v, "implement")["effort"] = json!("low");
+        node(v, "I1")["effort"] = json!("low");
     }
 );
 case!(no_such_engine_check, "no such engine check: nope", |v| {
-    node(v, "test.blind_review")["checks"] = json!([{ "check": "nope" }]);
+    node(v, "T3")["checks"] = json!([{ "check": "nope" }]);
 });
 case!(
     something_done_every_time_that_names_a_view,
     "names one action, and no view",
     |v| {
-        node(v, "tools")["always"] = json!([{ "at": "results", "view": "work_progress" }]);
+        node(v, "X1")["always"] = json!([{ "at": "results", "view": "work_progress" }]);
     }
 );
 case!(no_such_view, "no table or view nope", |v| {
-    node(v, "start")["inputs"][0]["from"][0]["db"] = json!("nope");
+    node(v, "S0")["inputs"][0]["from"][0]["db"] = json!("nope");
 });
 case!(
     a_view_read_by_a_column_it_lacks,
     "ready_items has no column work",
     |v| {
-        node(v, "start")["inputs"][0]["from"][0]["by"] = json!("work");
+        node(v, "S0")["inputs"][0]["from"][0]["by"] = json!("work");
     }
 );
 case!(a_tool_cell_with_no_step, "names its step", |v| {
-    obj(node(v, "tools")).remove("step");
+    obj(node(v, "X1")).remove("step");
 });
 case!(
     a_form_leaving_out_what_does_not_come_every_time,
@@ -131,28 +131,28 @@ case!(
     a_cell_leaving_out_a_form_the_return_has_not,
     "a cell leaves out a form the return has not",
     |v| {
-        node(v, "research.problem")["without"] = json!(["nothing"]);
+        node(v, "R1")["without"] = json!(["nothing"]);
     }
 );
 case!(
     an_engine_cell_leaving_out_forms,
     "only an agent's cell leaves out forms of the return",
     |v| {
-        node(v, "test.next_step")["without"] = json!(["ask"]);
+        node(v, "T7")["without"] = json!(["ask"]);
     }
 );
 case!(
     a_row_outside_the_asking_part_leaving_the_callers_waiting,
     "a row that goes on without answering the cells that wait goes from the asking part to a cell",
     |v| {
-        row(v, "test.next_step", "adversarial")["drops"] = json!(true);
+        row(v, "T7", "adversarial")["drops"] = json!(true);
     }
 );
 case!(
     a_branch_field_named_like_the_marker,
     "a branch has a field named like the union's marker kind",
     |v| {
-        let out = &mut node(v, "test.full_ci")["out"][0];
+        let out = &mut node(v, "T2")["out"][0];
         out["branches"][4]["fields"][0] = json!({ "$ref": "failure_kind" });
     }
 );
@@ -177,7 +177,7 @@ case!(
     a_gate_that_asks_about_no_such_kind,
     "a gate asks about no such kind",
     |v| {
-        node(v, "design.gap_under_test")["about"] = json!("gap");
+        node(v, "D4")["about"] = json!("gap");
     }
 );
 case!(
@@ -199,21 +199,21 @@ case!(
     a_gate_that_may_not_apply_and_goes_on_by_rows,
     "a gate that may not apply goes on to one cell",
     |v| {
-        node(v, "design.split")["na"] = json!("only documents change");
+        node(v, "D8")["na"] = json!("only documents change");
     }
 );
 case!(
     a_gate_that_goes_on_both_ways,
     "a gate goes on to one cell or by rows",
     |v| {
-        node(v, "design.split")["to"] = json!("design.adversarial_needed");
+        node(v, "D8")["to"] = json!("D9");
     }
 );
 case!(
     a_gate_with_rows_that_records_a_value,
     "a gate with rows records what each row does",
     |v| {
-        node(v, "design.split")["sets"] = json!({ "stage": "design_on" });
+        node(v, "D8")["sets"] = json!({ "stage": "design_on" });
     }
 );
 case!(
@@ -227,21 +227,21 @@ case!(
     own_on_a_cell_that_is_not_an_agent,
     "only an agent has an own answer to tell apart",
     |v| {
-        row(v, "test.next_step", "review_again")["if"] = json!([["own"]]);
+        row(v, "T7", "review_again")["if"] = json!([["own"]]);
     }
 );
 case!(a_cell_that_asks_itself, "a cell that asks itself", |v| {
-    node(v, "ask.advisor")["asks"] = json!(["advisor"]);
+    node(v, "A1")["asks"] = json!(["advisor"]);
 });
 case!(a_role_nobody_has, "asks no such role", |v| {
-    node(v, "ask.advisor")["asks"] = json!(["boss"]);
+    node(v, "A1")["asks"] = json!(["boss"]);
 });
 case!(
     a_cell_that_is_asked_and_does_not_answer,
     "a cell that is asked does not answer",
     |v| {
-        for r in rows(v, "ask.owner") {
-            r["to"] = json!("ask.way_on");
+        for r in rows(v, "A3") {
+            r["to"] = json!("A4");
         }
     }
 );
@@ -249,11 +249,11 @@ case!(
     an_answer_from_a_cell_nobody_asks,
     "only a cell that is asked answers the one that asked",
     |v| {
-        row(v, "design.rethink", "better")["to"] = json!("@asker");
+        row(v, "D3", "better")["to"] = json!("@asker");
     }
 );
 case!(a_row_counts_no_such_counter, "no such counter", |v| {
-    row(v, "design.rethink", "better")["counts"] = json!("x");
+    row(v, "D3", "better")["counts"] = json!("x");
 });
 case!(a_counter_no_row_counts, "a counter no row counts", |v| {
     graph(v)["limits"]["counters"]
@@ -265,23 +265,20 @@ case!(a_cell_in_no_block, "a cell in no block", |v| {
     graph(v)["blocks"][2]["nodes"]
         .as_array_mut()
         .unwrap()
-        .retain(|x| x != "test.next_step");
+        .retain(|x| x != "T7");
 });
 case!(a_cell_in_two_blocks, "in two blocks", |v| {
-    graph(v)["blocks"][1]["nodes"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!("test.next_step"));
+    graph(v)["blocks"][1]["nodes"].as_array_mut().unwrap().push(json!("T7"));
 });
 case!(
     a_prompt_without_a_case_for_a_value,
     "promptBy has a case for each value",
     |v| {
-        obj(&mut node(v, "implement")["promptBy"]["cases"]).remove("report");
+        obj(&mut node(v, "I1")["promptBy"]["cases"]).remove("report");
     }
 );
 case!(a_cell_on_no_such_line, "no such line", |v| {
-    node(v, "implement")["line"] = json!("test");
+    node(v, "I1")["line"] = json!("test");
 });
 case!(
     a_group_of_kinds_only_for_no_such_role,
@@ -297,20 +294,20 @@ case!(a_rule_no_cell_uses, "a rule no cell uses", |v| {
         .push(json!({ "name": "x", "desc": "x", "text": ["x"] }));
 });
 case!(a_cell_given_no_such_rule, "no such rule", |v| {
-    node(v, "design.compare")["rules"] = json!(["x"]);
+    node(v, "D1")["rules"] = json!(["x"]);
 });
 case!(
     a_rule_given_to_a_cell_that_is_not_an_agent,
     "only an agent is given rules",
     |v| {
-        node(v, "merge.gate")["rules"] = json!(["review_table"]);
+        node(v, "M1")["rules"] = json!(["review_table"]);
     }
 );
 case!(a_cell_at_two_stages, "a cell at two stages", |v| {
     graph(v)["stages"]["list"][2]["nodes"]
         .as_array_mut()
         .unwrap()
-        .push(json!("design.compare"));
+        .push(json!("D1"));
 });
 case!(
     a_cell_at_no_stage_that_goes_on_by_itself,
@@ -319,14 +316,14 @@ case!(
         graph(v)["stages"]["list"][4]["nodes"]
             .as_array_mut()
             .unwrap()
-            .retain(|x| x != "implement");
+            .retain(|x| x != "I1");
     }
 );
 case!(
     a_row_that_takes_an_interjection_elsewhere,
     "goes to the cell that receives it",
     |v| {
-        row(v, "merge.gate", "interjection")["to"] = json!("test.fix");
+        row(v, "M1", "interjection")["to"] = json!("T6");
     }
 );
 case!(
@@ -344,29 +341,29 @@ case!(
     an_effort_the_command_line_does_not_name,
     "an effort the command line does not name: implement",
     |v| {
-        node(v, "implement")["effort"] = json!("highest");
+        node(v, "I1")["effort"] = json!("highest");
     }
 );
 case!(
     an_effort_on_a_cell_that_is_not_an_agent,
-    "only an agent runs at an effort: test.next_step",
+    "only an agent runs at an effort: T7",
     |v| {
-        node(v, "test.next_step")["effort"] = json!("high");
+        node(v, "T7")["effort"] = json!("high");
     }
 );
 case!(
     an_agents_cell_with_no_effort,
     "an agent's cell declares no effort: implement",
     |v| {
-        obj(node(v, "implement")).remove("effort");
+        obj(node(v, "I1")).remove("effort");
     }
 );
 // A line starts a new session only at an agent's cell of its own: the review's first cell is not the engineer's.
 case!(
     a_new_session_at_another_lines_cell,
-    "a line starts a new session at a cell that is not one of its agents: engineer test.blind_review",
+    "a line starts a new session at a cell that is not one of its agents: engineer T3",
     |v| {
-        graph(v)["sessions"]["lines"][0]["starts"] = json!(["implement", "test.blind_review"]);
+        graph(v)["sessions"]["lines"][0]["starts"] = json!(["I1", "T3"]);
     }
 );
 case!(
@@ -388,81 +385,74 @@ case!(
     an_agent_that_may_ask_for_tools_names_none,
     "every agent that may ask for tools",
     |v| {
-        obj(node(v, "research.problem")).remove("tools");
+        obj(node(v, "R1")).remove("tools");
     }
 );
 
 // Every return takes one row.
 case!(two_rows_hold_together, "overlap", |v| {
-    row(v, "test.next_step", "review_again")["if"] = json!([["is", "plan.review", ["changed", "disputes"]]]);
+    row(v, "T7", "review_again")["if"] = json!([["is", "plan.review", ["changed", "disputes"]]]);
 });
 case!(no_row_holds, "no row", |v| {
-    remove_row(v, "merge.gate", "wait");
+    remove_row(v, "M1", "wait");
 });
 case!(a_design_of_only_the_design_paths_with_no_way_on, "no row", |v| {
-    remove_row(v, "design.split", "design_paths_only");
+    remove_row(v, "D8", "design_paths_only");
 });
 case!(a_split_that_leaves_nothing_with_no_way_to_the_end, "no row", |v| {
-    remove_row(v, "ask.way_on", "all_to_sub_items");
+    remove_row(v, "A4", "all_to_sub_items");
 });
 case!(a_way_on_that_a_guard_row_also_takes, "overlap", |v| {
-    row(v, "ask.way_on", "carry_on")["if"].as_array_mut().unwrap().pop();
+    row(v, "A4", "carry_on")["if"].as_array_mut().unwrap().pop();
 });
 
 // Every state.
 case!(a_recorded_value_not_recorded_on_a_way_in, "not recorded", |v| {
-    obj(row(v, "research.problem", "done")).remove("sets");
+    obj(row(v, "R1", "done")).remove("sets");
 });
 case!(a_recorded_value_nobody_reads, "never read", |v| {
-    row(v, "ask.architect", "answered")["sets"] = json!({ "extra": "x" });
+    row(v, "A2", "answered")["sets"] = json!({ "extra": "x" });
 });
 case!(a_row_no_return_takes, "never taken", |v| {
-    obj(row(v, "design.rethink", "better")).remove("sets");
+    obj(row(v, "D3", "better")).remove("sets");
 });
 case!(a_value_no_way_records, "never taken", |v| {
-    obj(node(v, "research.stands")).remove("sets");
+    obj(node(v, "R2")).remove("sets");
 });
 case!(a_cell_asked_again_while_it_waits, "asked again", |v| {
-    node(v, "ask.advisor")["out"][0]["fields"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({
-            "name": "again", "type": "text", "optional": true, "desc": "x"
-        }));
-    rows(v, "ask.advisor").insert(
+    node(v, "A1")["out"][0]["fields"].as_array_mut().unwrap().push(json!({
+        "name": "again", "type": "text", "optional": true, "desc": "x"
+    }));
+    rows(v, "A1").insert(
         0,
-        json!({ "name": "ask_self", "if": [["own"], ["has", "reply.again"]], "to": "ask.advisor" }),
+        json!({ "name": "ask_self", "if": [["own"], ["has", "reply.again"]], "to": "A1" }),
     );
 });
 case!(
     a_cell_asked_that_goes_on_instead_of_answering,
     "still waits for an answer",
     |v| {
-        rows(v, "ask.advisor").insert(
+        rows(v, "A1").insert(
             0,
-            json!({ "name": "answered_new_acceptance", "if": [["own"], ["has", "reply.new_acceptance"]], "to": "ask.back" }),
+            json!({ "name": "answered_new_acceptance", "if": [["own"], ["has", "reply.new_acceptance"]], "to": "A5" }),
         );
     }
 );
-case!(
-    the_design_never_asked_about_other_projects,
-    "unreached design.cross_project",
-    |v| {
-        node(v, "design.cost")["to"] = json!("design.split");
-    }
-);
+case!(the_design_never_asked_about_other_projects, "unreached D7", |v| {
+    node(v, "D6")["to"] = json!("D8");
+});
 
 // Every loop counts.
 case!(a_loop_with_no_counter, "no counter", |v| {
-    obj(row(v, "test.fix", "done")).remove("counts");
-    rows(v, "start")[0]["counts"] = json!("fixes");
+    obj(row(v, "T6", "done")).remove("counts");
+    rows(v, "S0")[0]["counts"] = json!("fixes");
 });
 case!(a_pause_with_no_counter, "no counter", |v| {
     obj(&mut graph(v)["agentCommon"]["rows"][1]).remove("counts");
-    rows(v, "start")[0]["counts"] = json!("total_time");
+    rows(v, "S0")[0]["counts"] = json!("total_time");
 });
 case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
-    obj(row(v, "merge.gate", "interjection")).remove("counts");
+    obj(row(v, "M1", "interjection")).remove("counts");
 });
 
 // Every row into a block goes to an entry.
@@ -470,17 +460,17 @@ case!(
     a_row_into_the_asking_part_past_the_cells_that_are_asked,
     "side entry",
     |v| {
-        node(v, "design.sure")["to"] = json!("ask.way_on");
+        node(v, "D5")["to"] = json!("A4");
     }
 );
 case!(a_row_into_another_block_past_its_entries, "side entry", |v| {
-    row(v, "design.adversarial_needed", "yes")["to"] = json!("test.adversarial");
+    row(v, "D9", "yes")["to"] = json!("T1");
 });
 case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,
     "side entry",
     |v| {
-        obj(row(v, "merge.gate", "interjection")).remove("interject");
+        obj(row(v, "M1", "interjection")).remove("interject");
     }
 );
 
@@ -496,7 +486,7 @@ case!(
     }
 );
 case!(a_shown_place_the_return_does_not_have, "nope", |v| {
-    node(v, "implement")["shown"] = json!(["deviations", "followup", "nope"]);
+    node(v, "I1")["shown"] = json!(["deviations", "followup", "nope"]);
 });
 case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
     obj(&mut graph(v)["agentCommon"]["inputs"][0]).remove("name");
@@ -505,23 +495,23 @@ case!(
     a_cell_own_input_with_a_name,
     "only an input every agent's cell has",
     |v| {
-        node(v, "implement")["inputs"][0]["name"] = json!("Design");
+        node(v, "I1")["inputs"][0]["name"] = json!("Design");
     }
 );
 case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
-    node(v, "tools")["inputs"][0]["numbered"] = json!("F");
+    node(v, "X1")["inputs"][0]["numbered"] = json!("F");
 });
 case!(a_kind_that_needs_no_such_need, "no such need", |v| {
     graph(v)["askKinds"][0]["needs"] = json!({ "gap_under_test": "nothing_known" });
 });
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
-    drop_source(v, "test.fix", json!(["test.table_review", "columns[findings]"]));
+    drop_source(v, "T6", json!(["T4", "columns[findings]"]));
 });
 case!(the_design_tree_findings_read_by_nobody, "dropped", |v| {
-    drop_source(v, "test.fix", json!(["test.tree_review", "columns[findings]"]));
+    drop_source(v, "T6", json!(["T5", "columns[findings]"]));
 });
 case!(a_reason_on_a_withdrawn_finding_nobody_reads, "dropped", |v| {
-    let previous = node(v, "test.table_review")["out"]
+    let previous = node(v, "T4")["out"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
@@ -539,31 +529,31 @@ case!(a_reason_on_a_withdrawn_finding_nobody_reads, "dropped", |v| {
         .push(json!({ "name": "reason", "type": "text", "desc": "x" }));
 });
 case!(the_blind_round_read_by_nobody, "nobody reads", |v| {
-    node(v, "test.table_review")["inputs"].as_array_mut().unwrap().remove(1);
+    node(v, "T4")["inputs"].as_array_mut().unwrap().remove(1);
 });
 case!(the_blind_conclusions_on_a_report_read_by_nobody, "nobody reads", |v| {
-    drop_source(v, "test.table_review", json!(["test.blind_review", "conclusions"]));
-    obj(node(v, "test.blind_review")).remove("checks");
+    drop_source(v, "T4", json!(["T3", "conclusions"]));
+    obj(node(v, "T3")).remove("checks");
 });
 case!(
     a_fix_that_never_hears_the_merge_broke_main,
     "nobody reads main[broken_by_merge]",
     |v| {
-        drop_source(v, "test.fix", json!(["watch_main", "main[broken_by_merge]"]));
+        drop_source(v, "T6", json!(["L1", "main[broken_by_merge]"]));
     }
 );
 case!(
     an_answer_to_an_engine_step_that_the_step_does_not_read,
     "nobody reads reply.text",
     |v| {
-        node(v, "tools")["inputs"].as_array_mut().unwrap().pop();
-        drop_source(v, "test.table_review", json!(["ask.architect", "reply"]));
+        node(v, "X1")["inputs"].as_array_mut().unwrap().pop();
+        drop_source(v, "T4", json!(["A2", "reply"]));
     }
 );
 
 // Nothing missing.
 case!(an_input_missing_on_some_way, "missing", |v| {
-    let x = node(v, "merge.gate")["inputs"]
+    let x = node(v, "M1")["inputs"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
@@ -572,11 +562,11 @@ case!(an_input_missing_on_some_way, "missing", |v| {
     obj(x).remove("maybe");
 });
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
-    node(v, "test.table_review")["inputs"][4]["maybe"] = json!(true);
+    node(v, "T4")["inputs"][4]["maybe"] = json!(true);
 });
 case!(an_input_missing_behind_an_engine_step, "missing", |v| {
-    drop_source(v, "test.fix", json!(["test.table_review", "previous[not_fixed]"]));
-    drop_source(v, "test.fix", json!(["test.table_review", "previous[insist]"]));
+    drop_source(v, "T6", json!(["T4", "previous[not_fixed]"]));
+    drop_source(v, "T6", json!(["T4", "previous[insist]"]));
 });
 
 // Every cell a text names is a cell of its graph: a rename or a removal that leaves a text naming the cell as it was is
@@ -590,15 +580,15 @@ case!(
 );
 case!(
     a_text_that_names_a_cell_of_the_other_graph,
-    "architect: flows.architect.nodes.policy.correct.prompt[0] names cell `ask.way_on`, which its graph has not",
+    "architect: flows.architect.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
     |v| {
         let correct = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
-            .find(|n| n["id"] == "policy.correct")
+            .find(|n| n["id"] == "P8")
             .unwrap();
-        correct["prompt"][0] = json!("Coming from cell `ask.way_on`, correct the text.");
+        correct["prompt"][0] = json!("Coming from cell `A4`, correct the text.");
     }
 );
 case!(

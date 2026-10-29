@@ -2867,55 +2867,55 @@
   "flows": [
     {
       "name": "engineer",
-      "start": "start",
-      "end": "end",
+      "start": "S0",
+      "end": "E1",
       "blocks": [
         {
           "name": "start",
           "nodes": [
-            "start"
+            "S0"
           ],
           "entries": [
-            "start"
+            "S0"
           ]
         },
         {
           "name": "design",
           "nodes": [
-            "research.problem",
-            "research.stands",
-            "design.compare",
-            "design.choose",
-            "design.rethink",
-            "design.gap_under_test",
-            "design.sure",
-            "design.cost",
-            "design.cross_project",
-            "design.split",
-            "design.adversarial_needed"
+            "R1",
+            "R2",
+            "D1",
+            "D2",
+            "D3",
+            "D4",
+            "D5",
+            "D6",
+            "D7",
+            "D8",
+            "D9"
           ],
           "entries": [
-            "research.problem",
-            "design.compare"
+            "R1",
+            "D1"
           ]
         },
         {
           "name": "develop",
           "nodes": [
-            "implement",
-            "test.adversarial",
-            "test.full_ci",
-            "test.blind_review",
-            "test.table_review",
-            "test.tree_review",
-            "test.fix",
-            "test.next_step",
-            "merge.gate",
-            "merge.queue",
-            "watch_main"
+            "I1",
+            "T1",
+            "T2",
+            "T3",
+            "T4",
+            "T5",
+            "T6",
+            "T7",
+            "M1",
+            "M2",
+            "L1"
           ],
           "entries": [
-            "implement"
+            "I1"
           ]
         },
         {
@@ -2925,19 +2925,19 @@
         {
           "name": "tools",
           "nodes": [
-            "tools"
+            "X1"
           ],
           "entries": [
-            "tools"
+            "X1"
           ]
         },
         {
           "name": "end",
           "nodes": [
-            "end"
+            "E1"
           ],
           "entries": [
-            "end"
+            "E1"
           ]
         }
       ],
@@ -2945,10 +2945,10 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell `research.problem` and the first round of cells `implement` and `test.fix` start a new session, and every other round continues the latest",
+            "desc": "The engineer doing this work: cell `R1` and the first round of cells `I1` and `T6` start a new session, and every other round continues the latest",
             "starts": [
-              "implement",
-              "test.fix"
+              "I1",
+              "T6"
             ]
           },
           {
@@ -3088,72 +3088,72 @@
             "name": "start",
             "desc": "The item is written and queued, waiting for a slot; when work starts, the engine gives it a machine and a session here",
             "nodes": [
-              "start"
+              "S0"
             ]
           },
           {
             "name": "research",
             "desc": "Researching the problem itself, and judging whether the work stands",
             "nodes": [
-              "research.problem",
-              "research.stands"
+              "R1",
+              "R2"
             ]
           },
           {
             "name": "design",
             "desc": "Comparing approaches, choosing one, writing the design, and the checks after design",
             "nodes": [
-              "design.compare",
-              "design.choose",
-              "design.rethink",
-              "design.gap_under_test",
-              "design.sure",
-              "design.cost",
-              "design.cross_project",
-              "design.split",
-              "design.adversarial_needed"
+              "D1",
+              "D2",
+              "D3",
+              "D4",
+              "D5",
+              "D6",
+              "D7",
+              "D8",
+              "D9"
             ]
           },
           {
             "name": "implement",
             "desc": "Changing the code by the design, or doing the research and writing the report",
             "nodes": [
-              "implement"
+              "I1"
             ]
           },
           {
             "name": "test",
             "desc": "Adversarial testing, the full CI on the draft, review, fixes, and the engine choosing what runs next",
             "nodes": [
-              "test.adversarial",
-              "test.full_ci",
-              "test.blind_review",
-              "test.table_review",
-              "test.tree_review",
-              "test.fix",
-              "test.next_step"
+              "T1",
+              "T2",
+              "T3",
+              "T4",
+              "T5",
+              "T6",
+              "T7"
             ]
           },
           {
             "name": "merge",
             "desc": "Judging whether the work may enter the merge queue; in the queue, catching up with main, running the full CI and merging",
             "nodes": [
-              "merge.gate",
-              "merge.queue"
+              "M1",
+              "M2"
             ]
           },
           {
             "name": "watch_main",
             "desc": "Watching main and the deployment",
             "nodes": [
-              "watch_main"
+              "L1"
             ]
           },
           {
             "name": "end",
             "desc": "Main and the deployment are green",
             "nodes": [
-              "end"
+              "E1"
             ]
           },
           {
@@ -3165,33 +3165,33 @@
       },
       "asking": {
         "nodes": [
-          "ask.advisor",
-          "ask.architect",
-          "ask.owner",
-          "ask.way_on",
-          "ask.back",
-          "ask.wait_items"
+          "A1",
+          "A2",
+          "A3",
+          "A4",
+          "A5",
+          "A6"
         ],
-        "receive": "ask.way_on",
+        "receive": "A4",
         "roles": [
           {
             "name": "advisor",
             "desc": "This work's advisor, one level above you: technical judgment, such as whether the design, the approach or the acceptance must change, and what you are unsure of or cannot decide; when you must judge first to know whether it is for the owner, ask the advisor first too",
-            "node": "ask.advisor",
+            "node": "A1",
             "row": "ask_advisor",
             "fields": []
           },
           {
             "name": "architect",
             "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project",
-            "node": "ask.architect",
+            "node": "A2",
             "row": "ask_architect",
             "fields": []
           },
           {
             "name": "owner",
             "desc": "What only the owner can do or decide: the owner_only group of the ask kinds may be asked of the owner only; what only the owner can fix, such as missing credentials or a permission block, goes to the owner too. Technical judgment goes to the advisor, and what crosses items to the architect",
-            "node": "ask.owner",
+            "node": "A3",
             "row": "ask_owner",
             "fields": [
               {
@@ -3206,7 +3206,7 @@
       },
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the work. The counters are in this work's database records and visible in the owner's interface. The limits are numbers in the project's configuration, next to the CI settings; a counter with no number is only counted, never reported.",
-        "waits": "A row that waits for someone (cell `merge.gate` waiting for items it depends on to merge, or for the owner to confirm the design card) counts nothing: what it waits for is the owner or another work, and this work is not turning; how long it waited is visible in the owner's interface.",
+        "waits": "A row that waits for someone (cell `M1` waiting for items it depends on to merge, or for the owner to confirm the design card) counts nothing: what it waits for is the owner or another work, and this work is not turning; how long it waited is visible in the owner's interface.",
         "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
@@ -3219,11 +3219,11 @@
           },
           {
             "name": "tool_failures",
-            "desc": "The times a tool failed, the engine's two retries failed too, and the architect was asked: the tools cell `tools` runs and cells `test.full_ci`, `merge.queue` and `watch_main` all count"
+            "desc": "The times a tool failed, the engine's two retries failed too, and the architect was asked: the tools cell `X1` runs and cells `T2`, `M2` and `L1` all count"
           },
           {
             "name": "fixes",
-            "desc": "The times cell `test.fix` returned from a fix, whether adversarial testing, the full CI, the review or the merge queue sent it there"
+            "desc": "The times cell `T6` returned from a fix, whether adversarial testing, the full CI, the review or the merge queue sent it there"
           },
           {
             "name": "late_adversarial",
@@ -3231,11 +3231,11 @@
           },
           {
             "name": "main_red",
-            "desc": "The times main went red or the deployment failed after the merge, and the cause was found to be a changed environment (asking the architect) or this merge (back to cell `test.fix` to fix)"
+            "desc": "The times main went red or the deployment failed after the merge, and the cause was found to be a changed environment (asking the architect) or this merge (back to cell `T6` to fix)"
           },
           {
             "name": "redesigns",
-            "desc": "The times cell `design.rethink` found a better design and went back to cell `design.compare` to compare again"
+            "desc": "The times cell `D3` found a better design and went back to cell `D1` to compare again"
           },
           {
             "name": "total_time",
@@ -3476,7 +3476,7 @@
                 "tools"
               ]
             ],
-            "to": "tools",
+            "to": "X1",
             "counts": "tool_requests",
             "main": true
           },
@@ -3510,7 +3510,7 @@
                 "redirect"
               ]
             ],
-            "to": "ask.way_on",
+            "to": "A4",
             "counts": "interjections",
             "interject": true
           }
@@ -3750,7 +3750,7 @@
       },
       "nodes": [
         {
-          "id": "start",
+          "id": "S0",
           "kind": "engine",
           "title": "Start",
           "step": "start_work",
@@ -3820,7 +3820,7 @@
                   "all"
                 ]
               ],
-              "to": "research.problem",
+              "to": "R1",
               "do": [
                 {
                   "at": "place",
@@ -3836,7 +3836,7 @@
           ]
         },
         {
-          "id": "research.problem",
+          "id": "R1",
           "kind": "agent",
           "title": "Research the problem itself",
           "effort": "xhigh",
@@ -3973,7 +3973,7 @@
                   "own"
                 ]
               ],
-              "to": "research.stands",
+              "to": "R2",
               "sets": {
                 "rethought": "no"
               },
@@ -3990,13 +3990,13 @@
           ]
         },
         {
-          "id": "research.stands",
+          "id": "R2",
           "kind": "gate",
           "title": "Does it stand",
           "effort": "medium",
           "about": "work_does_not_stand",
           "question": "Does this work not stand? Judge only whether the problem itself is worth solving; the approach the item writes does not count. It does not stand if the pain does not exist, solving it would not remove the pain, or the item's scope, deliverable or place is wrong; if the root lies in another item, project or module, report root_elsewhere. You may report several reasons it does not stand, each with its reason; not standing does not mean cancelling: someone decides later.",
-          "to": "design.compare",
+          "to": "D1",
           "sets": {
             "stage": "design_on"
           },
@@ -4005,7 +4005,7 @@
               "what": "How this work is understood",
               "from": [
                 [
-                  "research.problem",
+                  "R1",
                   "understanding"
                 ]
               ]
@@ -4013,7 +4013,7 @@
           ]
         },
         {
-          "id": "design.compare",
+          "id": "D1",
           "kind": "agent",
           "title": "Compare approaches",
           "effort": "high",
@@ -4028,7 +4028,7 @@
               "what": "How this work is understood",
               "from": [
                 [
-                  "research.problem",
+                  "R1",
                   "understanding"
                 ]
               ]
@@ -4112,7 +4112,7 @@
                   "own"
                 ]
               ],
-              "to": "design.choose",
+              "to": "D2",
               "main": true
             }
           ],
@@ -4129,7 +4129,7 @@
           }
         },
         {
-          "id": "design.choose",
+          "id": "D2",
           "kind": "agent",
           "title": "Choose one and write the design",
           "effort": "xhigh",
@@ -4144,13 +4144,13 @@
               "what": "The approaches compared",
               "from": [
                 [
-                  "design.compare",
+                  "D1",
                   "options"
                 ]
               ]
             },
             {
-              "what": "Whether this design has already been through thinking again (cell `design.rethink`)",
+              "what": "Whether this design has already been through thinking again (cell `D3`)",
               "from": [
                 {
                   "recorded": "rethought"
@@ -4345,7 +4345,7 @@
                   ]
                 ]
               ],
-              "to": "design.rethink",
+              "to": "D3",
               "main": true
             },
             {
@@ -4362,7 +4362,7 @@
                   ]
                 ]
               ],
-              "to": "design.gap_under_test"
+              "to": "D4"
             }
           ],
           "checks": [
@@ -4429,7 +4429,7 @@
           }
         },
         {
-          "id": "tools",
+          "id": "X1",
           "kind": "tool",
           "title": "Run tools",
           "step": "run_tools",
@@ -4541,7 +4541,7 @@
                   ]
                 ]
               ],
-              "to": "ask.architect",
+              "to": "A2",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed."
             }
@@ -4554,7 +4554,7 @@
           ]
         },
         {
-          "id": "design.rethink",
+          "id": "D3",
           "kind": "agent",
           "title": "Think again: is there a better design",
           "effort": "xhigh",
@@ -4568,15 +4568,15 @@
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4644,7 +4644,7 @@
                   ]
                 ]
               ],
-              "to": "design.compare",
+              "to": "D1",
               "sets": {
                 "rethought": "yes"
               },
@@ -4661,7 +4661,7 @@
                   ]
                 ]
               ],
-              "to": "design.gap_under_test",
+              "to": "D4",
               "main": true
             }
           ],
@@ -4672,7 +4672,7 @@
           ]
         },
         {
-          "id": "design.gap_under_test",
+          "id": "D4",
           "kind": "gate",
           "title": "A gap in what is under test",
           "effort": "medium",
@@ -4680,21 +4680,21 @@
           "needs": "under_test",
           "question": "Carrying out your design, would you meet a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly?",
           "na": "the work writes and changes no code that uses what is under test, such as a change to documents only",
-          "to": "design.sure",
+          "to": "D5",
           "inputs": [
             {
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4702,28 +4702,28 @@
           ]
         },
         {
-          "id": "design.sure",
+          "id": "D5",
           "kind": "gate",
           "title": "Are you sure",
           "effort": "high",
           "about": "unsure",
           "question": "Does your design rest on any fact not yet checked that would change the direction if it were wrong?",
           "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
-          "to": "design.cost",
+          "to": "D6",
           "inputs": [
             {
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4731,28 +4731,28 @@
           ]
         },
         {
-          "id": "design.cost",
+          "id": "D6",
           "kind": "gate",
           "title": "Cost: architectural burden",
           "effort": "medium",
           "about": "too_costly",
           "question": "By your design, is the change so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it?",
           "na": "a report, or a change to documents only, changes no architecture and adds no burden",
-          "to": "design.cross_project",
+          "to": "D7",
           "inputs": [
             {
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4760,28 +4760,28 @@
           ]
         },
         {
-          "id": "design.cross_project",
+          "id": "D7",
           "kind": "gate",
           "title": "Cross-project dependency",
           "effort": "medium",
           "about": "depends_on_other_item",
           "needs": "other_projects",
           "question": "By your design, must this work wait for another project to deliver something?",
-          "to": "design.split",
+          "to": "D8",
           "inputs": [
             {
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4789,7 +4789,7 @@
           ]
         },
         {
-          "id": "design.split",
+          "id": "D8",
           "kind": "gate",
           "title": "Size: must it be split",
           "effort": "medium",
@@ -4800,7 +4800,7 @@
               "what": "The estimate in the design",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "estimate"
                 ]
               ]
@@ -4809,15 +4809,15 @@
               "what": "The design: which approach, why, and the design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4836,7 +4836,7 @@
               "what": "Whether the design changes the design tree, and whether it changes only the design paths",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design_tree"
                 ]
               ]
@@ -4862,7 +4862,7 @@
                   ]
                 ]
               ],
-              "to": "design.adversarial_needed",
+              "to": "D9",
               "main": true
             },
             {
@@ -4883,7 +4883,7 @@
                   ]
                 ]
               ],
-              "to": "implement",
+              "to": "I1",
               "do": [
                 "lock_acceptance",
                 "post_design_card"
@@ -4902,7 +4902,7 @@
                   ]
                 ]
               ],
-              "to": "implement",
+              "to": "I1",
               "sets": {
                 "full_ci": "skipped"
               },
@@ -4919,7 +4919,7 @@
           }
         },
         {
-          "id": "design.adversarial_needed",
+          "id": "D9",
           "kind": "agent",
           "title": "Is dedicated adversarial testing needed",
           "effort": "medium",
@@ -4933,7 +4933,7 @@
               "what": "The design itself",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -4942,7 +4942,7 @@
               "what": "The acceptance conditions this round's design wrote",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "acceptance"
                 ]
               ]
@@ -4995,7 +4995,7 @@
                   ]
                 ]
               ],
-              "to": "implement",
+              "to": "I1",
               "do": [
                 "lock_acceptance",
                 "post_design_card"
@@ -5013,7 +5013,7 @@
                   ]
                 ]
               ],
-              "to": "implement",
+              "to": "I1",
               "do": [
                 "lock_acceptance",
                 "post_design_card"
@@ -5028,7 +5028,7 @@
           ]
         },
         {
-          "id": "implement",
+          "id": "I1",
           "kind": "agent",
           "title": "Implement",
           "effort": "xhigh",
@@ -5045,7 +5045,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -5063,7 +5063,7 @@
               "what": "Whether the design chose dedicated adversarial testing, and why; none for a report or a change to the design paths only, which the engine records as no",
               "from": [
                 [
-                  "design.adversarial_needed",
+                  "D9",
                   "adversarial"
                 ]
               ],
@@ -5082,7 +5082,7 @@
               "what": "How the work is understood",
               "from": [
                 [
-                  "research.problem",
+                  "R1",
                   "understanding"
                 ]
               ]
@@ -5091,48 +5091,48 @@
               "what": "The approach chosen and why, its measure, the design tree change and the estimate",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "measure"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design_tree"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "estimate"
                 ]
               ]
             },
             {
-              "what": "The checks after design: the answers of cells `design.gap_under_test`, `design.sure` and `design.cost`, the progress of cells `design.cross_project` and `design.split`",
+              "what": "The checks after design: the answers of cells `D4`, `D5` and `D6`, the progress of cells `D7` and `D8`",
               "from": [
                 [
-                  "design.gap_under_test",
+                  "D4",
                   "answer"
                 ],
                 [
-                  "design.sure",
+                  "D5",
                   "answer"
                 ],
                 [
-                  "design.cost",
+                  "D6",
                   "answer"
                 ],
                 [
-                  "design.cross_project",
+                  "D7",
                   "progress"
                 ],
                 [
-                  "design.split",
+                  "D8",
                   "progress"
                 ]
               ]
@@ -5197,7 +5197,7 @@
                   "own"
                 ]
               ],
-              "to": "test.next_step",
+              "to": "T7",
               "main": true,
               "note": "The PR stays a draft, and only the fast CI runs."
             }
@@ -5252,7 +5252,7 @@
           }
         },
         {
-          "id": "test.adversarial",
+          "id": "T1",
           "kind": "agent",
           "title": "Adversarial testing",
           "effort": "high",
@@ -5277,7 +5277,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -5295,7 +5295,7 @@
               "what": "Why the design chose adversarial testing; none if it chose none",
               "from": [
                 [
-                  "design.adversarial_needed",
+                  "D9",
                   "adversarial[yes].why"
                 ]
               ],
@@ -5305,7 +5305,7 @@
               "what": "Why the review did not accept skipping adversarial testing; none unless the review asked for late adversarial testing",
               "from": [
                 [
-                  "test.table_review",
+                  "T4",
                   "no_adversarial[does_not_stand].why"
                 ]
               ],
@@ -5315,11 +5315,11 @@
               "what": "The tests the engineer added, what each catches and which kind it is (the engine accumulates them over the rounds); none if the engineer added no test",
               "from": [
                 [
-                  "implement",
+                  "I1",
                   "test_changes[added]"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "test_changes[added]"
                 ]
               ],
@@ -5338,15 +5338,15 @@
               "what": "How much to do this time: as the engine decided; the tests the engineer called test_wrong, and those answered advisor_ruled after asking the advisor",
               "from": [
                 [
-                  "test.next_step",
+                  "T7",
                   "plan.adversarial"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "rows[test_wrong]"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "rows[advisor_ruled]"
                 ]
               ]
@@ -5565,7 +5565,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix"
+              "to": "T6"
             },
             {
               "name": "full_ci",
@@ -5617,7 +5617,7 @@
                   ]
                 ]
               ],
-              "to": "test.full_ci",
+              "to": "T2",
               "main": true
             },
             {
@@ -5678,7 +5678,7 @@
                   ]
                 ]
               ],
-              "to": "test.blind_review",
+              "to": "T3",
               "main": true
             },
             {
@@ -5739,7 +5739,7 @@
                   ]
                 ]
               ],
-              "to": "test.table_review"
+              "to": "T4"
             }
           ],
           "checks": [
@@ -5786,7 +5786,7 @@
           }
         },
         {
-          "id": "test.full_ci",
+          "id": "T2",
           "kind": "tool",
           "title": "Tool: the full CI on the draft",
           "step": "full_ci_on_draft",
@@ -5911,7 +5911,7 @@
                   ]
                 ]
               ],
-              "to": "test.blind_review",
+              "to": "T3",
               "sets": {
                 "full_ci": "green"
               },
@@ -5935,7 +5935,7 @@
                   ]
                 ]
               ],
-              "to": "test.table_review",
+              "to": "T4",
               "sets": {
                 "full_ci": "green"
               }
@@ -5953,7 +5953,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix"
+              "to": "T6"
             },
             {
               "name": "not_run",
@@ -5966,7 +5966,7 @@
                   ]
                 ]
               ],
-              "to": "ask.architect",
+              "to": "A2",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
             }
@@ -5976,7 +5976,7 @@
           }
         },
         {
-          "id": "test.blind_review",
+          "id": "T3",
           "kind": "agent",
           "title": "Blind review",
           "effort": "xhigh",
@@ -6078,7 +6078,7 @@
                   "own"
                 ]
               ],
-              "to": "test.table_review",
+              "to": "T4",
               "main": true
             }
           ],
@@ -6093,7 +6093,7 @@
           }
         },
         {
-          "id": "test.table_review",
+          "id": "T4",
           "kind": "agent",
           "title": "Table review",
           "effort": "high",
@@ -6120,11 +6120,11 @@
               "what": "The findings of the blind review round, and for a report the conclusions you drew from the data alone; none at a re-review",
               "from": [
                 [
-                  "test.blind_review",
+                  "T3",
                   "findings"
                 ],
                 [
-                  "test.blind_review",
+                  "T3",
                   "conclusions"
                 ]
               ],
@@ -6134,55 +6134,55 @@
               "what": "The returns of the research rounds: whether the work stands, and the reason of each check, each a column of its own; the reasons of the three questions on a gap in what is under test, being unsure and cost are in their answer, and for the other checks answered no, in their progress",
               "from": [
                 [
-                  "research.stands",
+                  "R2",
                   "progress"
                 ],
                 [
-                  "research.problem",
+                  "R1",
                   "understanding"
                 ],
                 [
-                  "design.compare",
+                  "D1",
                   "options"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "measure"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design_tree[unchanged].why"
                 ],
                 [
-                  "design.rethink",
+                  "D3",
                   "better[no]"
                 ],
                 [
-                  "design.gap_under_test",
+                  "D4",
                   "answer"
                 ],
                 [
-                  "design.sure",
+                  "D5",
                   "answer"
                 ],
                 [
-                  "design.cost",
+                  "D6",
                   "answer"
                 ],
                 [
-                  "design.cross_project",
+                  "D7",
                   "progress"
                 ],
                 [
-                  "design.split",
+                  "D8",
                   "progress"
                 ]
               ]
@@ -6191,7 +6191,7 @@
               "what": "The design's description; the design card as it stands, the latest of this work, with the numbers of the earlier cards of this work it replaced, which are not given; no design card when the design tree did not change",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ],
                 {
@@ -6204,19 +6204,19 @@
               "what": "Where the engineer reported departing from the plan, and the test changes (the engine accumulates them over the rounds); each workaround, each design change and each test removed, skipped or relaxed is a column of its own",
               "from": [
                 [
-                  "implement",
+                  "I1",
                   "deviations"
                 ],
                 [
-                  "implement",
+                  "I1",
                   "test_changes"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "deviations"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "test_changes"
                 ]
               ]
@@ -6225,7 +6225,7 @@
               "what": "The latest answer of the fix cell for each row; none if never fixed",
               "from": [
                 [
-                  "test.fix",
+                  "T6",
                   "rows"
                 ]
               ],
@@ -6235,19 +6235,19 @@
               "what": "Every reply of the advisor, the architect and the owner on this work (as they wrote it), and each way on the engineer chose at the cell that chooses the way on (accumulated by the engine); none if no one was asked",
               "from": [
                 [
-                  "ask.advisor",
+                  "A1",
                   "reply"
                 ],
                 [
-                  "ask.architect",
+                  "A2",
                   "reply"
                 ],
                 [
-                  "ask.owner",
+                  "A3",
                   "reply"
                 ],
                 [
-                  "ask.way_on",
+                  "A4",
                   "next"
                 ]
               ],
@@ -6257,19 +6257,19 @@
               "what": "Adversarial testing's condition table (the engine merges re-checks into the previous one), whether each round wrote tests, the new tests (new behaviour and old behaviour) and their two results (accumulated by the engine); after a fix with no further adversarial testing, the last ones; none if the design chose no adversarial testing and none ran late",
               "from": [
                 [
-                  "test.adversarial",
+                  "T1",
                   "conditions"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "new_tests"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "wrote"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "guard_tests"
                 ]
               ],
@@ -6279,11 +6279,11 @@
               "what": "The directions and suspects adversarial testing tried (the engine accumulates them over the rounds); none if the design chose no adversarial testing and none ran late, and no suspects if none were handed in",
               "from": [
                 [
-                  "test.adversarial",
+                  "T1",
                   "directions"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "suspects"
                 ]
               ],
@@ -6293,7 +6293,7 @@
               "what": "Why the design chose no dedicated adversarial testing; none if it chose some, for a report, or for a change to the design paths only",
               "from": [
                 [
-                  "design.adversarial_needed",
+                  "D9",
                   "adversarial[no].why"
                 ]
               ],
@@ -6303,27 +6303,27 @@
               "what": "Without adversarial testing, the acceptance table the engineer handed in and the results of the new tests (both kinds) before and after the change (the engine merges in those handed in after fixes); none if adversarial testing ran",
               "from": [
                 [
-                  "implement",
+                  "I1",
                   "conditions"
                 ],
                 [
-                  "implement",
+                  "I1",
                   "new_tests"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "conditions"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "new_tests"
                 ],
                 [
-                  "implement",
+                  "I1",
                   "guard_tests"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "guard_tests"
                 ]
               ],
@@ -6333,7 +6333,7 @@
               "what": "How much to review this time: as the engine decided",
               "from": [
                 [
-                  "test.next_step",
+                  "T7",
                   "plan.review"
                 ]
               ]
@@ -6493,7 +6493,7 @@
                   ]
                 ]
               ],
-              "to": "test.tree_review",
+              "to": "T5",
               "main": true
             },
             {
@@ -6510,7 +6510,7 @@
                   ]
                 ]
               ],
-              "to": "merge.gate",
+              "to": "M1",
               "main": true
             }
           ],
@@ -6554,7 +6554,7 @@
           }
         },
         {
-          "id": "test.tree_review",
+          "id": "T5",
           "kind": "agent",
           "title": "Review the design tree",
           "effort": "high",
@@ -6568,7 +6568,7 @@
               "what": "The design's description; the design card as it stands, the latest of this work, with the numbers of the earlier cards of this work it replaced, which are not given; no design card when the design tree did not change",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ],
                 {
@@ -6581,11 +6581,11 @@
               "what": "The returns of the two rounds that compared approaches and thought again whether there is a better design",
               "from": [
                 [
-                  "design.compare",
+                  "D1",
                   "options"
                 ],
                 [
-                  "design.rethink",
+                  "D3",
                   "better[no]"
                 ]
               ]
@@ -6646,7 +6646,7 @@
                   "own"
                 ]
               ],
-              "to": "merge.gate",
+              "to": "M1",
               "main": true
             }
           ],
@@ -6666,7 +6666,7 @@
           ]
         },
         {
-          "id": "merge.gate",
+          "id": "M1",
           "kind": "engine",
           "title": "Judge whether it may enter the merge queue",
           "inputs": [
@@ -6675,7 +6675,7 @@
               "what": "The review table: the verdict of each column the table review listed; none at a re-review that looked only at disputes",
               "from": [
                 [
-                  "test.table_review",
+                  "T4",
                   "columns"
                 ]
               ],
@@ -6686,7 +6686,7 @@
               "what": "The design tree review's table: the verdict of each column; none when the change to review touched no design tree node",
               "from": [
                 [
-                  "test.tree_review",
+                  "T5",
                   "columns"
                 ]
               ],
@@ -6697,7 +6697,7 @@
               "what": "At a re-review, the answer to each finding of the round before; none at the first round",
               "from": [
                 [
-                  "test.table_review",
+                  "T4",
                   "previous"
                 ]
               ],
@@ -6708,7 +6708,7 @@
               "what": "The review's judgment on skipping dedicated adversarial testing; none if the design chose adversarial testing, for a report or a change to the design paths only, after late adversarial testing, or at a re-review that did not change the judgment",
               "from": [
                 [
-                  "test.table_review",
+                  "T4",
                   "no_adversarial"
                 ]
               ],
@@ -6790,7 +6790,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix",
+              "to": "T6",
               "note": "The review did not accept skipping adversarial testing: it is done from the start."
             },
             {
@@ -6835,7 +6835,7 @@
                   ]
                 ]
               ],
-              "to": "test.next_step",
+              "to": "T7",
               "counts": "late_adversarial",
               "note": "The review did not accept skipping adversarial testing: it is done from the start."
             },
@@ -6886,7 +6886,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix"
+              "to": "T6"
             },
             {
               "name": "wait",
@@ -6937,7 +6937,7 @@
                   ]
                 ]
               ],
-              "to": "merge.gate",
+              "to": "M1",
               "do": [
                 "notify_pending_approvers"
               ],
@@ -6994,7 +6994,7 @@
                   ]
                 ]
               ],
-              "to": "merge.queue",
+              "to": "M2",
               "main": true
             },
             {
@@ -7008,7 +7008,7 @@
                   ]
                 ]
               ],
-              "to": "ask.way_on",
+              "to": "A4",
               "counts": "interjections",
               "interject": true,
               "note": "The engine takes the interjection to choose the way on; if that carries on, the work comes back here and the engine judges again."
@@ -7029,7 +7029,7 @@
           }
         },
         {
-          "id": "test.fix",
+          "id": "T6",
           "kind": "agent",
           "title": "Fix",
           "effort": "high",
@@ -7047,63 +7047,63 @@
               "what": "The table to answer, one row per entry, numbered F1, F2, ... across all of them, every row answered by its number: the review's findings, the columns it could not verify, the findings not fixed or insisted on; red new tests, new tests whose result before the change does not fit their kind, and tests adversarial testing insisted on; conflicts and red or flaky checks of the full CI on the draft while catching up with main; conflicts and reds in the merge queue; checks found broken by this merge, and the deployment log",
               "from": [
                 [
-                  "test.table_review",
+                  "T4",
                   "columns[findings]"
                 ],
                 [
-                  "test.table_review",
+                  "T4",
                   "columns[cannot_verify]"
                 ],
                 [
-                  "test.tree_review",
+                  "T5",
                   "columns[findings]"
                 ],
                 [
-                  "test.tree_review",
+                  "T5",
                   "columns[cannot_verify]"
                 ],
                 [
-                  "test.table_review",
+                  "T4",
                   "previous[not_fixed]"
                 ],
                 [
-                  "test.table_review",
+                  "T4",
                   "previous[insist]"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "new_tests"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "guard_tests"
                 ],
                 [
-                  "test.adversarial",
+                  "T1",
                   "previous[insist]"
                 ],
                 [
-                  "test.full_ci",
+                  "T2",
                   "result[conflict]"
                 ],
                 [
-                  "test.full_ci",
+                  "T2",
                   "result[red]"
                 ],
                 [
-                  "test.full_ci",
+                  "T2",
                   "result[flaky]"
                 ],
                 [
-                  "merge.queue",
+                  "M2",
                   "result[conflict]"
                 ],
                 [
-                  "merge.queue",
+                  "M2",
                   "result[red]"
                 ],
                 [
-                  "watch_main",
+                  "L1",
                   "main[broken_by_merge]"
                 ]
               ]
@@ -7130,7 +7130,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ]
@@ -7139,27 +7139,27 @@
               "what": "What implementing and fixing handed in: the conditions met, deviations and test changes (accumulated)",
               "from": [
                 [
-                  "implement",
+                  "I1",
                   "conditions"
                 ],
                 [
-                  "implement",
+                  "I1",
                   "deviations"
                 ],
                 [
-                  "implement",
+                  "I1",
                   "test_changes"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "conditions"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "deviations"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "test_changes"
                 ]
               ]
@@ -7358,7 +7358,7 @@
                   "own"
                 ]
               ],
-              "to": "test.next_step",
+              "to": "T7",
               "counts": "fixes"
             }
           ],
@@ -7430,7 +7430,7 @@
           ]
         },
         {
-          "id": "test.next_step",
+          "id": "T7",
           "kind": "engine",
           "title": "Choose what runs next",
           "step": "choose_checks",
@@ -7550,7 +7550,7 @@
                   ]
                 ]
               ],
-              "to": "test.adversarial",
+              "to": "T1",
               "main": true
             },
             {
@@ -7578,7 +7578,7 @@
                   ]
                 ]
               ],
-              "to": "test.full_ci",
+              "to": "T2",
               "main": true
             },
             {
@@ -7623,7 +7623,7 @@
                   ]
                 ]
               ],
-              "to": "test.blind_review",
+              "to": "T3",
               "main": true
             },
             {
@@ -7668,7 +7668,7 @@
                   ]
                 ]
               ],
-              "to": "test.table_review"
+              "to": "T4"
             },
             {
               "name": "nothing",
@@ -7703,7 +7703,7 @@
                   ]
                 ]
               ],
-              "to": "merge.gate"
+              "to": "M1"
             },
             {
               "name": "interjection",
@@ -7716,7 +7716,7 @@
                   ]
                 ]
               ],
-              "to": "ask.way_on",
+              "to": "A4",
               "do": [
                 {
                   "at": "plan",
@@ -7734,7 +7734,7 @@
           }
         },
         {
-          "id": "merge.queue",
+          "id": "M2",
           "kind": "tool",
           "title": "Tool: the merge queue",
           "step": "merge",
@@ -7752,7 +7752,7 @@
               "what": "The head the full CI was last green on: the run on the draft; none for a report, which does not run it on the draft",
               "from": [
                 [
-                  "test.full_ci",
+                  "T2",
                   "result[green].head"
                 ]
               ],
@@ -7865,7 +7865,7 @@
                   ]
                 ]
               ],
-              "to": "watch_main",
+              "to": "L1",
               "main": true
             },
             {
@@ -7880,7 +7880,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix",
+              "to": "T6",
               "note": "The PR leaves the merge queue to be fixed, and joins it again at the end after the fix."
             },
             {
@@ -7894,14 +7894,14 @@
                   ]
                 ]
               ],
-              "to": "ask.architect",
+              "to": "A2",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
             }
           ]
         },
         {
-          "id": "watch_main",
+          "id": "L1",
           "kind": "tool",
           "title": "Tool: watch main and the deployment",
           "step": "watch_main",
@@ -7910,7 +7910,7 @@
               "what": "The merge commit",
               "from": [
                 [
-                  "merge.queue",
+                  "M2",
                   "result[merged].merge_commit"
                 ]
               ]
@@ -8019,7 +8019,7 @@
                   ]
                 ]
               ],
-              "to": "end",
+              "to": "E1",
               "main": true
             },
             {
@@ -8033,7 +8033,7 @@
                   ]
                 ]
               ],
-              "to": "ask.architect",
+              "to": "A2",
               "counts": "main_red",
               "note": "Red on main's commit before the merge too: the environment changed. The architect fixes the environment, or adds the check to the table of known red checks with a work to fix it; when the reply comes, this cell runs again."
             },
@@ -8048,7 +8048,7 @@
                   ]
                 ]
               ],
-              "to": "test.fix",
+              "to": "T6",
               "sets": {
                 "full_ci": "not_green"
               },
@@ -8070,14 +8070,14 @@
                   ]
                 ]
               ],
-              "to": "ask.architect",
+              "to": "A2",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
             }
           ]
         },
         {
-          "id": "ask.way_on",
+          "id": "A4",
           "kind": "agent",
           "title": "Choose the way on",
           "effort": "medium",
@@ -8172,7 +8172,7 @@
                   ]
                 ]
               ],
-              "to": "research.problem",
+              "to": "R1",
               "sets": {
                 "full_ci": "not_green",
                 "stage": "research"
@@ -8214,7 +8214,7 @@
                   ]
                 ]
               ],
-              "to": "design.compare",
+              "to": "D1",
               "sets": {
                 "rethought": "no",
                 "full_ci": "not_green"
@@ -8256,7 +8256,7 @@
                   ]
                 ]
               ],
-              "to": "ask.owner",
+              "to": "A3",
               "counts": "flow_anomalies",
               "note": "A flow anomaly: still researching, there is no design to change. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
             },
@@ -8292,7 +8292,7 @@
                   ]
                 ]
               ],
-              "to": "ask.back"
+              "to": "A5"
             },
             {
               "name": "carry_on_unfit",
@@ -8339,7 +8339,7 @@
                   ]
                 ]
               ],
-              "to": "ask.owner",
+              "to": "A3",
               "counts": "flow_anomalies",
               "note": "A flow anomaly: carrying on makes no sense after sub-items were split off (the design and estimate still cover the whole) or with a disagreement with the design card. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
             },
@@ -8369,7 +8369,7 @@
                   ]
                 ]
               ],
-              "to": "ask.wait_items",
+              "to": "A6",
               "do": [
                 "record_waits"
               ],
@@ -8403,7 +8403,7 @@
                   ]
                 ]
               ],
-              "to": "ask.owner",
+              "to": "A3",
               "counts": "flow_anomalies",
               "note": "A flow anomaly: the architect's reply has the work wait for other items, and the engineer did not choose to wait. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
             },
@@ -8433,7 +8433,7 @@
                   ]
                 ]
               ],
-              "to": "ask.owner",
+              "to": "A3",
               "counts": "flow_anomalies",
               "note": "A flow anomaly: the engineer chose to wait with no item to wait for. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
             },
@@ -8455,7 +8455,7 @@
                   ]
                 ]
               ],
-              "to": "end",
+              "to": "E1",
               "do": [
                 "hand_over_to_sub_items"
               ]
@@ -8480,7 +8480,7 @@
                   ]
                 ]
               ],
-              "to": "ask.owner",
+              "to": "A3",
               "counts": "flow_anomalies",
               "note": "A flow anomaly: the architect gave all of the work to sub-items, so there is no design to change and nothing to research again. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again."
             }
@@ -8551,7 +8551,7 @@
           }
         },
         {
-          "id": "ask.back",
+          "id": "A5",
           "kind": "engine",
           "title": "Back to the cell that asked",
           "inputs": [
@@ -8579,7 +8579,7 @@
           ]
         },
         {
-          "id": "ask.wait_items",
+          "id": "A6",
           "kind": "engine",
           "title": "Wait for other work to deliver",
           "inputs": [
@@ -8613,7 +8613,7 @@
                   ]
                 ]
               ],
-              "to": "ask.way_on",
+              "to": "A4",
               "note": "The engine goes back to choose the way on with what they delivered."
             },
             {
@@ -8634,7 +8634,7 @@
                   ]
                 ]
               ],
-              "to": "ask.wait_items",
+              "to": "A6",
               "waits": true,
               "note": "The owner's interface shows which items the work waits for; the engineer's session is kept, and the work holds no slot."
             },
@@ -8649,7 +8649,7 @@
                   ]
                 ]
               ],
-              "to": "ask.way_on",
+              "to": "A4",
               "counts": "interjections",
               "interject": true,
               "note": "The engine takes the interjection to choose the way on; if that still waits, the work comes back here to wait."
@@ -8670,7 +8670,7 @@
           }
         },
         {
-          "id": "ask.advisor",
+          "id": "A1",
           "kind": "agent",
           "title": "Advisor",
           "effort": "xhigh",
@@ -8701,26 +8701,26 @@
               ]
             },
             {
-              "what": "This work's research and design: the engineer's understanding, the approaches compared and the chosen design, as far as the work has come; coming from cell `research.problem` or `research.stands` there are no approaches compared yet, and when cell `research.problem` only asked there is no understanding either",
+              "what": "This work's research and design: the engineer's understanding, the approaches compared and the chosen design, as far as the work has come; coming from cell `R1` or `R2` there are no approaches compared yet, and when cell `R1` only asked there is no understanding either",
               "from": [
                 [
-                  "research.problem",
+                  "R1",
                   "understanding"
                 ],
                 [
-                  "design.compare",
+                  "D1",
                   "options"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "chosen"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "why"
                 ],
                 [
-                  "design.choose",
+                  "D2",
                   "design"
                 ]
               ],
@@ -8730,7 +8730,7 @@
               "what": "The estimate in the design; none before design is done",
               "from": [
                 [
-                  "design.choose",
+                  "D2",
                   "estimate"
                 ]
               ],
@@ -8740,11 +8740,11 @@
               "what": "Where the implementation departed from the plan (the engine accumulates them over the rounds); none unless coming from implementation or a fix",
               "from": [
                 [
-                  "implement",
+                  "I1",
                   "deviations"
                 ],
                 [
-                  "test.fix",
+                  "T6",
                   "deviations"
                 ]
               ],
@@ -8823,7 +8823,7 @@
           ]
         },
         {
-          "id": "ask.architect",
+          "id": "A2",
           "kind": "engine",
           "title": "To the architect",
           "step": "ask_architect",
@@ -8852,19 +8852,19 @@
               "what": "When asking because an engine tool failed: which tool, which kind of failure, what happened, how many retries; the architect has it fixed, by an item or by the owner, and answers once it is, saying what was done, and the engine runs that step again. None unless a tool failed",
               "from": [
                 [
-                  "tools",
+                  "X1",
                   "failed"
                 ],
                 [
-                  "test.full_ci",
+                  "T2",
                   "result[not_run]"
                 ],
                 [
-                  "merge.queue",
+                  "M2",
                   "result[not_run]"
                 ],
                 [
-                  "watch_main",
+                  "L1",
                   "main[not_run]"
                 ]
               ],
@@ -8874,7 +8874,7 @@
               "what": "When asking because main went red after the merge and is red on main's commit before the merge too: the red checks and that earlier run. The architect has the environment fixed, by an item that fixes it with the check added to the table of known red checks meanwhile, or by the owner, then answers, and the engine runs that step again. None unless asking for this",
               "from": [
                 [
-                  "watch_main",
+                  "L1",
                   "main[environment_changed]"
                 ]
               ],
@@ -8899,7 +8899,7 @@
           ]
         },
         {
-          "id": "ask.owner",
+          "id": "A3",
           "kind": "owner",
           "title": "Owner",
           "step": "ask_owner",
@@ -8952,7 +8952,7 @@
           ]
         },
         {
-          "id": "end",
+          "id": "E1",
           "kind": "engine",
           "title": "End",
           "step": "end_work",
@@ -8991,13 +8991,13 @@
         "The design card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One design card per work, one section per decision. Its content is shown in the design section of the item's research; the design card in the owner's interface shows only the decisions' names and links.",
         "The design card follows the design tree on the branch: written and committed on the branch during design, the design card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new design card, which the engine checks against the change on the branch.",
         "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. A card the owner has confirmed is not sent to the architect. Without a design card, the architect has nothing to do.",
-        "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for cell `merge.gate`.",
+        "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for cell `M1`.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
         "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded, with a word to the engineer; the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
-        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `ask.way_on` to choose the way on, and cell `ask.way_on` may not carry on: to change the design, back to cell `design.compare` to design again; if what the item needs has changed, back to cell `research.problem`; if unsure, ask the owner. Cells `design.compare` and `design.choose` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `design.choose` must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor.",
-        "When cell `ask.way_on` chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
-        "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At cell `merge.gate`, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
-        "At cell `merge.gate`, the engine compares the change to the design tree in the commit to be merged with the version the owner went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at cell `merge.gate`, and the engine tells the owner that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
+        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `A4` to choose the way on, and cell `A4` may not carry on: to change the design, back to cell `D1` to design again; if what the item needs has changed, back to cell `R1`; if unsure, ask the owner. Cells `D1` and `D2` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `D2` must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor.",
+        "When cell `A4` chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
+        "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At cell `M1`, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
+        "At cell `M1`, the engine compares the change to the design tree in the commit to be merged with the version the owner went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at cell `M1`, and the engine tells the owner that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
       ],
       "interject": {
         "name": "interjection",
@@ -9005,8 +9005,8 @@
         "text": [
           "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen); the architect does not rule on design cards, but may say what it found wrong in one. When the owner and the architect say different things, the owner's word goes.",
           "Delivery: while an agent's round runs, the session manager gives it the interjections waiting each time it finishes using a tool; those not delivered by the end of the round go at the top of the next round's input. Interjections and the agents' answers are recorded on the work and visible in the owner's interface.",
-          "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker, and the agent goes on in the same cell, like after a pause, with nothing drawn on the graph. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to cell `ask.way_on`; where to go is not thought about here but at cell `ask.way_on`, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
-          "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (cell `test.next_step` choosing what runs next, cell `merge.gate` judging whether it may enter the merge queue, including while it waits), it goes straight to cell `ask.way_on` to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if cell `test.next_step` or `merge.gate` comes next, sent to cell `ask.way_on` from there; if cell `end` comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",
+          "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker, and the agent goes on in the same cell, like after a pause, with nothing drawn on the graph. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to cell `A4`; where to go is not thought about here but at cell `A4`, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
+          "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (cell `T7` choosing what runs next, cell `M1` judging whether it may enter the merge queue, including while it waits), it goes straight to cell `A4` to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if cell `T7` or `M1` comes next, sent to cell `A4` from there; if cell `E1` comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",
           "For the reviewer, the adversarial tester or the advisor while not running: a round on its session only answers. That round is not on the graph: once answered it is over, and the work stays where it is.",
           "Such a round does not change their last conclusion; if the owner's words must change a conclusion, they go at the top of the input the next time this work calls that agent."
         ],
@@ -9073,92 +9073,92 @@
     },
     {
       "name": "architect",
-      "start": "wake.start",
-      "end": "record",
+      "start": "W0",
+      "end": "E2",
       "blocks": [
         {
           "name": "wake",
           "nodes": [
-            "wake.start",
-            "wake.understood"
+            "W0",
+            "W1"
           ],
           "entries": [
-            "wake.start"
+            "W0"
           ]
         },
         {
           "name": "understand",
           "nodes": [
-            "understand.state",
-            "understand.policy",
-            "understand.fit"
+            "U1",
+            "P1",
+            "N1"
           ],
           "entries": [
-            "understand.state",
-            "understand.fit"
+            "U1",
+            "N1"
           ]
         },
         {
           "name": "doing",
           "nodes": [
-            "pick.anything",
-            "pick.choose",
-            "pick.route",
-            "handle.set_straight",
-            "handle.crux",
-            "handle.ways",
-            "handle.what_is_it",
-            "handle.take_in",
-            "handle.card_sound",
-            "handle.have_fixed",
-            "handle.owner_words",
-            "handle.answer_architect",
-            "handle.what_runs",
-            "handle.batch_done"
+            "Q0",
+            "Q1",
+            "Q2",
+            "H1",
+            "H2",
+            "H3",
+            "H4",
+            "H5",
+            "H6",
+            "H7",
+            "H8",
+            "H9",
+            "H10",
+            "B1"
           ],
           "entries": [
-            "pick.anything",
-            "handle.batch_done"
+            "Q0",
+            "B1"
           ]
         },
         {
           "name": "batch",
           "nodes": [
-            "batch.review",
-            "batch.revise",
-            "batch.rethink"
+            "B2",
+            "B3",
+            "B4"
           ],
           "entries": [
-            "batch.review",
-            "batch.rethink"
+            "B2",
+            "B4"
           ]
         },
         {
           "name": "policy",
           "nodes": [
-            "policy.study",
-            "policy.owner_reads",
-            "policy.write",
-            "policy.assemble",
-            "policy.fresh_read",
-            "policy.judge_read",
-            "policy.correct",
-            "policy.count",
-            "policy.holds_up",
-            "policy.owner_approves",
-            "policy.takes_effect"
+            "P2",
+            "P3",
+            "P4",
+            "P5",
+            "P6",
+            "P7",
+            "P8",
+            "P9",
+            "P10",
+            "P11",
+            "P12"
           ],
           "entries": [
-            "policy.study"
+            "P2"
           ]
         },
         {
           "name": "wrap_up",
           "nodes": [
-            "wrap_up"
+            "E1"
           ],
           "entries": [
-            "wrap_up"
+            "E1"
           ]
         },
         {
@@ -9168,28 +9168,28 @@
         {
           "name": "tools",
           "nodes": [
-            "tools"
+            "X1"
           ],
           "entries": [
-            "tools"
+            "X1"
           ]
         },
         {
           "name": "search",
           "nodes": [
-            "search"
+            "X2"
           ],
           "entries": [
-            "search"
+            "X2"
           ]
         },
         {
           "name": "end",
           "nodes": [
-            "record"
+            "E2"
           ],
           "entries": [
-            "record"
+            "E2"
           ]
         }
       ],
@@ -9271,96 +9271,102 @@
             "name": "wake",
             "desc": "The engine wakes it, and readies its session",
             "nodes": [
-              "wake.start",
-              "wake.understood"
+              "W0",
+              "W1"
             ]
           },
           {
             "name": "understand",
-            "desc": "Understanding the project, whether the policy is right, and whether what runs fits",
+            "desc": "Understanding the project",
             "nodes": [
-              "understand.state",
-              "understand.policy",
-              "understand.fit"
+              "U1"
+            ]
+          },
+          {
+            "name": "policy",
+            "desc": "Whether the policy is right; when it must be set again, every other matter of the project waits: studying a new policy, waiting for the owner to read it, writing the text, new sessions reading it, waiting for the owner's approval",
+            "nodes": [
+              "P1",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9",
+              "P10",
+              "P11",
+              "P12"
+            ]
+          },
+          {
+            "name": "next",
+            "desc": "Whether what runs fits",
+            "nodes": [
+              "N1"
             ]
           },
           {
             "name": "pick",
             "desc": "Picking the next matter from the queue",
             "nodes": [
-              "pick.anything",
-              "pick.choose",
-              "pick.route"
+              "Q0",
+              "Q1",
+              "Q2"
             ]
           },
           {
             "name": "handle",
             "desc": "Handling the matter picked, by its kind",
             "nodes": [
-              "handle.set_straight",
-              "handle.crux",
-              "handle.ways",
-              "handle.what_is_it",
-              "handle.take_in",
-              "handle.card_sound",
-              "handle.have_fixed",
-              "handle.owner_words",
-              "handle.answer_architect",
-              "handle.what_runs",
-              "handle.batch_done"
+              "H1",
+              "H2",
+              "H3",
+              "H4",
+              "H5",
+              "H6",
+              "H7",
+              "H8",
+              "H9",
+              "H10"
             ]
           },
           {
             "name": "batch",
-            "desc": "The batch's item changes reviewed and made, and whether to think again",
+            "desc": "Whether the batch is done; its item changes reviewed and made, and whether to think again",
             "nodes": [
-              "batch.review",
-              "batch.revise",
-              "batch.rethink"
-            ]
-          },
-          {
-            "name": "policy",
-            "desc": "Every other matter of the project waits: studying a new policy, waiting for the owner to read it, writing the text, new sessions reading it, waiting for the owner's approval",
-            "nodes": [
-              "policy.study",
-              "policy.owner_reads",
-              "policy.write",
-              "policy.assemble",
-              "policy.fresh_read",
-              "policy.judge_read",
-              "policy.correct",
-              "policy.count",
-              "policy.holds_up",
-              "policy.owner_approves",
-              "policy.takes_effect"
+              "B1",
+              "B2",
+              "B3",
+              "B4"
             ]
           },
           {
             "name": "wrap_up",
             "desc": "Wrapping up: what it learned joins its state of things, with its notes",
             "nodes": [
-              "wrap_up"
+              "E1"
             ]
           },
           {
             "name": "record",
             "desc": "This wake is done; waiting for the next",
             "nodes": [
-              "record"
+              "E2"
             ]
           }
         ]
       },
       "asking": {
         "nodes": [
-          "ask.owner"
+          "A3"
         ],
         "roles": [
           {
             "name": "owner",
             "desc": "What only the owner can decide or do: the constitution and the policy, and the kinds of the owner_only group",
-            "node": "ask.owner",
+            "node": "A3",
             "row": "ask_owner",
             "fields": [
               {
@@ -9547,7 +9553,7 @@
                 "tools"
               ]
             ],
-            "to": "tools",
+            "to": "X1",
             "counts": "tool_requests",
             "main": true
           },
@@ -9559,7 +9565,7 @@
                 "search"
               ]
             ],
-            "to": "search",
+            "to": "X2",
             "counts": "searches",
             "main": true
           },
@@ -9661,7 +9667,7 @@
       },
       "nodes": [
         {
-          "id": "wake.start",
+          "id": "W0",
           "kind": "engine",
           "title": "Wake",
           "step": "wake",
@@ -9685,13 +9691,13 @@
                   "all"
                 ]
               ],
-              "to": "wake.understood",
+              "to": "W1",
               "main": true
             }
           ]
         },
         {
-          "id": "wake.understood",
+          "id": "W1",
           "kind": "engine",
           "title": "Understood in this session?",
           "inputs": [],
@@ -9708,7 +9714,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "main": true,
               "note": "The session goes on and holds its understanding of the project: the wake takes the matters at once."
             },
@@ -9723,7 +9729,7 @@
                   ]
                 ]
               ],
-              "to": "understand.state",
+              "to": "U1",
               "main": true
             }
           ],
@@ -9741,7 +9747,7 @@
           }
         },
         {
-          "id": "understand.state",
+          "id": "U1",
           "kind": "agent",
           "title": "Understand the state",
           "effort": "high",
@@ -9832,7 +9838,7 @@
               "what": "Why the last batch's rethink said to think again; none when you did not come from it",
               "from": [
                 [
-                  "batch.rethink",
+                  "B4",
                   "rethink[yes]"
                 ]
               ],
@@ -9954,7 +9960,7 @@
                   "own"
                 ]
               ],
-              "to": "understand.policy",
+              "to": "P1",
               "main": true
             }
           ],
@@ -10015,7 +10021,7 @@
           ]
         },
         {
-          "id": "understand.policy",
+          "id": "P1",
           "kind": "agent",
           "title": "Is the policy right?",
           "effort": "high",
@@ -10088,19 +10094,19 @@
               "what": "Your understanding just now: the state, the direction, the mismatches and what is unclear",
               "from": [
                 [
-                  "understand.state",
+                  "U1",
                   "state"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "direction"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "mismatches"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "unclear"
                 ]
               ]
@@ -10109,7 +10115,7 @@
               "what": "Why the last batch's rethink said to think again; none when you did not come from it",
               "from": [
                 [
-                  "batch.rethink",
+                  "B4",
                   "rethink[yes]"
                 ]
               ],
@@ -10240,7 +10246,7 @@
                   ]
                 ]
               ],
-              "to": "understand.fit",
+              "to": "N1",
               "main": true
             },
             {
@@ -10254,7 +10260,7 @@
                   ]
                 ]
               ],
-              "to": "policy.study",
+              "to": "P2",
               "do": [
                 "hold_for_policy"
               ]
@@ -10276,7 +10282,7 @@
           ]
         },
         {
-          "id": "understand.fit",
+          "id": "N1",
           "kind": "agent",
           "title": "Does what runs fit?",
           "effort": "high",
@@ -10332,19 +10338,19 @@
               "what": "Your understanding just now: the state, the direction, the mismatches and what is unclear",
               "from": [
                 [
-                  "understand.state",
+                  "U1",
                   "state"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "direction"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "mismatches"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "unclear"
                 ]
               ]
@@ -10353,11 +10359,11 @@
               "what": "Whether the policy is right, as you just judged it",
               "from": [
                 [
-                  "understand.policy",
+                  "P1",
                   "against"
                 ],
                 [
-                  "understand.policy",
+                  "P1",
                   "verdict"
                 ]
               ]
@@ -10463,7 +10469,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "main": true,
               "do": [
                 "release_straight_hold"
@@ -10480,7 +10486,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "do": [
                 {
                   "at": "fit[some_to_change].fixes",
@@ -10500,7 +10506,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "do": [
                 "hold_to_set_straight",
                 {
@@ -10519,7 +10525,7 @@
           ]
         },
         {
-          "id": "pick.anything",
+          "id": "Q0",
           "kind": "engine",
           "title": "Anything to pick?",
           "step": "look_at_queue",
@@ -10594,7 +10600,7 @@
                   ]
                 ]
               ],
-              "to": "pick.route",
+              "to": "Q2",
               "main": true
             },
             {
@@ -10608,7 +10614,7 @@
                   ]
                 ]
               ],
-              "to": "pick.choose",
+              "to": "Q1",
               "main": true
             },
             {
@@ -10622,7 +10628,7 @@
                   ]
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true
             },
             {
@@ -10636,7 +10642,7 @@
                   ]
                 ]
               ],
-              "to": "wrap_up",
+              "to": "E1",
               "main": true
             }
           ],
@@ -10646,7 +10652,7 @@
           ]
         },
         {
-          "id": "pick.choose",
+          "id": "Q1",
           "kind": "agent",
           "title": "Pick the next matter",
           "effort": "medium",
@@ -10712,7 +10718,7 @@
                   "own"
                 ]
               ],
-              "to": "pick.route",
+              "to": "Q2",
               "main": true
             }
           ],
@@ -10731,7 +10737,7 @@
           ]
         },
         {
-          "id": "pick.route",
+          "id": "Q2",
           "kind": "engine",
           "title": "Route the matter",
           "inputs": [],
@@ -10744,11 +10750,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.set_straight"
+                    "H1"
                   ]
                 ]
               ],
-              "to": "handle.set_straight",
+              "to": "H1",
               "main": true
             },
             {
@@ -10758,11 +10764,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.crux"
+                    "H2"
                   ]
                 ]
               ],
-              "to": "handle.crux",
+              "to": "H2",
               "main": true
             },
             {
@@ -10772,11 +10778,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.ways"
+                    "H3"
                   ]
                 ]
               ],
-              "to": "handle.ways",
+              "to": "H3",
               "main": false
             },
             {
@@ -10786,11 +10792,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.what_is_it"
+                    "H4"
                   ]
                 ]
               ],
-              "to": "handle.what_is_it",
+              "to": "H4",
               "main": true
             },
             {
@@ -10800,11 +10806,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.take_in"
+                    "H5"
                   ]
                 ]
               ],
-              "to": "handle.take_in",
+              "to": "H5",
               "main": false
             },
             {
@@ -10814,11 +10820,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.card_sound"
+                    "H6"
                   ]
                 ]
               ],
-              "to": "handle.card_sound",
+              "to": "H6",
               "main": true
             },
             {
@@ -10828,11 +10834,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.have_fixed"
+                    "H7"
                   ]
                 ]
               ],
-              "to": "handle.have_fixed",
+              "to": "H7",
               "main": true
             },
             {
@@ -10842,11 +10848,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.owner_words"
+                    "H8"
                   ]
                 ]
               ],
-              "to": "handle.owner_words",
+              "to": "H8",
               "main": true
             },
             {
@@ -10856,11 +10862,11 @@
                   "inp",
                   "route",
                   [
-                    "handle.answer_architect"
+                    "H9"
                   ]
                 ]
               ],
-              "to": "handle.answer_architect",
+              "to": "H9",
               "main": true
             },
             {
@@ -10870,61 +10876,61 @@
                   "inp",
                   "route",
                   [
-                    "handle.what_runs"
+                    "H10"
                   ]
                 ]
               ],
-              "to": "handle.what_runs",
+              "to": "H10",
               "main": true
             }
           ],
           "inenums": {
             "route": [
               [
-                "handle.set_straight",
+                "H1",
                 "A place to set straight, or one back with the owner's answer"
               ],
               [
-                "handle.crux",
+                "H2",
                 "An engineer's question, or one back with the owner's answer to what was asked of its crux"
               ],
               [
-                "handle.ways",
+                "H3",
                 "An engineer's question back with the owner's answer to what was asked while weighing the ways"
               ],
               [
-                "handle.what_is_it",
+                "H4",
                 "A report, or one back with the owner's answer to what was asked of what it is"
               ],
               [
-                "handle.take_in",
+                "H5",
                 "A report back with the owner's answer to what was asked while taking it in"
               ],
               [
-                "handle.card_sound",
+                "H6",
                 "A design card to look at, or one back with the owner's answer"
               ],
               [
-                "handle.have_fixed",
+                "H7",
                 "A failure to have fixed, or one back with the owner's answer"
               ],
               [
-                "handle.owner_words",
+                "H8",
                 "The owner's words, or a matter of them back with the owner's answer"
               ],
               [
-                "handle.answer_architect",
+                "H9",
                 "Another project's architect's message, or one back with the owner's answer"
               ],
               [
-                "handle.what_runs",
+                "H10",
                 "Slots free with nothing of the project ready, or one back with the owner's answer"
               ]
             ]
           }
         },
         {
-          "id": "handle.set_straight",
+          "id": "H1",
           "kind": "agent",
           "title": "Set it straight",
           "effort": "high",
@@ -11024,7 +11030,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -11048,7 +11054,7 @@
           ]
         },
         {
-          "id": "handle.crux",
+          "id": "H2",
           "kind": "agent",
           "title": "Crux",
           "effort": "xhigh",
@@ -11184,7 +11190,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.ways",
+              "to": "H3",
               "main": true
             }
           ],
@@ -11196,7 +11202,7 @@
           ]
         },
         {
-          "id": "handle.ways",
+          "id": "H3",
           "kind": "agent",
           "title": "Ways",
           "effort": "xhigh",
@@ -11306,7 +11312,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -11397,7 +11403,7 @@
           ]
         },
         {
-          "id": "handle.what_is_it",
+          "id": "H4",
           "kind": "agent",
           "title": "What is it",
           "effort": "medium",
@@ -11473,7 +11479,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.take_in",
+              "to": "H5",
               "main": true
             }
           ],
@@ -11508,7 +11514,7 @@
           ]
         },
         {
-          "id": "handle.take_in",
+          "id": "H5",
           "kind": "agent",
           "title": "Take it in",
           "effort": "medium",
@@ -11607,7 +11613,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -11657,7 +11663,7 @@
           ]
         },
         {
-          "id": "handle.card_sound",
+          "id": "H6",
           "kind": "agent",
           "title": "Card sound?",
           "effort": "high",
@@ -11756,7 +11762,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -11787,7 +11793,7 @@
           ]
         },
         {
-          "id": "handle.have_fixed",
+          "id": "H7",
           "kind": "agent",
           "title": "Have it fixed",
           "effort": "medium",
@@ -11874,7 +11880,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -11909,7 +11915,7 @@
           ]
         },
         {
-          "id": "handle.owner_words",
+          "id": "H8",
           "kind": "agent",
           "title": "What you ask",
           "effort": "high",
@@ -11992,7 +11998,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -12016,7 +12022,7 @@
           ]
         },
         {
-          "id": "handle.answer_architect",
+          "id": "H9",
           "kind": "agent",
           "title": "Answer",
           "effort": "medium",
@@ -12085,7 +12091,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -12113,7 +12119,7 @@
           ]
         },
         {
-          "id": "handle.what_runs",
+          "id": "H10",
           "kind": "agent",
           "title": "What runs next",
           "effort": "high",
@@ -12203,7 +12209,7 @@
                   "own"
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "main": true,
               "do": [
                 "close_matter"
@@ -12227,7 +12233,7 @@
           ]
         },
         {
-          "id": "handle.batch_done",
+          "id": "B1",
           "kind": "engine",
           "title": "Batch done?",
           "inputs": [],
@@ -12244,7 +12250,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "main": true,
               "counts": "handled"
             },
@@ -12259,7 +12265,7 @@
                   ]
                 ]
               ],
-              "to": "batch.review",
+              "to": "B2",
               "main": true
             },
             {
@@ -12273,7 +12279,7 @@
                   ]
                 ]
               ],
-              "to": "batch.rethink",
+              "to": "B4",
               "main": true,
               "do": [
                 "settle_straight_hold"
@@ -12298,7 +12304,7 @@
           }
         },
         {
-          "id": "batch.review",
+          "id": "B2",
           "kind": "agent",
           "title": "Review the item changes",
           "effort": "high",
@@ -12439,7 +12445,7 @@
                   ]
                 ]
               ],
-              "to": "batch.rethink",
+              "to": "B4",
               "main": true,
               "do": [
                 "apply_batch"
@@ -12463,7 +12469,7 @@
                   ]
                 ]
               ],
-              "to": "batch.revise"
+              "to": "B3"
             },
             {
               "name": "given_up",
@@ -12483,7 +12489,7 @@
                   ]
                 ]
               ],
-              "to": "batch.rethink",
+              "to": "B4",
               "do": [
                 "apply_reviewed"
               ],
@@ -12517,7 +12523,7 @@
           ]
         },
         {
-          "id": "batch.revise",
+          "id": "B3",
           "kind": "agent",
           "title": "Revise the changes",
           "effort": "medium",
@@ -12531,7 +12537,7 @@
               "what": "What the review found: for each change, ok, or what is wrong and how to fix it",
               "from": [
                 [
-                  "batch.review",
+                  "B2",
                   "review"
                 ]
               ]
@@ -12577,7 +12583,7 @@
                   "own"
                 ]
               ],
-              "to": "batch.review",
+              "to": "B2",
               "main": true,
               "counts": "revisions"
             }
@@ -12599,7 +12605,7 @@
           ]
         },
         {
-          "id": "batch.rethink",
+          "id": "B4",
           "kind": "agent",
           "title": "Rethink state and policy?",
           "effort": "medium",
@@ -12661,7 +12667,7 @@
                   ]
                 ]
               ],
-              "to": "understand.state",
+              "to": "U1",
               "counts": "rethinks"
             },
             {
@@ -12675,7 +12681,7 @@
                   ]
                 ]
               ],
-              "to": "pick.anything",
+              "to": "Q0",
               "main": true,
               "counts": "batches"
             }
@@ -12696,7 +12702,7 @@
           ]
         },
         {
-          "id": "wrap_up",
+          "id": "E1",
           "kind": "agent",
           "title": "Wrap up",
           "effort": "medium",
@@ -12750,7 +12756,7 @@
                   "own"
                 ]
               ],
-              "to": "record",
+              "to": "E2",
               "main": true
             }
           ],
@@ -12764,7 +12770,7 @@
           ]
         },
         {
-          "id": "record",
+          "id": "E2",
           "kind": "engine",
           "title": "Record the wake",
           "step": "end_wake",
@@ -12772,7 +12778,7 @@
           "out": []
         },
         {
-          "id": "ask.owner",
+          "id": "A3",
           "kind": "owner",
           "title": "Owner answers",
           "step": "ask_owner",
@@ -12813,7 +12819,7 @@
                   ]
                 ]
               ],
-              "to": "handle.batch_done",
+              "to": "B1",
               "drops": true,
               "note": "The ask holds only the matter of the path that asked: the wake goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
             },
@@ -12850,7 +12856,7 @@
           }
         },
         {
-          "id": "tools",
+          "id": "X1",
           "kind": "tool",
           "title": "Run tools",
           "step": "run_tools",
@@ -12918,7 +12924,7 @@
           ]
         },
         {
-          "id": "search",
+          "id": "X2",
           "kind": "agent",
           "title": "Search observations",
           "effort": "low",
@@ -12997,7 +13003,7 @@
           ]
         },
         {
-          "id": "policy.study",
+          "id": "P2",
           "kind": "agent",
           "title": "Study the new policy",
           "effort": "xhigh",
@@ -13011,7 +13017,7 @@
               "what": "Why it is set again: each reason the policy may no longer govern, with what was seen",
               "from": [
                 [
-                  "understand.policy",
+                  "P1",
                   "verdict[set_again]"
                 ]
               ]
@@ -13038,11 +13044,11 @@
               "what": "Your understanding of the project: the state and the direction",
               "from": [
                 [
-                  "understand.state",
+                  "U1",
                   "state"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "direction"
                 ]
               ]
@@ -13061,7 +13067,7 @@
               "what": "Your study before, which the owner read; none the first time",
               "from": [
                 [
-                  "policy.study",
+                  "P2",
                   "study"
                 ]
               ],
@@ -13087,7 +13093,7 @@
                   "own"
                 ]
               ],
-              "to": "policy.owner_reads",
+              "to": "P3",
               "main": true
             }
           ],
@@ -13099,7 +13105,7 @@
           ]
         },
         {
-          "id": "policy.owner_reads",
+          "id": "P3",
           "kind": "owner",
           "title": "Owner reads the study",
           "step": "ask_owner",
@@ -13108,7 +13114,7 @@
               "what": "The architect's study",
               "from": [
                 [
-                  "policy.study",
+                  "P2",
                   "study"
                 ]
               ]
@@ -13159,7 +13165,7 @@
                   ]
                 ]
               ],
-              "to": "policy.write",
+              "to": "P4",
               "main": true
             },
             {
@@ -13173,7 +13179,7 @@
                   ]
                 ]
               ],
-              "to": "policy.study",
+              "to": "P2",
               "waits": true
             },
             {
@@ -13187,7 +13193,7 @@
                   ]
                 ]
               ],
-              "to": "understand.fit",
+              "to": "N1",
               "do": [
                 "release_policy_hold"
               ]
@@ -13198,7 +13204,7 @@
           ]
         },
         {
-          "id": "policy.write",
+          "id": "P4",
           "kind": "agent",
           "title": "Write the policy and its probes",
           "effort": "xhigh",
@@ -13212,7 +13218,7 @@
               "what": "The study the owner was satisfied with",
               "from": [
                 [
-                  "policy.study",
+                  "P2",
                   "study"
                 ]
               ]
@@ -13221,7 +13227,7 @@
               "what": "What the owner said when satisfied",
               "from": [
                 [
-                  "policy.owner_reads",
+                  "P3",
                   "ruling"
                 ]
               ]
@@ -13247,7 +13253,7 @@
                   "own"
                 ]
               ],
-              "to": "policy.assemble",
+              "to": "P5",
               "main": true
             }
           ],
@@ -13266,7 +13272,7 @@
           ]
         },
         {
-          "id": "policy.assemble",
+          "id": "P5",
           "kind": "engine",
           "title": "Put the text together for a new session",
           "step": "put_draft_together",
@@ -13301,14 +13307,14 @@
                   "all"
                 ]
               ],
-              "to": "policy.fresh_read",
+              "to": "P6",
               "main": true,
               "note": "The reader is on no line, so its every round is a new session: it is given only the text, the constitution and the probes, without their answers, and a session that has seen the probes is never used again."
             }
           ]
         },
         {
-          "id": "policy.fresh_read",
+          "id": "P6",
           "kind": "agent",
           "title": "A new architect reads the policy",
           "effort": "high",
@@ -13317,7 +13323,7 @@
               "what": "The policy's text",
               "from": [
                 [
-                  "policy.assemble",
+                  "P5",
                   "draft.policy"
                 ]
               ]
@@ -13413,7 +13419,7 @@
                   "own"
                 ]
               ],
-              "to": "policy.judge_read",
+              "to": "P7",
               "main": true
             }
           ],
@@ -13425,7 +13431,7 @@
           ]
         },
         {
-          "id": "policy.judge_read",
+          "id": "P7",
           "kind": "agent",
           "title": "Did the new architect understand",
           "effort": "high",
@@ -13439,7 +13445,7 @@
               "what": "What the new architect handed in: the restatement, the questions and the answers to the probes",
               "from": [
                 [
-                  "policy.fresh_read",
+                  "P6",
                   "reading"
                 ]
               ]
@@ -13533,7 +13539,7 @@
                   ]
                 ]
               ],
-              "to": "policy.count",
+              "to": "P9",
               "main": true
             },
             {
@@ -13547,7 +13553,7 @@
                   ]
                 ]
               ],
-              "to": "policy.correct"
+              "to": "P8"
             }
           ],
           "shown": [
@@ -13558,7 +13564,7 @@
           ]
         },
         {
-          "id": "policy.correct",
+          "id": "P8",
           "kind": "agent",
           "title": "Correct the text",
           "effort": "high",
@@ -13572,7 +13578,7 @@
               "what": "Where it is missing: which point, which probe, which of its questions, and what the text lacks",
               "from": [
                 [
-                  "policy.judge_read",
+                  "P7",
                   "verdict[gaps]"
                 ]
               ],
@@ -13582,7 +13588,7 @@
               "what": "What would make the draft need setting again at once",
               "from": [
                 [
-                  "policy.holds_up",
+                  "P10",
                   "report[needs_setting_again].points"
                 ]
               ],
@@ -13601,7 +13607,7 @@
             }
           ],
           "prompt": [
-            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe. Coming from cell `policy.holds_up`, the draft would need setting again at once: correct the text for what it found.",
+            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every point still has a probe. Coming from cell `P10`, the draft would need setting again at once: correct the text for what it found.",
             "Hand in only what you change, in edits the engine applies in order: each passage changed, quoted word for word and long enough to be in the text once, with what it becomes; a point, stage or signal added or removed. Hand in the probes whole."
           ],
           "out": [
@@ -13725,7 +13731,7 @@
                   "own"
                 ]
               ],
-              "to": "policy.assemble",
+              "to": "P5",
               "counts": "text_revisions"
             }
           ],
@@ -13755,7 +13761,7 @@
           ]
         },
         {
-          "id": "policy.count",
+          "id": "P9",
           "kind": "engine",
           "title": "Count the readings passed",
           "step": "count_trials",
@@ -13806,7 +13812,7 @@
                   ]
                 ]
               ],
-              "to": "policy.holds_up",
+              "to": "P10",
               "main": true
             },
             {
@@ -13820,13 +13826,13 @@
                   ]
                 ]
               ],
-              "to": "policy.assemble",
+              "to": "P5",
               "counts": "trial_reads"
             }
           ]
         },
         {
-          "id": "policy.holds_up",
+          "id": "P10",
           "kind": "agent",
           "title": "Would it need setting again at once",
           "effort": "high",
@@ -13848,15 +13854,15 @@
               "what": "What you found against the constitution, and your understanding of the project",
               "from": [
                 [
-                  "understand.policy",
+                  "P1",
                   "against"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "state"
                 ],
                 [
-                  "understand.state",
+                  "U1",
                   "direction"
                 ]
               ]
@@ -13931,7 +13937,7 @@
                   ]
                 ]
               ],
-              "to": "policy.owner_approves",
+              "to": "P11",
               "main": true
             },
             {
@@ -13945,7 +13951,7 @@
                   ]
                 ]
               ],
-              "to": "policy.correct"
+              "to": "P8"
             }
           ],
           "shown": [
@@ -13956,7 +13962,7 @@
           ]
         },
         {
-          "id": "policy.owner_approves",
+          "id": "P11",
           "kind": "owner",
           "title": "Owner approves",
           "step": "ask_owner",
@@ -13971,10 +13977,10 @@
               ]
             },
             {
-              "what": "Whether it would need setting again at once, as cell `policy.holds_up` judged",
+              "what": "Whether it would need setting again at once, as cell `P10` judged",
               "from": [
                 [
-                  "policy.holds_up",
+                  "P10",
                   "report"
                 ]
               ]
@@ -14021,7 +14027,7 @@
                   ]
                 ]
               ],
-              "to": "policy.takes_effect",
+              "to": "P12",
               "main": true
             },
             {
@@ -14035,7 +14041,7 @@
                   ]
                 ]
               ],
-              "to": "policy.study",
+              "to": "P2",
               "waits": true
             }
           ],
@@ -14044,7 +14050,7 @@
           ]
         },
         {
-          "id": "policy.takes_effect",
+          "id": "P12",
           "kind": "engine",
           "title": "The new policy takes effect",
           "inputs": [
@@ -14067,7 +14073,7 @@
                   "all"
                 ]
               ],
-              "to": "wake.start",
+              "to": "W0",
               "counts": "policies_set",
               "main": true,
               "do": [

@@ -1,6 +1,6 @@
 //! The cells the texts of the flow name. A text names a cell by the word cell and the cell's name in backticks, its
-//! stage before a dot where its stage has others, as cell `ask.way_on`, or several after the word cells, as cells
-//! `test.full_ci`, `merge.queue` and `watch_main`; a field or a value in backticks, with no such word before it, names
+//! stage before a dot where its stage has others, as cell `A4`, or several after the word cells, as cells
+//! `T2`, `M2` and `L1`; a field or a value in backticks, with no such word before it, names
 //! no cell. Every cell a text names is a cell of its graph: a text of a graph names that graph's cells, and a text
 //! every graph shares, the cells of some graph.
 
@@ -116,10 +116,10 @@ mod tests {
     // that holds cell, and a name that is not one are not.
     #[test]
     fn a_text_names_a_cell_after_the_word_cell() {
-        assert_eq!(cells_named("goes to cell `ask.way_on` at once"), ["ask.way_on"]);
+        assert_eq!(cells_named("goes to cell `A4` at once"), ["A4"]);
         assert_eq!(
-            cells_named("Cells `test.full_ci`, `merge.queue` and `watch_main` count, as cell `a` or `b` does"),
-            ["test.full_ci", "merge.queue", "watch_main", "a", "b"]
+            cells_named("Cells `T2`, `M2` and `L1` count, as cell `a` or `b` does"),
+            ["T2", "M2", "L1", "a", "b"]
         );
         assert!(cells_named("hand in `tools`, without `progress`; the cell that asked").is_empty());
         assert!(cells_named("an excellent `x`, a subcell `y`, cell `format:common`, cell `.x`, cell 11").is_empty());

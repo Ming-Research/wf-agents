@@ -400,7 +400,7 @@ impl<'a> Ways<'a> {
                 "item_asks" => at("ask:‹id›".into()),
                 "waiting_interjections" => at("ij:‹id›".into()),
                 "item_acceptance" => at("R‹work›-‹n›·‹cell›·acceptance".into()),
-                "item_problem" => at("R‹work›-‹n›·research.problem·understanding.problem".into()),
+                "item_problem" => at("R‹work›-‹n›·R1·understanding.problem".into()),
                 other => at(format!("R‹work›-‹n›·engine·{other}")),
             },
             Src::Place(at, path) => {

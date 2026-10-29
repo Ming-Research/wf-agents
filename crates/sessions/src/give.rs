@@ -352,7 +352,7 @@ mod tests {
     fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
             id: RoundId::new(1, n),
-            cell: Some("research.problem".into()),
+            cell: Some("R1".into()),
             session: Some(1),
             input,
             output,
@@ -381,8 +381,8 @@ mod tests {
             (
                 hash(&acceptance),
                 vec![
-                    "R290·ask.advisor·reply.new_acceptance".to_string(),
-                    "R4-25·ask.advisor·reply.new_acceptance".to_string(),
+                    "R290·A1·reply.new_acceptance".to_string(),
+                    "R4-25·A1·reply.new_acceptance".to_string(),
                 ],
             ),
             (hash(&json!("no")), vec!["R4-7·engine·adversarial".to_string()]),
@@ -391,28 +391,28 @@ mod tests {
         let mut m = Giver::new(&held, &registry, &conn, &[]);
         // An address written before rounds were named by their work is never given again.
         assert_eq!(
-            m.earliest("R4-30·design.choose·acceptance".into(), &acceptance),
-            "R4-25·ask.advisor·reply.new_acceptance"
+            m.earliest("R4-30·D2·acceptance".into(), &acceptance),
+            "R4-25·A1·reply.new_acceptance"
         );
         assert_eq!(
-            m.earliest("R4-9·design.sure·answer.verdict".into(), &json!("no")),
-            "R4-9·design.sure·answer.verdict"
+            m.earliest("R4-9·D5·answer.verdict".into(), &json!("no")),
+            "R4-9·D5·answer.verdict"
         );
         assert_eq!(
             m.add("R4-9·engine·rethought".into(), json!("no")),
             "R4-9·engine·rethought"
         );
         assert_eq!(
-            m.add("R4-9·design.sure·answer.verdict".into(), json!("no")),
-            "R4-9·design.sure·answer.verdict"
+            m.add("R4-9·D5·answer.verdict".into(), json!("no")),
+            "R4-9·D5·answer.verdict"
         );
         assert_eq!(
-            m.add("R4-30·design.choose·acceptance".into(), acceptance.clone()),
-            "R4-30·design.choose·acceptance"
+            m.add("R4-30·D2·acceptance".into(), acceptance.clone()),
+            "R4-30·D2·acceptance"
         );
         assert_eq!(
-            m.add("R4-31·ask.advisor·reply.new_acceptance".into(), acceptance),
-            "R4-30·design.choose·acceptance"
+            m.add("R4-31·A1·reply.new_acceptance".into(), acceptance),
+            "R4-30·D2·acceptance"
         );
         assert_eq!(m.list.len(), 3);
         assert_eq!(
@@ -460,7 +460,7 @@ mod tests {
                 4,
                 record(&[
                     ("R1-3·tools·results", &results),
-                    ("R1-4·test.table_review·columns[findings]", &findings),
+                    ("R1-4·T4·columns[findings]", &findings),
                     ("R1-4·engine·work_ci", &ci),
                 ]),
                 Some(json!({})),
@@ -511,14 +511,14 @@ mod tests {
                 json!({ "results": [{ "tool": "query", "ran": { "rows": [2] } }] }),
             ),
             one(
-                "R1-9·test.table_review·columns[findings]",
+                "R1-9·T4·columns[findings]",
                 json!([{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R2" }] }]),
             ),
             one(
                 "R1-9·engine·work_ci",
                 json!({ "fast": { "head": "b", "result": "green" } }),
             ),
-            one("R1-9·design.sure·answer.verdict", json!("no")),
+            one("R1-9·D5·answer.verdict", json!("no")),
             one("ij:2", said.clone()),
         ];
         assert_eq!(repeats(&held, &new), Vec::<String>::new());

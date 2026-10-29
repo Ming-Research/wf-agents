@@ -41,7 +41,8 @@ export type ChartEdge = {
   kind: 'row' | 'shared' | 'rule' | 'interjection';
 };
 
-export type ChartGroup = { id: string; label: string; part: string };
+/// A box around a stage's cells or the asking part: its label, and the letter its cells' codes start with, if they share one.
+export type ChartGroup = { id: string; label: string; letter: string; part: string };
 
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; groups: ChartGroup[]; parts: string[] };
 
@@ -98,6 +99,12 @@ export function partsOf(g: CompiledGraph, v: GraphView): Map<string, string> {
   return out;
 }
 
+
+/// The letter a cell's code starts with, its stage's, as `T` of `T6`; none for an id that is not such a code.
+export function letterOf(id: string): string {
+  const m = /^([A-Z]+)\d+$/.exec(id);
+  return m ? m[1] : '';
+}
 
 export function chart(g: CompiledGraph, v: GraphView): Chart {
   const parts = partsOf(g, v);
@@ -231,12 +238,19 @@ export function chart(g: CompiledGraph, v: GraphView): Chart {
     e.numbers = e.kind !== 'shared' && c.rows.length > 1 ? runs(e.rows) : [];
   }
   const groups: ChartGroup[] = [];
-  const seen = new Set<string>();
+  const letters = new Map<string, Set<string>>();
   for (const c of g.cells) {
     const id = groupOf(c.id);
-    if (id === null || seen.has(id)) continue;
-    seen.add(id);
-    groups.push({ id, label: id === ASKING ? ASKING : id.slice('stage:'.length), part: parts.get(c.id) ?? MAIN });
+    if (id === null) continue;
+    if (!letters.has(id)) {
+      letters.set(id, new Set());
+      groups.push({ id, label: id === ASKING ? ASKING : id.slice('stage:'.length), letter: '', part: parts.get(c.id) ?? MAIN });
+    }
+    letters.get(id)?.add(letterOf(c.id));
+  }
+  for (const gr of groups) {
+    const all = [...(letters.get(gr.id) ?? [])];
+    gr.letter = all.length === 1 ? all[0] : '';
   }
   const partList = [MAIN, ...new Set([...parts.values()].filter((p) => p !== MAIN))];
   return { nodes: [...nodes.values()], edges: [...edges.values()], groups, parts: partList };

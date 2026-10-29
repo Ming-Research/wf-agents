@@ -3,7 +3,7 @@
 // wrote it over its text; a section under its title and how many it holds, folded or open; an item, by its number and
 // title; and the form that answers or says something, its words and the button that sends them.
 
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 import { roundName, time } from './format';
 import { Link, workHref } from './route';
@@ -35,8 +35,12 @@ export function RoundLink({ work, round, onRound }: { work: number; round: numbe
   );
 }
 
+/// The titles of the cells of the graph a page shows, by their codes, which [`By`] gives beside a code.
+export const CellTitles = createContext<ReadonlyMap<string, string>>(new Map());
+
 /// Who wrote something: what it was first, when there is something to say (`children`); who to whom in a
-/// conversation, else the cell as the flow names it; when; and the round, which opens as a round link does.
+/// conversation, else the cell as the flow names it, by its code and title; when; and the round, which opens as a
+/// round link does.
 export function By({ who, cell, at, work, round, onRound, children }: {
   who?: ReactNode;
   cell?: string | null;
@@ -46,11 +50,14 @@ export function By({ who, cell, at, work, round, onRound, children }: {
   onRound?: OpenRound;
   children?: ReactNode;
 }) {
+  const titles = useContext(CellTitles);
+  const title = cell !== undefined && cell !== null ? titles.get(cell) : undefined;
   return (
     <span className="by">
       {children}
       {who !== undefined ? <span className="by-who">{who}</span> : null}
       {cell !== undefined && cell !== null && cell !== '' ? <span className="cell-id">{cell}</span> : null}
+      {title !== undefined ? <span>{title}</span> : null}
       {at !== undefined && at !== null ? <span>{time(at)}</span> : null}
       {work !== undefined && work !== null && round !== undefined && round !== null ? (
         <RoundLink work={work} round={round} onRound={onRound} />

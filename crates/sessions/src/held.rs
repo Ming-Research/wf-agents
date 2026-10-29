@@ -240,7 +240,7 @@ mod tests {
     fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
             id: RoundId::new(1, n),
-            cell: Some("research.problem".into()),
+            cell: Some("R1".into()),
             session: Some(1),
             input,
             output,
@@ -297,15 +297,15 @@ mod tests {
         let h = Held::of(&rounds);
         assert!(h.holds("rule:ground", &hash(&rule)));
         assert!(!h.holds("rule:ground", &hash(&json!("Facts first, then the rest."))));
-        assert!(h.holds("R1-3·design.choose·design", "any"));
-        assert!(!h.holds("R2-3·design.choose·design", "any"));
+        assert!(h.holds("R1-3·D2·design", "any"));
+        assert!(!h.holds("R2-3·D2·design", "any"));
         assert!(!h.holds("R1-3·engine·project_guide", "any"));
         assert!(!h.holds("ij:1", &hash(&json!("From the owner: x"))));
         let mut later = rounds.to_vec();
         later.push(round(5, json!({}), Some(json!({ "outcome": {} })), 1));
         let h = Held::of(&later);
         assert!(!h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R1-3·design.choose·design", "any"));
+        assert!(!h.holds("R1-3·D2·design", "any"));
         assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
         assert!(!h.compacted_waiting);
     }
@@ -326,7 +326,7 @@ mod tests {
         later.push(round(4, given, Some(json!({})), 0));
         let h = Held::with_pings(&later, &[300]);
         assert!(h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R1-2·research.problem·outcome", "any") && h.holds("R1-4·research.problem·outcome", "any"));
+        assert!(!h.holds("R1-2·R1·outcome", "any") && h.holds("R1-4·R1·outcome", "any"));
         // A ping that compacted nothing changes nothing.
         assert!(Held::with_pings(&rounds, &[]).holds("rule:ground", &hash(&rule)));
     }

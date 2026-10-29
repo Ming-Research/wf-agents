@@ -27,7 +27,7 @@ pub enum End<'a> {
 }
 
 /// The cell of the engineer's graph a work is done at, as the views read it.
-const DONE_AT: &str = "end";
+const DONE_AT: &str = "E1";
 
 /// The kinds of matter a work raises that wait on it: its questions to the architect, its failures, and its design
 /// cards for the architect to look at. A side report it handed in is about something beside it, and stays.
@@ -152,7 +152,7 @@ pub fn end(
                 &format!(
                     "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
                                     WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
-                    db::cells_sql(crate::ENGINEER, &["merge.queue"])
+                    db::cells_sql(crate::ENGINEER, &["M2"])
                 ),
                 params![item, n],
                 |r| r.get(0),
@@ -174,8 +174,8 @@ pub fn end(
 /// Cancels an item, as `by`, the owner or its project's architect, does: it is not to be done, it leaves the owner's
 /// queue, every work on it that has not ended ends, saying why, and it no longer depends on any item or holds any back.
 /// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
-/// a work standing at an engine step, such as waiting for the items it depends on (`ask.wait_items`) or to enter the
-/// merge queue (`merge.gate`), takes at once to choose the way on (`ask.way_on`); an item with no work running, by a
+/// a work standing at an engine step, such as waiting for the items it depends on (`A6`) or to enter the
+/// merge queue (`M1`), takes at once to choose the way on (`A4`); an item with no work running, by a
 /// matter for its project's architect, to set straight.
 pub fn cancel_item(
     tx: &Transaction<'_>,
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn a_cancelled_item_s_work_lets_go_of_all_it_held() {
         let mut db = Db::in_memory().unwrap();
-        let (item, work) = db.write(Actor::Owner, |tx| a_work(tx, "Lex", "implement", 7)).unwrap();
+        let (item, work) = db.write(Actor::Owner, |tx| a_work(tx, "Lex", "I1", 7)).unwrap();
         db.write(Actor::Owner, |tx| {
             cancel_item(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
         })
@@ -424,17 +424,13 @@ mod tests {
     #[test]
     fn each_way_of_ending_lets_go_of_what_is_its_own_to_let_go() {
         let mut db = Db::in_memory().unwrap();
-        let (_, done) = db.write(Actor::Engine, |tx| a_work(tx, "Done", "end", 1)).unwrap();
-        let (_, taken) = db
-            .write(Actor::Engine, |tx| a_work(tx, "Taken", "test.blind_review", 2))
-            .unwrap();
-        let (_, merged) = db
-            .write(Actor::Engine, |tx| a_work(tx, "Merged", "watch_main", 3))
-            .unwrap();
+        let (_, done) = db.write(Actor::Engine, |tx| a_work(tx, "Done", "E1", 1)).unwrap();
+        let (_, taken) = db.write(Actor::Engine, |tx| a_work(tx, "Taken", "T3", 2)).unwrap();
+        let (_, merged) = db.write(Actor::Engine, |tx| a_work(tx, "Merged", "L1", 3)).unwrap();
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, 2, 'merge.queue', '{}', '{}', 'merged', 'c', 2, 2)",
+                 VALUES (?1, 2, 'M2', '{}', '{}', 'merged', 'c', 2, 2)",
                 [merged],
             )?;
             end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)?;
@@ -475,8 +471,8 @@ mod tests {
     fn the_items_that_depended_on_a_cancelled_item_are_told() {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Architect, |tx| {
-            let (lexer, _) = a_work(tx, "Lexer", "implement", 1)?;
-            let (waiting, w) = a_work(tx, "Waiting", "merge.gate", 2)?;
+            let (lexer, _) = a_work(tx, "Lexer", "I1", 1)?;
+            let (waiting, w) = a_work(tx, "Waiting", "M1", 2)?;
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Idle', 'x', 'y', 'change', 'l')",
                 [],

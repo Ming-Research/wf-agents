@@ -22,7 +22,7 @@ import { conditionsWords, conditionWords, targetWords, valuesWords } from './flo
 import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
-import { ASKING, chart, MAIN, overlays, partsOf, related, roundArrows, runs, sharedRows, taken } from './graph/flowModel';
+import { ASKING, chart, letterOf, MAIN, overlays, partsOf, related, roundArrows, runs, sharedRows, taken } from './graph/flowModel';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
@@ -56,7 +56,7 @@ describe('the addresses', () => {
     const routes: Route[] = [
       { page: 'works' },
       { ...work, round: 240 },
-      { ...work, cell: 'design.choose' },
+      { ...work, cell: 'D2' },
       { ...work, tab: 'cards' },
       { ...work, tab: 'messages', round: 7 },
       { ...work, only: 'failed' },
@@ -64,10 +64,10 @@ describe('the addresses', () => {
       { page: 'item', id: 5 },
       { page: 'messages', open: null },
       { page: 'messages', open: 'architects:p|q' },
-      { ...flow, version: 1, graph: 'architect', cell: 'tools' },
+      { ...flow, version: 1, graph: 'architect', cell: 'X1' },
       flow,
       { ...flow, version: 2, from: 1 },
-      { ...flow, project: 'p', ref: 'wf-agents/12-x', from: 1, graph: 'engineer', cell: 'implement' },
+      { ...flow, project: 'p', ref: 'wf-agents/12-x', from: 1, graph: 'engineer', cell: 'I1' },
     ];
     for (const r of routes) {
       const at = href(r);
@@ -94,7 +94,7 @@ describe('how a work goes on', () => {
     project: 'p',
     graph: 'engineer',
     flow_version: 2,
-    at: 'ask.owner',
+    at: 'A3',
     at_title: 'Owner',
     stage: null,
     state: 'ready',
@@ -238,7 +238,7 @@ describe('the flow in words', () => {
     expect(valuesWords(['x', 'y'])).toBe('`x` or `y`');
     expect(targetWords('@caller')).toBe('back to the cell that called');
     expect(targetWords('@self')).toBe('itself');
-    expect(targetWords('implement')).toBeNull();
+    expect(targetWords('I1')).toBeNull();
   });
 });
 
@@ -387,6 +387,14 @@ describe('the chart of a flow', () => {
     expect(parts.get('t')).toBe('t');
     expect(c.parts).toEqual([MAIN, 't', ASKING]);
     expect(c.groups.map((g) => g.id)).toEqual(['stage:start', 'stage:build', ASKING, 'stage:done']);
+  });
+
+  it("gives a stage's box the letter its cells' codes start with, and none where they are not codes", () => {
+    expect([letterOf('T6'), letterOf('P10'), letterOf('S0'), letterOf('a'), letterOf('t1')]).toEqual(['T', 'P', 'S', '', '']);
+    const code = <T,>(x: T): T => JSON.parse(JSON.stringify(x).replaceAll('"a"', '"B1"').replaceAll('"b"', '"B2"')) as T;
+    const coded = chart(code(graph), code(view));
+    expect(coded.groups.find((g) => g.id === 'stage:build')?.letter).toBe('B');
+    expect(c.groups.every((g) => g.letter === '')).toBe(true);
   });
 
   it('draws the rows every agent cell shares as one circle beside it, those back to itself too, with no label', () => {
@@ -558,7 +566,7 @@ describe("a cell's panel", () => {
       inputs: [
         { id: null, what: 'the item', from: [{ db: 'item_body', by: 'item' }], maybe: false },
         { id: null, what: 'the code', from: ['self'], maybe: false },
-        { id: null, what: 'the design', from: [['design.choose', 'design']], maybe: false },
+        { id: null, what: 'the design', from: [['D2', 'design']], maybe: false },
       ],
     });
     expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
@@ -606,10 +614,10 @@ describe('an ask', () => {
 
 describe('a round', () => {
   it('reads the numbers of the list to work from, names a model as people do, and reads a value at an address', () => {
-    const workFrom = ['1. R6-12·design.choose·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
+    const workFrom = ['1. R6-12·D2·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
     expect(addressesByNumber(workFrom)).toEqual(
       new Map([
-        [1, ['R6-12·design.choose·ask']],
+        [1, ['R6-12·D2·ask']],
         [3, ['R6-15·engine·work_counters']],
       ]),
     );
@@ -623,12 +631,12 @@ describe('a round', () => {
   });
 
   it('cuts a message at its headings and keeps every character', () => {
-    const message = '# R9-12 · cell design.rethink\n\nCame from cell design.choose.\n\n## Given\n\n### format:design.rethink\n\nThe answer\n## Task\nThink.\n';
+    const message = '# R9-12 · cell D3\n\nCame from cell D2.\n\n## Given\n\n### format:D3\n\nThe answer\n## Task\nThink.\n';
     const parts = messageParts(message);
     expect(parts.filter((p) => 'heading' in p)).toEqual([
-      { heading: '# R9-12 · cell design.rethink' },
+      { heading: '# R9-12 · cell D3' },
       { heading: '## Given' },
-      { heading: '### format:design.rethink' },
+      { heading: '### format:D3' },
       { heading: '## Task' },
     ]);
     expect(parts.map((p) => ('heading' in p ? p.heading : p.text)).join('\n')).toBe(message);
@@ -965,7 +973,7 @@ describe("a work's usage", () => {
       id: 1,
       session: 1,
       line: 'engineer',
-      cell: 'ask.owner',
+      cell: 'A3',
       on: 'owner',
       what: "the owner's answer to ask 3",
       started_at: 2,

@@ -148,10 +148,10 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
             [],
         )?;
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'research.problem')", [])?;
-        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'research.problem')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
         tx.execute(
-            "UPDATE works SET paused = 'cell research.problem: no', paused_by = 'engine' WHERE id = 2",
+            "UPDATE works SET paused = 'cell R1: no', paused_by = 'engine' WHERE id = 2",
             [],
         )?;
         Ok(())
@@ -372,9 +372,9 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
             [],
         )?;
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'research.problem')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
         tx.execute(
-            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'test.table_review', '{}', 'c', 1)",
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
             [],
         )?;
         tx.execute(
@@ -438,9 +438,9 @@ fn the_owner_answers_and_rules_on_the_page() {
             [],
         )?;
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'ask.owner')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'A3')", [])?;
         tx.execute(
-            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'implement', '{}', 'c', 1)",
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'I1', '{}', 'c', 1)",
             [],
         )?;
         tx.execute(

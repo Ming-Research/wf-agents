@@ -184,7 +184,7 @@ impl Context<'_> {
                             let a = r.get("acceptance").filter(|a| !empty(a))?.clone();
                             let round = RoundId::new(r["acceptance_work"].as_i64()?, r["acceptance_round"].as_i64()?);
                             let path = match self.cell_of_round(round).as_deref() {
-                                Some(c) if db::is_cell(crate::ENGINEER, "ask.advisor", c) => {
+                                Some(c) if db::is_cell(crate::ENGINEER, "A1", c) => {
                                     format!("{c}·reply.new_acceptance")
                                 }
                                 Some(c) => format!("{c}·acceptance"),
@@ -208,7 +208,7 @@ impl Context<'_> {
                                          WHERE w.item = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
                                            AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
                                          ORDER BY r.work DESC, r.n DESC LIMIT 1",
-                                        db::cells_sql(crate::ENGINEER, &["research.problem"])
+                                        db::cells_sql(crate::ENGINEER, &["R1"])
                                     ),
                                     [id],
                                     |x| Ok((RoundId::new(x.get(0)?, x.get(1)?), x.get(2)?)),
@@ -648,8 +648,8 @@ pub fn columns(
     };
     let mut cols: Vec<String> = Vec::new();
     match cell.id.as_str() {
-        "test.table_review" => {
-            let review = crate::inputs::last_return(e, w, g, "test.next_step", "plan")
+        "T4" => {
+            let review = crate::inputs::last_return(e, w, g, "T7", "plan")
                 .ok()
                 .flatten()
                 .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
@@ -678,11 +678,11 @@ pub fn columns(
                 cols.push("The research's judgment that the work stands: does its reason hold?".into());
                 cols.push("The judgment that there is no better design: does its reason hold?".into());
                 for (c, what) in [
-                    ("design.gap_under_test", "a gap in what is under test"),
-                    ("design.sure", "unsure facts"),
-                    ("design.cost", "architectural burden"),
-                    ("design.cross_project", "cross-project dependency"),
-                    ("design.split", "splitting"),
+                    ("D4", "a gap in what is under test"),
+                    ("D5", "unsure facts"),
+                    ("D6", "architectural burden"),
+                    ("D7", "cross-project dependency"),
+                    ("D8", "splitting"),
                 ] {
                     // A check the project lacks what it needs for was answered by the engine, not judged: no column.
                     let not_asked = g
@@ -695,9 +695,7 @@ pub fn columns(
                         ));
                     }
                 }
-                let changes = crate::inputs::last_return(e, w, g, "implement", "deviations")
-                    .ok()
-                    .flatten();
+                let changes = crate::inputs::last_return(e, w, g, "I1", "deviations").ok().flatten();
                 for d in changes
                     .and_then(|r| r["deviations"].as_array().cloned())
                     .unwrap_or_default()
@@ -711,9 +709,7 @@ pub fn columns(
                     }
                 }
                 // A return of a flow version before the answer was flat holds the test changes under end.
-                let done = crate::inputs::last_return(e, w, g, "implement", "test_changes")
-                    .ok()
-                    .flatten();
+                let done = crate::inputs::last_return(e, w, g, "I1", "test_changes").ok().flatten();
                 for t in done
                     .and_then(|r| {
                         r.get("test_changes")
@@ -736,7 +732,7 @@ pub fn columns(
                 }
             }
         }
-        "test.tree_review" => {
+        "T5" => {
             let review = rule("design_tree_review");
             for i in [1, 2, 3, 4, 10, 11] {
                 cols.extend(review.get(i).cloned());
@@ -798,7 +794,7 @@ mod tests {
             "{common}"
         );
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
-        let implement = cell_format(&g, g.cell("implement").unwrap(), &[]);
+        let implement = cell_format(&g, g.cell("I1").unwrap(), &[]);
         assert!(
             implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{implement}"
@@ -807,7 +803,7 @@ mod tests {
             implement.contains("`ask` (to advisor, architect, owner)"),
             "{implement}"
         );
-        let advisor = cell_format(&g, g.cell("ask.advisor").unwrap(), &[]);
+        let advisor = cell_format(&g, g.cell("A1").unwrap(), &[]);
         assert!(advisor.contains("`ask` (to architect, owner)"), "{advisor}");
         assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
@@ -818,7 +814,7 @@ mod tests {
     fn the_inputs_every_cell_has_are_described_once() {
         let g = graph();
         let common = common_format(&g, &[]);
-        let implement = g.cell("implement").unwrap();
+        let implement = g.cell("I1").unwrap();
         let goal = implement
             .inputs
             .iter()

@@ -29,11 +29,10 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-// The architect's graph compiles with no finding, as the design the owner approved: its wake (`wake.start`,
-// `wake.understood`, `understand.state`, `understand.policy`, `understand.fit`), the queue (`pick.anything`) and each
-// matter's path, the review of a batch of item changes (`handle.batch_done`, `batch.review`, `batch.revise`,
-// `batch.rethink`), the wrap-up (`wrap_up`, `record`), the owner's ask (`ask.owner`), the tools (`tools`), the observer
-// (`search`) and the study of a new policy (`policy.study` to `policy.takes_effect`): as many cells, rows and states.
+// The architect's graph compiles with no finding, as the design the owner approved: its wake (`W0`, `W1`, `U1`, `P1`,
+// `N1`), the queue (`Q0`) and each matter's path, the review of a batch of item changes (`B1`, `B2`, `B3`, `B4`), the
+// wrap-up (`E1`, `E2`), the owner's ask (`A3`), the tools (`X1`), the observer (`X2`) and the study of a new policy
+// (`P2` to `P12`): as many cells, rows and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
@@ -48,7 +47,7 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
 fn a_part_several_cells_hold_alike_is_given_once() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let straight = flow::formats::cell_format(g, g.cell("handle.set_straight").unwrap(), &[]);
+    let straight = flow::formats::cell_format(g, g.cell("H1").unwrap(), &[]);
     assert!(
         straight.contains(r#""effects":{"$ref":"format:common#/$defs/effects"}"#),
         "{straight}"
@@ -61,9 +60,9 @@ fn a_part_several_cells_hold_alike_is_given_once() {
             .filter(|x| x.kind == "agent" && &x.line == line)
             .collect()
     };
-    let architect = flow::formats::common_format_of(g, &line("handle.set_straight"), &[]);
+    let architect = flow::formats::common_format_of(g, &line("H1"), &[]);
     assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
-    let review = flow::formats::common_format_of(g, &line("batch.review"), &[]);
+    let review = flow::formats::common_format_of(g, &line("B2"), &[]);
     assert!(!review.contains(r#""item_changes""#), "{review}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
@@ -121,7 +120,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
     }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "ask.owner".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "A3".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(e.contains("unknown field `then`"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
@@ -168,7 +167,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     assert!(g.write.iter().any(|l| l.starts_with("Only your return is read")));
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let cells = v["flows"][0]["nodes"].as_array_mut().unwrap();
-    let implement = cells.iter_mut().find(|n| n["id"] == "implement").unwrap();
+    let implement = cells.iter_mut().find(|n| n["id"] == "I1").unwrap();
     implement["rules"] = serde_json::json!(["design_tree_writing", "engineering"]);
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
@@ -183,7 +182,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
 fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let s = g.cell("handle.have_fixed").unwrap().schema.clone().unwrap();
+    let s = g.cell("H7").unwrap().schema.clone().unwrap();
     let mut ret = serde_json::json!({
         "outcome": {
             "fix": { "way": "nothing", "why": "It passed." },
@@ -243,19 +242,16 @@ fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let s = &samples["ask.advisor"][0]["json"];
+    let s = &samples["A1"][0]["json"];
     let mut flat = s["outcome"].as_object().unwrap().clone();
     flat.insert("side_reports".into(), Value::Array(Vec::new()));
     flat.insert("progress".into(), "x".into());
-    let e = g.take("ask.advisor", &Value::Object(flat), &Map::new()).unwrap_err();
+    let e = g.take("A1", &Value::Object(flat), &Map::new()).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
-    let s = &samples["test.next_step"][0];
+    let s = &samples["T7"][0];
     let mut given = s["given"].as_object().unwrap().clone();
     given.insert("interjection".into(), "yes".into());
-    assert_eq!(
-        g.take("test.next_step", &s["json"], &given).unwrap().name,
-        "interjection"
-    );
+    assert_eq!(g.take("T7", &s["json"], &given).unwrap().name, "interjection");
 }
 
 // A return that does not fit says where and how, following the alternative it picks.
@@ -264,11 +260,11 @@ fn a_return_that_does_not_fit_says_where() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let sample = &samples["design.rethink"][0]["json"];
+    let sample = &samples["D3"][0]["json"];
     let refused = |edit: &dyn Fn(&mut Value)| {
         let mut x = sample.clone();
         edit(&mut x);
-        g.take("design.rethink", &x, &Map::new()).unwrap_err()
+        g.take("D3", &x, &Map::new()).unwrap_err()
     };
     let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
     assert!(
@@ -287,14 +283,7 @@ fn a_return_that_does_not_fit_says_where() {
 #[test]
 fn an_agent_schema_holds_its_forms_in_outcome() {
     let c = compiled();
-    let s = c
-        .graph("engineer")
-        .unwrap()
-        .cell("implement")
-        .unwrap()
-        .schema
-        .clone()
-        .unwrap();
+    let s = c.graph("engineer").unwrap().cell("I1").unwrap().schema.clone().unwrap();
     assert!(s["properties"]["outcome"]["anyOf"].is_array());
     let required: Vec<&str> = s["required"]
         .as_array()
@@ -316,47 +305,35 @@ fn a_work_moves_by_its_rows() {
         g.step(p, row).unwrap()
     };
     let p = g.start_position();
-    assert_eq!(p.at, "start");
+    assert_eq!(p.at, "S0");
     let p = take(&p, "started");
-    assert_eq!(
-        (p.at.as_str(), p.recorded["stage"].as_str()),
-        ("research.problem", "research")
-    );
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R1", "research"));
     let p = take(&p, "tools");
     assert_eq!(
         (p.at.as_str(), p.callers.as_slice()),
-        ("tools", ["research.problem".to_string()].as_slice())
+        ("X1", ["R1".to_string()].as_slice())
     );
     let p = take(&p, "ran");
     assert_eq!(
         (p.at.as_str(), p.from.as_deref(), p.callers.len()),
-        ("research.problem", Some("tools"), 0)
+        ("R1", Some("X1"), 0)
     );
     let p = take(&p, "ask_advisor");
     assert_eq!(
         (p.at.as_str(), p.stopped.as_deref(), p.pointer("@caller")),
-        ("ask.advisor", Some("research.problem"), Some("research.problem"))
+        ("A1", Some("R1"), Some("R1"))
     );
     let p = take(&p, "answered");
     assert_eq!(
         (p.at.as_str(), p.stopped.as_deref(), p.from.as_deref()),
-        ("ask.way_on", Some("research.problem"), Some("ask.advisor"))
+        ("A4", Some("R1"), Some("A1"))
     );
     let p = take(&p, "carry_on");
-    assert_eq!(p.at, "ask.back");
+    assert_eq!(p.at, "A5");
     let p = take(&p, "back");
-    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("research.problem", None));
+    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("R1", None));
     let p = take(&p, "done");
-    assert_eq!(
-        (p.at.as_str(), p.recorded["rethought"].as_str()),
-        ("research.stands", "no")
-    );
-    let wrong = g
-        .cell("ask.back")
-        .unwrap()
-        .rows
-        .iter()
-        .find(|r| r.name == "back")
-        .unwrap();
+    assert_eq!((p.at.as_str(), p.recorded["rethought"].as_str()), ("R2", "no"));
+    let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
 }

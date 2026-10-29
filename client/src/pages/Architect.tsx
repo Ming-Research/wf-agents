@@ -67,7 +67,7 @@ import {
   workHref,
 } from '../route';
 import { t, type Key } from '../text';
-import { Block, By, ItemRef, type OpenRound, Section } from '../parts';
+import { Block, By, CellTitles, ItemRef, type OpenRound, Section } from '../parts';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ChangeBlock, PolicyText, ProbesView, ReadingView, StudyView, UnderstandingView } from './ArchitectViews';
 import { bringIntoView } from './Decide';
@@ -884,31 +884,37 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
     go({ tab: asked !== undefined ? askTab(asked) : 'conversation' });
     window.setTimeout(() => bringIntoView(`ask-${ask}`), 0);
   };
+  const titles = useMemo(
+    () => new Map((compiled.data?.graphs.find((g) => g.name === 'architect')?.cells ?? []).map((c) => [c.id, c.title])),
+    [compiled.data],
+  );
   return (
-    <div className="arch-screen">
-      <Line
-        a={a}
-        shown={wake}
-        current={current}
-        onTab={(tab) => go({ tab })}
-        onAsk={onAsk}
-        onRound={(w, r) => go({ wake: w, round: r, cell: null })}
-        pop={pop}
-        setPop={setPop}
-      />
-      {pop === 'wakes' ? (
-        <WakeList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
-      ) : null}
-      <div className="screen">
-        <Loaded r={compiled}>
-          {(c) => (
-            <Loaded r={view}>
-              {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} />}
-            </Loaded>
-          )}
-        </Loaded>
+    <CellTitles.Provider value={titles}>
+      <div className="arch-screen">
+        <Line
+          a={a}
+          shown={wake}
+          current={current}
+          onTab={(tab) => go({ tab })}
+          onAsk={onAsk}
+          onRound={(w, r) => go({ wake: w, round: r, cell: null })}
+          pop={pop}
+          setPop={setPop}
+        />
+        {pop === 'wakes' ? (
+          <WakeList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
+        ) : null}
+        <div className="screen">
+          <Loaded r={compiled}>
+            {(c) => (
+              <Loaded r={view}>
+                {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} />}
+              </Loaded>
+            )}
+          </Loaded>
+        </div>
       </div>
-    </div>
+    </CellTitles.Provider>
   );
 }
 

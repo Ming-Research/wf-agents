@@ -286,13 +286,8 @@ mod tests {
     #[test]
     fn a_sessions_context_is_its_latest_last_call() {
         let rs = [
-            round(
-                1,
-                "research.problem",
-                Some(calls(&[(3, 0, 9_000), (2, 9_000, 1_000)])),
-                None,
-            ),
-            round(2, "design.compare", Some(json!({ "started": true })), None),
+            round(1, "R1", Some(calls(&[(3, 0, 9_000), (2, 9_000, 1_000)])), None),
+            round(2, "D1", Some(json!({ "started": true })), None),
         ];
         assert_eq!(context(&rs), Some(10_002));
         assert_eq!(context(&rs[1..]), None);
@@ -305,9 +300,9 @@ mod tests {
         let tables = db::index_of(db::SCHEMA).unwrap();
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
         let g = f.graph("engineer").unwrap();
-        assert_eq!(effort(g.cell("implement").unwrap()).as_deref(), Some("xhigh"));
-        assert_eq!(effort(g.cell("research.stands").unwrap()).as_deref(), Some("medium"));
-        let mut older = g.cell("implement").unwrap().clone();
+        assert_eq!(effort(g.cell("I1").unwrap()).as_deref(), Some("xhigh"));
+        assert_eq!(effort(g.cell("R2").unwrap()).as_deref(), Some("medium"));
+        let mut older = g.cell("I1").unwrap().clone();
         older.effort = None;
         assert_eq!(effort(&older), None);
     }
@@ -315,16 +310,11 @@ mod tests {
     // Only a return sent back is rewritten in its own session: a run that failed or was cut off is done again.
     #[test]
     fn only_a_return_sent_back_stays_for_its_rewrite() {
-        let sent = [round(1, "implement", None, Some(json!({ "check": "no head" })))];
-        assert!(rewrites(&sent, "implement"));
-        assert!(!rewrites(&sent, "test.fix"));
-        let failed = [round(
-            1,
-            "implement",
-            None,
-            Some(json!({ "failed": { "kind": "transient" } })),
-        )];
-        assert!(!rewrites(&failed, "implement"));
-        assert!(!rewrites(&[round(1, "implement", None, None)], "implement"));
+        let sent = [round(1, "I1", None, Some(json!({ "check": "no head" })))];
+        assert!(rewrites(&sent, "I1"));
+        assert!(!rewrites(&sent, "T6"));
+        let failed = [round(1, "I1", None, Some(json!({ "failed": { "kind": "transient" } })))];
+        assert!(!rewrites(&failed, "I1"));
+        assert!(!rewrites(&[round(1, "I1", None, None)], "I1"));
     }
 }

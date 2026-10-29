@@ -712,7 +712,7 @@ from: Array<Src>, };
  */
 export type RoundConditional = { 
 /**
- * Its address, such as `R5-12·design.choose·design`, `rule:ground` or `format:common`.
+ * Its address, such as `R5-12·D2·design`, `rule:ground` or `format:common`.
  */
 address: string, 
 /**

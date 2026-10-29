@@ -206,19 +206,12 @@ pub fn gather(
                     by: Some("project".into()),
                 };
                 let whole = source(e, w, g, cell, item, &view)?;
-                if answered(e, w, g, "understand.state")?.is_empty() {
+                if answered(e, w, g, "U1")?.is_empty() {
                     parts.extend(whole);
                     continue;
                 }
                 for path in ["state", "direction"] {
-                    parts.extend(source(
-                        e,
-                        w,
-                        g,
-                        cell,
-                        item,
-                        &Src::Place("understand.state".into(), path.into()),
-                    )?);
+                    parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), path.into()))?);
                 }
                 if let Some(p) = whole {
                     let has = |v: &Value| v.as_array().is_some_and(|xs| xs.iter().any(|x| !x.is_null()));
@@ -547,7 +540,7 @@ pub fn engine_input(
                 // At a re-review of the design tree, the change since the last design tree review; the table review
                 // runs just before it on the same head, so its head would leave nothing to review.
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::head_reviewed_by(e, w, g, "test.tree_review")?
+                    crate::values::head_reviewed_by(e, w, g, "T5")?
                 } else {
                     None
                 };
@@ -746,22 +739,22 @@ mod tests {
             },
             parts: vec![
                 place(
-                    "test.table_review",
+                    "T4",
                     "columns[findings]",
                     json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] }]),
                 ),
                 place(
-                    "test.tree_review",
+                    "T5",
                     "columns[findings]",
                     json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }]),
                 ),
                 place(
-                    "test.table_review",
+                    "T4",
                     "columns[cannot_verify]",
                     json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
                 ),
                 place(
-                    "test.adversarial",
+                    "T1",
                     "new_tests",
                     json!([
                         { "name": "fails_before", "on_head": "green", "on_base": "red" },
@@ -769,17 +762,17 @@ mod tests {
                     ]),
                 ),
                 place(
-                    "test.adversarial",
+                    "T1",
                     "guard_tests",
                     json!([{ "name": "guard", "on_head": "green", "on_base": "green" }]),
                 ),
                 place(
-                    "test.full_ci",
+                    "T2",
                     "result[conflict]",
                     json!({ "kind": "conflict", "files": ["a.rs"] }),
                 ),
                 place(
-                    "test.full_ci",
+                    "T2",
                     "result[red]",
                     json!({ "kind": "red", "checks": [
                         { "name": "check", "result": "red", "run": "u" },
@@ -794,9 +787,9 @@ mod tests {
         assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]);
         assert_eq!(
             (&rows[0]["from"], &rows[0]["column"], &rows[0]["fid"]),
-            (&json!("test.table_review·columns[findings]"), &json!("2"), &json!("R1"))
+            (&json!("T4·columns[findings]"), &json!("2"), &json!("R1"))
         );
-        assert_eq!(rows[2]["from"], "test.tree_review·columns[findings]");
+        assert_eq!(rows[2]["from"], "T5·columns[findings]");
         assert_eq!((&rows[3]["column"], rows[3].get("id")), (&json!("3"), None));
         assert_eq!(rows[4]["name"], "passes_before");
         assert_eq!(rows[5]["files"], json!(["a.rs"]));

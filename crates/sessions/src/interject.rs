@@ -95,11 +95,11 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'research.problem')",
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'R1')",
                 [],
             )?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'research.problem', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'R1', '{}', 'c', 1)",
                 [],
             )?;
             tx.execute(

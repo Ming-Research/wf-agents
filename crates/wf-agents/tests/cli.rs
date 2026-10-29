@@ -185,7 +185,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
     assert!(
         stdout.contains("engineer: format:common ")
             && stdout.contains("engineer ")
-            && stdout.contains("new sessions also at implement, test.fix"),
+            && stdout.contains("new sessions also at I1, T6"),
         "{stdout}"
     );
     let out = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
@@ -348,7 +348,7 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
             [],
         )?;
         tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (1, 1, 'engineer', 'implement', '/w/1', 5)",
+            "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (1, 1, 'engineer', 'I1', '/w/1', 5)",
             [],
         )?;
         tx.execute(

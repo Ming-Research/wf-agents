@@ -329,7 +329,7 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
                          JOIN works w ON w.id = p.work
                          WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell IN {}
                            AND p.transition IS NOT NULL)",
-                    db::cells_sql("architect", &["pick.anything", "pick.choose"])
+                    db::cells_sql("architect", &["Q0", "Q1"])
                 ),
                 [design_card],
             )?;
@@ -514,9 +514,9 @@ mod tests {
                 [],
             )?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'ask.owner')", [])?;
+            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'A3')", [])?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'implement', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'I1', '{}', 'c', 1)",
                 [],
             )?;
             tx.execute(
@@ -638,7 +638,7 @@ mod tests {
         );
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'understand.state', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'U1', 'p')",
                 [],
             )?;
             Ok(())
@@ -815,11 +815,11 @@ mod tests {
             if wake == 0 {
                 tx.execute(
                     "INSERT INTO works (id, item, flow_version, graph, at, project)
-                     VALUES (9, NULL, 1, 'architect', 'ask.owner', 'p')",
+                     VALUES (9, NULL, 1, 'architect', 'A3', 'p')",
                     [],
                 )?;
                 tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'ask.owner', '{}', 'c', 1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'A3', '{}', 'c', 1)",
                     [],
                 )?;
             }
@@ -850,7 +850,7 @@ mod tests {
         ]);
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "project": "p", "work": 9, "cell": "policy.owner_reads", "kind": "study", "study": {},
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "P3", "kind": "study", "study": {},
                     "choices": choices }),
         );
         assert!(answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "maybe" }))).is_err());
@@ -900,14 +900,11 @@ mod tests {
         .unwrap();
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "project": "p", "work": 9, "cell": "ask.owner", "kind": "ask", "asked": [],
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "A3", "kind": "ask", "asked": [],
                     "holds": [1] }),
         );
         db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "UPDATE architect_matters SET asked = ?1, resume_cell = 'handle.ways'",
-                [ask],
-            )?;
+            tx.execute("UPDATE architect_matters SET asked = ?1, resume_cell = 'H3'", [ask])?;
             Ok(())
         })
         .unwrap();
