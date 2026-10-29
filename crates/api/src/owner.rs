@@ -1,7 +1,8 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, and the switch that
-//! keeps waiting sessions warm while every work is paused. Each is written as the owner, so `changes` records it as
-//! theirs, and the engine reads it as it goes on. What the owner says to the architect is `db::say_to_architect`.
+//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, the switch that keeps
+//! waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an architect, and the setting
+//! that forwards each new one as it comes. Each is written as the owner, so `changes` records it as theirs, and the
+//! engine reads it as it goes on. What the owner says to the architect is `db::say_to_architect`.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
@@ -692,6 +693,37 @@ pub fn set_keep_warm_paused(db: &mut Db, on: bool) -> Result<String, String> {
         "waiting sessions are kept warm while every work is paused".into()
     } else {
         "no waiting session is kept warm while every work is paused".into()
+    })
+}
+
+/// Forwards a fault of wf-agents, the engine's notice of it, to a project's architect, as the owner: it comes to the
+/// architect's queue as a report of the fault, and the notice is read. A fault goes to each architect once.
+pub fn forward_fault(db: &mut Db, notice: i64, project: &str) -> Result<String, String> {
+    let matter = db
+        .write(Actor::Owner, |tx| {
+            db::forward_fault(tx, notice, project, db::Forwarder::Owner)
+        })
+        .map_err(sql)?;
+    Ok(format!(
+        "fault {notice} goes to the architect of {} as matter {matter}",
+        project.trim()
+    ))
+}
+
+/// The project whose architect each new fault of wf-agents goes to as it comes, by the owner's setting; none for
+/// nobody, as it is at first.
+pub fn fault_forwarding(conn: &Connection) -> Result<Option<String>, String> {
+    db::fault_forwarding(conn).map_err(sql)
+}
+
+/// Sets, as the owner, where each new fault of wf-agents goes as it comes: to a project's architect, or with none to
+/// nobody, the owner then forwarding a fault by hand or not at all.
+pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String, String> {
+    db.write(Actor::Owner, |tx| db::set_fault_forwarding(tx, project))
+        .map_err(sql)?;
+    Ok(match project {
+        Some(p) => format!("each new fault of wf-agents goes to the architect of {}", p.trim()),
+        None => "new faults of wf-agents go to nobody: you forward each or not".into(),
     })
 }
 

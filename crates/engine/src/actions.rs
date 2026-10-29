@@ -84,6 +84,8 @@ pub fn notify_fault(tx: &Transaction<'_>, work: i64, fault: &str, text: &str) ->
     tell(tx, Some(work), None, Some(fault), text)
 }
 
+/// Keeps a notice for the owner and writes it to the notifications log; a fault of wf-agents goes on at once to the
+/// architect the owner's setting names, if it names one.
 fn tell(
     tx: &Transaction<'_>,
     work: Option<i64>,
@@ -98,6 +100,9 @@ fn tell(
     .map_err(sql)?;
     let id = tx.last_insert_rowid();
     outbox(tx, work, "notify", &json!({ "text": text }))?;
+    if fault.is_some() {
+        db::forward_new_fault(tx, id).map_err(sql)?;
+    }
     Ok(id)
 }
 

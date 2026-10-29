@@ -29,8 +29,8 @@ pub use diff::diff;
 pub use events::events;
 pub use marks::{mark_read, read_to};
 pub use owner::{
-    answer, can_start, close_observation, interject, keep_warm_paused, pause, pause_wake, project_named, resume, rule,
-    say_to_projects, say_to_work, set_keep_warm_paused,
+    answer, can_start, close_observation, fault_forwarding, forward_fault, interject, keep_warm_paused, pause,
+    pause_wake, project_named, resume, rule, say_to_projects, say_to_work, set_fault_forwarding, set_keep_warm_paused,
 };
 pub use read::{
     Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, round,

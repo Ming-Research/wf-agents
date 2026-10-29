@@ -6,7 +6,9 @@
 // each agent's message beside its avatar in its colour and headed by whom it is for, the owner's on the right; the
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
 // the design's with the design folded and the design card to rule on. The one-to-one holds the owner's words, what the
-// architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue. What
+// architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue.
+// wf-agents' own holds its faults, each of which the owner forwards to any project's architect, once to each, and says
+// where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
 // waits for the owner (the open blockers the owner holds) is pinned at the top with its options, and the one box at the
 // bottom answers the one picked, as a reply does in a chat; otherwise it says something, in a work's group to the
 // engineer, the architect or both. Opening a conversation reads it up to its latest entry.
@@ -21,6 +23,8 @@ import {
   XIcon,
 } from '@primer/octicons-react';
 import {
+  ActionList,
+  ActionMenu,
   Button,
   Checkbox,
   CounterLabel,
@@ -34,12 +38,25 @@ import {
 } from '@primer/react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
-import type { Conversation, ConversationDetail, ConversationEntry, JsonValue, Misses, OwnerAsk, WorkSummary } from '../api';
+import type {
+  Conversation,
+  ConversationDetail,
+  ConversationEntry,
+  Forwarded,
+  Forwarding,
+  JsonValue,
+  Misses,
+  OwnerAsk,
+  WorkSummary,
+} from '../api';
 import { type Answering, AnsweringContext, type Target } from '../answer';
 import { choicesOf, rulingAnswer } from '../architect';
 import {
   closedWhy,
   conversationTitle,
+  type ForwardChoice,
+  forwardMenu,
+  forwardParts,
   heldCards,
   latestAt,
   listParts,
@@ -56,11 +73,11 @@ import { postJson } from '../http';
 import { isObj, str, words } from '../labelled';
 import { reread, useResource } from '../live';
 import { Markdown } from '../markdown';
-import { forProject, href, Link, navigate, workHref } from '../route';
+import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
 import { t } from '../text';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { AskView, DesignCardView } from './Decide';
-import { ArchitectHead, PlainHead, WorkHead } from './TalkHead';
+import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
 import { MatterCardView, ObservationCard, PolicyCard, StageCardView } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
@@ -236,9 +253,66 @@ function SystemLine({ e }: { e: ConversationEntry }) {
   );
 }
 
-/// A fault of wf-agents: what the engine said, how many misses it holds, and, unread, Mark read.
-function Fault({ e }: { e: ConversationEntry }) {
+/// A fault's Forward to…: a menu of every project's architect. Picking one forwards the fault there, as a matter of its
+/// queue, and marks the fault read; one it went to already is marked and cannot be picked again.
+function ForwardMenu({ notice, choices, failed }: { notice: number; choices: ForwardChoice[]; failed: (x: unknown) => void }) {
+  const [busy, setBusy] = useState(false);
+  const forward = (project: string) => {
+    setBusy(true);
+    postJson(`/api/v1/faults/${notice}/forward`, { project }).then(
+      () => {
+        setBusy(false);
+        reread('messages', 'architect');
+      },
+      (x: unknown) => {
+        setBusy(false);
+        failed(x);
+      },
+    );
+  };
+  return (
+    <ActionMenu>
+      <ActionMenu.Button size="small" disabled={busy}>
+        {t('fault_forward')}
+      </ActionMenu.Button>
+      <ActionMenu.Overlay width="auto">
+        <ActionList aria-label={t('fault_forward')}>
+          {choices.map((c) => (
+            <ActionList.Item key={c.project} disabled={c.sent} onSelect={() => forward(c.project)}>
+              {c.label}
+              {c.sent ? <ActionList.TrailingVisual>{t('fault_forward_sent')}</ActionList.TrailingVisual> : null}
+            </ActionList.Item>
+          ))}
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
+  );
+}
+
+/// One place a fault went, and how it stands there: in the queue, or handled in a round, which leads to that round on
+/// the architect's chart.
+function ForwardLine({ f }: { f: Forwarded }) {
+  const p = forwardParts(f);
+  return (
+    <p className="talk-line-more">
+      {`${p.lead} · ${p.state}`}
+      {p.round !== null ? (
+        <>
+          {' '}
+          <Link to={architectHref({ project: f.project, wake: f.handled_work, round: f.handled_round })} muted>
+            {p.round}
+          </Link>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+/// A fault of wf-agents: what the engine said, how many misses it holds, where it was forwarded and how it stands
+/// there; unread, Mark read; and Forward to…, to a project's architect.
+function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding | null }) {
   const [error, setError] = useState<string | null>(null);
+  const failed = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
   return (
     <Flash variant={e.read_at === null ? 'warning' : 'default'} className="talk-fault">
       <div className="talk-bubble-head">
@@ -250,28 +324,35 @@ function Fault({ e }: { e: ConversationEntry }) {
           <Button
             size="small"
             onClick={() => {
-              markFault(e.id).catch((x: unknown) => setError(x instanceof Error ? x.message : String(x)));
+              markFault(e.id).catch(failed);
             }}
           >
             {t('message_mark_read')}
           </Button>
         ) : null}
+        {forwarding !== null && forwarding.projects.length > 0 ? (
+          <ForwardMenu notice={e.id} choices={forwardMenu(forwarding.projects, e.forwards)} failed={failed} />
+        ) : null}
       </div>
       <Markdown text={e.text} />
       {e.misses !== null ? <MissesLine m={e.misses} /> : null}
+      {e.forwards.map((f) => (
+        <ForwardLine key={f.matter} f={f} />
+      ))}
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
     </Flash>
   );
 }
 
 /// One entry of the stream, in its voice.
-function Entry({ e, c, w, held, current, answering }: {
+function Entry({ e, c, w, held, current, answering, forwarding }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
   held: ReadonlySet<number>;
   current: number | null;
   answering: Answering | null;
+  forwarding: Forwarding | null;
 }) {
   const voice = voiceOf(e, held);
   if (voice === 'card') {
@@ -284,7 +365,7 @@ function Entry({ e, c, w, held, current, answering }: {
     return null;
   }
   if (voice === 'system') return <SystemLine e={e} />;
-  if (voice === 'fault') return <Fault e={e} />;
+  if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
   return <Message e={e} group={c.kind === 'work' || c.kind === 'projects'} answering={answering} />;
 }
@@ -481,7 +562,16 @@ function Stream({ d, c, w, answering }: { d: ConversationDetail; c: Conversation
       {runs.map((run) => {
         const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
         const items: ReactNode = run.entries.map((e) => (
-          <Entry key={`${e.source}-${e.id}-${e.at}`} e={e} c={c} w={w} held={held} current={current} answering={answering} />
+          <Entry
+            key={`${e.source}-${e.id}-${e.at}`}
+            e={e}
+            c={c}
+            w={w}
+            held={held}
+            current={current}
+            answering={answering}
+            forwarding={d.forwarding}
+          />
         ));
         return run.cards ? (
           <Timeline key={key} clipSidebar className="talk-cards">
@@ -519,7 +609,15 @@ function Open({ c }: { c: Conversation }) {
     );
   }, [c.key, latest, readTo]);
   const head =
-    c.kind === 'work' ? <WorkHead c={c} w={w} /> : c.kind === 'architect' ? <ArchitectHead c={c} /> : <PlainHead title={conversationTitle(c)} />;
+    c.kind === 'work' ? (
+      <WorkHead c={c} w={w} />
+    ) : c.kind === 'architect' ? (
+      <ArchitectHead c={c} />
+    ) : c.kind === 'wf_agents' ? (
+      <WfAgentsHead title={conversationTitle(c)} forwarding={d?.forwarding ?? null} />
+    ) : (
+      <PlainHead title={conversationTitle(c)} />
+    );
   return (
     <AnsweringContext.Provider value={answering}>
       <div className="talk-open">

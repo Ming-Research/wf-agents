@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 
 use crate::read::{self, Error, Flows};
 use crate::{
-    Conversation, ConversationDetail, ConversationEntry, Handled, MatterProgress, Misses, StageCard, StageMove,
+    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
+    StageCard, StageMove,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -250,6 +251,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 answerable: r.get(16)?,
                 fault: r.get(17)?,
                 misses: None,
+                forwards: Vec::new(),
                 ask_detail: None,
                 revisions: None,
                 stage: None,
@@ -269,6 +271,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         .map(|(_, e)| e)
         .collect();
     misses(conn, &mut entries)?;
+    forwards(conn, &mut entries)?;
     // Each ask in full, with its documents: the study of a new policy, the policy to approve with the corrections of
     // its text since the owner last read it.
     let ids: Vec<String> = entries
@@ -363,6 +366,14 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         asks: pinned,
         design_cards,
         read_to,
+        forwarding: if key == "wf-agents" {
+            Some(Forwarding {
+                projects: t.projects.clone(),
+                auto: db::fault_forwarding(conn).map_err(|e| Error::Failed(e.to_string()))?,
+            })
+        } else {
+            None
+        },
     })
 }
 
@@ -387,6 +398,7 @@ fn blank() -> ConversationEntry {
         answerable: false,
         fault: None,
         misses: None,
+        forwards: Vec::new(),
         ask_detail: None,
         revisions: None,
         stage: None,
@@ -412,6 +424,32 @@ fn misses(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
             })
         })?;
         e.misses = (m.count > 0).then_some(m);
+    }
+    Ok(())
+}
+
+/// Where each notice of a fault of wf-agents went: the architects it was forwarded to, in the order it went, by whom,
+/// and how the matter it became stands with each.
+fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
+    let mut st = conn.prepare(
+        "SELECT project, coalesce(json_extract(body, '$.by'), 'owner'), id,
+           CASE WHEN handled_round IS NOT NULL THEN 'handled' WHEN withdrawn IS NOT NULL THEN 'withdrawn'
+                ELSE 'queued' END,
+           handled_work, handled_round
+         FROM architect_matters WHERE notice = ?1 ORDER BY id",
+    )?;
+    for e in entries.iter_mut().filter(|e| e.source == "notice" && e.fault.is_some()) {
+        let rows = st.query_map([e.id], |r| {
+            Ok(Forwarded {
+                project: r.get(0)?,
+                by: r.get(1)?,
+                matter: r.get(2)?,
+                state: r.get(3)?,
+                handled_work: r.get(4)?,
+                handled_round: r.get(5)?,
+            })
+        })?;
+        e.forwards = rows.collect::<db::rusqlite::Result<_>>()?;
     }
     Ok(())
 }

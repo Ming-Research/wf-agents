@@ -1,9 +1,17 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
 // page draws it, what of it is pinned and what streams, what the box at the bottom says things to, what a stage card's
-// facts are, and what is new for the owner to be told of.
+// facts are, what is new for the owner to be told of, and where a fault of wf-agents can go and went.
 
-import type { Conversation, ConversationDetail, ConversationEntry, StageCard, WorkSummary } from './api';
+import type {
+  Conversation,
+  ConversationDetail,
+  ConversationEntry,
+  Forwarded,
+  Forwarding,
+  StageCard,
+  WorkSummary,
+} from './api';
 import { words } from './labelled';
 import { t } from './messages';
 
@@ -165,3 +173,44 @@ export function newlyWaiting(before: ReadonlyMap<string, number> | null, now: Co
 
 /// What waits in each conversation, by its key, for the next comparison.
 export const waitingByKey = (list: Conversation[]): Map<string, number> => new Map(list.map((c) => [c.key, c.waiting]));
+
+/// One line of the menu a fault's Forward to… opens: a project, its architect in words, and whether the fault went
+/// there already.
+export type ForwardChoice = { project: string; label: string; sent: boolean };
+
+/// The menu a fault's Forward to… opens: every project's architect, those the fault already went to marked, since it
+/// goes to each once.
+export function forwardMenu(projects: string[], forwards: Forwarded[]): ForwardChoice[] {
+  return projects.map((p) => ({
+    project: p,
+    label: t('fault_forward_to', { project: p }),
+    sent: forwards.some((f) => f.project === p),
+  }));
+}
+
+/// What a fault's entry says of one place it went: to whose architect, by hand or by the owner's setting, and how it
+/// stands there, in the queue or handled in a round, which the page links to.
+export function forwardParts(f: Forwarded): { lead: string; state: string; round: string | null } {
+  const lead = t(f.by === 'setting' ? 'fault_forwarded_auto' : 'fault_forwarded', { project: f.project });
+  if (f.state === 'handled' && f.handled_work !== null && f.handled_round !== null) {
+    return { lead, state: t('fault_handled_in'), round: `R${f.handled_work}-${f.handled_round}` };
+  }
+  return { lead, state: t(f.state === 'withdrawn' ? 'fault_withdrawn' : 'fault_in_queue'), round: null };
+}
+
+/// The same, as one line of words.
+export function forwardWords(f: Forwarded): string {
+  const p = forwardParts(f);
+  return `${p.lead} · ${p.round !== null ? `${p.state} ${p.round}` : p.state}`;
+}
+
+/// The choices of the setting that forwards each new fault as it comes, each a value and its words: nobody (`''`)
+/// first, as it is at first, then every project's architect, and the project it names now even when the
+/// configuration no longer has it.
+export function forwardNewChoices(f: Forwarding): Array<{ value: string; label: string }> {
+  const projects = f.auto !== null && !f.projects.includes(f.auto) ? [...f.projects, f.auto] : f.projects;
+  return [
+    { value: '', label: t('fault_forward_nobody') },
+    ...projects.map((p) => ({ value: p, label: t('fault_forward_to', { project: p }) })),
+  ];
+}

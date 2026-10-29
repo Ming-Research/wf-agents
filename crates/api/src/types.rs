@@ -428,6 +428,44 @@ pub struct Misses {
     pub last_at: Option<i64>,
 }
 
+/// Where a fault of wf-agents went: the project whose architect it was forwarded to, who forwarded it, and how the
+/// matter it became stands there.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Forwarded {
+    pub project: String,
+    /// `owner`, forwarded by hand; `setting`, by the owner's setting that forwards each new fault as it comes.
+    pub by: String,
+    /// The matter it is in that architect's queue.
+    pub matter: i64,
+    /// `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its wake
+    /// and its number; `withdrawn`.
+    pub state: String,
+    pub handled_work: Option<i64>,
+    pub handled_round: Option<i64>,
+}
+
+/// Where the faults of wf-agents can go, for wf-agents' own conversation: the projects whose architects a fault may
+/// be forwarded to, every project of the configuration in its order, and the one whose architect the owner's setting
+/// forwards each new fault to as it comes, none for nobody.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Forwarding {
+    pub projects: Vec<String>,
+    pub auto: Option<String>,
+}
+
+/// What the owner sends to forward a fault of wf-agents: the project whose architect takes it.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ForwardFault {
+    pub project: String,
+}
+
+/// What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
+/// it, or none for nobody.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ForwardNew {
+    pub project: Option<String>,
+}
+
 /// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
 /// `notices`), or every one unread.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
@@ -960,6 +998,9 @@ pub struct ConversationEntry {
     pub fault: Option<String>,
     /// For a notice of cache misses: the misses it tells of, the first and those added to it since.
     pub misses: Option<Misses>,
+    /// For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
+    /// another entry.
+    pub forwards: Vec<Forwarded>,
     /// For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
     /// since the owner last read it (`revisions`).
     pub ask_detail: Option<OwnerAsk>,
@@ -1062,6 +1103,8 @@ pub struct ConversationDetail {
     pub design_cards: Vec<DesignCard>,
     /// The time of the latest entry the owner read; none before the first.
     pub read_to: Option<i64>,
+    /// For wf-agents' own conversation: where its faults can go; none for another.
+    pub forwarding: Option<Forwarding>,
 }
 
 /// What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the

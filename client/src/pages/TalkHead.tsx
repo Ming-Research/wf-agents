@@ -3,16 +3,18 @@
 // goes on and what it cost so far, with the work's Start, Pause and Step and the tier its item is at; the one-to-one
 // with an architect says what the architect handles now, at which cell, or that it is idle, paused or waits for the
 // owner, with its Start, Pause and Step, and under it its queue: how many matters are left, the oldest wait and how
-// many it handled today, opening to the list with the matter in hand marked. The architect is always there to the
-// owner: the page never names its wakes.
+// many it handled today, opening to the list with the matter in hand marked; wf-agents' own says where each new fault
+// goes as it comes, which the owner sets there. The architect is always there to the owner: the page never names its
+// wakes.
 
 import { BlockedIcon } from '@primer/octicons-react';
 import { Label, Select } from '@primer/react';
 import { useState } from 'react';
 
-import type { Architect, Conversation, Settings, Status, WorkSummary } from '../api';
+import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectState, holdWords, matterKind, matterSentence, queueParts } from '../architect';
 import { course, heldName } from '../components';
+import { forwardNewChoices } from '../conversation';
 import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
@@ -325,6 +327,46 @@ export function ArchitectHead({ c }: { c: Conversation }) {
         {a !== null ? <ArchitectControls a={a} status={status} /> : null}
       </div>
       {a !== null ? <QueueBar a={a} /> : null}
+    </header>
+  );
+}
+
+/// The head of wf-agents' own conversation: its name, and where each new fault goes as it comes, which the owner sets
+/// here: nobody, as it is at first, or a project's architect, which takes each as a matter of its queue.
+export function WfAgentsHead({ title, forwarding }: { title: string; forwarding: Forwarding | null }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <header className="talk-head">
+      <div className="talk-head-title">
+        <h2 className="talk-head-name">{title}</h2>
+      </div>
+      {forwarding !== null ? (
+        <div className="talk-head-facts">
+          <span className="talk-head-choice">
+            <label htmlFor="forward-new">{t('fault_forward_new')}</label>
+            <Select
+              id="forward-new"
+              size="small"
+              value={forwarding.auto ?? ''}
+              onChange={(e) => {
+                setError(null);
+                const project = e.target.value === '' ? null : e.target.value;
+                postJson('/api/v1/faults/forward-new', { project }).then(
+                  () => reread('messages'),
+                  (x: unknown) => setError(x instanceof Error ? x.message : String(x)),
+                );
+              }}
+            >
+              {forwardNewChoices(forwarding).map((c) => (
+                <Select.Option key={c.value} value={c.value}>
+                  {c.label}
+                </Select.Option>
+              ))}
+            </Select>
+            {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+          </span>
+        </div>
+      ) : null}
     </header>
   );
 }

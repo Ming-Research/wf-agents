@@ -968,6 +968,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             Some("followup") => "followup",
             Some("answer") => "answer",
             Some(FLOW_FEEDBACK) => FLOW_FEEDBACK,
+            Some(db::FAULT) => db::FAULT,
             _ => "side_report",
         }
         .into(),
@@ -3821,6 +3822,13 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         // Flow feedback names the project that is wf-agents, whose architect what belongs to wf-agents goes to.
         "report" if matter["detail"] == FLOW_FEEDBACK => {
             material.insert("wf_agents_project".into(), json!(e.wf_agents_project()));
+        }
+        // A fault of wf-agents forwarded to the architect, as it stands now: misses that came after the forward are
+        // in it too.
+        "report" if matter["detail"] == db::FAULT => {
+            if let Some(f) = crate::faults::forwarded(conn, m)? {
+                material.insert("fault".into(), f);
+            }
         }
         "design_card" => {
             if let Some(card) = matter["body"]["design_card"].as_i64() {

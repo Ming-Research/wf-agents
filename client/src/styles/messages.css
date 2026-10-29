@@ -94,7 +94,8 @@
 }
 
 .talk-head-controls,
-.talk-head-tier {
+.talk-head-tier,
+.talk-head-choice {
   display: inline-flex;
   align-items: center;
   gap: var(--base-size-4);

@@ -65,6 +65,8 @@ const FAILURES: Record<string, Key> = {
 /// The kind of a matter in words, as what is to be done, and what more its kind says where that helps: the kind of a
 /// place to set straight, of a failure and of an engineer's question.
 export function matterKind(kind: string, detail: string | null): string {
+  // A fault of wf-agents the owner forwarded comes as a report, and is looked into rather than gone through.
+  if (kind === 'report' && detail === 'fault') return t('matter_kind_fault');
   const key = MATTER_KINDS[kind];
   const name = key !== undefined ? t(key) : words(kind);
   if (detail === null) return name;

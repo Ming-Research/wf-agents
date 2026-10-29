@@ -19,7 +19,10 @@ mod cells;
 mod matters;
 
 pub use cells::{cells_sql, code_of, is_cell};
-pub use matters::{Matter, lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect};
+pub use matters::{
+    FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
+    project_of_item, queue_matter, say_to_architect, set_fault_forwarding,
+};
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
@@ -67,6 +70,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0037.sql"),
     include_str!("../../../db/migrations/0038.sql"),
     include_str!("../../../db/migrations/0039.sql"),
+    include_str!("../../../db/migrations/0040.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.

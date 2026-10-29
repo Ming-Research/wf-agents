@@ -421,6 +421,32 @@ architect: string | null, };
 export type Misses = { count: number, written: number, cost_usd: number, last_at: number | null, };
 
 /**
+ * Where a fault of wf-agents went: the project whose architect it was forwarded to, who forwarded it, and how the
+ * matter it became stands there.
+ */
+export type Forwarded = { project: string, 
+/**
+ * `owner`, forwarded by hand; `setting`, by the owner's setting that forwards each new fault as it comes.
+ */
+by: string, 
+/**
+ * The matter it is in that architect's queue.
+ */
+matter: number, 
+/**
+ * `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its wake
+ * and its number; `withdrawn`.
+ */
+state: string, handled_work: number | null, handled_round: number | null, };
+
+/**
+ * Where the faults of wf-agents can go, for wf-agents' own conversation: the projects whose architects a fault may
+ * be forwarded to, every project of the configuration in its order, and the one whose architect the owner's setting
+ * forwards each new fault to as it comes, none for nobody.
+ */
+export type Forwarding = { projects: Array<string>, auto: string | null, };
+
+/**
  * One of the owner's conversations, as their list shows it.
  */
 export type Conversation = { 
@@ -518,6 +544,11 @@ fault: string | null,
  * For a notice of cache misses: the misses it tells of, the first and those added to it since.
  */
 misses: Misses | null, 
+/**
+ * For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
+ * another entry.
+ */
+forwards: Array<Forwarded>, 
 /**
  * For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
  * since the owner last read it (`revisions`).
@@ -648,7 +679,11 @@ export type ConversationDetail = { key: string, entries: Array<ConversationEntry
 /**
  * The time of the latest entry the owner read; none before the first.
  */
-read_to: number | null, };
+read_to: number | null, 
+/**
+ * For wf-agents' own conversation: where its faults can go; none for another.
+ */
+forwarding: Forwarding | null, };
 
 /**
  * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
@@ -689,6 +724,17 @@ export type ReadTo = { key: string, at: number, };
  * `notices`), or every one unread.
  */
 export type MarkRead = { ids: Array<number>, notices: Array<number>, all: boolean, };
+
+/**
+ * What the owner sends to forward a fault of wf-agents: the project whose architect takes it.
+ */
+export type ForwardFault = { project: string, };
+
+/**
+ * What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
+ * it, or none for nobody.
+ */
+export type ForwardNew = { project: string | null, };
 
 /**
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
