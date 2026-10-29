@@ -74,12 +74,15 @@ a better way to show it exists; whether its space matches its weight. What the o
 room and the first look, what is needed now and then is folded or a click away, and what is never needed is not there.
 A page and each of its parts is designed from what it is for: what it must hold, what it leaves out and how it is laid
 out; leaving out is half the work, and putting on what the owner needs and does not yet have is the other half. Each
-thing has one place, named for what produced it, and is shown there once.
+thing has one place, named for what produced it, and is shown there once. Like things look alike: the same kind of
+content (a message, a text an agent wrote, a verdict, a list of items, a link to a round, a form to answer) is shown the
+same way wherever it appears, from one set of parts, so that the owner learns each look once.
 
 Violations: a column, a field or a log put on the page because the data exists (the engine's bookkeeping, raw values,
 internal names, JSON); the same thing shown in two places; text written for agents or the engine shown as if written for
 the owner; a table squeezed until it cannot be read; marks, motion or colour that tell the owner nothing; a page whose
-parts follow how the system stores things rather than what the owner does with them.
+parts follow how the system stores things rather than what the owner does with them; the same kind of content in a
+style of its own in each place it appears.
 
 ## When articles conflict
 
