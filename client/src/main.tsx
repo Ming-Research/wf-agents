@@ -10,6 +10,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
 import './styles/parts.css';
@@ -24,6 +25,7 @@ import './styles/usage.css';
 import './styles/architect.css';
 import './styles/items.css';
 import './styles/system.css';
+import './styles/chart.css';
 import './styles.css';
 
 const root = document.getElementById('root');

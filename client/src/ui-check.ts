@@ -15,34 +15,9 @@ export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
   {
     file: 'styles.css',
     why:
-      'The styles of the views not yet converted to the UI spec (the chart, the messages) and of what a cell\'s tabs ' +
-      "and a round's panel hold, which a redesign of their own converts; each part leaves it for a file under " +
-      'styles/ when it is converted.',
-  },
-  {
-    file: 'graph/flowDraw.tsx',
-    text: '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-    why: "The font the chart measures a cell's title in for its layout, at the size the owner set, until the chart's conversion reads it from the tokens.",
-  },
-  {
-    file: 'graph/flowDraw.tsx',
-    text: '14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-    why: "The font the chart measures its notes and labels in, until the chart's conversion reads it from the tokens.",
-  },
-  {
-    file: 'graph/flowDraw.tsx',
-    text: '700 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-    why: "The corner badges' text, which the owner kept at 10px: Primer's smallest text step is 12px.",
-  },
-  {
-    file: 'graph/stores.tsx',
-    text: '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-    why: "The font the chart measures a store's name in, until the chart's conversion reads it from the tokens.",
-  },
-  {
-    file: 'graph/stores.tsx',
-    text: '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-    why: "The font the chart measures a store's notes in, until the chart's conversion reads it from the tokens.",
+      "The styles of the messages view, which its rebuild on the UI spec converts, and of what a cell's tabs and a " +
+      "round's panel hold (with the JSON and file text they show), which a redesign of their own converts; each leaves " +
+      'it for a file under styles/ when it is converted.',
   },
 ];
 

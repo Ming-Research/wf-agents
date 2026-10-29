@@ -1,0 +1,50 @@
+/* The page's own tokens: the values Primer has no token for, each named once here with why, as the UI spec says
+   (design/harness/owner-interface/ui-spec.md). The UI check lets this file write values raw; everything else uses
+   these names or Primer's. */
+
+:root {
+  /* The chart's corner badges (a cell's reasoning effort, its rounds, a row's number) keep their small text, which
+     the owner kept: Primer's smallest text step is 12px. The chart reads it to measure the badges. */
+  --chart-badge-text-size: 10px;
+
+  /* The widths of the chart's lines, in its own units: an arrow is thin and the main path a little heavier, a row the
+     work took or the pointer is on heavier still, the arrows of the round chosen the heaviest; a box's edge, a cell's
+     the thickest of them; a wider line no one sees takes the pointer. Primer's border widths are for the page's boxes,
+     not for lines drawn to scale. */
+  --chart-line-arrow: 1.3;
+  --chart-line-rule: 1.4;
+  --chart-line-main: 2;
+  --chart-line-taken: 2.6;
+  --chart-line-lit: 4;
+  --chart-line-hit: 10;
+  --chart-line-box: 1.5;
+  --chart-line-cell: 2;
+  --chart-line-ring: 2.5;
+  --chart-line-marked: 3.5;
+  --chart-line-thin: 1;
+  --chart-line-map: 0.75;
+
+  /* The dashes of the chart's lines: a cell no line runs, the engine's own step, a tool, a computed store, what is
+     read, and the rows a work took, which flow the way it went. */
+  --chart-dash-fresh: 2 2;
+  --chart-dash-engine: 3 3;
+  --chart-dash-tool: 4 3;
+  --chart-dash-read: 5 4;
+  --chart-dash-flow: 10 6;
+
+  /* How long a flowing row's dashes take to move one dash on, and how far that is. */
+  --chart-flow-time: 0.9s;
+  --chart-flow-step: -16;
+
+  /* The halo round the cell a round runs at: three arcs, their width (a narrower one at a small cell), the share of the
+     way round each covers, and how long they take to go round, which the owner chose. */
+  --chart-halo-width: 6;
+  --chart-halo-width-small: 2;
+  --chart-halo-dash: 20 80;
+  --chart-halo-time: 2.4s;
+
+  /* What a work never went by, and the rows it never took, faded on its chart. */
+  --chart-faded: 0.55;
+  --chart-quiet: 0.35;
+  --chart-quiet-label: 0.45;
+}

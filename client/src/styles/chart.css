@@ -1,0 +1,817 @@
+/* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
+   its look in Primer's tokens. Text, boxes and fills take the functional tokens; who does a cell's work, the stage
+   boxes and the stores take Primer's data and display colours, each named here once by what it marks: an agent's round
+   its line's hue, a cell on no line the page's background, dotted; the engine's own step purple, dashed; a tool the
+   engine runs grey, dashed; the owner orange; a rule blue; the interjection orange; a way to another part lavender, a
+   way from another part orange; what the engine does on a line or every time a cell returns a purple hexagon; a store
+   teal, dashed when it is computed. The values Primer has no token for are in tokens.css. */
+
+:root {
+  --fc-text: var(--fgColor-default);
+  --fc-group: var(--display-brown-bgColor-muted);
+  --fc-group-line: var(--display-brown-borderColor-muted);
+  --fc-engineer: var(--data-green-color-emphasis);
+  --fc-engineer-fill: var(--data-green-color-muted);
+  --fc-review: var(--data-teal-color-emphasis);
+  --fc-review-fill: var(--data-teal-color-muted);
+  --fc-adversarial: var(--data-red-color-emphasis);
+  --fc-adversarial-fill: var(--data-red-color-muted);
+  --fc-advisor: var(--data-pink-color-emphasis);
+  --fc-advisor-fill: var(--data-pink-color-muted);
+  --fc-architect: var(--data-lime-color-emphasis);
+  --fc-architect-fill: var(--data-lime-color-muted);
+  --fc-other: var(--data-pine-color-emphasis);
+  --fc-other-fill: var(--data-pine-color-muted);
+  --fc-fresh: var(--data-lime-color-emphasis);
+  --fc-fresh-fill: var(--bgColor-default);
+  --fc-engine: var(--data-purple-color-emphasis);
+  --fc-engine-fill: var(--data-purple-color-muted);
+  --fc-tool: var(--data-gray-color-emphasis);
+  --fc-tool-fill: var(--data-gray-color-muted);
+  --fc-owner: var(--data-orange-color-emphasis);
+  --fc-owner-fill: var(--data-orange-color-muted);
+  --fc-rule: var(--data-blue-color-emphasis);
+  --fc-rule-fill: var(--data-blue-color-muted);
+  --fc-flag: var(--data-orange-color-emphasis);
+  --fc-flag-fill: var(--data-orange-color-muted);
+  --fc-store: var(--data-teal-color-emphasis);
+  --fc-store-fill: var(--data-teal-color-muted);
+  --fc-out: var(--data-gray-color-emphasis);
+  --fc-out-fill: var(--data-purple-color-muted);
+  --fc-in: var(--data-orange-color-emphasis);
+  --fc-in-fill: var(--data-orange-color-muted);
+  /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
+     background; the main path darker still. */
+  --fc-arrow: var(--borderColor-emphasis);
+  --fc-arrow-main: var(--fgColor-muted);
+  --fc-taken: var(--data-blue-color-emphasis);
+  --fc-hot: var(--data-orange-color-emphasis);
+  --fc-lit: var(--data-pink-color-emphasis);
+  --fc-label: var(--bgColor-muted);
+  /* The effort badges: green, blue, orange and red from low to xhigh, max in purple, each with white letters, as the
+     owner chose; Primer's emphasis backgrounds, which follow light and dark themselves. */
+  --fc-effort-low: var(--bgColor-success-emphasis);
+  --fc-effort-medium: var(--bgColor-accent-emphasis);
+  --fc-effort-high: var(--bgColor-severe-emphasis);
+  --fc-effort-xhigh: var(--bgColor-danger-emphasis);
+  --fc-effort-max: var(--bgColor-done-emphasis);
+  --fc-effort-text: var(--fgColor-onEmphasis);
+}
+
+.chart {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.flowchart {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.flowchart-note {
+  padding: var(--base-size-16);
+}
+
+/* The plain arrow over the chart's empty space, the pointing finger over what a click or hovering does something
+   with, and the grabbing hand only while the button is down to move it. */
+.viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+  background: var(--bgColor-inset);
+}
+
+.viewer [data-edge] {
+  cursor: pointer;
+}
+
+.viewer.dragging,
+.viewer.dragging * {
+  cursor: grabbing;
+}
+
+.viewer-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* The chart's text: a cell's title body large, its notes, the arrows' labels and the nodes beside the cells body
+   medium, a stage's name title small, a code monospace. */
+svg.fc {
+  display: block;
+  font-family: var(--fontStack-sansSerif);
+  font-size: var(--text-body-size-large);
+  user-select: none;
+}
+
+.fc text {
+  fill: var(--fc-text);
+}
+
+.fc-group rect {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc-group text,
+.fc-group-name text {
+  font-size: var(--text-title-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc-group-name rect {
+  fill: var(--fc-group);
+}
+
+.fc-cell,
+.fc-circle,
+.fc-rule,
+.fc-flag,
+.fc-act,
+.fc-store {
+  cursor: pointer;
+}
+
+.fc-cell > rect:not(.fc-ring) {
+  stroke-width: var(--chart-line-cell);
+}
+
+/* A cell's code before its title, as the page writes a code: monospace, in the title's colour, no weight of its own. */
+.fc-id {
+  font-family: var(--fontStack-monospace);
+}
+
+.line-engineer > rect:not(.fc-ring) {
+  fill: var(--fc-engineer-fill);
+  stroke: var(--fc-engineer);
+}
+
+.line-review > rect:not(.fc-ring) {
+  fill: var(--fc-review-fill);
+  stroke: var(--fc-review);
+}
+
+.line-adversarial > rect:not(.fc-ring) {
+  fill: var(--fc-adversarial-fill);
+  stroke: var(--fc-adversarial);
+}
+
+.line-advisor > rect:not(.fc-ring) {
+  fill: var(--fc-advisor-fill);
+  stroke: var(--fc-advisor);
+}
+
+.line-architect > rect:not(.fc-ring) {
+  fill: var(--fc-architect-fill);
+  stroke: var(--fc-architect);
+}
+
+.line-other > rect:not(.fc-ring) {
+  fill: var(--fc-other-fill);
+  stroke: var(--fc-other);
+}
+
+.fresh > rect:not(.fc-ring) {
+  fill: var(--fc-fresh-fill);
+  stroke: var(--fc-fresh);
+  stroke-dasharray: var(--chart-dash-fresh);
+}
+
+.kind-engine > rect:not(.fc-ring) {
+  fill: var(--fc-engine-fill);
+  stroke: var(--fc-engine);
+  stroke-width: var(--chart-line-box);
+  stroke-dasharray: var(--chart-dash-engine);
+}
+
+.kind-tool > rect:not(.fc-ring) {
+  fill: var(--fc-tool-fill);
+  stroke: var(--fc-tool);
+  stroke-dasharray: var(--chart-dash-tool);
+}
+
+.kind-owner > rect:not(.fc-ring) {
+  fill: var(--fc-owner-fill);
+  stroke: var(--fc-owner);
+}
+
+.fc-circle ellipse {
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-circle text,
+.fc-act text,
+.fc-rule text,
+.fc-flag text,
+.fc-label text,
+.fc .fc-reads,
+.fc .fc-lack text,
+.fc .fc-store-note,
+.fc-wait text {
+  font-size: var(--text-body-size-medium);
+}
+
+/* What the engine does on a line, or every time a cell returns. */
+.fc-act polygon {
+  fill: var(--fc-engine-fill);
+  stroke: var(--fc-engine);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-edge.fc-edge-does {
+  stroke: var(--fc-engine);
+  stroke-dasharray: var(--chart-dash-engine);
+}
+
+/* Under a step the engine decides, what its values read; on a cell, a move it lacks. */
+.fc .fc-reads {
+  fill: var(--fgColor-muted);
+}
+
+.fc-reads-line {
+  stroke: var(--fgColor-muted);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-lack rect {
+  fill: var(--fc-label);
+  stroke: var(--fc-arrow);
+  stroke-dasharray: var(--chart-dash-fresh);
+}
+
+.fc .fc-lack text {
+  fill: var(--fgColor-muted);
+}
+
+/* The stores, in boxes by what they belong to, and the lines to them from what is pointed at or open. */
+.fc-store rect {
+  fill: var(--fc-store-fill);
+  stroke: var(--fc-store);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-store-computed rect {
+  stroke-dasharray: var(--chart-dash-tool);
+}
+
+.fc-store-lit rect {
+  stroke-width: var(--chart-line-marked);
+}
+
+.fc .fc-store-note {
+  fill: var(--fgColor-muted);
+}
+
+.fc-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.fc-link {
+  fill: none;
+  stroke: var(--fc-store);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-link-read {
+  stroke-dasharray: var(--chart-dash-read);
+}
+
+.fc-link-head path {
+  fill: var(--fc-store);
+}
+
+.fc-out ellipse {
+  fill: var(--fc-out-fill);
+  stroke: var(--fc-out);
+}
+
+.fc-in ellipse {
+  fill: var(--fc-in-fill);
+  stroke: var(--fc-in);
+}
+
+.fc-rule polygon {
+  fill: var(--fc-rule-fill);
+  stroke: var(--fc-rule);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-flag polygon {
+  fill: var(--fc-flag-fill);
+  stroke: var(--fc-flag);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-selected > rect:not(.fc-ring),
+.fc-selected > polygon,
+.fc-selected > ellipse {
+  filter: drop-shadow(0 0 3px var(--fgColor-accent)) drop-shadow(0 0 7px var(--fgColor-accent));
+}
+
+.fc-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: var(--chart-line-ring);
+}
+
+.fc-ring-running {
+  stroke: var(--fgColor-success);
+}
+
+/* The cell a round runs at wears a halo, so that the eye finds it at once, at the zoom a work's chart opens at and over
+   the whole chart: three arcs of Primer's red, yellow and blue running round the cell, a third of the way apart. Only
+   the running cell has it, and it is the chart's only motion but the rows a work took. */
+.fc-halo {
+  pointer-events: none;
+}
+
+.fc-halo rect {
+  fill: none;
+}
+
+.fc-halo-arc {
+  stroke-width: var(--chart-halo-width);
+  stroke-linecap: round;
+  stroke-dasharray: var(--chart-halo-dash);
+  animation: fc-halo-run var(--chart-halo-time) linear infinite;
+}
+
+.fc-halo-a {
+  stroke: var(--data-red-color-emphasis);
+}
+
+.fc-halo-b {
+  stroke: var(--data-yellow-color-emphasis);
+  stroke-dashoffset: -33.3;
+  animation-delay: calc(var(--chart-halo-time) / -3);
+}
+
+.fc-halo-c {
+  stroke: var(--data-blue-color-emphasis);
+  stroke-dashoffset: -66.7;
+  animation-delay: calc(var(--chart-halo-time) * -2 / 3);
+}
+
+.fc-halo-small .fc-halo-arc {
+  stroke-width: var(--chart-halo-width-small);
+}
+
+@keyframes fc-halo-run {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* Beside the cell a work waits at: why, in a few words, still. */
+.fc-wait rect {
+  fill: var(--bgColor-attention-emphasis);
+}
+
+.fc .fc-wait text {
+  fill: var(--fgColor-onEmphasis);
+}
+
+.fc-unvisited {
+  opacity: var(--chart-faded);
+}
+
+/* What a comparison found: a cell added in the success colour, one changed in the attention colour, with its mark. */
+.fc-added > rect:not(.fc-ring) {
+  stroke: var(--borderColor-success-emphasis);
+  stroke-width: var(--chart-line-marked);
+  stroke-dasharray: none;
+}
+
+.fc-changed > rect:not(.fc-ring) {
+  stroke: var(--borderColor-attention-emphasis);
+  stroke-width: var(--chart-line-marked);
+  stroke-dasharray: none;
+}
+
+.fc-mark {
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-added .fc-mark {
+  fill: var(--fgColor-success);
+}
+
+.fc .fc-changed .fc-mark {
+  fill: var(--fgColor-attention);
+}
+
+/* A cell's corner badges: its rounds, those sent back and failed, and the reasoning effort it runs at. */
+.fc-badge rect {
+  fill: var(--bgColor-accent-emphasis);
+}
+
+.fc .fc-badge text,
+.fc .fc-effort text {
+  fill: var(--fgColor-onEmphasis);
+  font-size: var(--chart-badge-text-size);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc-b-back rect {
+  fill: var(--bgColor-attention-emphasis);
+}
+
+.fc-b-failed rect {
+  fill: var(--bgColor-danger-emphasis);
+}
+
+/* A level the page does not know is grey. */
+.fc-effort rect {
+  fill: var(--bgColor-neutral-emphasis);
+}
+
+.fc-effort-low rect {
+  fill: var(--fc-effort-low);
+}
+
+.fc-effort-medium rect {
+  fill: var(--fc-effort-medium);
+}
+
+.fc-effort-high rect {
+  fill: var(--fc-effort-high);
+}
+
+.fc-effort-xhigh rect {
+  fill: var(--fc-effort-xhigh);
+}
+
+.fc-effort-max rect {
+  fill: var(--fc-effort-max);
+}
+
+.fc .fc-effort text {
+  fill: var(--fc-effort-text);
+}
+
+/* The arrows: thin, the main path a little heavier and darker, not heavy black. */
+.fc-edge {
+  fill: none;
+  stroke: var(--fc-arrow);
+  stroke-width: var(--chart-line-arrow);
+}
+
+.fc-edge-main {
+  stroke: var(--fc-arrow-main);
+  stroke-width: var(--chart-line-main);
+}
+
+.fc-edge-rule {
+  stroke: var(--fc-rule);
+  stroke-width: var(--chart-line-rule);
+}
+
+/* The rows a work took: their dashes flow the way the work went, at their own width. */
+.fc-edge-taken {
+  stroke: var(--fc-taken);
+  stroke-width: var(--chart-line-taken);
+  stroke-dasharray: var(--chart-dash-flow);
+  animation: fc-flow var(--chart-flow-time) linear infinite;
+}
+
+/* The row the pointer is on, from its source to its target. */
+.fc-edge-hot {
+  stroke: var(--fc-hot);
+  stroke-width: var(--chart-line-taken);
+}
+
+/* The arrows the round chosen in the rounds list came in by and left by: wide, their dashes flowing the way the work
+   went. */
+.fc-edge-lit {
+  stroke: var(--fc-lit);
+  stroke-width: var(--chart-line-lit);
+  stroke-dasharray: var(--chart-dash-flow);
+  animation: fc-flow var(--chart-flow-time) linear infinite;
+}
+
+@keyframes fc-flow {
+  to {
+    stroke-dashoffset: var(--chart-flow-step);
+  }
+}
+
+/* Arrows are thin: a wider line no one sees takes the pointer. */
+.fc-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: var(--chart-line-hit);
+  pointer-events: stroke;
+}
+
+.fc-edge-quiet {
+  opacity: var(--chart-quiet);
+}
+
+.fc-head path {
+  fill: var(--fc-arrow);
+}
+
+.fc-head-main path {
+  fill: var(--fc-arrow-main);
+}
+
+.fc-head-rule path {
+  fill: var(--fc-rule);
+}
+
+.fc-head-taken path {
+  fill: var(--fc-taken);
+}
+
+.fc-head-quiet path {
+  fill: var(--fc-arrow);
+  opacity: var(--chart-quiet);
+}
+
+.fc-head-hot path {
+  fill: var(--fc-hot);
+}
+
+.fc-head-lit path {
+  fill: var(--fc-lit);
+}
+
+/* An arrow's label: on the muted background over the line; the main path's, a row the work took and the arrows of the
+   round chosen semibold, the latter two in their line's colour. */
+.fc-label rect {
+  fill: var(--fc-label);
+}
+
+.fc-label-main text,
+.fc .fc-label-taken text,
+.fc .fc-label-lit text {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-label-taken text {
+  fill: var(--fc-taken);
+}
+
+.fc-label-hot rect {
+  fill: var(--fc-hot);
+}
+
+.fc .fc-label-lit text {
+  fill: var(--fc-lit);
+}
+
+/* On a work's chart, the label of a row the work never took, muted as the arrow is. */
+.fc-label-quiet {
+  opacity: var(--chart-quiet-label);
+}
+
+.fc-label-quiet text {
+  font-weight: var(--base-text-weight-normal);
+}
+
+/* A row's number: a badge of one size, its digits plain, in the accent's muted colours. */
+.fc-no circle {
+  fill: var(--bgColor-accent-muted);
+  stroke: var(--borderColor-accent-muted);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc .fc-no text {
+  fill: var(--fgColor-accent);
+  font-size: var(--chart-badge-text-size);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc-no-dash {
+  fill: var(--fgColor-muted);
+}
+
+/* The label of the row the pointer is on: on its line's colour, its words and number in white. */
+.fc .fc-label-hot > text,
+.fc .fc-label-hot .fc-no text {
+  fill: var(--fgColor-onEmphasis);
+}
+
+.fc .fc-label-hot .fc-no circle {
+  fill: var(--fgColor-onEmphasis);
+  fill-opacity: 0.25;
+  stroke: var(--fgColor-onEmphasis);
+  stroke-opacity: 0.6;
+}
+
+/* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's
+   top edge at the left, as its heading, so that the name plainly belongs to its graph. */
+.fc-sheets {
+  position: relative;
+}
+
+.fc-sheet {
+  position: absolute;
+  top: 0;
+}
+
+.fc-sheet-body {
+  position: relative;
+}
+
+.fc-sheet-body > svg {
+  display: block;
+}
+
+.fc-sheet-frame {
+  position: absolute;
+  inset: 0;
+  border: var(--borderWidth-thick) dashed var(--borderColor-emphasis);
+  border-radius: var(--borderRadius-large);
+  pointer-events: none;
+}
+
+.fc-sheet-name {
+  position: absolute;
+  top: 0;
+  left: var(--base-size-20);
+  padding: 0 var(--base-size-8);
+  background: var(--bgColor-inset);
+  color: var(--fgColor-default);
+  font: var(--text-title-shorthand-medium);
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+/* The chart's "?" in its corner, and the legend it opens to: one floating surface, as the flow's tools are, its words
+   small text, its keys drawn as the chart draws them. */
+.legend {
+  position: absolute;
+  left: var(--base-size-8);
+  bottom: var(--base-size-8);
+  z-index: 5;
+  max-width: min(420px, calc(100vw - 2 * var(--base-size-16)));
+  /* No taller than the chart, below the flow's tools over its top left corner; what does not fit scrolls inside. */
+  max-height: calc(100% - 2 * var(--base-size-8) - var(--control-small-size) - 2 * var(--base-size-4) - 2 * var(--base-size-8));
+  padding: var(--base-size-4) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  font-size: var(--text-body-size-small);
+  overflow-y: auto;
+}
+
+.legend:not([open]) {
+  padding: 0;
+  border-radius: var(--borderRadius-full);
+}
+
+.legend summary {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-small-size);
+  height: var(--control-small-size);
+  background: var(--overlay-bgColor);
+  color: var(--fgColor-accent);
+  font: var(--text-title-shorthand-small);
+  list-style: none;
+  cursor: pointer;
+}
+
+.legend summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Open, the "?" heads the legend across its width and stays at its top while the rest scrolls under it. */
+.legend[open] summary {
+  top: calc(-1 * var(--base-size-4));
+  justify-content: flex-start;
+  width: auto;
+  padding-left: var(--base-size-8);
+}
+
+.legend ul {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: var(--base-size-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.legend-swatch {
+  flex: none;
+}
+
+.legend-keys {
+  margin: var(--base-size-4) 0;
+  color: var(--fgColor-muted);
+}
+
+.legend-moves ul {
+  margin: var(--base-size-4) 0 var(--base-size-4) var(--base-size-12);
+  color: var(--fgColor-muted);
+}
+
+/* The shares of a round's cost in the legend, as the rounds list draws them. */
+.fc-spent-read {
+  fill: var(--share-read);
+}
+
+.fc-spent-new {
+  fill: var(--share-new);
+}
+
+.fc-spent-output {
+  fill: var(--share-output);
+}
+
+.fc .fc-spent-steps {
+  fill: var(--fgColor-muted);
+  font-size: var(--chart-badge-text-size);
+}
+
+/* The map over the chart's top left corner, under the flow's tools on the flow page and under the legend when that is
+   open: the whole chart small, its boxes and cells as plain shapes, the cell a work is at ringed as on the chart, and
+   the part in view framed. It shows only while some of the chart is out of view. */
+.fc-map {
+  position: absolute;
+  top: var(--base-size-8);
+  left: var(--base-size-8);
+  z-index: 4;
+  visibility: hidden;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fc-map[data-on] {
+  visibility: visible;
+}
+
+.fc-map[data-dragging],
+.fc-map[data-dragging] * {
+  cursor: grabbing;
+}
+
+.fc-map svg {
+  display: block;
+}
+
+.fc-map-box {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: var(--chart-line-map);
+}
+
+.fc-map-cell {
+  fill: var(--fc-arrow-main);
+}
+
+.fc-map-cell.fc-map-current {
+  fill: var(--fc-taken);
+}
+
+.fc-map-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-map-cell.fc-map-running {
+  fill: var(--fgColor-success);
+}
+
+.fc-map-ring.fc-map-running {
+  stroke: var(--fgColor-success);
+}
+
+.fc-map-frame {
+  fill: var(--bgColor-accent-muted);
+  stroke: var(--borderColor-accent-emphasis);
+  stroke-width: var(--chart-line-box);
+}

@@ -6,7 +6,7 @@
 
 import type { CompiledCell, CompiledGraph, EngineNames, Layer, Store } from '../api';
 import { t } from '../text';
-import { measure } from './flowDraw';
+import { chartFonts, measure } from './flowDraw';
 import type { Box, Size } from './flowLayout';
 import { type Chart, rowActions, valuesOf } from './flowModel';
 
@@ -106,8 +106,6 @@ const TITLE = 34;
 const PAD = 16;
 const GAP = 10;
 const BETWEEN = 24;
-const FONT = '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-const SMALL = '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 const WRAP = 170;
 const LINE = 19;
 
@@ -117,7 +115,7 @@ export function storeLines(s: Store): string[] {
   let line = '';
   for (const w of s.title.split(/\s+/).filter((x) => x !== '')) {
     const next = line === '' ? w : `${line} ${w}`;
-    if (line !== '' && measure(next, FONT) > WRAP) {
+    if (line !== '' && measure(next, chartFonts().title) > WRAP) {
       lines.push(line);
       line = w;
     } else {
@@ -131,14 +129,16 @@ export function storeLines(s: Store): string[] {
 /// A store's size: its title, and a line saying it is computed when it is.
 export function storeSize(s: Store): Size {
   const lines = storeLines(s);
-  const width = Math.max(...lines.map((l) => measure(l, FONT)), s.computed ? measure(t('store_computed'), SMALL) : 0);
+  const f = chartFonts();
+  const width = Math.max(...lines.map((l) => measure(l, f.title)), s.computed ? measure(t('store_computed'), f.note) : 0);
   return { width: Math.ceil(width) + 24, height: (lines.length + (s.computed ? 1 : 0)) * LINE + 14 };
 }
 
 /// Lays the stores out in their boxes, one above the other, each store under the one before it.
 export function layStores(stores: Record<string, Store>, size: (s: Store) => Size): LaidStores {
   const sized = Object.entries(stores).map(([name, s]) => ({ name, s, size: size(s) }));
-  const inner = Math.max(120, ...sized.map((x) => x.size.width), ...BOXES.map((b) => measure(boxTitle(b.id), FONT) + 8));
+  const stage = chartFonts().stage;
+  const inner = Math.max(120, ...sized.map((x) => x.size.width), ...BOXES.map((b) => measure(boxTitle(b.id), stage) + 8));
   const width = inner + 2 * PAD;
   const boxes: LaidStores['boxes'] = [];
   const placed = new Map<string, Box>();

@@ -26,14 +26,50 @@ export function styleOf(c: CompiledCell): string {
   return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';
 }
 
-const FONT = '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-const BOLD = `600 ${FONT}`;
-const SMALL = '14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+/// A size the page's tokens give, in pixels: read from the page where it runs, else the size the token has, so that a
+/// test lays the chart out as the page does.
+function sizeOf(token: string, fallback: number): number {
+  if (typeof document === 'undefined') return fallback;
+  const style = getComputedStyle(document.documentElement);
+  const value = style.getPropertyValue(token).trim();
+  const n = Number.parseFloat(value);
+  if (!Number.isFinite(n)) return fallback;
+  return value.endsWith('rem') ? n * Number.parseFloat(style.fontSize) : n;
+}
+
+/// A font stack the page's tokens give, read from the page where it runs.
+function stackOf(token: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
+}
+
+/// The fonts the chart's text is drawn and measured in, as the UI spec gives the chart its type: a cell's title body
+/// large, its code monospace at that size, a stage's name title small, the notes, the arrows' labels and the nodes
+/// beside the cells body medium, the corner badges at the badges' own small size.
+export type ChartFonts = { title: string; code: string; stage: string; note: string; badge: string };
+
+let fonts: ChartFonts | null = null;
+
+export function chartFonts(): ChartFonts {
+  if (fonts === null) {
+    const sans = stackOf('--fontStack-sansSerif', 'sans-serif');
+    const mono = stackOf('--fontStack-monospace', 'monospace');
+    const large = sizeOf('--text-body-size-large', 16);
+    fonts = {
+      title: `${large}px ${sans}`,
+      code: `${large}px ${mono}`,
+      stage: `600 ${sizeOf('--text-title-size-small', 16)}px ${sans}`,
+      note: `${sizeOf('--text-body-size-medium', 14)}px ${sans}`,
+      badge: `600 ${sizeOf('--chart-badge-text-size', 10)}px ${sans}`,
+    };
+  }
+  return fonts;
+}
 
 let canvas: CanvasRenderingContext2D | null | undefined;
 
-/// The width a text takes in a font: measured where the page runs, estimated elsewhere.
-export function measure(text: string, font = FONT): number {
+/// The width a text takes in a font, a cell's title's by default: measured where the page runs, estimated elsewhere.
+export function measure(text: string, font = chartFonts().title): number {
   if (canvas === undefined) {
     canvas = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
   }
@@ -41,7 +77,7 @@ export function measure(text: string, font = FONT): number {
     canvas.font = font;
     return canvas.measureText(text).width;
   }
-  const size = Number(/(\d+)px/.exec(font)?.[1] ?? '15');
+  const size = Number(/(\d+)px/.exec(font)?.[1] ?? '16');
   return text.length * size * (font.startsWith('600') ? 0.6 : 0.55);
 }
 
@@ -76,7 +112,8 @@ function wrapped(text: string, font: string, wrap: number, first = 0): string[] 
 
 /// A cell's text, `<id> <title>`, in lines no wider than the cell's text may be; the id leads the first line.
 export function cellLines(c: CompiledCell): string[] {
-  return wrapped(c.title, FONT, WRAP, measure(`${c.id} `, BOLD));
+  const f = chartFonts();
+  return wrapped(c.title, f.title, WRAP, measure(`${c.id} `, f.code));
 }
 
 /// The reasoning efforts an agent's cell may run at, low to high, as the flow's compiler allows them (`EFFORTS` in
@@ -120,12 +157,11 @@ export function effortsOf(cells: CompiledCell[]): Effort[] {
   return [...all.values()].sort((a, b) => rank(a) - rank(b));
 }
 
-const EFFORT_FONT = '700 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 const EFFORT_HEIGHT = 16;
 
 /// The width of every effort badge, that of the widest short form, so that the badges are of one size.
 export function effortWidth(): number {
-  return Math.ceil(Math.max(...EFFORTS.map(([, s]) => measure(s, EFFORT_FONT)))) + 12;
+  return Math.ceil(Math.max(...EFFORTS.map(([, s]) => measure(s, chartFonts().badge)))) + 12;
 }
 
 /// An effort badge, its top left corner at `x`, `y`, `width` wide: the level's short form, the whole word on hovering.
@@ -168,7 +204,7 @@ export function sizes(
       lines.set(n.id, ls);
       const about = c.notes.get(cell.id);
       const note: CellNote = {
-        reads: about?.reads != null ? wrapped(about.reads, SMALL, WRAP) : [],
+        reads: about?.reads != null ? wrapped(about.reads, chartFonts().note, WRAP) : [],
         lacks: (about?.lacks ?? []).map((m) => ({
           text: t('chart_lacks', { move: actionWords(m.row) }),
           title: t('chart_lacks_title', { cell: cell.id, move: actionWords(m.row), to: m.to }),
@@ -176,9 +212,9 @@ export function sizes(
       };
       if (note.reads.length > 0 || note.lacks.length > 0) notes.set(n.id, note);
       const widths = [
-        ...ls.map((l, i) => measure(l) + (i === 0 ? measure(`${cell.id} `, BOLD) : 0)),
-        ...note.reads.map((l) => measure(l, SMALL)),
-        note.lacks.reduce((w, l) => w + measure(l.text, SMALL) + 14, 0),
+        ...ls.map((l, i) => measure(l) + (i === 0 ? measure(`${cell.id} `, chartFonts().code) : 0)),
+        ...note.reads.map((l) => measure(l, chartFonts().note)),
+        note.lacks.reduce((w, l) => w + measure(l.text, chartFonts().note) + 14, 0),
       ];
       const width = Math.max(110, Math.ceil(Math.max(...widths)) + 2 * PAD_X + (cell.kind === 'agent' ? 0 : 14));
       const height = ls.length * LINE + note.reads.length * SMALL_LINE + (note.lacks.length > 0 ? MARKS : 0) + 2 * PAD_Y;
@@ -186,14 +222,14 @@ export function sizes(
     } else if (n.kind === 'action' || n.kind === 'does') {
       const ls = n.actions.map(actionWords);
       lines.set(n.id, ls);
-      const width = Math.ceil(Math.max(...ls.map((l) => measure(l, SMALL)))) + 2 * POINT + 8;
+      const width = Math.ceil(Math.max(...ls.map((l) => measure(l, chartFonts().note)))) + 2 * POINT + 8;
       size.set(n.id, { width, height: ls.length * SMALL_LINE + 12 });
     } else if (n.kind === 'out' || n.kind === 'in') {
-      size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', SMALL)) + 14), height: CIRCLE });
+      size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', chartFonts().note)) + 14), height: CIRCLE });
     } else if (n.kind === 'rule') {
-      size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, SMALL)) + 40, height: 30 });
+      size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, chartFonts().note)) + 40, height: 30 });
     } else {
-      size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', SMALL)) + 44, height: 30 });
+      size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', chartFonts().note)) + 44, height: 30 });
     }
   }
   return { size, lines, notes };
@@ -232,7 +268,7 @@ export function badgeRow(numbers: Array<[number, number]>): {
 /// The size of an arrow's label, its row numbers drawn or not; none for an arrow without one.
 export function labelSize(e: ChartEdge, numbered: boolean): Size | null {
   const nos = numbered ? badgeRow(e.numbers).width : 0;
-  const names = e.label === '' ? 0 : measure(e.label, SMALL);
+  const names = e.label === '' ? 0 : measure(e.label, chartFonts().note);
   if (nos === 0 && names === 0) return null;
   return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 22 };
 }
@@ -291,7 +327,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
     if (o.failed > 0) items.push(['fc-b-failed', `✕${o.failed}`, t('chart_failed', { n: o.failed })]);
     let x = box.x + box.width + 4;
     for (const [k, text, title] of items.reverse()) {
-      const w = Math.ceil(measure(text, SMALL)) + 10;
+      const w = Math.ceil(measure(text, chartFonts().note)) + 10;
       x -= w + 3;
       badges.push(
         <g key={k} className={`fc-badge ${k}`}>
@@ -369,7 +405,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
 
 /// The marks of the moves a cell lacks, in a row centred on `x`, each saying why on hovering.
 function Lacks({ lacks, x, y }: { lacks: Lack[]; x: number; y: number }) {
-  const widths = lacks.map((l) => Math.ceil(measure(l.text, SMALL)) + 10);
+  const widths = lacks.map((l) => Math.ceil(measure(l.text, chartFonts().note)) + 10);
   const total = widths.reduce((a, w) => a + w, 0) + 4 * (lacks.length - 1);
   let at = x - total / 2;
   return (
@@ -416,7 +452,7 @@ export function Halo({ box, round, small = false }: { box: Box; round: boolean; 
 /// The tag beside the cell a work is at while no round of it runs there, its right edge at `right`: why it waits, in a
 /// few words, still, and in full on hovering.
 export function WaitTag({ right, y, wait }: { right: number; y: number; wait: Wait }) {
-  const width = Math.ceil(measure(wait.tag, SMALL)) + 12;
+  const width = Math.ceil(measure(wait.tag, chartFonts().note)) + 12;
   return (
     <g className="fc-wait">
       <title>{wait.why}</title>
@@ -754,7 +790,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
         const l = r.label;
         const text = n > 0 ? `${e.label} ×${n}`.trim() : e.label;
         const nos = numbered ? badgeRow(e.numbers) : { items: [], width: 0 };
-        const names = text === '' ? 0 : Math.ceil(measure(text, SMALL));
+        const names = text === '' ? 0 : Math.ceil(measure(text, chartFonts().note));
         const inner = nos.width + (nos.width > 0 && names > 0 ? NAMES_GAP : 0) + names;
         const w = Math.max(l.width, inner + 12);
         const left = l.x + l.width / 2 - inner / 2;
@@ -804,8 +840,8 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           gr.id === 'asking'
             ? t(gr.letter ? 'chart_asking_part_letter' : 'chart_asking_part', { letter: gr.letter })
             : t(gr.letter ? 'chart_stage_letter' : 'chart_stage', { stage: gr.label, letter: gr.letter });
-        // The name is drawn at 16 px, a fifteenth wider than the bold title font measures it.
-        const width = Math.ceil((measure(name, BOLD) * 16) / 15) + 8;
+        // The name is drawn in a stage's font, title small.
+        const width = Math.ceil(measure(name, chartFonts().stage)) + 8;
         return (
           <g key={`name:${gr.id}`} className="fc-group-name">
             <rect x={box.x + 8} y={box.y + 6} width={width} height={22} rx={3} />
