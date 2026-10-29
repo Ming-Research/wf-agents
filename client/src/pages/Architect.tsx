@@ -486,8 +486,11 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
   go: (to: Partial<ArchitectRoute>) => void;
 }) {
   const status = useStatus();
-  const g = compiled.graphs.find((x) => x.name === GRAPH);
-  const v = view.graphs.find((x) => x.name === GRAPH);
+  // The chart draws the graph of the work shown: a wake's, or a policy task's, whose cells (P2 to P12) the architect
+  // graph no longer holds, so that a round chosen of either is found on it.
+  const name = d?.work.graph ?? GRAPH;
+  const g = compiled.graphs.find((x) => x.name === name);
+  const v = view.graphs.find((x) => x.name === name);
   const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
   const c = d !== null ? course(d.work, status) : null;
   const halo = useHalo(d?.work ?? null, d?.rounds ?? NO_ROUNDS, c);
