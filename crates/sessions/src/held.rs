@@ -255,10 +255,7 @@ mod tests {
 
     #[test]
     fn a_round_is_named_by_its_work_and_number() {
-        assert_eq!(
-            round_of("R5-28·I1·end.test_changes[added]"),
-            Some(RoundId::new(5, 28))
-        );
+        assert_eq!(round_of("R5-28·I1·end.test_changes[added]"), Some(RoundId::new(5, 28)));
         assert_eq!(RoundId::new(5, 28).to_string(), "R5-28");
         assert_eq!(round_of("rule:ground"), None);
         // An address written before rounds were named by their work names no round.

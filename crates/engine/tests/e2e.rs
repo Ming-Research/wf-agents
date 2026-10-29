@@ -4099,12 +4099,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines[2].2, "T6,T6");
     let rounds = agent_rounds(&e, item);
     let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "T6").map(|r| &r.2).collect();
-    for end in [
-        item_address.as_str(),
-        "·D2·acceptance",
-        "·D2·design",
-        "·I1·conditions",
-    ] {
+    for end in [item_address.as_str(), "·D2·acceptance", "·D2·design", "·I1·conditions"] {
         assert_eq!(
             given_ending(fixes[0], end),
             Some(true),
@@ -4768,10 +4763,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
         "{first}"
     );
     assert_eq!(listed(&first, tools), None, "{first}");
-    assert!(
-        listed(&second, tools).is_some_and(|l| l.contains("·X1·")),
-        "{second}"
-    );
+    assert!(listed(&second, tools).is_some_and(|l| l.contains("·X1·")), "{second}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
