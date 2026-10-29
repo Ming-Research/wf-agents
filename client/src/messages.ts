@@ -766,6 +766,7 @@ const messages = {
   cond_sent_back: 'the return is sent back',
   cond_sent_back_n: "the return is sent back, making {n} of this cell's returns sent back in a row",
   cond_failed: 'the run ends without a return, of the kind {kind}',
+  cond_engine_case: 'the engine takes it itself: {kind}',
   cond_and: ', and ',
   cond_or: ', or ',
   words_or: '{list} or {last}',

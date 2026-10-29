@@ -62,6 +62,8 @@ export function conditionWords(a: Atom, known: Set<string>): string {
       return a.length === 2 ? t('cond_sent_back_n', { n: a[1] }) : t('cond_sent_back');
     case 'failed':
       return t('cond_failed', { kind: `\`${a[1]}\`` });
+    case 'engine':
+      return t('cond_engine_case', { kind: `\`${a[1]}\`` });
   }
 }
 
