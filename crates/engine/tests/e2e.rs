@@ -601,14 +601,14 @@ fn an_item_goes_from_the_queue_to_main() {
     })
     .collect();
     for c in [
-        "0:started",
-        "4:tools",
-        "13:ran",
-        "7:review_first",
-        "5:done",
-        "9:merged",
-        "10:green",
-        "20:-",
+        "start:started",
+        "implement:tools",
+        "tools:ran",
+        "full_ci:review_first",
+        "blind_review:done",
+        "merge_queue:merged",
+        "watch_main:green",
+        "end:-",
     ] {
         assert!(cells.iter().any(|x| x == c), "no round {c}: {cells:?}\n{log}");
     }
@@ -3322,7 +3322,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let path = path_of(&e, again);
     let at = path.iter().position(|c| c == "route").expect(&log);
     assert_eq!(&path[at..at + 3], ["route", "owner_words", "batch_done"], "{log}");
-    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_O1"));
+    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_owner_words"));
     let answered = message_at(&e, again, "owner_words", false);
     assert!(answered.contains("Yes, hold it."), "{answered}");
     let handled: Option<i64> =
@@ -5613,7 +5613,7 @@ fn a_new_session_in_the_middle_of_a_wake_understands_the_project_first() {
     assert!(path[back..].contains(&"owner_words".to_string()), "{path:?}");
     let lines = line_sessions(&e, wake, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
-    assert!(lines[1].2.starts_with("U1,"), "{lines:?}");
+    assert!(lines[1].2.starts_with("state,"), "{lines:?}");
     assert_eq!(
         matters(&e),
         [
@@ -6020,7 +6020,7 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_wake() {
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");
     assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
-    assert_eq!(lines[1].2, "U1,U2", "{lines:?}\n{log}");
+    assert_eq!(lines[1].2, "state,policy_right", "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
