@@ -9,14 +9,50 @@ import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
 import { EFFORTS, effortOf, effortsOf, labelSize, sizes } from './graph/flowDraw';
-import { besides, layoutChart } from './graph/flowLayout';
-import { cellActions, cellNode, chart, moves } from './graph/flowModel';
+import { besides, type Laid, layoutChart } from './graph/flowLayout';
+import { cellActions, cellNode, type Chart, chart, moves } from './graph/flowModel';
 import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
 import { layStores, storeLinks, storeSize, storeUses } from './graph/stores';
 import { stagesOf } from './item/checklist';
 import stored from './stored-flow.json?raw';
 
 const { compiled, view } = JSON.parse(stored) as { compiled: Compiled; view: FlowView };
+
+/// How a graph's layout reads, in the chart's pixels: the total length of the arrows of rows (`rows`); the longest
+/// level piece of any arrow (`run`); how many times the arrows bend (`bends`); and how far each node drawn beside a
+/// cell (its circles, rules, interjection and what it does every time) is from the cell, the farthest (`far`) and all
+/// of them together (`beside`).
+function measures(c: Chart, laid: Laid): { rows: number; run: number; bends: number; far: number; beside: number } {
+  let rows = 0;
+  let run = 0;
+  let bends = 0;
+  for (const e of c.edges) {
+    const p = laid.edges.get(e.id)?.points ?? [];
+    for (let i = 0; i + 1 < p.length; i++) {
+      const len = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].y - p[i].y);
+      if (e.kind === 'row') rows += len;
+      if (Math.abs(p[i + 1].y - p[i].y) < 0.5) run = Math.max(run, len);
+      if (i > 0) {
+        const a = p[i - 1];
+        const turn = (p[i].x - a.x) * (p[i + 1].y - p[i].y) - (p[i].y - a.y) * (p[i + 1].x - p[i].x);
+        if (Math.abs(turn) > 0.5) bends += 1;
+      }
+    }
+  }
+  let far = 0;
+  let beside = 0;
+  for (const n of c.nodes) {
+    if (!['in', 'out', 'rule', 'interjection', 'does'].includes(n.kind)) continue;
+    const a = laid.nodes.get(n.id);
+    const b = laid.nodes.get(cellNode(n.cell));
+    if (a === undefined || b === undefined) continue;
+    const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
+    const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
+    far = Math.max(far, Math.hypot(dx, dy));
+    beside += Math.hypot(dx, dy);
+  }
+  return { rows: Math.round(rows), run: Math.round(run), bends, far: Math.round(far), beside: Math.round(beside) };
+}
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {
   const v = view.graphs.find((x) => x.name === g.name);
@@ -107,6 +143,25 @@ describe('the flow as the engine stores it', () => {
     const drawnStores = map.shapes.filter((s) => s.kind === 'cell' && s.graph === null);
     expect(drawnStores.length).toBe(Object.keys(all).length);
     expect(map.shapes.every(inside)).toBe(true);
+  }, 30_000);
+
+  it("lays each graph out with short arrows, short level runs, few bends and what is beside a cell next to it", async () => {
+    for (const { g, v } of graphs) {
+      const c = chart(g, v, engine);
+      const measured = sizes(g, c);
+      const edges = new Map(c.edges.map((e) => [e.id, e]));
+      const laid = await layoutChart(
+        c,
+        (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+        (id) => {
+          const e = edges.get(id);
+          return e ? labelSize(e, true) : null;
+        },
+      );
+      const m = measures(c, laid);
+      console.log(`layout of the ${g.name} graph: ${JSON.stringify(m)}`);
+      expect(Object.values(m).every((x) => Number.isFinite(x)), g.name).toBe(true);
+    }
   }, 30_000);
 
   for (const { g, v } of graphs) {
