@@ -427,7 +427,7 @@ function Detail({ d }: { d: ItemDetail }) {
           ))}
         </Section>
       ) : null}
-      <Block title={t('progress')}>
+      <Block title={t('progress')} open={false}>
         <Progress d={d} />
       </Block>
       <Problem d={d} shown={shown} />
