@@ -37,7 +37,7 @@ import { inputName } from './flow/CellGiven';
 import { fieldActions, shownNote, titleOf } from './flow/Returns';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
-import { badgeRow, EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
+import { EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords } from './graph/FlowChart';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
@@ -55,7 +55,6 @@ import {
   partsOf,
   related,
   roundArrows,
-  runs,
   taken,
 } from './graph/flowModel';
 import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
@@ -546,7 +545,7 @@ describe('the chart of a flow', () => {
     });
     expect(c.notes.get('d')?.lacks.map((m) => m.row)).toEqual(['ask_q']);
     // A search, which few cells make, is a line; tools, pauses and asks are not, nor the engine's fallback.
-    expect(edge('c:a->c:x')).toMatchObject({ label: 'search', numbers: [[5, 5]] });
+    expect(edge('c:a->c:x')).toMatchObject({ label: 'search' });
     // A move is on no main path, on the chart or in the panel, though its row says it is; a cell's own answer is.
     expect(edge('c:a->c:x')?.main).toBe(false);
     expect(mainPath(graph.cells[1].rows[5])).toBe(false);
@@ -598,7 +597,7 @@ describe('the chart of a flow', () => {
       main: true,
     });
     // A row with no action goes straight; one that waits where it is goes through its action and back.
-    expect(edge('c:a->c:b')).toMatchObject({ label: 'again', numbers: [[2, 2]] });
+    expect(edge('c:a->c:b')).toMatchObject({ label: 'again' });
     expect(edge('a:m:notify->c:m')?.through).toEqual([{ cell: 'm', row: 0 }]);
   });
 
@@ -615,21 +614,11 @@ describe('the chart of a flow', () => {
     expect(chart(graph, view).notes.get('m')).toBeUndefined();
   });
 
-  it("draws a row's number as a badge, and leaves the numbers out of a work's chart", () => {
-    expect(badgeRow([[0, 0], [3, 6]])).toEqual({
-      items: [
-        { x: 8, row: 0 },
-        { x: 26, row: 3 },
-        { x: 39, row: null },
-        { x: 52, row: 6 },
-      ],
-      width: 60,
-    });
-    expect(runs([0, 3, 4, 5, 6, 8])).toEqual([[0, 0], [3, 6], [8, 8]]);
-    // The arrow out of the actions on a line has no label at all, numbered or not.
+  it("names an arrow's rows with no numbers, as a cell's page does, and gives no label to one with no names", () => {
+    // The arrow out of the actions on a line has no label at all.
     const onward = edge('a:b:lock+post->c:b');
-    expect(onward && labelSize(onward, true)).toBeNull();
-    expect(onward && labelSize(onward, false)).toBeNull();
+    expect(onward).not.toHaveProperty('numbers');
+    expect(onward && labelSize(onward)).toBeNull();
   });
 
   it("badges an agent's cell, a gate's too, with the effort it runs at, and no engine, tool or owner cell", () => {
@@ -689,7 +678,7 @@ describe('the chart of a flow', () => {
     expect(node('i:q:a')).toBeUndefined();
     // Back to where the work stopped: from the cell whose row decided it.
     expect(node('i:t:a')).toMatchObject({ kind: 'in', cell: 'a' });
-    expect(edge('i:t:a->c:a')).toMatchObject({ label: 'failed', numbers: [[1, 1]] });
+    expect(edge('i:t:a->c:a')).toMatchObject({ label: 'failed' });
   });
 
   it('puts the rules beside the cells given them and the interjection beside the steps that take one', () => {

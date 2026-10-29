@@ -1,7 +1,7 @@
 // A flow's state machine as the chart draws it, before it is laid out: the cells, each in the part of the chart it is
 // drawn in and the stage box around it; an arrow for each cell's own answers to another cell in the same part, named,
-// with their numbers for the chart to draw or leave out, through a node for what the engine does on the rows, in the
-// box of the cell the line goes into and just before it (lines with the same actions into the same cell share one);
+// through a node for what the engine does on the rows, in the box of the cell the line goes into and just before it
+// (lines with the same actions into the same cell share one);
 // a small circle beside a cell for a row to another part, and a shaded one beside the cell it enters; the actions a
 // cell does every time beside it; the rules beside the cells that are given them; the interjection beside the engine's
 // steps that take one; and what the engine does on a row back to whichever cell called, which is not drawn, beside
@@ -43,8 +43,6 @@ export type ChartEdge = {
   through: Array<{ cell: string; row: number }>;
   /// The rows' names; none for an arrow out of the actions on a line, which its arrows in name.
   label: string;
-  /// The rows' numbers as `runs` writes them, for the chart to draw beside the names; none when the cell has one row.
-  numbers: Array<[number, number]>;
   /// Some row of it is on the main path: a cell's own answer the flow marks so, never a move.
   main: boolean;
   kind: 'row' | 'rule' | 'interjection' | 'does';
@@ -78,22 +76,6 @@ const STOPPED = '@stopped';
 
 /// The id of a cell's node.
 export const cellNode = (id: string) => `c:${id}`;
-
-/// Rows, by their places in a transition table, as the page numbers them: each as a run of its first and last place,
-/// three or more in a row as one run and every other row as a run of its own, so that rows 1, 4, 5, 6, 7 and 9 read
-/// 1, 4-7, 9.
-export function runs(rows: number[]): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  let i = 0;
-  while (i < rows.length) {
-    let j = i;
-    while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1) j += 1;
-    if (j - i >= 2) out.push([rows[i], rows[j]]);
-    else for (const r of rows.slice(i, j + 1)) out.push([r, r]);
-    i = j + 1;
-  }
-  return out;
-}
 
 /// Whether a row is of the engine's fallback: what it does with a round that ends in no return the cell takes.
 export function fallback(r: CompiledRow): boolean {
@@ -307,7 +289,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
   };
   const edges = new Map<string, ChartEdge>();
   const plain = (id: string, source: string, target: string, kind: ChartEdge['kind']) =>
-    edges.set(id, { id, source, target, cell: null, rows: [], through: [], label: '', numbers: [], main: false, kind });
+    edges.set(id, { id, source, target, cell: null, rows: [], through: [], label: '', main: false, kind });
   // Rows of one cell to the same place are one arrow.
   const arrow = (source: string, target: string, c: CompiledCell, row: number) => {
     const id = `${source}->${target}`;
@@ -324,7 +306,6 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
         rows: [row],
         through: [],
         label: '',
-        numbers: [],
         main: mainPath(c.rows[row]),
         kind: 'row',
       });
@@ -340,7 +321,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       e.main = e.main || mainPath(c.rows[row]);
     } else {
       const main = mainPath(c.rows[row]);
-      edges.set(id, { id, source, target, cell: null, rows: [], through: [one], label: '', numbers: [], main, kind: 'row' });
+      edges.set(id, { id, source, target, cell: null, rows: [], through: [one], label: '', main, kind: 'row' });
     }
   };
   for (const c of g.cells) node({ id: cellNode(c.id), kind: 'cell', cell: c.id, other: null });
@@ -444,7 +425,6 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     if (!c) continue;
     e.rows.sort((a, b) => a - b);
     e.label = [...new Set(e.rows.map((i) => c.rows[i].name))].join(', ');
-    e.numbers = c.rows.length > 1 ? runs(e.rows) : [];
   }
   const groups: ChartGroup[] = [];
   const letters = new Map<string, Set<string>>();

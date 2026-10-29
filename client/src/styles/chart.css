@@ -586,34 +586,9 @@ svg.fc {
   font-weight: var(--base-text-weight-normal);
 }
 
-/* A row's number: a badge of one size, its digits plain, in the accent's muted colours. */
-.fc-no circle {
-  fill: var(--bgColor-accent-muted);
-  stroke: var(--borderColor-accent-muted);
-  stroke-width: var(--chart-line-thin);
-}
-
-.fc .fc-no text {
-  fill: var(--fgColor-accent);
-  font-size: var(--chart-badge-text-size);
-  font-weight: var(--base-text-weight-semibold);
-}
-
-.fc-no-dash {
-  fill: var(--fgColor-muted);
-}
-
-/* The label of the row the pointer is on: on its line's colour, its words and number in white. */
-.fc .fc-label-hot > text,
-.fc .fc-label-hot .fc-no text {
+/* The label of the row the pointer is on: on its line's colour, its words in white. */
+.fc .fc-label-hot > text {
   fill: var(--fgColor-onEmphasis);
-}
-
-.fc .fc-label-hot .fc-no circle {
-  fill: var(--fgColor-onEmphasis);
-  fill-opacity: 0.25;
-  stroke: var(--fgColor-onEmphasis);
-  stroke-opacity: 0.6;
 }
 
 /* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's

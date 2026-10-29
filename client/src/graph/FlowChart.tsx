@@ -3,9 +3,9 @@
 // corner that opens what every mark means. Several graphs are drawn side by side on the one chart, each under its
 // name, and move and zoom together; the stores the engine keeps what it writes in are drawn between the first two, or
 // beside the one, and pointing at a cell, the actions on a line or a store, or opening one, draws the lines between
-// them. On a work's page each cell carries what the work did there and the arrows the work took stand out, and the
-// rows' numbers, which serve the flow's author, are left out; when two flows are compared, the cells added and changed
-// are marked. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
+// them. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
+// flows are compared, the cells added and changed are marked. An arrow's label names its rows, with no numbers, as a
+// cell's page names them. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
 // cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
 // top left corner shows the part in view and moves the view, while some of the chart is out of view.
 
@@ -385,17 +385,6 @@ function Legend({ charts, stores, legend }: {
               </Swatch>
               {t('legend_main')}
             </li>
-            <li>
-              <Swatch>
-                <g className="fc-no">
-                  <circle cx="17" cy="9" r="8" />
-                  <text x="17" y="12.5" textAnchor="middle">
-                    2
-                  </text>
-                </g>
-              </Swatch>
-              {t('legend_number')}
-            </li>
           </>
         ) : null}
         {legend === 'compare' ? (
@@ -427,7 +416,6 @@ function Legend({ charts, stores, legend }: {
 
 export function FlowChart(props: FlowChartProps) {
   const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, ref } = props;
-  const numbered = legend !== 'work';
   const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
   // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
@@ -451,7 +439,7 @@ export function FlowChart(props: FlowChartProps) {
           (id) => measured[i].size.get(id) ?? { width: 40, height: 40 },
           (id) => {
             const e = edges.get(id);
-            return e ? labelSize(e, numbered) : null;
+            return e ? labelSize(e) : null;
           },
         );
       }),
@@ -466,7 +454,7 @@ export function FlowChart(props: FlowChartProps) {
     return () => {
       live = false;
     };
-  }, [models, measured, numbered]);
+  }, [models, measured]);
   const current = laid !== null && laid.models === models ? laid.laid : null;
   // The sheet each graph is drawn on, the stores' sheet taking its place among them.
   const storesAt = graphs.length >= 2 ? 1 : graphs.length;
@@ -668,7 +656,6 @@ export function FlowChart(props: FlowChartProps) {
                       notes={measured[i].notes}
                       engine={engine}
                       marks={marks[i] ?? NO_MARKS}
-                      numbered={numbered}
                       defs={i === 0}
                       onNode={(n) => setPointedNode(n === null ? null : { graph: i, node: n })}
                     />

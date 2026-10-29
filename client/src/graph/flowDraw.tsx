@@ -235,42 +235,10 @@ export function sizes(
   return { size, lines, notes };
 }
 
-/// A row number's badge: its diameter, the room between two badges, and the room a dash between a run's first and
-/// last row takes.
-const BADGE = 16;
-const BADGE_GAP = 2;
-const DASH = 10;
-/// The room between the numbers and the names in a label.
-const NAMES_GAP = 4;
-
-/// Where a label's row numbers go from its left edge: the centre of each badge and of each dash between a run's first
-/// and last row, and the width they take.
-export function badgeRow(numbers: Array<[number, number]>): {
-  items: Array<{ x: number; row: number | null }>;
-  width: number;
-} {
-  const items: Array<{ x: number; row: number | null }> = [];
-  let at = 0;
-  for (const [first, last] of numbers) {
-    if (at > 0) at += BADGE_GAP;
-    items.push({ x: at + BADGE / 2, row: first });
-    at += BADGE;
-    if (last !== first) {
-      items.push({ x: at + DASH / 2, row: null });
-      at += DASH;
-      items.push({ x: at + BADGE / 2, row: last });
-      at += BADGE;
-    }
-  }
-  return { items, width: at };
-}
-
-/// The size of an arrow's label, its row numbers drawn or not; none for an arrow without one.
-export function labelSize(e: ChartEdge, numbered: boolean): Size | null {
-  const nos = numbered ? badgeRow(e.numbers).width : 0;
-  const names = e.label === '' ? 0 : measure(e.label, chartFonts().note);
-  if (nos === 0 && names === 0) return null;
-  return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 22 };
+/// The size of an arrow's label: the rows' names; none for an arrow without one.
+export function labelSize(e: ChartEdge): Size | null {
+  if (e.label === '') return null;
+  return { width: Math.ceil(measure(e.label, chartFonts().note)) + 12, height: 22 };
 }
 
 /// The arrowhead's length and width, the same for every arrow but those lit for the round chosen, whose wide line
@@ -510,18 +478,6 @@ function Actions({ n, box, lines, title, selected }: { n: ChartNode; box: Box; l
   );
 }
 
-/// A row number's badge in a label, centred on `x`.
-function RowBadge({ x, y, row }: { x: number; y: number; row: number }) {
-  return (
-    <g className="fc-no">
-      <circle cx={x} cy={y} r={BADGE / 2} />
-      <text x={x} y={y} textAnchor="middle" dominantBaseline="central">
-        {row + 1}
-      </text>
-    </g>
-  );
-}
-
 /// What hovering an arrow says: the rows it draws, each with its cell for the arrow out of the actions on a line, and
 /// how many times the work took them.
 function edgeTitle(e: ChartEdge, cells: Map<string, CompiledCell>, n: number): string {
@@ -550,8 +506,6 @@ export type DrawProps = {
   /// The flow's engine part, which says what each action does.
   engine: EngineNames | null;
   marks: Marks;
-  /// Whether the labels carry the rows' numbers: the flow's author reads them; a work's chart leaves them out.
-  numbered: boolean;
   /// Whether this drawing defines the arrowheads every drawing on the page refers to: the first of the graphs drawn
   /// side by side does, so that an id is defined once.
   defs?: boolean;
@@ -560,7 +514,7 @@ export type DrawProps = {
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered, defs = true, onNode }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = true, onNode }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
   // The row clicked stays lit until it is clicked again or the chart's background is clicked, for following an arrow
   // far across the chart; nothing keeps it past the page.
@@ -789,11 +743,9 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
         const n = marks.taken?.get(e.id) ?? 0;
         const l = r.label;
         const text = n > 0 ? `${e.label} ×${n}`.trim() : e.label;
-        const nos = numbered ? badgeRow(e.numbers) : { items: [], width: 0 };
         const names = text === '' ? 0 : Math.ceil(measure(text, chartFonts().note));
-        const inner = nos.width + (nos.width > 0 && names > 0 ? NAMES_GAP : 0) + names;
-        const w = Math.max(l.width, inner + 12);
-        const left = l.x + l.width / 2 - inner / 2;
+        const w = Math.max(l.width, names + 12);
+        const left = l.x + l.width / 2 - names / 2;
         const mid = l.y + l.height / 2;
         const cls = [
           'fc-label',
@@ -807,24 +759,8 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           <g key={`l:${e.id}`} className={cls} data-edge={e.id}>
             <title>{edgeTitle(e, cells, n)}</title>
             <rect x={l.x + (l.width - w) / 2} y={l.y} width={w} height={l.height} rx={3} />
-            {nos.items.map((it, i) =>
-              it.row === null ? (
-                <text
-                  key={i}
-                  className="fc-no-dash"
-                  x={left + it.x}
-                  y={mid}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                >
-                  –
-                </text>
-              ) : (
-                <RowBadge key={i} x={left + it.x} y={mid} row={it.row} />
-              ),
-            )}
             {text !== '' ? (
-              <text x={left + inner - names} y={mid} dominantBaseline="central">
+              <text x={left} y={mid} dominantBaseline="central">
                 {text}
               </text>
             ) : null}

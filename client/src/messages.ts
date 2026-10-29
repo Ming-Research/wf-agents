@@ -797,7 +797,6 @@ const messages = {
   legend_out: 'a row to another part of the chart',
   legend_in: 'a row from another part of the chart',
   legend_main: 'a row on the main path',
-  legend_number: "a row's number in its cell's transition table",
   legend_current: 'the cell the work is at',
   legend_running:
     'a round runs at the cell now, or has just run there: three arcs of colour run round it, a moment on each cell a short round ran at',
