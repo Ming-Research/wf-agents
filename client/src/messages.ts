@@ -194,7 +194,7 @@ const messages = {
     'Every work is paused, as when the engine starts: no work goes on by itself and no new work starts, but for those you started.',
   engine_paused_runs: 'Paused · running: {which}',
   engine_runs_architect: 'the architect of {project}',
-  keep_warm: 'Keep sessions warm',
+  keep_warm: 'Keep warm',
   keep_warm_on_hint:
     'On: while every work is paused, a waiting session gets a keep-warm ping 55 minutes after its last call, so that its next round reads the cache instead of writing it again whole. Click to send none while every work is paused.',
   keep_warm_off_hint:

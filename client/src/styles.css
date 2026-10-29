@@ -191,7 +191,9 @@ button {
   background: var(--accent);
   color: #fff;
   border-radius: 7px;
-  padding: 3px 12px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 12px;
   cursor: pointer;
   font-weight: 600;
 }
@@ -210,7 +212,9 @@ button {
   background: var(--panel);
   color: var(--muted);
   border-radius: 7px;
-  padding: 3px 9px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 9px;
   cursor: pointer;
   font-size: 12.5px;
 }
@@ -4160,6 +4164,11 @@ details.dc[open] > summary::before,
 
 /* The System view: its five parts, each saying on its title what it is for; the period the parts after Now count
    over; their tiles and tables. */
+/* The System view takes the whole width: its parts are rows of tiles and wide tables. */
+.page.sys {
+  max-width: none;
+}
+
 .sys-for {
   color: var(--muted);
   font-size: 12.5px;
