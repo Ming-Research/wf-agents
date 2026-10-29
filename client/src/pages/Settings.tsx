@@ -1,11 +1,15 @@
 // The settings the owner keeps on the page: each tier's model, the highest tier an item may be at, the architect's
 // tier, and the session manager's size limit; saving writes the installation's file in the data directory and commits
 // it, and the engine takes it from its next round. A value the configuration would refuse is refused before anything
-// is written: here what the page can tell, and on saving what only the configuration can.
+// is written: here what the page can tell, and on saving what only the configuration can. Drawn as a reading page of
+// the UI spec: its header, a section for the tiers and one for the sessions, each field a Primer form control, and the
+// one Save the form exists for.
 
+import { Button, Flash, FormControl, PageHeader, Select, TextInput } from '@primer/react';
 import { useState } from 'react';
 
 import type { Settings as SettingsData, SettingsChange } from '../api';
+import { Loaded } from '../components';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { tokens } from '../round';
@@ -42,28 +46,32 @@ export function settingsChange(
   };
 }
 
-function Form({ s }: { s: SettingsData }) {
+/// What saving said: that it was saved, or why it was not.
+type Said = { ok: boolean; text: string } | null;
+
+function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said: Said) => void }) {
   const [models, setModels] = useState<Record<string, string>>(Object.fromEntries(s.tiers.map((x) => [x.name, x.model])));
   const [highest, setHighest] = useState(s.highest_level ?? '');
   const [architect, setArchitect] = useState(s.architect);
   const [limit, setLimit] = useState(String(s.context_limit));
-  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
   const problems = settingsProblems(models, limit);
+  const limitBad = !/^\d+$/.test(limit.trim()) || Number(limit) <= 0;
   const save = () => {
+    onSaid(null);
     postJson('/api/v1/settings', settingsChange(s, models, highest, architect, limit)).then(
       () => {
-        setSaid({ ok: true, text: t('settings_saved') });
+        onSaid({ ok: true, text: t('settings_saved') });
         reread('settings');
       },
-      (e: unknown) => setSaid({ ok: false, text: e instanceof Error ? e.message : String(e) }),
+      (e: unknown) => onSaid({ ok: false, text: e instanceof Error ? e.message : String(e) }),
     );
   };
   return (
-    <div className="settings">
-      <section className="us-sec">
-        <h4>{t('settings_tiers')}</h4>
-        <p className="us-note">{t('settings_advisor_note')}</p>
-        <table className="us-table">
+    <div className="settings-form">
+      <section className="settings-sec">
+        <h2>{t('settings_tiers')}</h2>
+        <p className="settings-note">{t('settings_advisor_note')}</p>
+        <table className="list settings-tiers">
           <thead>
             <tr>
               <th>{t('settings_col_tier')}</th>
@@ -74,14 +82,15 @@ function Form({ s }: { s: SettingsData }) {
           <tbody>
             {s.tiers.map((x) => (
               <tr key={x.name}>
+                <td className="nowrap">{x.name}</td>
                 <td>
-                  <b>{x.name}</b>
-                </td>
-                <td>
-                  <input
+                  <TextInput
+                    block
+                    size="small"
                     value={models[x.name] ?? ''}
                     onChange={(e) => setModels({ ...models, [x.name]: e.target.value })}
-                    aria-label={t('settings_col_model')}
+                    validationStatus={(models[x.name] ?? '').trim() === '' ? 'error' : undefined}
+                    aria-label={t('settings_model_of', { tier: x.name })}
                   />
                 </td>
                 <td className="muted">{x.desc}</td>
@@ -89,58 +98,88 @@ function Form({ s }: { s: SettingsData }) {
             ))}
           </tbody>
         </table>
-        <label className="settings-field">
-          {t('settings_highest')}{' '}
-          <select value={highest} onChange={(e) => setHighest(e.target.value)}>
-            {highest === '' ? <option value="">{t('settings_any_tier')}</option> : null}
-            {s.tiers.map((x) => (
-              <option key={x.name} value={x.name}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="settings-field">
-          {t('settings_architect')}{' '}
-          <select value={architect} onChange={(e) => setArchitect(e.target.value)}>
-            {s.tiers.map((x) => (
-              <option key={x.name} value={x.name}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="settings-fields">
+          <FormControl>
+            <FormControl.Label>{t('settings_highest')}</FormControl.Label>
+            <Select value={highest} onChange={(e) => setHighest(e.target.value)}>
+              {highest === '' ? <Select.Option value="">{t('settings_any_tier')}</Select.Option> : null}
+              {s.tiers.map((x) => (
+                <Select.Option key={x.name} value={x.name}>
+                  {x.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl>
+            <FormControl.Label>{t('settings_architect')}</FormControl.Label>
+            <Select value={architect} onChange={(e) => setArchitect(e.target.value)}>
+              {s.tiers.map((x) => (
+                <Select.Option key={x.name} value={x.name}>
+                  {x.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </FormControl>
+        </div>
       </section>
-      <section className="us-sec">
-        <h4>{t('settings_sessions')}</h4>
-        <label className="settings-field">
-          {t('settings_limit')} <input value={limit} onChange={(e) => setLimit(e.target.value)} inputMode="numeric" />{' '}
-          <span className="muted">{/^\d+$/.test(limit) ? tokens(Number(limit)) : ''}</span>
-        </label>
-        <p className="us-note">{t('settings_keep_warm', { minutes: s.keep_warm_minutes, most: s.keep_warm_most })}</p>
-        <p className="us-note">{t('settings_model_note')}</p>
+      <section className="settings-sec">
+        <h2>{t('settings_sessions')}</h2>
+        <div className="settings-fields">
+          <FormControl>
+            <FormControl.Label>{t('settings_limit')}</FormControl.Label>
+            <TextInput
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+              inputMode="numeric"
+              validationStatus={limitBad ? 'error' : undefined}
+            />
+            {limitBad ? (
+              <FormControl.Validation variant="error">{t('settings_bad_limit')}</FormControl.Validation>
+            ) : (
+              <FormControl.Caption>{tokens(Number(limit))}</FormControl.Caption>
+            )}
+          </FormControl>
+        </div>
+        <p className="settings-note">{t('settings_keep_warm', { minutes: s.keep_warm_minutes, most: s.keep_warm_most })}</p>
+        <p className="settings-note">{t('settings_model_note')}</p>
       </section>
-      {problems.map((p) => (
-        <p key={p} className="bad">
-          {p}
-        </p>
-      ))}
-      <button type="button" disabled={problems.length > 0} onClick={save}>
-        {t('settings_save')}
-      </button>{' '}
-      {said !== null ? <span className={said.ok ? 'muted' : 'bad'}>{said.text}</span> : null}
-      <p className="us-note">{t('settings_commit', { commit: s.commit.slice(0, 7) })}</p>
+      {/* The size limit says what is wrong with it under its field; a tier with no model says it here. */}
+      {problems.some((p) => p !== t('settings_bad_limit')) ? (
+        <Flash variant="danger">
+          {problems
+            .filter((p) => p !== t('settings_bad_limit'))
+            .map((p) => (
+              <div key={p}>{p}</div>
+            ))}
+        </Flash>
+      ) : null}
+      <div className="settings-save">
+        <Button variant="primary" disabled={problems.length > 0} onClick={save}>
+          {t('settings_save')}
+        </Button>
+      </div>
+      {said !== null ? <Flash variant={said.ok ? 'success' : 'danger'}>{said.text}</Flash> : null}
     </div>
   );
 }
 
 export function Settings() {
   const r = useResource<SettingsData>('settings', '/api/v1/settings');
-  if (r.error !== null) return <p className="bad page">{r.error}</p>;
-  if (r.data === undefined) return null;
+  // What saving said outlives the form, which starts again from the commit the save made.
+  const [said, setSaid] = useState<Said>(null);
   return (
-    <div className="page us">
-      <Form key={r.data.commit} s={r.data} />
+    <div className="settings-page">
+      <PageHeader as="header" className="settings-head">
+        <PageHeader.TitleArea>
+          <PageHeader.Title as="h1">{t('nav_settings')}</PageHeader.Title>
+        </PageHeader.TitleArea>
+        {r.data !== undefined ? (
+          <PageHeader.Description className="settings-commit">
+            {t('settings_commit', { commit: r.data.commit.slice(0, 7) })}
+          </PageHeader.Description>
+        ) : null}
+      </PageHeader>
+      <Loaded r={r}>{(s) => <Form key={s.commit} s={s} said={said} onSaid={setSaid} />}</Loaded>
     </div>
   );
 }

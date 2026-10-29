@@ -17,6 +17,7 @@ import './styles/cards.css';
 import './styles/item.css';
 import './styles/screen.css';
 import './styles/flow.css';
+import './styles/settings.css';
 import './styles.css';
 
 const root = document.getElementById('root');

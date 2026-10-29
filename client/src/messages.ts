@@ -11,6 +11,7 @@ const messages = {
     "Each tier is a model; an item's agents run at its tier, and its advisor one tier above (an item at tier 3 has its advisor at tier 4). Each cell's reasoning effort is the flow's.",
   settings_col_tier: 'Tier',
   settings_col_model: 'Model',
+  settings_model_of: "Tier {tier}'s model",
   settings_col_for: 'For',
   settings_highest: 'Highest tier an item may be at',
   settings_any_tier: 'any',

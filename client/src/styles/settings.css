@@ -1,0 +1,65 @@
+/* The settings, as the UI spec lays out a reading page: one column, its header, a section for the tiers (their
+   models in a table, the highest tier and the architect's tier under it) and one for the sessions, then Save. */
+
+.settings-page {
+  width: 100%;
+  max-width: var(--breakpoint-large);
+  padding: var(--base-size-16) var(--base-size-24) var(--base-size-32);
+}
+
+.settings-form {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-24);
+  margin-top: var(--base-size-24);
+}
+
+.settings-form > * {
+  justify-self: stretch;
+}
+
+.settings-sec {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+/* A section's heading, with the rule under it that a section of a page has. */
+.settings-sec > h2 {
+  padding-bottom: var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.settings-commit {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+table.list.settings-tiers td {
+  vertical-align: middle;
+}
+
+/* The model takes the room a model's name needs; what the tier is for, the rest. */
+.settings-tiers th:nth-child(2) {
+  width: 40%;
+}
+
+.settings-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-16) var(--base-size-24);
+}
+
+.settings-save {
+  display: flex;
+  gap: var(--base-size-8);
+}
+
+.settings-form > .settings-save {
+  justify-self: start;
+}
