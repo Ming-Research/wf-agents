@@ -518,13 +518,17 @@ export type DrawProps = {
 /// The chart as SVG, at the size its layout takes.
 export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered, defs = true, onNode }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
+  // The row clicked stays lit until it is clicked again or the chart's background is clicked, for following an arrow
+  // far across the chart; nothing keeps it past the page.
+  const [pinned, setPinned] = useState<string | null>(null);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   const pointed = useRef<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
   const title = (id: string) => {
     const c = cells.get(id);
     return c ? `${c.id} ${c.title}` : id;
   };
-  const hot = related(chart.edges, hover);
+  const hot = new Set([...related(chart.edges, hover), ...related(chart.edges, pinned)]);
   const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
   const ring = ringed !== undefined ? `c:${ringed}` : null;
   const kindOf = (e: ChartEdge) => {
@@ -556,6 +560,18 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           pointed.current = node;
           onNode?.(node);
         }
+      }}
+      onPointerDown={(ev) => {
+        pressed.current = { x: ev.clientX, y: ev.clientY };
+      }}
+      onClick={(ev) => {
+        // A drag that moved the chart is not a click on what it started on.
+        const p = pressed.current;
+        if (p !== null && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) > 4) return;
+        const under = ev.target as Element;
+        const id = under.closest('[data-edge]')?.getAttribute('data-edge') ?? null;
+        if (id !== null) setPinned(id === pinned ? null : id);
+        else if (under.closest('[data-node]') === null) setPinned(null);
       }}
       onPointerLeave={() => {
         setHover(null);

@@ -772,7 +772,7 @@ const messages = {
   legend_added: 'a cell added',
   legend_changed: 'a cell changed',
   legend_keys:
-    'Hover a row: it lights up from its source to its target. Space: the whole chart, and back. Two fingers or drag: move. Pinch, or Shift with two fingers: zoom.',
+    'Hover a row: it lights up from its source to its target; click it to keep it lit, and click it again or the background to let it go. Space: the whole chart, and back. Two fingers or drag: move. Pinch, or Shift with two fingers: zoom.',
 
   // Which flow the flow page shows, and what it is compared with.
   flow_version_pick: 'Flow version',
