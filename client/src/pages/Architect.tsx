@@ -862,7 +862,11 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       compiled={compiled}
       graphs={graphs}
       legend={d !== null ? 'work' : 'flow'}
-      marks={[d !== null && c !== null ? workMarks(g, v, d.work, d.rounds, c, status, halo) : BARE]}
+      marks={[
+        d !== null && c !== null
+          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.wake === id ? route.round : null)
+          : BARE,
+      ]}
       cell={route.cell}
       onCell={(cell) => go({ cell, round: null })}
       start={roundCell ?? d?.work.at ?? null}
