@@ -249,11 +249,11 @@ case!(
     an_answer_from_a_cell_nobody_asks,
     "only a cell that is asked answers the one that asked",
     |v| {
-        row(v, "D3", "better")["to"] = json!("@asker");
+        row(v, "D3", "found")["to"] = json!("@asker");
     }
 );
 case!(a_row_counts_no_such_counter, "no such counter", |v| {
-    row(v, "D3", "better")["counts"] = json!("x");
+    row(v, "D3", "found")["counts"] = json!("x");
 });
 case!(a_counter_no_row_counts, "a counter no row counts", |v| {
     graph(v)["limits"]["counters"]
@@ -414,7 +414,7 @@ case!(a_recorded_value_nobody_reads, "never read", |v| {
     row(v, "A2", "answered")["sets"] = json!({ "extra": "x" });
 });
 case!(a_row_no_return_takes, "never taken", |v| {
-    obj(row(v, "D3", "better")).remove("sets");
+    obj(row(v, "D3", "found")).remove("sets");
 });
 case!(a_value_no_way_records, "never taken", |v| {
     obj(node(v, "R2")).remove("sets");
@@ -472,7 +472,7 @@ case!(
     }
 );
 case!(a_row_into_another_block_past_its_entries, "side entry", |v| {
-    row(v, "D9", "yes")["to"] = json!("T1");
+    row(v, "D9", "needed")["to"] = json!("T1");
 });
 case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,

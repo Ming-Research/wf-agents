@@ -607,7 +607,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "new_test_results" | "guard_test_results" => {
-            if c.last("D9", "adversarial")?.is_some_and(|a| a["verdict"] == "yes") {
+            if c.last("D9", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
                 return Ok(());
             }
             let new = check == "new_test_results";
@@ -907,7 +907,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D9", "T1")?.is_some_and(|a| a["verdict"] == "yes");
+            let chose = c.last("D9", "T1")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
             let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;

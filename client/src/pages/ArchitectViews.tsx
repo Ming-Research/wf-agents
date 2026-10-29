@@ -163,13 +163,15 @@ export function ProbesView({ value }: { value: JsonValue }) {
   );
 }
 
-/// The architect's verdict on a new architect's reading: understood, or the gaps it found.
+/// The architect's verdict on a new architect's reading: passed, as understood or with a minor fix, or the gaps it
+/// found.
 function ReadingVerdict({ value }: { value: JsonValue }) {
   if (!isObj(value)) return <span className="badge">{t('reading_not_judged')}</span>;
   const gaps = objs(value.gaps);
+  const passed = value.verdict === 'understood' || value.verdict === 'minor_fix';
   return (
     <>
-      <span className={`badge ${value.verdict === 'understood' ? 'verdict-good' : 'verdict-bad'}`}>
+      <span className={`badge ${passed ? 'verdict-good' : 'verdict-bad'}`}>
         {words(str(value.verdict))}
       </span>
       <Field label={t('reading_why')} value={value.why} />

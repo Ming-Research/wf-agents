@@ -1425,7 +1425,7 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     let fixes = inputs::answered(e, w, g, "T6")?;
     let chose = inputs::last_return(e, w, g, "D9", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
-        .is_some_and(|v| v == "yes");
+        .is_some_and(|v| v == "needed");
     let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?
         .and_then(|r| at_path(&r, "no_adversarial.verdict"))
         .is_some_and(|v| v == "does_not_stand");

@@ -274,11 +274,11 @@
  ],
  "D3": [
   {
-   "row": "no",
+   "row": "present_best",
    "json": {
     "outcome": {
      "better": {
-      "verdict": "no",
+      "verdict": "present_best",
       "considered": [
        "outcome.better.considered",
        "outcome.better.considered"
@@ -938,11 +938,11 @@
  ],
  "D9": [
   {
-   "row": "yes",
+   "row": "needed",
    "json": {
     "outcome": {
      "adversarial": {
-      "verdict": "yes",
+      "verdict": "needed",
       "why": "outcome.adversarial.why"
      }
     },

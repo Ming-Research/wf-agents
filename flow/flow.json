@@ -4840,7 +4840,7 @@
               "from": [
                 [
                   "@from",
-                  "better[yes]"
+                  "better[found]"
                 ]
               ],
               "maybe": true
@@ -5415,7 +5415,7 @@
         {
           "id": "D3",
           "kind": "agent",
-          "title": "Think again: is there a better design",
+          "title": "Whether there is a better design",
           "effort": "xhigh",
           "line": "engineer",
           "tools": [
@@ -5448,12 +5448,12 @@
             {
               "name": "better",
               "type": "union",
-              "desc": "Is there a better design",
+              "desc": "Whether there is a better design",
               "by": "verdict",
               "branches": [
                 {
-                  "value": "yes",
-                  "desc": "Yes: next you change the design",
+                  "value": "found",
+                  "desc": "A better design is found: next you change the design",
                   "fields": [
                     {
                       "name": "what",
@@ -5468,7 +5468,7 @@
                   ]
                 },
                 {
-                  "value": "no",
+                  "value": "present_best",
                   "desc": "The present one is best",
                   "fields": [
                     {
@@ -5493,13 +5493,13 @@
           ],
           "cases": [
             {
-              "name": "better",
+              "name": "found",
               "if": [
                 [
                   "is",
                   "better.verdict",
                   [
-                    "yes"
+                    "found"
                   ]
                 ]
               ],
@@ -5510,13 +5510,13 @@
               "counts": "redesigns"
             },
             {
-              "name": "no",
+              "name": "present_best",
               "if": [
                 [
                   "is",
                   "better.verdict",
                   [
-                    "no"
+                    "present_best"
                   ]
                 ]
               ],
@@ -5832,7 +5832,7 @@
         {
           "id": "D9",
           "kind": "agent",
-          "title": "Is dedicated adversarial testing needed",
+          "title": "Whether dedicated adversarial testing is needed",
           "effort": "medium",
           "line": "engineer",
           "tools": [
@@ -5867,10 +5867,10 @@
               "name": "adversarial",
               "type": "union",
               "by": "verdict",
-              "desc": "Is dedicated adversarial testing needed",
+              "desc": "Whether dedicated adversarial testing is needed",
               "branches": [
                 {
-                  "value": "yes",
+                  "value": "needed",
                   "desc": "Start dedicated adversarial testing",
                   "fields": [
                     {
@@ -5881,7 +5881,7 @@
                   ]
                 },
                 {
-                  "value": "no",
+                  "value": "not_needed",
                   "desc": "No dedicated adversarial testing",
                   "fields": [
                     {
@@ -5896,13 +5896,13 @@
           ],
           "cases": [
             {
-              "name": "yes",
+              "name": "needed",
               "if": [
                 [
                   "is",
                   "adversarial.verdict",
                   [
-                    "yes"
+                    "needed"
                   ]
                 ]
               ],
@@ -5915,13 +5915,13 @@
               "main": true
             },
             {
-              "name": "no",
+              "name": "not_needed",
               "if": [
                 [
                   "is",
                   "adversarial.verdict",
                   [
-                    "no"
+                    "not_needed"
                   ]
                 ]
               ],
@@ -6209,7 +6209,7 @@
               "from": [
                 [
                   "D9",
-                  "adversarial[yes].why"
+                  "adversarial[needed].why"
                 ]
               ],
               "maybe": true
@@ -7082,7 +7082,7 @@
                 ],
                 [
                   "D3",
-                  "better[no]"
+                  "better[present_best]"
                 ],
                 [
                   "D4",
@@ -7213,7 +7213,7 @@
               "from": [
                 [
                   "D9",
-                  "adversarial[no].why"
+                  "adversarial[not_needed].why"
                 ]
               ],
               "maybe": true
@@ -7505,7 +7505,7 @@
                 ],
                 [
                   "D3",
-                  "better[no]"
+                  "better[present_best]"
                 ]
               ]
             },
@@ -14771,7 +14771,7 @@
         {
           "id": "P7",
           "kind": "agent",
-          "title": "Did the new architect understand",
+          "title": "Whether the reading passes",
           "effort": "high",
           "line": "architect",
           "tools": [
@@ -15386,7 +15386,7 @@
         {
           "id": "P10",
           "kind": "agent",
-          "title": "Would it need setting again at once",
+          "title": "Whether the draft holds now",
           "effort": "high",
           "line": "architect",
           "tools": [

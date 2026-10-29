@@ -495,11 +495,11 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     );
     s.insert(
         "D3",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.better", "no")], Vec::new())),
+        Box::new(|_: &Request, _: usize| (vec![("outcome.better", "present_best")], Vec::new())),
     );
     s.insert(
         "D9",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "no")], Vec::new())),
+        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
     // Implementing: the first round changes the code and asks for ci; the second hands in the end.
     s.insert(
@@ -801,7 +801,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
                 let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
                 git(wt, &["revert", "--no-edit", sha.trim()]);
             }
-            (vec![("outcome.better", "no")], Vec::new())
+            (vec![("outcome.better", "present_best")], Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -976,7 +976,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
                 main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
                 merge_main(&r.worktree);
             }
-            (vec![("outcome.better", "no")], Vec::new())
+            (vec![("outcome.better", "present_best")], Vec::new())
         }),
     );
     agents.insert(
@@ -1039,7 +1039,7 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
                 let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
                 git(wt, &["revert", "--no-edit", sha.trim()]);
             }
-            (vec![("outcome.better", "no")], Vec::new())
+            (vec![("outcome.better", "present_best")], Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -4711,7 +4711,12 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let mut scripts = scripts();
     scripts.insert(
         "D9",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "no")], vec![("@usage", used(1.0, 9_000))])),
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.adversarial", "not_needed")],
+                vec![("@usage", used(1.0, 9_000))],
+            )
+        }),
     );
     let (mut e, said, item) = start(&s, scripts);
     step_to(&mut e, item, "I1");

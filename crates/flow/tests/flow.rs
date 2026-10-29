@@ -328,7 +328,7 @@ fn a_return_that_does_not_fit_says_where() {
     };
     let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
     assert!(
-        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "yes", "no""#),
+        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "found", "present_best""#),
         "{e}"
     );
     let e = refused(&|x| {
