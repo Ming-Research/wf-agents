@@ -154,7 +154,7 @@ describe('the flow as the engine stores it', () => {
           (id) => measured.size.get(id) ?? { width: 40, height: 40 },
           (id) => {
             const e = edges.get(id);
-            return e ? labelSize(e, true) : null;
+            return e ? labelSize(e) : null;
           },
         );
       }),
@@ -207,7 +207,7 @@ describe('the flow as the engine stores it', () => {
         (id) => measured.size.get(id) ?? { width: 40, height: 40 },
         (id) => {
           const e = edges.get(id);
-          return e ? labelSize(e, true) : null;
+          return e ? labelSize(e) : null;
         },
       );
       const m = measures(c, laid);
@@ -265,7 +265,7 @@ describe('the flow as the engine stores it', () => {
           (id) => measured.size.get(id) ?? { width: 40, height: 40 },
           (id) => {
             const e = edges.get(id);
-            return e ? labelSize(e, true) : null;
+            return e ? labelSize(e) : null;
           },
         );
         const box = (id: string) => laid.nodes.get(id) ?? { x: 0, y: 0, width: 0, height: 0 };
