@@ -1626,11 +1626,65 @@ values: { [key in string]: string },
  * What a gate needs to apply to a project. A gate whose need the project does not meet is passed by the
  * engine on its own row, without a round.
  */
-needs: { [key in string]: string }, };
+needs: { [key in string]: string }, 
+/**
+ * The places the engine keeps what it writes and reads later, by name: what each holds, the layer it belongs to
+ * and the tables and views that hold it. None in a flow version stored before the flow named them.
+ */
+stores?: { [key in string]: Store }, 
+/**
+ * The stores each action writes, and each step that writes one itself: every action has an entry, an empty
+ * list for one that only tells the owner or acts outside the database.
+ */
+writes?: { [key in string]: Array<string> }, 
+/**
+ * What each of the engine's values reads, in a few words for the chart, and the stores it reads; each value has
+ * an entry, and a step that reads a store no input of its cell names has one too.
+ */
+reads?: { [key in string]: Reads }, };
+
+/**
+ * A place the engine keeps something in, which a cell or the owner writes and a cell reads later.
+ */
+export type Store = { title: string, desc: string, layer: Layer, 
+/**
+ * Worked out from the rounds when it is read, not written by anyone.
+ */
+computed?: boolean, 
+/**
+ * The tables and views of the database that hold it: an input that reads one of them reads this store.
+ */
+relations?: Array<string>, 
+/**
+ * The engine's inputs computed from it: an input that names one of them reads this store.
+ */
+inputs?: Array<string>, 
+/**
+ * What the owner does that writes it, when the owner writes it.
+ */
+owner?: string | null, };
+
+/**
+ * Where a store belongs: a project holds items, an item holds works, a work holds rounds.
+ */
+export type Layer = "project" | "item" | "work" | "round";
+
+/**
+ * What a value of the engine, or a step, reads.
+ */
+export type Reads = { 
+/**
+ * What it is worked out from, in a few words, as the chart says it under the cell; every value has it.
+ */
+says?: string | null, stores?: Array<string>, };
 
 export type ToolUse = { name: string, runs: string, };
 
 export type CompiledGraph = { name: string, start: string, end: string, 
+/**
+ * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+ */
+cancel?: string | null, 
 /**
  * The field an agent's return holds its one form in.
  */
@@ -1707,7 +1761,12 @@ record: Array<string>,
 /**
  * What an agent's command line starts with, apart from what the flow gives it.
  */
-environment: Array<string>, };
+environment: Array<string>, 
+/**
+ * The other ways a round ends in no return the cell takes, each the engine's own: every agent's cell has a
+ * shared row of each one's name for it.
+ */
+engine?: Array<EngineCase>, };
 
 export type SentBack = { desc: string, 
 /**
@@ -1728,6 +1787,16 @@ when: string, handle: Handle, desc: string, };
 
 export type Handle = "wait" | "retry" | "pause";
 
+/**
+ * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
+ * not send, a work that ended meanwhile.
+ */
+export type EngineCase = { name: string, when: string, desc: string, 
+/**
+ * The work pauses, and the owner is told: a blocker the owner holds at the cell.
+ */
+pauses?: boolean, };
+
 export type CompiledCell = { id: string, 
 /**
  * engine, agent, tool or owner.
@@ -1738,7 +1807,8 @@ kind: string,
  */
 gate: boolean, title: string, step: string | null, needs: string | null, line: string | null, 
 /**
- * The cell starts a new session of its line at its first round in a work, besides the line's first round.
+ * A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
+ * a work.
  */
 new_session?: boolean, 
 /**
@@ -1753,7 +1823,16 @@ rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by: PromptBy | null, form
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, checks?: Array<Check>, handoff?: Array<string>, 
+schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, 
+/**
+ * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
+ */
+actions?: Array<string>, 
+/**
+ * A gate's two outcomes, by name: the one it hands in to go on, whose row is named after it, and the problem,
+ * which it asks about.
+ */
+outcomes?: Array<string>, checks?: Array<Check>, handoff?: Array<string>, 
 /**
  * Paths of the return the owner's page shows on the item the work is on.
  */
@@ -1813,20 +1892,27 @@ pauses: boolean, interject: boolean, main: boolean,
  */
 drops?: boolean, 
 /**
- * A row every agent's cell has.
+ * A row every agent's cell has that its agent chooses: to ask, run tools, search, pause, answer an interjection
+ * or take it to choose the way on; or that the engine takes for the cell's line, as a new session's.
  */
-common: boolean, note: string | null, };
+common: boolean, 
+/**
+ * A row of the engine's fallback, the same for every agent's cell: what the engine does with a round that ends
+ * in no return the cell takes. No return takes it; the engine does what it says itself.
+ */
+fallback?: boolean, note: string | null, };
 
 /**
  * A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
  * `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
  * them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
- * `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Two hold for no return, and
- * only the shared rows the rounds section gives every agent's cell have them: `["sent_back"]` (the return is sent
- * back), with a number (that many of the cell's returns in a row are), and `["failed", kind]` (the run ended
- * without a return, of that kind).
+ * `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Three hold for no return, and
+ * only the shared rows the compiler gives every agent's cell have them: `["sent_back"]` (the return is sent back),
+ * with a number (that many of the cell's returns in a row are), `["failed", kind]` (the run ended without a return,
+ * of that kind) and `["engine", case]` (the engine took the row itself, for that case: one of the rounds section's
+ * own, or a line's new session).
  */
-export type Atom = ["all"] | ["own"] | ["or", Array<Atom>] | ["has", string] | ["is" | "any" | "none" | "inp", string, Array<string>] | ["sent_back"] | ["sent_back", number] | ["failed", string];
+export type Atom = ["all"] | ["own"] | ["or", Array<Atom>] | ["has", string] | ["is" | "any" | "none" | "inp", string, Array<string>] | ["sent_back"] | ["sent_back", number] | ["failed", string] | ["engine", string];
 
 /**
  * An action on a row: a name, or a name done for a place of the output.

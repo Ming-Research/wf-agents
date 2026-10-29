@@ -277,9 +277,32 @@ impl Context<'_> {
             Some(r) => {
                 let row = r.transition.as_deref().unwrap_or_default();
                 let from = r.cell.as_deref().unwrap_or_default();
+                // Back from a cell that only did something for this one, as waiting for the owner's Start after a
+                // pause or handing on its answers: the round before is this cell's, whose row went there.
+                let helper = self
+                    .g
+                    .cell(from)
+                    .filter(|x| x.kind != "agent" && x.rows.iter().any(|y| y.name == row && y.to == "@caller"));
+                let before = self.rounds.iter().rev().nth(1).filter(|p| here(p));
                 let paused = here(&r) && c.rows.iter().any(|x| x.name == row && x.to == "@self");
                 if paused {
                     out.push(format!("You paused in {}: carry on.", r.id));
+                } else if let (Some(_), Some(p)) =
+                    (helper.filter(|h| h.step.as_deref() == Some("wait_for_start")), before)
+                {
+                    out.push(format!(
+                        "You paused in {}, and the owner started the work again: carry on.",
+                        p.id
+                    ));
+                } else if let (Some(_), Some(p)) = (
+                    helper.filter(|h| {
+                        h.rows
+                            .iter()
+                            .any(|y| y.actions.iter().any(|d| d.name() == "deliver_answers"))
+                    }),
+                    before,
+                ) {
+                    out.push(format!("Your answers in {} went to who interjected: carry on.", p.id));
                 } else {
                     let title = self.g.cell(from).map(|x| x.title.as_str()).unwrap_or_default();
                     out.push(format!("Came from cell {from} ({title}) by its row `{row}`, {}.", r.id));

@@ -483,6 +483,10 @@ CREATE TABLE interjections (
   -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
   -- what is still to hand in.
   delivered_round INTEGER,
+  -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
+  -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
+  -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
+  cancelled_item INTEGER REFERENCES items(id),
   FOREIGN KEY (work, delivered_round) REFERENCES rounds (work, n)
 ) STRICT;
 

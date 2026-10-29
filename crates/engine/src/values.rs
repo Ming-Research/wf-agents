@@ -1,6 +1,7 @@
 //! The values the engine knows about a work, which rows switch on beside what rows recorded: `engine.values` in the
 //! flow, each worked out here from the work's rounds, its item, the database and the worktree.
 
+use db::rusqlite::OptionalExtension;
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
@@ -97,6 +98,42 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 .map_err(|e| e.to_string())?;
             s(if waiting > 0 { "yes" } else { "no" })
         }
+        // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
+        // to choose the way on by a row of their own.
+        "cancelled" => {
+            let waiting: i64 = e
+                .db
+                .conn()
+                .query_row(
+                    "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
+                       AND cancelled_item IS NOT NULL",
+                    [w.id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            s(if waiting > 0 { "yes" } else { "no" })
+        }
+        // Whether another work of the project is ahead of this one in its merge queue.
+        "turn" => {
+            let ahead: Option<i64> =
+                e.db.conn()
+                    .query_row(
+                        "SELECT work FROM merge_queue WHERE project = ?1 LIMIT 1",
+                        [&item.project],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+            s(if ahead.is_some_and(|a| a != w.id) {
+                "behind"
+            } else {
+                "first"
+            })
+        }
+        "start" => Err(format!(
+            "work {}: what holds an item back from starting is worked out for the item, before any work",
+            w.id
+        )),
         "split" => {
             let reply = brought_back(e, w, g)?;
             let children = reply
@@ -113,7 +150,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         // A flow version stored before this value was named so calls it `card`.
         "design_card_disputed" | "card" => s(if design_card_disputed(e, w)? { "yes" } else { "no" }),
         "came_by" => {
-            let from = w.pos.from.clone().unwrap_or_default();
+            let from = arrived_from(e, w, g)?.unwrap_or_default();
             let fc = g.cell(&from);
             s(match fc {
                 Some(c) if matches!(c.id.as_str(), "A1" | "A2" | "A3") => "reply",
@@ -155,13 +192,34 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
 /// The reply the work brought back to choose the way on: the last return of the cell that brought it, when that is
 /// the advisor, the architect or the owner.
 fn brought_back(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>, String> {
-    let Some(from) = w.pos.from.as_deref() else {
+    let Some(from) = arrived_from(e, w, g)? else {
         return Ok(None);
     };
-    if !matches!(from, "A1" | "A2" | "A3") {
+    if !matches!(from.as_str(), "A1" | "A2" | "A3") {
         return Ok(None);
     }
-    Ok(last_return(e, w, g, from, "reply")?.and_then(|r| r.get("reply").cloned()))
+    Ok(last_return(e, w, g, &from, "reply")?.and_then(|r| r.get("reply").cloned()))
+}
+
+/// The cell that brought the work to the cell it is at, past the round trips the cell made since to the cells that
+/// only do something for it and come back: running tools, waiting for the owner's Start after a pause, handing its
+/// answers to who interjected.
+fn arrived_from(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
+    let back = |id: &str, t: &str| {
+        g.cell(id).is_some_and(|c| {
+            c.kind != "agent" && !g.asking.contains(&c.id) && c.rows.iter().any(|x| x.name == t && x.to == "@caller")
+        })
+    };
+    for r in crate::work::rounds(e.db.conn(), w.id)?.iter().rev() {
+        let (Some(cell), Some(t)) = (r.cell.as_deref(), r.transition.as_deref()) else {
+            continue;
+        };
+        if cell == w.pos.at || back(cell, t) {
+            continue;
+        }
+        return Ok(Some(cell.to_string()));
+    }
+    Ok(w.pos.from.clone())
 }
 
 /// The items an item depends on; a cancelled one, which never delivers, holds back nothing, and cancelling an item

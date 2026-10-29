@@ -2574,7 +2574,13 @@ mod tests {
         let (waiting, row) = g
             .cells
             .iter()
-            .find_map(|c| c.rows.iter().find(|r| r.waits).map(|r| (c.id.clone(), r.name.clone())))
+            .filter(|c| c.id != g.start)
+            .find_map(|c| {
+                c.rows
+                    .iter()
+                    .find(|r| r.waits && r.to == c.id)
+                    .map(|r| (c.id.clone(), r.name.clone()))
+            })
             .unwrap();
         s.db.write(Actor::Engine, |tx| {
             tx.execute(

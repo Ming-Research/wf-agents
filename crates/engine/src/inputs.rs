@@ -631,7 +631,12 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
     }
     // What the start cell took over: a branch when an earlier work had one or the item was imported with one, and
     // the pull request that came with it.
-    let place = work::rounds_at(e.db.conn(), w.id, &g.start)?
+    let start = g
+        .cells
+        .iter()
+        .find(|c| c.step.as_deref() == Some("start_work"))
+        .map_or(g.start.as_str(), |c| c.id.as_str());
+    let place = work::rounds_at(e.db.conn(), w.id, start)?
         .into_iter()
         .find_map(|r| r.output.filter(|_| r.transition.is_some()))
         .map(|o| o["place"].clone())

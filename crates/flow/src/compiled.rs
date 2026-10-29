@@ -12,8 +12,8 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, PromptBy, ReadBy, Rounds, Rule,
-    Src,
+    Always, Atom, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named, OPEN_SESSION, PromptBy, ReadBy,
+    Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -52,6 +52,9 @@ pub struct CompiledGraph {
     pub name: String,
     pub start: String,
     pub end: String,
+    /// The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<String>,
     /// The field an agent's return holds its one form in.
     pub within: String,
     /// The cells of the asking part, and the one that receives answers to the cells of its line.
@@ -144,8 +147,13 @@ pub struct CompiledRow {
     /// The row goes on without answering the cells that wait for an answer, which get it later another way.
     #[serde(default, skip_serializing_if = "is_false")]
     pub drops: bool,
-    /// A row every agent's cell has.
+    /// A row every agent's cell has that its agent chooses: to ask, run tools, search, pause, answer an interjection
+    /// or take it to choose the way on; or that the engine takes for the cell's line, as a new session's.
     pub common: bool,
+    /// A row of the engine's fallback, the same for every agent's cell: what the engine does with a round that ends
+    /// in no return the cell takes. No return takes it; the engine does what it says itself.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fallback: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -164,7 +172,8 @@ pub struct CompiledCell {
     pub needs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
-    /// The cell starts a new session of its line at its first round in a work, besides the line's first round.
+    /// A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
+    /// a work.
     #[serde(default, skip_serializing_if = "is_false")]
     pub new_session: bool,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
@@ -191,6 +200,13 @@ pub struct CompiledCell {
     pub rows: Vec<CompiledRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub always: Vec<Always>,
+    /// What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<String>,
+    /// A gate's two outcomes, by name: the one it hands in to go on, whose row is named after it, and the problem,
+    /// which it asks about.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outcomes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -336,7 +352,7 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
         Atom::Has(p) => !values(p).is_empty(),
         Atom::Is(p, vs) | Atom::AnyOf(p, vs) => hit(p, vs),
         Atom::NoneOf(p, vs) => !hit(p, vs),
-        Atom::SentBack(_) | Atom::Failed(_) => false,
+        Atom::SentBack(_) | Atom::Failed(_) | Atom::Engine(_) => false,
     }
 }
 
@@ -801,12 +817,12 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             step: c.step.clone(),
             needs: c.needs.clone(),
             line: c.line.clone(),
-            new_session: g
-                .flow
-                .sessions
-                .lines
-                .iter()
-                .any(|l| c.line.as_ref() == Some(&l.name) && l.starts.contains(&c.id)),
+            new_session: c.line.is_some()
+                && g.cells.iter().any(|m| {
+                    m.rows
+                        .iter()
+                        .any(|r| r.to == c.id && r.actions.iter().any(|d| d.name() == OPEN_SESSION))
+                }),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
@@ -853,14 +869,18 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     main: r.main,
                     drops: r.drops,
                     common: r.common,
+                    fallback: false,
                     note: r.note.clone(),
                 })
+                .chain(anew_row(g, c))
                 .chain(match (&g.flow.rounds, c.kind) {
                     (Some(r), CellKind::Agent) => no_return_rows(r),
                     _ => Vec::new(),
                 })
                 .collect(),
             always: c.always.clone(),
+            actions: c.actions.clone(),
+            outcomes: c.outcomes.clone(),
             checks: c.checks.clone(),
             handoff: c.handoff.clone(),
             shown: c.shown.clone(),
@@ -896,6 +916,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         name: f.name.clone(),
         start: f.start.clone(),
         end: f.end.clone(),
+        cancel: f.cancel.clone(),
         within: f.agent_common.returns.within.name.clone(),
         asking: f.asking.nodes.clone(),
         receive: f.asking.receive.clone(),
@@ -956,9 +977,36 @@ fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
     Ok(r.clone())
 }
 
-/// The shared rows every agent's cell has for a round that ends in no return it takes, as the rounds section says:
-/// a return sent back runs the cell again, and so many in a row pause the work first; a failed run of each kind
-/// runs it again once the cause passes, or after a wait, or once the owner lets the paused work go on.
+/// The row a cell of a line with a new session's row has: the engine takes it in place of the cell's round when the
+/// line's session would start afresh there; none for any other cell.
+fn anew_row(g: &Graph, c: &Cell) -> Option<CompiledRow> {
+    let line = c.line.as_ref()?;
+    let a = g.flow.sessions.lines.iter().find(|l| &l.name == line)?.anew.as_ref()?;
+    if c.kind != CellKind::Agent || a.not.contains(&c.id) {
+        return None;
+    }
+    Some(CompiledRow {
+        name: a.row.clone(),
+        conditions: vec![Atom::Engine(a.row.clone())],
+        to: a.to.clone(),
+        sets: BTreeMap::new(),
+        actions: Vec::new(),
+        counts: None,
+        waits: false,
+        pauses: false,
+        interject: false,
+        main: false,
+        drops: true,
+        common: true,
+        fallback: false,
+        note: Some(a.note.clone()),
+    })
+}
+
+/// The engine's fallback, the shared rows every agent's cell has for a round that ends in no return it takes, as the
+/// rounds section says: a return sent back runs the cell again, and so many in a row pause the work first; a failed
+/// run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused work go
+/// on; and each of the engine's own cases does as it says.
 fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     let row = |name: &str, atom: Atom, note: &str| CompiledRow {
         name: name.to_string(),
@@ -972,7 +1020,8 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
         interject: false,
         main: false,
         drops: false,
-        common: true,
+        common: false,
+        fallback: true,
         note: Some(note.to_string()),
     };
     let mut out = vec![
@@ -991,6 +1040,12 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
             waits: k.handle == Handle::Wait,
             pauses: k.handle == Handle::Pause,
             ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
+        });
+    }
+    for k in &r.engine {
+        out.push(CompiledRow {
+            pauses: k.pauses,
+            ..row(&k.name, Atom::Engine(k.name.clone()), &format!("{} {}", k.when, k.desc))
         });
     }
     out

@@ -28,7 +28,7 @@ use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
 use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 
-/// An hour, in milliseconds: the least time between two matters of slots free with nothing ready for one project.
+/// An hour, in milliseconds.
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
@@ -263,10 +263,25 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<i64, String>
     .map_err(sql)
 }
 
-/// Queues what the engine raises itself once it is due: for each project with nothing ready to start and no hold on
-/// its new starts, while slots are free, a matter of slots free, when none waits in its queue and the last was handled
-/// more than an hour ago or never; the hour keeps one that found nothing to start from coming back at once.
+/// The action of the cell an item waits at to start (`U0`), `queue_slots_free`, which the engine takes for every
+/// project as it looks for an item to start, since no work stands at that cell: for each project with nothing ready to
+/// start and no hold on its new starts, while slots are free, a matter of slots free, when none waits in its queue and
+/// the last was handled longer ago than the configuration's wait (`agents.slots_free_wait`) or never; the wait keeps
+/// one that found nothing to start from coming back at once. Nothing when the flow new works start on does not name
+/// the action.
 pub fn queue_due(e: &mut Engine) -> Result<(), String> {
+    let now = e.flow_now;
+    let named = e
+        .flow(now)?
+        .graph(ENGINEER)
+        .and_then(|g| g.cell(&g.start))
+        .is_some_and(|c| c.actions.iter().any(|a| a == "queue_slots_free"));
+    if !named {
+        return Ok(());
+    }
+    let wait = i64::try_from(e.config.config.install.agents.slots_free_wait)
+        .unwrap_or(i64::MAX / 1000)
+        .saturating_mul(1000);
     let free = e.free_slots()?;
     if free <= 0 {
         return Ok(());
@@ -293,7 +308,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
                 |r| r.get(0),
             )
             .map_err(sql)?;
-        if last.is_some_and(|t| db::now() - t <= HOUR) {
+        if last.is_some_and(|t| db::now() - t <= wait) {
             continue;
         }
         let m = Matter {
@@ -494,10 +509,16 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
 }
 
 /// Cell `Q0`: what can be picked from the project's queue now; a lone matter is picked here, without a
-/// round. A design card matter whose card needs no look any longer is closed first, as the round's progress says.
-pub fn look_at_queue(e: &mut Engine, w: &Work) -> Result<Value, String> {
+/// round. A design card matter whose card needs no look any longer is closed first (the cell's `close_settled_cards`,
+/// which a flow version before the cell named what it does did too), as the round's progress says.
+pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
-    let closed = close_settled_cards(e, w, project)?;
+    let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
+    let closed = if closes {
+        close_settled_cards(e, w, project)?
+    } else {
+        Vec::new()
+    };
     let conn = e.db.conn();
     let can = pickable(conn, project)?;
     let handled = handled_in_batch(conn, w.id)?;
@@ -706,21 +727,36 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 /// the understanding and outside the setting of a policy, and a new session holds no state of things and no notes. A
 /// new policy that just took effect goes straight on to what to do next, whose new session is given the state of things
 /// the wake wrote.
-pub fn understand_first(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<bool, String> {
-    if g.name != ARCHITECT
-        || cell.line.as_deref() != Some(LINE)
-        || cell.id == UNDERSTAND
-        || (cell.stage.as_deref() == Some(SETTING_POLICY) && cell.id != POLICY_CHECK)
-        || (cell.id == NEXT && w.pos.from.as_deref() == Some(TAKES_EFFECT))
-    {
-        return Ok(false);
+///
+/// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
+/// names them here. Gives why the session would start afresh, in words; none when the wake goes on.
+pub fn understand_first(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+) -> Result<Option<String>, String> {
+    let rowed = g.cells.iter().any(|c| c.rows.iter().any(crate::steps::anew));
+    let here = if rowed {
+        cell.rows.iter().any(crate::steps::anew)
+    } else {
+        g.name == ARCHITECT
+            && cell.line.as_deref() == Some(LINE)
+            && cell.id != UNDERSTAND
+            && (cell.stage.as_deref() != Some(SETTING_POLICY) || cell.id == POLICY_CHECK)
+    };
+    if !here || (cell.id == NEXT && w.pos.from.as_deref() == Some(TAKES_EFFECT)) {
+        return Ok(None);
     }
     let model = crate::steps::level_of(e, g, cell, None)?.1.model;
     let limit = e.config.config.install.agents.context_limit;
     let plan = e
         .sessions
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, &model)?;
-    Ok(matches!(plan, sessions::Plan::New(_)))
+    Ok(match plan {
+        sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &model)),
+        sessions::Plan::Going { .. } => None,
+    })
 }
 
 /// Sends the wake back to the cell that asks whether its session understood the project, which a new session has not,
@@ -993,6 +1029,26 @@ pub fn ask_architect(
             return Err(format!("{} asks the architect, but queued no matter", r.id));
         };
         let Some(reply) = reply else {
+            // An item the work depended on cancelled while it waited: the cell's row for that, which needs no reply.
+            if let Some(row) = crate::row(cell, "cancelled").cloned() {
+                let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+                let given = values::given(e, w, g, cell, Some(item), &gathered)?;
+                if given.get("cancelled").and_then(Value::as_str) == Some("yes") {
+                    return finish(
+                        e,
+                        w,
+                        g,
+                        cell,
+                        r.id,
+                        json!({}),
+                        &row,
+                        Ended::default(),
+                        &[],
+                        None,
+                        &given,
+                    );
+                }
+            }
             return Ok(Advance::Waits(format!(
                 "matter {matter} waits for the architect's reply"
             )));

@@ -51,6 +51,24 @@ fn g_step_waits(e: &mut Engine, w: &Work, r: &Round) -> Result<bool, String> {
     Ok(cell.is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect"))))
 }
 
+/// Whether a row is one the engine takes for a line in place of a round, when the line's session would start afresh
+/// there: a shared row on an engine's case that is not of its fallback.
+pub fn anew(r: &CompiledRow) -> bool {
+    !r.fallback && r.conditions.iter().any(|a| matches!(a, flow::format::Atom::Engine(_)))
+}
+
+/// Why a round's session starts afresh, in words, for the round's record and the owner's page.
+pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, model: &str) -> String {
+    match why {
+        sessions::Start::Line => "no session of its line going on yet".into(),
+        sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
+        sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
+        sessions::Start::Model => format!("the model changed to {model}"),
+        sessions::Start::Wake => "the project's last wake left one".into(),
+        sessions::Start::Owner => "the owner asked for one".into(),
+    }
+}
+
 fn need_met(project: &config::Project, need: &str) -> bool {
     project.has(need).unwrap_or(false)
 }
@@ -75,9 +93,32 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
-    // A new session of the architect's line in the middle of a wake understands the project first.
-    if crate::architect::understand_first(e, w, g, cell)? {
-        return crate::architect::back_to_understanding(e, w, g, cell);
+    // A new session of the architect's line in the middle of a wake understands the project first: the cell's row for
+    // that, recorded with why the session would start afresh; a flow version without the row goes back unrecorded.
+    if let Some(why) = crate::architect::understand_first(e, w, g, cell)? {
+        let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
+            return crate::architect::back_to_understanding(e, w, g, cell);
+        };
+        let commit = e.config.commit.clone();
+        let input = json!({ "engine": { "new_session": why } });
+        let round =
+            e.db.write(Actor::Engine, |tx| {
+                work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+            })
+            .map_err(sql)?;
+        return finish(
+            e,
+            w,
+            g,
+            cell,
+            round,
+            json!({}),
+            &row,
+            Ended::default(),
+            &[],
+            None,
+            &Map::new(),
+        );
     }
     let item = e.subject(w)?;
     // A work on an item runs in its project; a wake of the architect is on no item and in no project.
@@ -151,6 +192,16 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The session manager chose the session: the line's going on, resumed once the CLI started it and else started
     // under the id kept for it, or a new one, which ends the one the line had going on; a new one the owner asked for
     // meets the ask.
+    // A round whose session starts afresh says why in its record.
+    let new_why = match &plan {
+        Plan::New(why) => Some(new_session_why(
+            *why,
+            cell,
+            e.config.config.install.agents.context_limit,
+            &level.model,
+        )),
+        Plan::Going { .. } => None,
+    };
     let (sid, resume, new_session) = match plan {
         Plan::Going {
             id,
@@ -224,7 +275,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
-        "engine": { "head": head, "change": change, "columns": columns, "table": table, "interjections": ids },
+        "engine": {
+            "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
+            "new_session": new_why,
+        },
     });
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -616,15 +670,26 @@ fn not_applicable(
     need: &str,
 ) -> Result<Advance, String> {
     let why = why_not_asked(e, w, need)?;
-    let has_answer = cell
+    // The gate's answer: not applicable where it has that, else its outcome that goes on; a gate of a flow version
+    // whose answer was empty hands in none.
+    let verdicts: Vec<String> = cell
         .schema
         .as_ref()
-        .and_then(|s| s.pointer(&format!("/properties/{}/anyOf/0/properties/answer", g.within)))
-        .is_some();
-    let own = if has_answer {
-        json!({ "answer": { "verdict": "not_applicable", "why": why } })
-    } else {
-        json!({})
+        .and_then(|s| s.pointer(&format!("/properties/{}/anyOf/0/properties/answer/oneOf", g.within)))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b.pointer("/properties/verdict/const").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let verdict = verdicts
+        .iter()
+        .find(|v| *v == "not_applicable")
+        .or_else(|| cell.outcomes.first())
+        .or(verdicts.first());
+    let own = match verdict {
+        Some(v) => json!({ "answer": { "verdict": v, "why": why } }),
+        None => json!({}),
     };
     let mut output = Map::new();
     output.insert(g.within.clone(), own);
@@ -694,6 +759,12 @@ pub fn finish(
         data: e.data.clone(),
         given: given.clone(),
         projects: e.config.config.projects.clone(),
+        caller_line: w
+            .pos
+            .callers
+            .last()
+            .and_then(|c| g.cell(c))
+            .map(|c| crate::line_of(g, c)),
     };
     let ended = Ended {
         output: Some(output),
@@ -783,21 +854,64 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         }
         _ => {}
     }
-    if step.as_deref() == Some("merge") {
-        let ahead: Option<i64> =
-            e.db.conn()
-                .query_row(
-                    "SELECT work FROM merge_queue WHERE project = ?1 LIMIT 1",
-                    [&needed(&item, w)?.project],
-                    |r| r.get(0),
-                )
-                .ok();
-        if ahead.is_some_and(|a| a != w.id) {
+    // A work behind another in its project's merge queue waits its turn by the merge cell's row that waits, holding no
+    // slot; a flow version without that row has it wait the same, unrecorded.
+    if step.as_deref() == Some("merge") && values::value(e, w, g, item.as_ref(), "turn")? == "behind" {
+        let Some(row) = crate::row(cell, "behind").cloned() else {
             return Ok(Advance::Waits(format!(
-                "work {} is ahead in the merge queue",
-                ahead.unwrap_or_default()
+                "work {} waits its turn in the merge queue",
+                w.id
             )));
+        };
+        return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
+    }
+    // The agent paused: the work waits, paused by the engine, for the owner's Start; once the owner started it again
+    // since it came here, it goes back.
+    if step.as_deref() == Some("wait_for_start") {
+        let came = work::rounds(e.db.conn(), w.id)?.last().and_then(|r| r.ended_at);
+        let resumed = work::resumed_at(e.db.conn(), w.id)?;
+        if !resumed.is_some_and(|r| came.is_none_or(|c| r > c)) {
+            let caller = w.pos.callers.last().cloned().unwrap_or_default();
+            e.pause(
+                w.id,
+                &format!("cell {caller} paused; start the work for it to carry on"),
+            )?;
+            return Ok(Advance::Stopped);
         }
+    }
+    // Where an item waits to start, which no work stands at but one made on a flow version that has it: what holds the
+    // item back, as the engine works it out for every item that waits.
+    if step.as_deref() == Some("wait_to_start") {
+        let item = needed(&item, w)?;
+        let changing = architect::held_by_batches(e.db.conn())?;
+        let free = e.free_slots()?;
+        let reason = e.waits_to_start(item.id, &item.project, &changing, free)?;
+        let mut given = Map::new();
+        given.insert("start".into(), json!(reason));
+        let row = g.take(&cell.id, &json!({}), &given)?.clone();
+        if row.waits {
+            return wait_by(e, w, g, cell, &row, json!({ "given": given }));
+        }
+        let commit = e.config.commit.clone();
+        let input = json!({ "given": given });
+        let round =
+            e.db.write(Actor::Engine, |tx| {
+                work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+            })
+            .map_err(sql)?;
+        return finish(
+            e,
+            w,
+            g,
+            cell,
+            round,
+            json!({}),
+            &row,
+            Ended::default(),
+            &[],
+            None,
+            &given,
+        );
     }
     // Starting a work takes the queue's next item and decides nothing, so its round records no input.
     let starts = step.as_deref() == Some("start_work");
@@ -813,21 +927,15 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
     };
-    let quick = matches!(step.as_deref(), None | Some("choose_checks"));
+    let quick = matches!(step.as_deref(), None | Some("choose_checks") | Some("wait_for_start"));
     if quick {
         let output = match step.as_deref() {
             Some("choose_checks") => choose_checks(e, w, g)?,
             _ => json!({}),
         };
         let row = g.take(&cell.id, &output, &given)?.clone();
-        if row.waits {
-            // A row that waits, taken again with nothing new, is not recorded again.
-            let last = work::rounds(e.db.conn(), w.id)?.pop();
-            if last.is_some_and(|r| {
-                r.cell.as_deref() == Some(cell.id.as_str()) && r.transition.as_deref() == Some(row.name.as_str())
-            }) {
-                return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
-            }
+        if row.waits && waits_again(e, w, cell, &row)? {
+            return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
         }
         let round =
             e.db.write(Actor::Engine, |tx| {
@@ -854,9 +962,9 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_wake") => json!({}),
+        Some("end_work") | Some("end_wake") | Some("stop_work") => json!({}),
         Some("wake") => architect::wake(e, w)?,
-        Some("look_at_queue") => architect::look_at_queue(e, w)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some("put_draft_together") => architect::put_draft_together(e, w)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
@@ -864,7 +972,7 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     };
     if cell.rows.is_empty() {
         let output = if step.as_deref() == Some("end_work") {
-            end_work(e, w)?
+            end_work(e, w, cell)?
         } else {
             output
         };
@@ -872,6 +980,48 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
+}
+
+/// Whether a row that waits was the last the work took, at this cell: taken again with nothing new, it is not
+/// recorded again.
+fn waits_again(e: &Engine, w: &Work, cell: &CompiledCell, row: &CompiledRow) -> Result<bool, String> {
+    let last = work::rounds(e.db.conn(), w.id)?.pop();
+    Ok(last.is_some_and(|r| {
+        r.cell.as_deref() == Some(cell.id.as_str()) && r.transition.as_deref() == Some(row.name.as_str())
+    }))
+}
+
+/// Takes a row that waits, which the engine chose without running the cell's step: recorded once, with what chose it.
+fn wait_by(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    row: &CompiledRow,
+    input: Value,
+) -> Result<Advance, String> {
+    if waits_again(e, w, cell, row)? {
+        return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
+    }
+    let commit = e.config.commit.clone();
+    let round =
+        e.db.write(Actor::Engine, |tx| {
+            work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
+    finish(
+        e,
+        w,
+        g,
+        cell,
+        round,
+        json!({}),
+        row,
+        Ended::default(),
+        &[],
+        None,
+        &Map::new(),
+    )
 }
 
 /// Cell `S0`: the session manager sets up where the work runs, on a machine with a free slot, and the id the
@@ -906,10 +1056,16 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
 
 /// Cell `E1`: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
 /// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
-/// for the architect, as a matter of its own.
-fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
+/// for the architect, as a matter of its own, when the cell names that (`queue_followup`), as a flow version before
+/// the cell named what it does did too.
+fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let followup = report_followup(e, w, &project)?;
+    let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
+    let followup = if follows {
+        report_followup(e, w, &project)?
+    } else {
+        None
+    };
     let projects = &e.config.config.projects;
     e.db.write(Actor::Engine, |tx| {
         crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;

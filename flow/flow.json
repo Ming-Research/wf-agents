@@ -1083,7 +1083,7 @@
     "pause_form": {
       "name": "pause",
       "type": "obj",
-      "desc": "Only when the engine asks you to pause: this round is not finished and its conclusion has not taken shape, so stop here for now. Hand in an empty object and say how far you got in progress, with none of the conclusions this cell asks for; the engine notes the time and comes back to the same session to have you carry on, without giving the inputs again",
+      "desc": "Only when the engine asks you to pause: this round is not finished and its conclusion has not taken shape, so stop here for now. Hand in an empty object and say how far you got in progress, with none of the conclusions this cell asks for; the work waits for the owner's Start, then comes back to the same session to have you carry on, without giving the inputs again",
       "fields": []
     },
     "progress_form": {
@@ -2670,7 +2670,7 @@
   },
   "engine": {
     "steps": {
-      "start_work": "Takes the next ready item when a slot is free and has the session manager set up where the work runs and the engineer's session. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
+      "start_work": "Has the session manager set up where the work runs and the engineer's session, on a machine with a free slot. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
       "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
       "full_ci_on_draft": "Catches the draft PR up with main and runs the full CI the project's configuration names on it, running a red check once more on the same commit; checks in the table of known red checks do not count.",
       "choose_checks": "Decides what runs next, from whether the design chose adversarial testing, whether the review accepted none, the change reviewed last, each side's last results, and the rows the fix cell answered.",
@@ -2678,12 +2678,15 @@
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again.",
-      "end_work": "Ends the work as every work ends: ends its sessions, removes its worktree, keeping its branch, and withdraws what it asked the architect and had no answer to. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged. A work that delivered a report and handed in what to do next queues it for the architect as a matter of its own: the latest it handed in, as written, with the report's paths under research/ and the commit the work merged.",
+      "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
       "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text together, for a new architect to read, and records it: as the architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round."
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
+      "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
+      "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
+      "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
     },
     "actions": {
       "lock_acceptance": "Writes the design's acceptance conditions onto the item and locks them; if they are the same as those already locked, nothing changes.",
@@ -2718,7 +2721,18 @@
       "apply_batch": "Makes every item change of the batch, as the architect, in one transaction, logs each with its reason, sends the replies that waited on them, and ends the review's session.",
       "apply_reviewed": "Makes the item changes the review found sound, drops the others and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
       "new_architect_session": "Ends the project's architect's session: the next round, what to do next under the new policy, starts a new one, given the state of things the wake wrote and the new policy.",
-      "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything."
+      "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything.",
+      "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
+      "queue_slots_free": "When slots are free and none of a project's items is ready to start, queues a matter of the kind slots_free for its architect, unless one waits already, new starts of the project are held, or the last was handled within the wait the configuration sets (`agents.slots_free_wait`).",
+      "close_settled_cards": "Closes, without a look and before anything is picked, the design card matters whose card the owner confirmed or another replaced, as handled by this wake.",
+      "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
+      "replace_design_cards": "Marks the work's design cards replaced: the owner can no longer rule on them.",
+      "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
+      "end_sessions": "Ends the work's sessions.",
+      "remove_worktree": "Removes the work's worktree; its branch stays. A work taken over leaves it to the new work.",
+      "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
+      "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
+      "withdraw_question": "Withdraws the question the work waited on from the architect's queue, saying why."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2822,11 +2836,612 @@
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
       "asker": "Whether the cell that asks the owner is on a matter's path, so that the ask holds only that matter.",
       "question": "The kind of question an engineer asks, as its matter says.",
-      "report": "What kind of report the matter is: one an engineer handed in beside its work, or a report's what to do next."
+      "report": "What kind of report the matter is: one an engineer handed in beside its work, or a report's what to do next.",
+      "start": "What holds an item back from starting, if anything.",
+      "turn": "Whether the work is first in its project's merge queue.",
+      "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
       "other_projects": "The project's configuration names other projects it depends on or that depend on it."
+    },
+    "stores": {
+      "items": {
+        "title": "Items",
+        "layer": "project",
+        "desc": "The project's items: what each is to do, its level, and what it delivers",
+        "relations": [
+          "items",
+          "item_body",
+          "item_problem",
+          "item_context",
+          "item_research"
+        ],
+        "inputs": [
+          "board",
+          "numbers",
+          "similar_items",
+          "item_log"
+        ],
+        "owner": "writes and changes items"
+      },
+      "architect_queue": {
+        "title": "The architect's queue",
+        "layer": "project",
+        "desc": "What waits for the project's architect, each matter with what became of it, and the replies to engineers",
+        "relations": [
+          "architect_matters",
+          "architect_queue",
+          "wake_handled"
+        ],
+        "inputs": [
+          "queue",
+          "matter",
+          "matter_items",
+          "cross_project"
+        ],
+        "owner": "says something to the architect, or starts a work the architect paused"
+      },
+      "observations": {
+        "title": "Observations",
+        "layer": "project",
+        "desc": "What the architect has seen of the project; one closes when the item that took it in merges",
+        "relations": [
+          "observations",
+          "observations_open",
+          "observations_all"
+        ],
+        "inputs": [
+          "observations_overview"
+        ],
+        "owner": "closes one, saying why"
+      },
+      "holds": {
+        "title": "Holds on new starts",
+        "layer": "project",
+        "desc": "Why no new work of the project starts for now",
+        "relations": [
+          "dispatch_holds"
+        ]
+      },
+      "known_red_checks": {
+        "title": "Known red checks",
+        "layer": "project",
+        "desc": "CI checks known to fail for a reason outside any one work",
+        "relations": [
+          "known_red_checks",
+          "known_red_counts"
+        ]
+      },
+      "policy": {
+        "title": "Policy in force",
+        "layer": "project",
+        "computed": true,
+        "desc": "The policy the owner approved last, and the drafts and trials of the next",
+        "relations": [
+          "policy_current",
+          "policy_draft",
+          "policy_text",
+          "policy_probes_asked",
+          "policy_trials"
+        ],
+        "inputs": [
+          "policy",
+          "policy_signals",
+          "policy_stays",
+          "draft_text",
+          "draft_probes"
+        ]
+      },
+      "state_of_things": {
+        "title": "State of things",
+        "layer": "project",
+        "computed": true,
+        "desc": "What the project is now, as the architect last understood it, with its notes",
+        "relations": [
+          "architect_state",
+          "architect_notes",
+          "architect_log",
+          "architect_last_fit"
+        ],
+        "inputs": [
+          "state_of_things",
+          "before",
+          "since_last_wake"
+        ]
+      },
+      "locked_acceptance": {
+        "title": "Locked acceptance",
+        "layer": "item",
+        "desc": "The acceptance conditions locked on the item: the design's, the advisor's, or the owner's",
+        "relations": [
+          "item_acceptance"
+        ],
+        "owner": "rules on a design card decision that changes them"
+      },
+      "dependencies": {
+        "title": "Dependencies",
+        "layer": "item",
+        "desc": "The items each item depends on, blocking or in parallel, and those a work waits for",
+        "relations": [
+          "item_links",
+          "item_dependencies",
+          "item_blocked_by",
+          "waited_items"
+        ],
+        "owner": "adds or removes a dependency"
+      },
+      "item_state": {
+        "title": "Rank, held, cancelled",
+        "layer": "item",
+        "desc": "Where the item stands among its project's items: its rank, whether it is held back or cancelled",
+        "relations": [
+          "ready_items"
+        ],
+        "owner": "holds, cancels or moves an item"
+      },
+      "owner_queue": {
+        "title": "The owner's queue",
+        "layer": "item",
+        "desc": "The items the owner put first to start, in the owner's order",
+        "relations": [
+          "dispatch_queue"
+        ],
+        "owner": "queues an item"
+      },
+      "merge_record": {
+        "title": "Merge record",
+        "layer": "item",
+        "computed": true,
+        "desc": "Which items merged, from the rounds of the merge queue that merged them"
+      },
+      "place": {
+        "title": "The work's place",
+        "layer": "work",
+        "desc": "The cell the work is at, where it stopped, the cells waiting for an answer, and the project's merge queue",
+        "relations": [
+          "merge_queue",
+          "work_history"
+        ]
+      },
+      "branch": {
+        "title": "Branch, worktree, PR",
+        "layer": "work",
+        "desc": "Where the work runs: its machine, worktree, branch, pull request and the head last pushed",
+        "relations": [
+          "work_state"
+        ],
+        "inputs": [
+          "local_commits",
+          "tree_changes_to_review",
+          "tree_check_numbers",
+          "design_tree_diff"
+        ]
+      },
+      "recorded": {
+        "title": "Recorded values",
+        "layer": "work",
+        "desc": "The values rows recorded for the work, which later rows read"
+      },
+      "sessions": {
+        "title": "Sessions",
+        "layer": "work",
+        "desc": "Each line's session, why it started, and its keep-warm pings",
+        "relations": [
+          "sessions",
+          "pings",
+          "cache_misses"
+        ]
+      },
+      "interjections": {
+        "title": "Interjections",
+        "layer": "work",
+        "desc": "What the owner or the architect said to a running work, and when each was handed in",
+        "relations": [
+          "interjections",
+          "waiting_interjections"
+        ],
+        "owner": "says something to a work, or rules on a design card"
+      },
+      "owner_notices": {
+        "title": "Notices to the owner",
+        "layer": "work",
+        "desc": "What the engine tells the owner of its own accord: pauses, design cards, waits, reverts",
+        "relations": [
+          "engine_notices"
+        ]
+      },
+      "counters": {
+        "title": "Counters",
+        "layer": "work",
+        "computed": true,
+        "desc": "How many times the work took the rows that count each counter",
+        "relations": [
+          "work_counters",
+          "work_asking"
+        ]
+      },
+      "design_cards": {
+        "title": "Design cards",
+        "layer": "round",
+        "desc": "The design decisions a round handed in for the owner to rule on, with the rulings",
+        "relations": [
+          "design_cards",
+          "item_design_cards",
+          "parent_design_cards",
+          "work_design_card"
+        ],
+        "owner": "rules on each decision"
+      },
+      "owner_asks": {
+        "title": "Asks of the owner",
+        "layer": "round",
+        "desc": "What a round asked the owner, and the answer",
+        "relations": [
+          "owner_asks",
+          "item_asks"
+        ],
+        "inputs": [
+          "owner_answer"
+        ],
+        "owner": "answers"
+      },
+      "owner_messages": {
+        "title": "Messages to the owner",
+        "layer": "round",
+        "desc": "What an agent told the owner, which needs no answer",
+        "relations": [
+          "owner_messages"
+        ]
+      },
+      "tool_runs": {
+        "title": "Tool runs",
+        "layer": "round",
+        "desc": "Each tool a round ran: CI, measurements, the merge, with results",
+        "relations": [
+          "tool_runs",
+          "work_ci",
+          "work_measurements"
+        ]
+      },
+      "batch": {
+        "title": "Item changes",
+        "layer": "round",
+        "desc": "The item changes the architect's rounds collected into a batch, and what became of each",
+        "relations": [
+          "architect_item_changes"
+        ],
+        "inputs": [
+          "batch",
+          "batch_changes",
+          "changes_touch"
+        ]
+      }
+    },
+    "writes": {
+      "record_place": [
+        "branch",
+        "sessions"
+      ],
+      "lock_acceptance": [
+        "locked_acceptance"
+      ],
+      "lock_new_acceptance": [
+        "locked_acceptance"
+      ],
+      "post_design_card": [
+        "design_cards",
+        "architect_queue",
+        "owner_notices"
+      ],
+      "update_design_card": [
+        "design_cards",
+        "architect_queue",
+        "owner_notices"
+      ],
+      "replace_design_card": [
+        "design_cards"
+      ],
+      "notify_pending_approvers": [
+        "owner_notices"
+      ],
+      "revert_merge": [],
+      "reopen_with_fix": [
+        "branch"
+      ],
+      "report_missing_check": [
+        "owner_notices"
+      ],
+      "record_waits": [
+        "dependencies"
+      ],
+      "record_tool_runs": [
+        "branch"
+      ],
+      "set_aside_checks": [],
+      "hand_over_to_sub_items": [
+        "branch"
+      ],
+      "wake_architect": [
+        "architect_queue"
+      ],
+      "deliver_answers": [
+        "owner_notices"
+      ],
+      "tell_owner": [
+        "owner_messages"
+      ],
+      "queue_fixes": [
+        "architect_queue"
+      ],
+      "hold_to_set_straight": [
+        "holds"
+      ],
+      "release_straight_hold": [
+        "holds"
+      ],
+      "settle_straight_hold": [
+        "holds"
+      ],
+      "hold_for_policy": [
+        "holds"
+      ],
+      "release_policy_hold": [
+        "holds"
+      ],
+      "close_matter": [
+        "architect_queue"
+      ],
+      "apply_effects": [
+        "batch",
+        "observations",
+        "interjections",
+        "holds",
+        "architect_queue"
+      ],
+      "reply_to_engineer": [
+        "architect_queue"
+      ],
+      "answer_architect": [
+        "architect_queue"
+      ],
+      "interject_card": [
+        "interjections"
+      ],
+      "revise_batch": [
+        "batch"
+      ],
+      "apply_batch": [
+        "items",
+        "item_state",
+        "dependencies",
+        "batch",
+        "architect_queue",
+        "sessions"
+      ],
+      "apply_reviewed": [
+        "items",
+        "item_state",
+        "dependencies",
+        "batch",
+        "owner_asks",
+        "sessions"
+      ],
+      "new_architect_session": [
+        "sessions"
+      ],
+      "tell_owner_unclear": [
+        "owner_messages"
+      ],
+      "open_session": [
+        "sessions"
+      ],
+      "queue_slots_free": [
+        "architect_queue"
+      ],
+      "close_settled_cards": [
+        "architect_queue"
+      ],
+      "withdraw_matters": [
+        "architect_queue"
+      ],
+      "replace_design_cards": [
+        "design_cards"
+      ],
+      "close_asks": [
+        "owner_asks"
+      ],
+      "end_sessions": [
+        "sessions"
+      ],
+      "remove_worktree": [
+        "branch"
+      ],
+      "close_pr": [
+        "branch"
+      ],
+      "queue_followup": [
+        "architect_queue"
+      ],
+      "withdraw_question": [
+        "architect_queue"
+      ],
+      "start_work": [
+        "branch",
+        "sessions"
+      ],
+      "run_tools": [
+        "tool_runs"
+      ],
+      "full_ci_on_draft": [
+        "tool_runs"
+      ],
+      "merge": [
+        "tool_runs"
+      ],
+      "watch_main": [
+        "tool_runs"
+      ],
+      "ask_architect": [
+        "architect_queue"
+      ],
+      "ask_owner": [
+        "owner_asks",
+        "owner_notices"
+      ],
+      "wait_for_start": [
+        "owner_notices"
+      ],
+      "wake": [
+        "sessions"
+      ]
+    },
+    "reads": {
+      "deliver": {
+        "says": "the item: a change or a report",
+        "stores": [
+          "items"
+        ]
+      },
+      "work": {
+        "says": "what the item delivers; the design's verdict on the design tree",
+        "stores": [
+          "items"
+        ]
+      },
+      "review_round": {
+        "says": "whether a review answered once"
+      },
+      "tree": {
+        "says": "the branch: design paths changed since the last review",
+        "stores": [
+          "branch"
+        ]
+      },
+      "gates": {
+        "says": "dependencies merged; design card confirmed for this head",
+        "stores": [
+          "dependencies",
+          "merge_record",
+          "design_cards"
+        ]
+      },
+      "interjection": {
+        "says": "an interjection for the engineer not handed in yet",
+        "stores": [
+          "interjections"
+        ]
+      },
+      "split": {
+        "says": "the reply: sub-items split off, and what this work keeps"
+      },
+      "came_by": {
+        "says": "the cell the work came from",
+        "stores": [
+          "place"
+        ]
+      },
+      "must_wait": {
+        "says": "the reply's items to wait for, against the merge record",
+        "stores": [
+          "merge_record"
+        ]
+      },
+      "waited": {
+        "says": "the items waited for, against the merge record",
+        "stores": [
+          "dependencies",
+          "merge_record"
+        ]
+      },
+      "design_card_disputed": {
+        "says": "a ruling that disagrees with the design card",
+        "stores": [
+          "design_cards"
+        ]
+      },
+      "understood": {
+        "says": "whether the session answered the understanding question",
+        "stores": [
+          "sessions"
+        ]
+      },
+      "entry": {
+        "says": "first wake, new policy, new session, compaction or rethink",
+        "stores": [
+          "sessions"
+        ]
+      },
+      "route": {
+        "says": "the matter picked, and the answer to its ask",
+        "stores": [
+          "architect_queue",
+          "owner_asks"
+        ]
+      },
+      "next_in_batch": {
+        "says": "matters left to pick; the batch's changes",
+        "stores": [
+          "architect_queue",
+          "batch"
+        ]
+      },
+      "fixes_before": {
+        "says": "the batch's earlier reviews",
+        "stores": [
+          "batch"
+        ]
+      },
+      "asker": {
+        "says": "the cell that asked: on a matter's path or not",
+        "stores": [
+          "place"
+        ]
+      },
+      "question": {
+        "says": "the kind of the engineer's question picked",
+        "stores": [
+          "architect_queue"
+        ]
+      },
+      "report": {
+        "says": "the kind of report picked",
+        "stores": [
+          "architect_queue"
+        ]
+      },
+      "start": {
+        "says": "held; blocked by an item not merged; project held; in an open batch; slots",
+        "stores": [
+          "item_state",
+          "dependencies",
+          "merge_record",
+          "holds",
+          "batch"
+        ]
+      },
+      "turn": {
+        "says": "the project's merge queue: another work ahead",
+        "stores": [
+          "place"
+        ]
+      },
+      "cancelled": {
+        "says": "a notice that an item depended on was cancelled",
+        "stores": [
+          "interjections"
+        ]
+      },
+      "ask_architect": {
+        "stores": [
+          "architect_queue"
+        ]
+      },
+      "look_at_queue": {
+        "stores": [
+          "architect_queue"
+        ]
+      }
     }
   },
   "rules": [
@@ -2857,16 +3472,17 @@
   "flows": [
     {
       "name": "engineer",
-      "start": "S0",
+      "start": "U0",
       "end": "E1",
       "blocks": [
         {
           "name": "start",
           "nodes": [
+            "U0",
             "S0"
           ],
           "entries": [
-            "S0"
+            "U0"
           ]
         },
         {
@@ -2922,9 +3538,28 @@
           ]
         },
         {
+          "name": "pause",
+          "nodes": [
+            "X3"
+          ],
+          "entries": [
+            "X3"
+          ]
+        },
+        {
+          "name": "answers",
+          "nodes": [
+            "X4"
+          ],
+          "entries": [
+            "X4"
+          ]
+        },
+        {
           "name": "end",
           "nodes": [
-            "E1"
+            "E1",
+            "C1"
           ],
           "entries": [
             "E1"
@@ -2935,11 +3570,7 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell `R1` and the first round of cells `I1` and `T6` start a new session, and every other round continues the latest",
-            "starts": [
-              "I1",
-              "T6"
-            ]
+            "desc": "The engineer doing this work: cell `R1` and the first round of cells `I1` and `T6` start a new session, and every other round continues the latest"
           },
           {
             "name": "review",
@@ -2958,7 +3589,7 @@
           "Before each round the session manager looks at the line's session: when its context is past the configuration's limit, or the round is the work's first at a cell the line starts a session at, the line starts a new session, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs.",
           "Compaction still happens, for instance when a session fills up within a round. The session's record marks the compaction, and the session manager sees it: right after the compaction, the session manager gives the rules and inputs this cell got in this round again, then has the agent carry on. From then on the engine treats it as a new session and gives later cells what they need as usual.",
           "A cell on no line starts a session of its own every round, and the engine gives it every input.",
-          "When an agent hands in pause, the engine runs the same cell again in the same session: it gives the cell's always inputs again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
+          "When an agent hands in pause, the work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session: it gives the cell's always inputs again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
         ]
       },
       "rules": [
@@ -3066,17 +3697,19 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for the owner to confirm the design card\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While asking someone (the advisor, the architect or the owner), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "unready comes before this flow starts, and start is its first stage: once an item is written and queued, it goes from unready to start. A work can be cancelled at any cell; cancelled is an end too."
+          "unready is where an item waits before a work starts on it: it has no work yet, and the rows of cell `U0` say what holds it back. A work can be cancelled, or taken over by a work on a newer flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
         ],
         "list": [
           {
             "name": "unready",
-            "desc": "The item is still being written: its problem and acceptance are not ready, and work cannot start",
-            "nodes": []
+            "desc": "The item waits to start: held back, or waiting for a slot; it has no work yet",
+            "nodes": [
+              "U0"
+            ]
           },
           {
             "name": "start",
-            "desc": "The item is written and queued, waiting for a slot; when work starts, the engine gives it a machine and a session here",
+            "desc": "The work starts: the engine gives it a machine and a session",
             "nodes": [
               "S0"
             ]
@@ -3148,8 +3781,10 @@
           },
           {
             "name": "cancelled",
-            "desc": "The owner or the architect cancelled it: a work can be cancelled at any cell, so no row leads here",
-            "nodes": []
+            "desc": "The owner or the architect cancelled it, or a work on a newer flow took it over: from any cell",
+            "nodes": [
+              "C1"
+            ]
           }
         ]
       },
@@ -3478,7 +4113,7 @@
                 "pause"
               ]
             ],
-            "to": "@self",
+            "to": "X3",
             "counts": "total_time"
           },
           {
@@ -3489,7 +4124,7 @@
                 "answers"
               ]
             ],
-            "to": "@self",
+            "to": "X4",
             "counts": "interjections"
           },
           {
@@ -3646,10 +4281,6 @@
             "do": "wake_architect"
           },
           {
-            "at": "answers",
-            "do": "deliver_answers"
-          },
-          {
             "at": "redirect.answers",
             "do": "deliver_answers"
           },
@@ -3695,50 +4326,183 @@
         ],
         "line": "engineer",
         "inputs": [],
-        "prompt": "If yes, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. If no, leave outcome empty and say why not in progress. Anything else this round must ask about, ask too.",
-        "row": {
-          "name": "no",
-          "main": true
-        },
+        "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. For `{on}`, hand in answer, with why. Anything else this round must ask about, ask too.",
         "na": {
-          "row": {
-            "name": "no",
-            "main": true
-          },
-          "prompt": "If yes, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. If no, or if this question does not apply to this work, answer in answer and say why; it does not apply when, for instance, {na}. Anything else this round must ask about, ask too.",
-          "out": {
-            "name": "answer",
-            "type": "union",
-            "by": "verdict",
-            "desc": "The answer to this question; for yes, do not hand this in but ask",
-            "branches": [
-              {
-                "value": "no",
-                "desc": "Thought through: this work has nothing of the kind",
-                "fields": [
-                  {
-                    "name": "why",
-                    "type": "text",
-                    "desc": "Why not"
-                  }
-                ]
-              },
-              {
-                "value": "not_applicable",
-                "desc": "This question does not apply to this work: what it asks about, this work does not have",
-                "fields": [
-                  {
-                    "name": "why",
-                    "type": "text",
-                    "desc": "Why it does not apply"
-                  }
-                ]
-              }
-            ]
-          }
-        }
+          "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. For `{on}`, or when this question does not apply to this work, hand in answer, with why; it does not apply when, for instance, {na}. Anything else this round must ask about, ask too.",
+          "value": [
+            "not_applicable",
+            "This question does not apply to this work: what it asks about, this work does not have"
+          ],
+          "why": "Why it does not apply"
+        },
+        "answer": "The answer to this question; for `{problem}`, do not hand this in but ask",
+        "why": "Why"
       },
       "nodes": [
+        {
+          "id": "U0",
+          "kind": "engine",
+          "title": "Waits to start",
+          "step": "wait_to_start",
+          "do": [
+            "queue_slots_free"
+          ],
+          "inputs": [
+            {
+              "what": "Whether the item is held, and its place among the items that wait to start",
+              "from": [
+                {
+                  "db": "ready_items"
+                }
+              ]
+            },
+            {
+              "what": "The items it depends on by a blocking dependency that are not merged yet",
+              "from": [
+                {
+                  "db": "item_blocked_by",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "what": "The holds on new starts of its project",
+              "from": [
+                {
+                  "db": "dispatch_holds",
+                  "by": "project"
+                }
+              ]
+            },
+            {
+              "what": "Free slots, and the machines with room",
+              "from": [
+                {
+                  "engine": "free_slots"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "held",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "held"
+                  ]
+                ]
+              ],
+              "to": "U0",
+              "waits": true,
+              "note": "Until the owner or the architect lets it go."
+            },
+            {
+              "name": "blocked",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "blocked"
+                  ]
+                ]
+              ],
+              "to": "U0",
+              "waits": true,
+              "note": "Until each such item merges; an item cancelled holds back nothing."
+            },
+            {
+              "name": "project_held",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "project_held"
+                  ]
+                ]
+              ],
+              "to": "U0",
+              "waits": true,
+              "note": "Until the architect releases the hold."
+            },
+            {
+              "name": "in_batch",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "in_batch"
+                  ]
+                ]
+              ],
+              "to": "U0",
+              "waits": true,
+              "note": "Until the review of the batch makes or drops the change."
+            },
+            {
+              "name": "no_slot",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "no_slot"
+                  ]
+                ]
+              ],
+              "to": "U0",
+              "waits": true,
+              "note": "Until a work ends, waits or pauses, which frees its slot."
+            },
+            {
+              "name": "ready",
+              "if": [
+                [
+                  "inp",
+                  "start",
+                  [
+                    "ready"
+                  ]
+                ]
+              ],
+              "to": "S0",
+              "main": true
+            }
+          ],
+          "inenums": {
+            "start": [
+              [
+                "held",
+                "The owner or the architect holds the item back"
+              ],
+              [
+                "blocked",
+                "An item it depends on by a blocking dependency is not merged yet"
+              ],
+              [
+                "project_held",
+                "New starts of its project are held: the architect sets the project straight or sets a policy"
+              ],
+              [
+                "in_batch",
+                "A change in the architect's open batch names it, and waits for the review"
+              ],
+              [
+                "no_slot",
+                "No slot is free"
+              ],
+              [
+                "ready",
+                "Nothing holds it back, and a slot is free"
+              ]
+            ]
+          }
+        },
         {
           "id": "S0",
           "kind": "engine",
@@ -3812,6 +4576,7 @@
               ],
               "to": "R1",
               "do": [
+                "open_session",
                 {
                   "at": "place",
                   "do": "record_place"
@@ -3982,10 +4747,10 @@
         {
           "id": "R2",
           "kind": "gate",
-          "title": "Does it stand",
+          "title": "Whether it stands",
           "effort": "medium",
           "about": "work_does_not_stand",
-          "question": "Does this work not stand? Judge only whether the problem itself is worth solving; the approach the item writes does not count. It does not stand if the pain does not exist, solving it would not remove the pain, or the item's scope, deliverable or place is wrong; if the root lies in another item, project or module, report root_elsewhere. You may report several reasons it does not stand, each with its reason; not standing does not mean cancelling: someone decides later.",
+          "question": "Judge whether this work stands: whether the problem itself is worth solving; the approach the item writes does not count. If the root lies in another item, project or module, report root_elsewhere. A work that does not stand may have several reasons, each asked with its own; not standing does not mean cancelling: someone decides later.",
           "to": "D1",
           "sets": {
             "stage": "design_on"
@@ -4000,7 +4765,17 @@
                 ]
               ]
             }
-          ]
+          ],
+          "outcomes": {
+            "on": [
+              "stands",
+              "It stands: the pain exists, solving the problem removes it, and the item's scope, deliverable and place are right"
+            ],
+            "problem": [
+              "does_not_stand",
+              "It does not stand: the pain does not exist, solving the problem would not remove it, or the item's scope, deliverable or place is wrong"
+            ]
+          }
         },
         {
           "id": "D1",
@@ -4544,6 +5319,63 @@
           ]
         },
         {
+          "id": "X3",
+          "kind": "engine",
+          "title": "Wait for the owner's Start",
+          "step": "wait_for_start",
+          "inputs": [],
+          "cases": [
+            {
+              "name": "started",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "waits": true,
+              "main": true,
+              "note": "The cell that paused carries on in the same session."
+            }
+          ]
+        },
+        {
+          "id": "X4",
+          "kind": "engine",
+          "title": "Hand the answers to who interjected",
+          "inputs": [
+            {
+              "id": "answers",
+              "what": "The answers the cell handed in, each with whom it answers",
+              "from": [
+                [
+                  "@caller",
+                  "answers"
+                ]
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "delivered",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                {
+                  "at": "@answers",
+                  "do": "deliver_answers"
+                }
+              ],
+              "note": "The cell that answered carries on in the same session."
+            }
+          ]
+        },
+        {
           "id": "D3",
           "kind": "agent",
           "title": "Think again: is there a better design",
@@ -4664,11 +5496,11 @@
         {
           "id": "D4",
           "kind": "gate",
-          "title": "A gap in what is under test",
+          "title": "Gaps in what is under test",
           "effort": "medium",
           "about": "gap_under_test",
           "needs": "under_test",
-          "question": "Carrying out your design, would you meet a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly?",
+          "question": "Judge whether carrying out your design meets a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly.",
           "na": "the work writes and changes no code that uses what is under test, such as a change to documents only",
           "to": "D5",
           "inputs": [
@@ -4689,15 +5521,25 @@
                 ]
               ]
             }
-          ]
+          ],
+          "outcomes": {
+            "on": [
+              "no_gap",
+              "Carrying out the design meets nothing of the kind"
+            ],
+            "problem": [
+              "gap",
+              "Carrying out the design meets a natural way of writing something that what is under test rejects or handles badly"
+            ]
+          }
         },
         {
           "id": "D5",
           "kind": "gate",
-          "title": "Are you sure",
+          "title": "Whether you are sure",
           "effort": "high",
           "about": "unsure",
-          "question": "Does your design rest on any fact not yet checked that would change the direction if it were wrong?",
+          "question": "Judge whether every fact your design rests on that would change the direction if it were wrong is checked.",
           "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
           "to": "D6",
           "inputs": [
@@ -4718,7 +5560,17 @@
                 ]
               ]
             }
-          ]
+          ],
+          "outcomes": {
+            "on": [
+              "sure",
+              "Every such fact is checked"
+            ],
+            "problem": [
+              "unsure",
+              "The design rests on a fact not yet checked that would change the direction if it were wrong"
+            ]
+          }
         },
         {
           "id": "D6",
@@ -4726,7 +5578,7 @@
           "title": "Cost: architectural burden",
           "effort": "medium",
           "about": "too_costly",
-          "question": "By your design, is the change so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it?",
+          "question": "Judge, by your design, whether the change is worth its architectural burden and what it costs to maintain.",
           "na": "a report, or a change to documents only, changes no architecture and adds no burden",
           "to": "D7",
           "inputs": [
@@ -4747,7 +5599,17 @@
                 ]
               ]
             }
-          ]
+          ],
+          "outcomes": {
+            "on": [
+              "worth_it",
+              "The change is worth its burden and its cost to maintain"
+            ],
+            "problem": [
+              "too_costly",
+              "The change is so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it"
+            ]
+          }
         },
         {
           "id": "D7",
@@ -4756,7 +5618,7 @@
           "effort": "medium",
           "about": "depends_on_other_item",
           "needs": "other_projects",
-          "question": "By your design, must this work wait for another project to deliver something?",
+          "question": "Judge, by your design, whether this work can go on by itself, or must wait for another project to deliver something.",
           "to": "D8",
           "inputs": [
             {
@@ -4776,15 +5638,25 @@
                 ]
               ]
             }
-          ]
+          ],
+          "outcomes": {
+            "on": [
+              "on_its_own",
+              "It needs nothing another project has yet to deliver"
+            ],
+            "problem": [
+              "waits_for_project",
+              "It must wait for another project to deliver something"
+            ]
+          }
         },
         {
           "id": "D8",
           "kind": "gate",
-          "title": "Size: must it be split",
+          "title": "Size: one PR or split",
           "effort": "medium",
           "about": "split",
-          "question": "By your design and its estimate, must this work be split into several? If one PR can do it, meaning one engineer can do it in a day and a reader can take it in at a glance, it need not be split.",
+          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several.",
           "inputs": [
             {
               "what": "The estimate in the design",
@@ -4875,6 +5747,7 @@
               ],
               "to": "I1",
               "do": [
+                "open_session",
                 "lock_acceptance",
                 "post_design_card"
               ],
@@ -4897,6 +5770,7 @@
                 "full_ci": "skipped"
               },
               "do": [
+                "open_session",
                 "lock_acceptance",
                 "post_design_card"
               ],
@@ -4906,6 +5780,16 @@
           ],
           "inenums": {
             "deliver": "deliver_kind"
+          },
+          "outcomes": {
+            "on": [
+              "one_pr",
+              "One PR can do it"
+            ],
+            "problem": [
+              "must_split",
+              "It must be split into several works"
+            ]
           }
         },
         {
@@ -4987,6 +5871,7 @@
               ],
               "to": "I1",
               "do": [
+                "open_session",
                 "lock_acceptance",
                 "post_design_card"
               ],
@@ -5005,6 +5890,7 @@
               ],
               "to": "I1",
               "do": [
+                "open_session",
                 "lock_acceptance",
                 "post_design_card"
               ],
@@ -5555,7 +6441,10 @@
                   ]
                 ]
               ],
-              "to": "T6"
+              "to": "T6",
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "full_ci",
@@ -5943,7 +6832,10 @@
                   ]
                 ]
               ],
-              "to": "T6"
+              "to": "T6",
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "not_run",
@@ -6778,10 +7670,20 @@
                   [
                     "no"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "T6",
-              "note": "The review did not accept skipping adversarial testing: it is done from the start."
+              "note": "The review did not accept skipping adversarial testing: it is done from the start.",
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "adversarial_only",
@@ -6820,6 +7722,13 @@
                 [
                   "inp",
                   "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
                   [
                     "no"
                   ]
@@ -6874,9 +7783,19 @@
                   [
                     "no"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
-              "to": "T6"
+              "to": "T6",
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "wait",
@@ -6922,6 +7841,13 @@
                 [
                   "inp",
                   "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
                   [
                     "no"
                   ]
@@ -6982,6 +7908,13 @@
                   [
                     "no"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "M2",
@@ -6996,12 +7929,35 @@
                   [
                     "yes"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "A4",
               "counts": "interjections",
               "interject": true,
               "note": "The engine takes the interjection to choose the way on; if that carries on, the work comes back here and the engine judges again."
+            },
+            {
+              "name": "cancelled",
+              "if": [
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "counts": "interjections",
+              "interject": true,
+              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on."
             }
           ],
           "inenums": {
@@ -7015,7 +7971,17 @@
                 "Something is not ready: an item depended on is not merged, or the owner has not confirmed every decision of the change to the design tree, or it changed after the owner had"
               ]
             ],
-            "interjection": "interjection_state"
+            "interjection": "interjection_state",
+            "cancelled": [
+              [
+                "yes",
+                "An item this work's item depended on was cancelled, and the work has not taken it up yet"
+              ],
+              [
+                "no",
+                "None was"
+              ]
+            ]
           }
         },
         {
@@ -7853,6 +8819,13 @@
                   [
                     "merged"
                   ]
+                ],
+                [
+                  "inp",
+                  "turn",
+                  [
+                    "first"
+                  ]
                 ]
               ],
               "to": "L1",
@@ -7868,10 +8841,20 @@
                     "conflict",
                     "red"
                   ]
+                ],
+                [
+                  "inp",
+                  "turn",
+                  [
+                    "first"
+                  ]
                 ]
               ],
               "to": "T6",
-              "note": "The PR leaves the merge queue to be fixed, and joins it again at the end after the fix."
+              "note": "The PR leaves the merge queue to be fixed, and joins it again at the end after the fix.",
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "not_run",
@@ -7882,13 +8865,47 @@
                   [
                     "not_run"
                   ]
+                ],
+                [
+                  "inp",
+                  "turn",
+                  [
+                    "first"
+                  ]
                 ]
               ],
               "to": "A2",
               "counts": "tool_failures",
               "note": "The engine asks the architect; when the reply comes, this cell runs again."
+            },
+            {
+              "name": "behind",
+              "if": [
+                [
+                  "inp",
+                  "turn",
+                  [
+                    "behind"
+                  ]
+                ]
+              ],
+              "to": "M2",
+              "waits": true,
+              "note": "Another work of the project is ahead in the merge queue: this one waits its turn without holding a slot."
             }
-          ]
+          ],
+          "inenums": {
+            "turn": [
+              [
+                "first",
+                "No other work of the project is ahead of it in the merge queue"
+              ],
+              [
+                "behind",
+                "Another work of the project is ahead of it in the merge queue"
+              ]
+            ]
+          }
         },
         {
           "id": "L1",
@@ -8043,6 +9060,7 @@
                 "full_ci": "not_green"
               },
               "do": [
+                "open_session",
                 "revert_merge",
                 "reopen_with_fix",
                 "report_missing_check"
@@ -8601,6 +9619,13 @@
                   [
                     "no"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "A4",
@@ -8622,6 +9647,13 @@
                   [
                     "no"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "A6",
@@ -8637,12 +9669,35 @@
                   [
                     "yes"
                   ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "A4",
               "counts": "interjections",
               "interject": true,
               "note": "The engine takes the interjection to choose the way on; if that still waits, the work comes back here to wait."
+            },
+            {
+              "name": "cancelled",
+              "if": [
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "counts": "interjections",
+              "interject": true,
+              "note": "An item it waited for was cancelled and never delivers: the engine takes the notice to choose the way on."
             }
           ],
           "inenums": {
@@ -8656,7 +9711,17 @@
                 "Some are not merged yet"
               ]
             ],
-            "interjection": "interjection_state"
+            "interjection": "interjection_state",
+            "cancelled": [
+              [
+                "yes",
+                "An item this work's item depended on was cancelled, and the work has not taken it up yet"
+              ],
+              [
+                "no",
+                "None was"
+              ]
+            ]
           }
         },
         {
@@ -8881,12 +9946,45 @@
               "name": "answered",
               "if": [
                 [
-                  "all"
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "@asker"
+            },
+            {
+              "name": "cancelled",
+              "if": [
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "withdraw_question"
+              ],
+              "note": "An item this work depended on was cancelled while it waited for the reply: the question leaves the architect's queue, and the cell that asked, through choosing the way on for the engineer's cells, takes the notice."
             }
-          ]
+          ],
+          "inenums": {
+            "cancelled": [
+              [
+                "yes",
+                "An item this work's item depended on was cancelled, and the work has not taken it up yet"
+              ],
+              [
+                "no",
+                "None was"
+              ]
+            ]
+          }
         },
         {
           "id": "A3",
@@ -8972,7 +10070,28 @@
             }
           ],
           "out": [],
-          "cases": []
+          "cases": [],
+          "do": [
+            "queue_followup",
+            "withdraw_matters",
+            "end_sessions",
+            "remove_worktree"
+          ]
+        },
+        {
+          "id": "C1",
+          "kind": "engine",
+          "title": "Cancelled or taken over",
+          "step": "stop_work",
+          "do": [
+            "withdraw_matters",
+            "replace_design_cards",
+            "close_asks",
+            "end_sessions",
+            "remove_worktree",
+            "close_pr"
+          ],
+          "inputs": []
         }
       ],
       "designCard": [
@@ -8995,7 +10114,7 @@
         "text": [
           "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen); the architect does not rule on design cards, but may say what it found wrong in one. When the owner and the architect say different things, the owner's word goes.",
           "Delivery: while an agent's round runs, the session manager gives it the interjections waiting each time it finishes using a tool; those not delivered by the end of the round go at the top of the next round's input. Interjections and the agents' answers are recorded on the work and visible in the owner's interface.",
-          "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker, and the agent goes on in the same cell, like after a pause, with nothing drawn on the graph. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to cell `A4`; where to go is not thought about here but at cell `A4`, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
+          "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker (cell `X4`), and the agent goes on in the same cell and session. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to cell `A4`; where to go is not thought about here but at cell `A4`, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
           "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (cell `T7` choosing what runs next, cell `M1` judging whether it may enter the merge queue, including while it waits), it goes straight to cell `A4` to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if cell `T7` or `M1` comes next, sent to cell `A4` from there; if cell `E1` comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",
           "For the reviewer, the adversarial tester or the advisor while not running: a round on its session only answers. That round is not on the graph: once answered it is over, and the work stays where it is.",
           "Such a round does not change their last conclusion; if the owner's words must change a conclusion, they go at the top of the input the next time this work calls that agent."
@@ -9016,7 +10135,7 @@
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason; once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
           "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
@@ -9058,8 +10177,33 @@
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
+        ],
+        "engine": [
+          {
+            "name": "cut_off",
+            "when": "The engine stopped, or the work was paused, while the round ran",
+            "desc": "The round is closed as cut off, and the same cell runs again in the same session, told to look at the worktree as it is and go on."
+          },
+          {
+            "name": "cannot_step",
+            "when": "A step cannot be taken: the configuration is wrong, or the item is above the highest level",
+            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again.",
+            "pauses": true
+          },
+          {
+            "name": "repeats",
+            "when": "The message would give its session whole what the session already holds",
+            "desc": "It is not sent: a fault of the engine's. The engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again.",
+            "pauses": true
+          },
+          {
+            "name": "work_ended",
+            "when": "The work ended while its round ran, as when its item was cancelled",
+            "desc": "What the round hands in is not taken; what it cost is kept on it."
+          }
         ]
-      }
+      },
+      "cancel": "C1"
     },
     {
       "name": "architect",
@@ -9174,6 +10318,15 @@
           ]
         },
         {
+          "name": "pause",
+          "nodes": [
+            "X3"
+          ],
+          "entries": [
+            "X3"
+          ]
+        },
+        {
           "name": "end",
           "nodes": [
             "E2"
@@ -9187,7 +10340,20 @@
         "lines": [
           {
             "name": "architect",
-            "desc": "The architect of the wake's project: a wake goes on in the session the project's last wake left, from understanding the project to the wrap-up"
+            "desc": "The architect of the wake's project: a wake goes on in the session the project's last wake left, from understanding the project to the wrap-up",
+            "anew": {
+              "row": "session_anew",
+              "to": "W1",
+              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model changed): it holds no state of things, so the wake goes back to understanding the project first, and the matter picked goes back to the queue. Not after a new policy took effect, whose new session goes straight on to what to do next.",
+              "not": [
+                "U1",
+                "P2",
+                "P4",
+                "P7",
+                "P8",
+                "P10"
+              ]
+            }
           },
           {
             "name": "architect_review",
@@ -9203,7 +10369,7 @@
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
           "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
-          "When the architect hands in pause, the engine runs the same cell again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
+          "When the architect hands in pause, the wake waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
         ]
       },
       "rules": [
@@ -9573,7 +10739,10 @@
             ],
             "to": "X2",
             "counts": "searches",
-            "main": true
+            "main": true,
+            "do": [
+              "open_session"
+            ]
           },
           {
             "name": "pause",
@@ -9583,7 +10752,7 @@
                 "pause"
               ]
             ],
-            "to": "@self",
+            "to": "X3",
             "counts": "total_time"
           }
         ],
@@ -10604,6 +11773,9 @@
           "shown": [
             "queue",
             "progress"
+          ],
+          "do": [
+            "close_settled_cards"
           ]
         },
         {
@@ -12242,7 +13414,10 @@
                 ]
               ],
               "to": "B2",
-              "main": true
+              "main": true,
+              "do": [
+                "open_session"
+              ]
             },
             {
               "name": "done",
@@ -12982,6 +14157,27 @@
           ]
         },
         {
+          "id": "X3",
+          "kind": "engine",
+          "title": "Wait for the owner's Start",
+          "step": "wait_for_start",
+          "inputs": [],
+          "cases": [
+            {
+              "name": "started",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "waits": true,
+              "main": true,
+              "note": "The cell that paused carries on in the same session."
+            }
+          ]
+        },
+        {
           "id": "P2",
           "kind": "agent",
           "title": "Study the new policy",
@@ -13299,7 +14495,10 @@
               ],
               "to": "P6",
               "main": true,
-              "note": "The reader is on no line, so its every round is a new session: it is given only the text, the constitution and the probes, without their answers, and a session that has seen the probes is never used again."
+              "note": "The reader is on no line, so its every round is a new session: it is given only the text, the constitution and the probes, without their answers, and a session that has seen the probes is never used again.",
+              "do": [
+                "open_session"
+              ]
             }
           ]
         },
@@ -14078,7 +15277,7 @@
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work and tells the owner, with the last reason; once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
           "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
@@ -14120,6 +15319,30 @@
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
+        ],
+        "engine": [
+          {
+            "name": "cut_off",
+            "when": "The engine stopped, or the work was paused, while the round ran",
+            "desc": "The round is closed as cut off, and the same cell runs again in the same session, told to look at the worktree as it is and go on."
+          },
+          {
+            "name": "cannot_step",
+            "when": "A step cannot be taken: the configuration is wrong, or the item is above the highest level",
+            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again.",
+            "pauses": true
+          },
+          {
+            "name": "repeats",
+            "when": "The message would give its session whole what the session already holds",
+            "desc": "It is not sent: a fault of the engine's. The engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again.",
+            "pauses": true
+          },
+          {
+            "name": "work_ended",
+            "when": "The work ended while its round ran, as when its item was cancelled",
+            "desc": "What the round hands in is not taken; what it cost is kept on it."
+          }
         ]
       }
     }

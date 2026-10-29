@@ -1,5 +1,6 @@
 //! Which session an agent's round runs in: its line's session going on, or a new one, and why. A line starts a new
-//! session at its first round in a work, at the work's first round of a cell the flow says it starts one at, and when
+//! session at its first round in a work, at the work's first round of a cell the flow says it starts one at (a row
+//! leads there with the action `open_session`), and when
 //! the context of its session is past the configuration's limit, and when the owner asks for one; every other round
 //! goes on in the line's session. A cell on no line has a session of its own every round.
 
@@ -109,7 +110,10 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
     let Some((id, cli_session)) = going else {
         return Ok(Plan::New(Start::Line));
     };
-    if cell.new_session {
+    let (rounds, held) = held::of_session(conn, &cli_session)?;
+    // A fixed place of the flow opens a new session at the work's first round there; a session set up for the line
+    // that holds no round yet, as the start of a work sets up the engineer's, is new already.
+    if cell.new_session && !rounds.is_empty() {
         let before: i64 = conn
             .query_row(
                 "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND session IS NOT NULL",
@@ -121,7 +125,6 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
             return Ok(Plan::New(Start::Cell));
         }
     }
-    let (rounds, held) = held::of_session(conn, &cli_session)?;
     // A return sent back is rewritten in the session that wrote it; the limit and a new model take effect at the round
     // after. A model's prompt cache holds nothing of a session another model ran, so a session on another model would
     // be written again whole: a new one is given only what its cell needs.

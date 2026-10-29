@@ -37,6 +37,9 @@ pub struct Ctx {
     pub given: Map<String, Value>,
     /// The configuration's projects, for the works an item change ends.
     pub projects: BTreeMap<String, config::Project>,
+    /// The line of the cell that called the cell the round is at, if one waits for it: the agent whose answers a cell
+    /// that hands them on hands on.
+    pub caller_line: Option<String>,
 }
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -501,6 +504,21 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )?;
         }
         "set_aside_checks" => {}
+        // The session manager opens the new session as the round at the cell the row leads to starts, at the work's
+        // first round there: the cell's `new_session`, which the compiler sets from this action.
+        "open_session" => {}
+        "withdraw_question" => {
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = ?3
+                 WHERE work = ?1 AND round = ?2 AND handled_round IS NULL AND withdrawn IS NULL",
+                params![
+                    ctx.round.work,
+                    ctx.round.n,
+                    "the work stopped waiting for the reply: an item it depended on was cancelled"
+                ],
+            )
+            .map_err(sql)?;
+        }
         "wake_architect" => {
             // Each side report is one matter of the kind report for the architect of the work's project, queued once,
             // which wakes it when no wake of it runs; its queue marks one urgent.
@@ -548,15 +566,23 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             }
         }
         "deliver_answers" => {
-            let line = line_of(ctx);
-            // A return's answers, or those a redirect carries to the speakers it does not redirect for.
-            let mut all = ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default();
-            all.extend(
-                ctx.unwrapped["redirect"]["answers"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default(),
-            );
+            // At the cell that hands on the answers of the cell that called it, that cell's; else the return's own:
+            // its answers, or those a redirect carries to the speakers it does not redirect for.
+            let (line, all) = match at_value.as_ref().and_then(Value::as_array) {
+                Some(xs) if at.is_some_and(|p| p.starts_with('@')) => {
+                    (ctx.caller_line.clone().unwrap_or_else(|| line_of(ctx)), xs.clone())
+                }
+                _ => {
+                    let mut all = ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default();
+                    all.extend(
+                        ctx.unwrapped["redirect"]["answers"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default(),
+                    );
+                    (line_of(ctx), all)
+                }
+            };
             for a in all {
                 notify(
                     tx,

@@ -189,7 +189,7 @@ case!(
 );
 case!(
     a_gate_not_applicable_prompt_without_the_example,
-    "does not name the kind and the example",
+    "does not name the kind, the two outcomes and the example",
     |v| {
         let p = graph(v)["gate"]["na"]["prompt"].as_str().unwrap().replace("{na}", "");
         graph(v)["gate"]["na"]["prompt"] = json!(p);
@@ -358,12 +358,12 @@ case!(
         obj(node(v, "I1")).remove("effort");
     }
 );
-// A line starts a new session only at an agent's cell of its own: the review's first cell is not the engineer's.
+// A row opens a new session only into an agent's cell: an engine's step has no session.
 case!(
-    a_new_session_at_another_lines_cell,
-    "a line starts a new session at a cell that is not one of its agents: engineer T3",
+    a_new_session_into_an_engine_step,
+    "a row opens a new session into a cell that is not an agent's: T4 done",
     |v| {
-        graph(v)["sessions"]["lines"][0]["starts"] = json!(["I1", "T3"]);
+        row(v, "T4", "done")["do"] = json!(["open_session"]);
     }
 );
 case!(
@@ -449,6 +449,7 @@ case!(a_loop_with_no_counter, "no counter", |v| {
 });
 case!(a_pause_with_no_counter, "no counter", |v| {
     obj(&mut graph(v)["agentCommon"]["rows"][1]).remove("counts");
+    obj(row(v, "X3", "started")).remove("waits");
     rows(v, "S0")[0]["counts"] = json!("total_time");
 });
 case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {

@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Check, Do, Flow, Form, Input, Node, NodeKind, PromptBy, RawField, RawRow, ReadBy, Role, Rule, Source,
-    Src,
+    Always, Atom, Branches, Check, Do, Flow, Form, Input, Kind, Node, NodeKind, OPEN_SESSION, PromptBy, RawBranch,
+    RawField, RawRow, ReadBy, Role, Rule, Source, Src,
 };
 
 macro_rules! ensure {
@@ -110,6 +110,10 @@ pub(crate) struct Cell {
     pub say: String,
     pub rows: Vec<Row>,
     pub always: Vec<Always>,
+    /// What an engine's cell does besides its step and its rows: at an end, how the work ends.
+    pub actions: Vec<String>,
+    /// A gate's two outcomes, by name: the one that goes on, and the problem.
+    pub outcomes: Vec<String>,
     pub checks: Vec<Check>,
     pub handoff: Vec<String>,
     /// What the owner's page shows on the item: the owner reads it there.
@@ -134,6 +138,8 @@ pub(crate) struct Graph<'s> {
     pub at: BTreeMap<String, usize>,
     pub start: usize,
     pub end: usize,
+    /// The end a work cancelled or taken over ends at, which no row leads to.
+    pub cancel: Option<usize>,
     pub region: BTreeSet<usize>,
     pub receive: Option<usize>,
     /// The cells with a row back to the caller or the asker.
@@ -284,14 +290,15 @@ impl<'s> Graph<'s> {
             "gate cells in a flow with no gate"
         );
         if let Some(g) = gate {
+            let named = |p: &str| ["{about}", "{on}", "{problem}"].iter().all(|x| p.contains(x));
             ensure!(
-                g.prompt.contains("{about}"),
-                "gate.prompt does not name the kind: {}",
+                named(g.prompt.as_str()),
+                "gate.prompt does not name the kind and the two outcomes: {}",
                 g.prompt
             );
             ensure!(
-                g.na.prompt.contains("{about}") && g.na.prompt.contains("{na}"),
-                "gate.na.prompt does not name the kind and the example: {}",
+                named(g.na.prompt.as_str()) && g.na.prompt.contains("{na}"),
+                "gate.na.prompt does not name the kind, the two outcomes and the example: {}",
                 g.na.prompt
             );
         }
@@ -329,10 +336,15 @@ impl<'s> Graph<'s> {
         let mut nodes = Vec::new();
         for n in &flow.nodes {
             let gated = n.about.is_some() || n.needs.is_some() || n.question.is_some() || n.na.is_some();
-            let gated = gated || n.to.is_some() || n.sets.is_some() || n.rows.is_some();
+            let gated = gated || n.to.is_some() || n.sets.is_some() || n.rows.is_some() || n.outcomes.is_some();
             ensure!(
                 n.kind == NodeKind::Gate || !gated,
-                "only a gate has about, needs, question, na, to, sets or rows: {}",
+                "only a gate has about, needs, question, na, outcomes, to, sets or rows: {}",
+                n.id
+            );
+            ensure!(
+                n.kind == NodeKind::Engine || n.actions.is_none(),
+                "only an engine's cell does anything besides its step and rows: {}",
                 n.id
             );
             nodes.push(match (n.kind, gate) {
@@ -790,6 +802,14 @@ impl<'s> Graph<'s> {
                 say,
                 rows,
                 always,
+                actions: n.actions.clone().unwrap_or_default(),
+                outcomes: flow
+                    .nodes
+                    .iter()
+                    .find(|m| &m.id == nid)
+                    .and_then(|m| m.outcomes.as_ref())
+                    .map(|o| vec![o.on.0.clone(), o.problem.0.clone()])
+                    .unwrap_or_default(),
                 checks,
                 handoff: n.handoff.clone().unwrap_or_default(),
                 shown,
@@ -802,10 +822,20 @@ impl<'s> Graph<'s> {
         }
         let start = idx(&flow.start).map_err(|e| format!("no such start: {e}"))?;
         let end = idx(&flow.end).map_err(|e| format!("no such end: {e}"))?;
+        let cancel = flow
+            .cancel
+            .as_deref()
+            .map(idx)
+            .transpose()
+            .map_err(|e| format!("no such end for a work cancelled: {e}"))?;
+        ensure!(
+            cancel.is_none_or(|x| x != end && cells[x].kind == CellKind::Engine && cells[x].step.is_some()),
+            "the end for a work cancelled is an engine's step of its own"
+        );
         for (i, c) in cells.iter_mut().enumerate() {
             ensure!(
-                c.rows.is_empty() == (i == end),
-                "the end, and only the end, has no rows: {}",
+                c.rows.is_empty() == (i == end || Some(i) == cancel),
+                "the ends, and only the ends, have no rows: {}",
                 c.id
             );
             for r in &mut c.rows {
@@ -837,15 +867,32 @@ impl<'s> Graph<'s> {
                 l.name
             );
         }
-        // A line starts a new session only at a cell of its own.
-        for l in &flow.sessions.lines {
-            for s in &l.starts {
+        // A row opens a new session only into an agent's cell, whose line's session it is.
+        for c in &cells {
+            for r in c
+                .rows
+                .iter()
+                .filter(|r| r.actions.iter().any(|d| d.name() == OPEN_SESSION))
+            {
                 ensure!(
-                    cells
-                        .iter()
-                        .any(|c| c.id == *s && c.kind == CellKind::Agent && c.line.as_ref() == Some(&l.name)),
-                    "a line starts a new session at a cell that is not one of its agents: {} {s}",
-                    l.name
+                    cells.iter().any(|m| m.id == r.to && m.kind == CellKind::Agent),
+                    "a row opens a new session into a cell that is not an agent's: {} {}",
+                    c.id,
+                    r.name
+                );
+            }
+        }
+        for l in &flow.sessions.lines {
+            // Where the line goes when its session would start afresh: a cell, from cells of the line.
+            if let Some(a) = &l.anew {
+                ensure!(
+                    at.contains_key(&a.to)
+                        && a.not
+                            .iter()
+                            .all(|x| cells.iter().any(|c| c.id == *x && c.line.as_ref() == Some(&l.name))),
+                    "a line's new session goes to no such cell, or leaves out a cell not on it: {} {}",
+                    l.name,
+                    a.to
                 );
             }
         }
@@ -975,6 +1022,7 @@ impl<'s> Graph<'s> {
             at,
             start,
             end,
+            cancel,
             region,
             receive,
             called,
@@ -1131,7 +1179,9 @@ fn asks_for(shapes: &Shapes, x: &RawField, what: &str) -> Result<bool, String> {
     Ok(false)
 }
 
-/// A gate as the agent's cell it is: one question, whose own answer goes on to one cell or by its rows.
+/// A gate as the agent's cell it is: one question, answered by one of two named outcomes. The one that goes on is its
+/// own answer, whose row is named after it and goes on to one cell or by the gate's rows; the problem is asked about,
+/// with the gate's kind.
 fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) -> Result<Node, String> {
     let id = &n.id;
     let about = n.about.clone().unwrap_or_default();
@@ -1155,13 +1205,22 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
     let own = n.step.is_some() || n.line.is_some() || n.tools.is_some() || n.rules.is_some() || n.prompt.is_some();
     let own = own || n.prompt_by.is_some() || n.out.is_some() || n.cases.is_some() || n.checks.is_some();
     ensure!(
-        !own && n.handoff.is_none() && n.asks.is_none() && n.without.is_none(),
+        !own && n.handoff.is_none() && n.asks.is_none() && n.without.is_none() && n.actions.is_none(),
         "a gate takes its line, tools, prompt and output from the flow's gate: {id}"
     );
     let question = n
         .question
         .clone()
         .ok_or_else(|| format!("a gate with no question: {id}"))?;
+    let outcomes = n
+        .outcomes
+        .as_ref()
+        .ok_or_else(|| format!("a gate with no outcomes: {id}"))?;
+    let (on, problem) = (&outcomes.on.0, &outcomes.problem.0);
+    ensure!(
+        !on.is_empty() && !problem.is_empty() && on != problem && *on != g.na.value.0 && *problem != g.na.value.0,
+        "a gate's two outcomes are two names, neither not applicable: {id}"
+    );
     let rows = match &n.rows {
         Some(rows) => rows
             .iter()
@@ -1171,27 +1230,54 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
                 r
             })
             .collect(),
-        None => {
-            let row = na.map(|x| &x.row).unwrap_or(&g.row);
-            vec![RawRow {
-                name: row.name.clone(),
-                conditions: vec![Atom::Own],
-                to: n.to.clone().unwrap_or_default(),
-                sets: n.sets.clone(),
-                actions: None,
-                counts: None,
-                waits: None,
-                interject: None,
-                main: Some(row.main),
-                drops: None,
-                note: None,
-            }]
-        }
+        None => vec![RawRow {
+            name: on.clone(),
+            conditions: vec![Atom::Own],
+            to: n.to.clone().unwrap_or_default(),
+            sets: n.sets.clone(),
+            actions: None,
+            counts: None,
+            waits: None,
+            interject: None,
+            main: Some(true),
+            drops: None,
+            note: None,
+        }],
     };
-    let prompt = na.map(|x| &x.prompt).unwrap_or(&g.prompt);
-    let prompt = prompt
-        .replace("{about}", &about)
-        .replace("{na}", n.na.as_deref().unwrap_or(""));
+    let fill = |text: &str| {
+        text.replace("{about}", &about)
+            .replace("{on}", on)
+            .replace("{problem}", problem)
+            .replace("{na}", n.na.as_deref().unwrap_or(""))
+    };
+    let prompt = fill(na.map_or(g.prompt.as_str(), |x| x.prompt.as_str()));
+    // The answer is the outcome that goes on, or, for a gate that may not apply, not applicable; each with why.
+    let why = |desc: &str| RawField {
+        name: Some("why".into()),
+        kind: Some(Kind::Text),
+        desc: Some(desc.to_string()),
+        ..RawField::default()
+    };
+    let mut branches = vec![RawBranch {
+        value: on.clone(),
+        desc: Some(outcomes.on.1.clone()),
+        fields: vec![why(g.why.as_str())],
+    }];
+    if let Some(x) = na {
+        branches.push(RawBranch {
+            value: x.value.0.clone(),
+            desc: Some(x.value.1.clone()),
+            fields: vec![why(x.why.as_str())],
+        });
+    }
+    let answer = RawField {
+        name: Some("answer".into()),
+        kind: Some(Kind::Union),
+        desc: Some(fill(g.answer.as_str())),
+        by: Some("verdict".into()),
+        branches: Some(Branches::List(branches)),
+        ..RawField::default()
+    };
     let mut inputs = n.inputs.clone();
     inputs.extend(g.inputs.iter().cloned());
     Ok(Node {
@@ -1205,7 +1291,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         rules: None,
         prompt: Some(vec![format!("{question} {prompt}")]),
         prompt_by: None,
-        out: Some(na.map(|x| vec![x.out.clone()]).unwrap_or_default()),
+        out: Some(vec![answer]),
         cases: Some(rows),
         always: n.always.clone(),
         checks: None,
@@ -1215,6 +1301,8 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         asks: None,
         without: None,
         about: n.about.clone(),
+        outcomes: None,
+        actions: None,
         needs: n.needs.clone(),
         question: None,
         na: None,

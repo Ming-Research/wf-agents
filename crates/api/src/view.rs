@@ -424,7 +424,7 @@ const WHOLE: &str = "\u{0}whole";
 /// The places of the return a condition reads; none for a value the engine knows or rows recorded.
 fn atom_paths(a: &Atom) -> Vec<&str> {
     match a {
-        Atom::All | Atom::Own | Atom::Inp(..) | Atom::SentBack(_) | Atom::Failed(_) => Vec::new(),
+        Atom::All | Atom::Own | Atom::Inp(..) | Atom::SentBack(_) | Atom::Failed(_) | Atom::Engine(_) => Vec::new(),
         Atom::Or(xs) => xs.iter().flat_map(atom_paths).collect(),
         Atom::Has(p) | Atom::Is(p, _) | Atom::AnyOf(p, _) | Atom::NoneOf(p, _) => vec![p.as_str()],
     }

@@ -277,6 +277,10 @@ impl Analysis<'_, '_> {
             }
         }
         for (ci, c) in g.cells.iter().enumerate() {
+            // The end for a work cancelled is reached from every cell by the engine, by no row.
+            if Some(ci) == g.cancel {
+                continue;
+            }
             if !reached.contains(&ci) {
                 self.findings.first("unreached", &c.id, "", String::new());
                 continue;

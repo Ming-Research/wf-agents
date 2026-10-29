@@ -123,6 +123,9 @@ pub fn typescript() -> String {
         // The compiled flow.
         decl::<flow::Compiled>(&cfg),
         decl::<flow::format::EngineNames>(&cfg),
+        decl::<flow::format::Store>(&cfg),
+        decl::<flow::format::Layer>(&cfg),
+        decl::<flow::format::Reads>(&cfg),
         decl::<flow::ToolUse>(&cfg),
         decl::<flow::CompiledGraph>(&cfg),
         decl::<flow::format::Counter>(&cfg),
@@ -135,6 +138,7 @@ pub fn typescript() -> String {
         decl::<flow::format::Failed>(&cfg),
         decl::<flow::format::Failure>(&cfg),
         decl::<flow::format::Handle>(&cfg),
+        decl::<flow::format::EngineCase>(&cfg),
         decl::<flow::CompiledCell>(&cfg),
         decl::<flow::CompiledInput>(&cfg),
         decl::<flow::format::Src>(&cfg),

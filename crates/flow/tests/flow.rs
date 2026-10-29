@@ -107,14 +107,25 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "offline",
                 "transient",
                 "cannot_run",
-                "prompt_too_long"
+                "prompt_too_long",
+                "cut_off",
+                "cannot_step",
+                "repeats",
+                "work_ended"
             ],
             "{}",
             cell.id
         );
-        assert!(shared.iter().all(|x| x.to == "@self" && x.common && x.counts.is_none()));
+        assert!(
+            shared
+                .iter()
+                .all(|x| x.to == "@self" && x.fallback && !x.common && x.counts.is_none())
+        );
         let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
-        assert_eq!(pauses, ["sent_back_too_often", "prompt_too_long"]);
+        assert_eq!(
+            pauses,
+            ["sent_back_too_often", "prompt_too_long", "cannot_step", "repeats"]
+        );
         let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
         assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
@@ -305,6 +316,8 @@ fn a_work_moves_by_its_rows() {
         g.step(p, row).unwrap()
     };
     let p = g.start_position();
+    assert_eq!(p.at, "U0");
+    let p = take(&p, "ready");
     assert_eq!(p.at, "S0");
     let p = take(&p, "started");
     assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R1", "research"));

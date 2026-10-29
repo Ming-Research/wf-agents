@@ -69,9 +69,14 @@
  ],
  "R2": [
   {
-   "row": "no",
+   "row": "stands",
    "json": {
-    "outcome": {},
+    "outcome": {
+     "answer": {
+      "verdict": "stands",
+      "why": "outcome.answer.why"
+     }
+    },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress"
@@ -282,11 +287,11 @@
  ],
  "D4": [
   {
-   "row": "no",
+   "row": "no_gap",
    "json": {
     "outcome": {
      "answer": {
-      "verdict": "no",
+      "verdict": "no_gap",
       "why": "outcome.answer.why"
      }
     },
@@ -299,11 +304,11 @@
  ],
  "D5": [
   {
-   "row": "no",
+   "row": "sure",
    "json": {
     "outcome": {
      "answer": {
-      "verdict": "no",
+      "verdict": "sure",
       "why": "outcome.answer.why"
      }
     },
@@ -316,11 +321,11 @@
  ],
  "D6": [
   {
-   "row": "no",
+   "row": "worth_it",
    "json": {
     "outcome": {
      "answer": {
-      "verdict": "no",
+      "verdict": "worth_it",
       "why": "outcome.answer.why"
      }
     },
@@ -333,9 +338,14 @@
  ],
  "D7": [
   {
-   "row": "no",
+   "row": "on_its_own",
    "json": {
-    "outcome": {},
+    "outcome": {
+     "answer": {
+      "verdict": "on_its_own",
+      "why": "outcome.answer.why"
+     }
+    },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress"
@@ -347,7 +357,12 @@
   {
    "row": "implementation",
    "json": {
-    "outcome": {},
+    "outcome": {
+     "answer": {
+      "verdict": "one_pr",
+      "why": "outcome.answer.why"
+     }
+    },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress"
@@ -733,7 +748,9 @@
      "merge_commit": "c0ffee1"
     }
    },
-   "given": {}
+   "given": {
+    "turn": "first"
+   }
   }
  ],
  "L1": [
@@ -822,7 +839,9 @@
      "rest": "kept"
     }
    },
-   "given": {}
+   "given": {
+    "cancelled": "no"
+   }
   }
  ],
  "A3": [

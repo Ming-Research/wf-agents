@@ -332,7 +332,7 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
             let at = if starts.is_empty() {
                 String::new()
             } else {
-                format!(", new sessions also at {}", starts.join(", "))
+                format!(", new sessions at {}", starts.join(", "))
             };
             lines.push(format!("{line} {size}{at}"));
         }

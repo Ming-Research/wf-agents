@@ -188,6 +188,7 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
         for c in &g.cells {
             steps.extend(c.step.clone());
             needs.extend(c.needs.clone());
+            actions.extend(c.actions.iter().cloned());
             for r in &c.rows {
                 actions.extend(r.actions.iter().map(Do::name).map(str::to_string));
             }
@@ -244,6 +245,7 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
     both("input", &e.inputs, &inputs, problems);
     both("value", &e.values, &values, problems);
     both("need", &e.needs, &needs, problems);
+    stores(e, cx, problems);
     for (rel, by, at) in relations {
         let Some(cols) = cx.relations.get(&rel) else {
             problems.push(format!("{at}: no table or view {rel} in the database"));
@@ -258,4 +260,46 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
         }
     }
     settings.into_iter().collect()
+}
+
+/// The table of what the engine writes and reads is whole: every action names the stores it writes, every value of
+/// the engine what it reads, with what the chart says of it; every store named is one of the flow's, and every table
+/// or view and engine input a store names is one there is.
+fn stores(e: &format::EngineNames, cx: &Context, problems: &mut Vec<String>) {
+    let known = |s: &String| e.stores.contains_key(s);
+    for a in e.actions.keys().filter(|a| !e.writes.contains_key(*a)) {
+        problems.push(format!("an engine action that says no stores it writes: {a}"));
+    }
+    for (n, ss) in &e.writes {
+        if !e.actions.contains_key(n) && !e.steps.contains_key(n) {
+            problems.push(format!("the stores written by no such engine action or step: {n}"));
+        }
+        for s in ss.iter().filter(|s| !known(s)) {
+            problems.push(format!("{n} writes no such store: {s}"));
+        }
+    }
+    for v in e.values.keys() {
+        if e.reads
+            .get(v)
+            .is_none_or(|r| r.says.as_deref().is_none_or(str::is_empty))
+        {
+            problems.push(format!("an engine value that does not say what it reads: {v}"));
+        }
+    }
+    for (n, r) in &e.reads {
+        if !e.values.contains_key(n) && !e.steps.contains_key(n) {
+            problems.push(format!("what is read by no such engine value or step: {n}"));
+        }
+        for s in r.stores.iter().filter(|s| !known(s)) {
+            problems.push(format!("{n} reads no such store: {s}"));
+        }
+    }
+    for (n, s) in &e.stores {
+        for rel in s.relations.iter().filter(|r| !cx.relations.contains_key(*r)) {
+            problems.push(format!("store {n}: no table or view {rel} in the database"));
+        }
+        for i in s.inputs.iter().filter(|i| !e.inputs.contains_key(*i)) {
+            problems.push(format!("store {n}: no such engine input: {i}"));
+        }
+    }
 }

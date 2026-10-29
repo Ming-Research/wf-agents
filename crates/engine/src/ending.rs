@@ -86,18 +86,7 @@ pub fn end(
     };
     let engineer = graph == crate::ENGINEER;
     if engineer {
-        let withdrawn = match why {
-            Some(why) => format!("the work that raised it ended ({why})"),
-            None => "the work that raised it is done".to_string(),
-        };
-        tx.execute(
-            &format!(
-                "UPDATE architect_matters SET withdrawn = ?2
-                 WHERE work = ?1 AND kind IN {WAITING_ON_IT} AND handled_round IS NULL AND withdrawn IS NULL"
-            ),
-            params![work, withdrawn],
-        )
-        .map_err(sql)?;
+        withdraw_matters(tx, work, why)?;
     }
     // A work of the engineer's graph at its end let go of what it held there.
     let done_before = engineer && db::is_cell(crate::ENGINEER, DONE_AT, &at) && why.is_some();
@@ -113,60 +102,116 @@ pub fn end(
             };
             work::finish_round(tx, r.id, &cut)?;
         }
-        tx.execute(
-            "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
-            [work],
-        )
-        .map_err(sql)?;
-        let answer = json!({
-            "by": "engine",
-            "at": db::now(),
-            "text": format!("No answer is needed: the work ended ({why})."),
-        });
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE answer IS NULL AND work = ?1",
-            params![work, answer.to_string()],
-        )
-        .map_err(sql)?;
+        replace_design_cards(tx, work)?;
+        close_asks(tx, work, why)?;
     }
     if !engineer || done_before {
         return Ok(());
     }
-    sessions::choose::end_work(tx, work)?;
+    end_sessions(tx, work)?;
     if matches!(how, End::TakenOver(_)) {
         return Ok(());
     }
     let place = project.as_ref().and_then(|p| projects.get(p));
     if let (Some(dir), Some(p)) = (&worktree, place) {
+        remove_worktree(tx, work, p, dir)?;
+    }
+    if let (Some(why), Some(n), Some(p)) = (why, pr, place) {
+        close_pr(tx, work, item, n, p, why)?;
+    }
+    Ok(())
+}
+
+// The shared ending, by the names the flow gives it on the cells a work ends at (`E1`, and `C1` for a work cancelled
+// or taken over): each is one part of [`end`], which says when it is done.
+
+/// `withdraw_matters`: what the work raised that waits on it leaves the architect's queue, saying why.
+fn withdraw_matters(tx: &Transaction<'_>, work: i64, why: Option<&str>) -> Result<(), String> {
+    let withdrawn = match why {
+        Some(why) => format!("the work that raised it ended ({why})"),
+        None => "the work that raised it is done".to_string(),
+    };
+    tx.execute(
+        &format!(
+            "UPDATE architect_matters SET withdrawn = ?2
+             WHERE work = ?1 AND kind IN {WAITING_ON_IT} AND handled_round IS NULL AND withdrawn IS NULL"
+        ),
+        params![work, withdrawn],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// `replace_design_cards`: the owner can no longer rule on the work's design cards.
+fn replace_design_cards(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
+    tx.execute(
+        "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
+        [work],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// `close_asks`: the work's open asks of the owner need no answer.
+fn close_asks(tx: &Transaction<'_>, work: i64, why: &str) -> Result<(), String> {
+    let answer = json!({
+        "by": "engine",
+        "at": db::now(),
+        "text": format!("No answer is needed: the work ended ({why})."),
+    });
+    tx.execute(
+        "UPDATE owner_asks SET answer = ?2 WHERE answer IS NULL AND work = ?1",
+        params![work, answer.to_string()],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// `end_sessions`: the work's sessions end.
+fn end_sessions(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
+    sessions::choose::end_work(tx, work)
+}
+
+/// `remove_worktree`: the work's worktree is removed once the transaction is written; its branch stays.
+fn remove_worktree(tx: &Transaction<'_>, work: i64, p: &config::Project, dir: &str) -> Result<(), String> {
+    outbox(
+        tx,
+        work,
+        "remove_worktree",
+        &json!({ "checkout": p.checkout, "dir": dir }),
+    )
+}
+
+/// `close_pr`: the work's pull request, unless it merged, here or in an earlier work on the item that had it, is closed
+/// with a comment saying why the work ended.
+fn close_pr(
+    tx: &Transaction<'_>,
+    work: i64,
+    item: Option<i64>,
+    n: i64,
+    p: &config::Project,
+    why: &str,
+) -> Result<(), String> {
+    // A pull request that merged, here or in an earlier work on the item that had it, is not closed.
+    let merged: bool = tx
+        .query_row(
+            &format!(
+                "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
+                                    WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
+                db::cells_sql(crate::ENGINEER, &["M2"])
+            ),
+            params![item, n],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if !merged {
+        let comment = format!("Its work ended without merging: {why}.");
         outbox(
             tx,
             work,
-            "remove_worktree",
-            &json!({ "checkout": p.checkout, "dir": dir }),
+            "close_pr",
+            &json!({ "repo": p.repo, "pr": n, "comment": comment }),
         )?;
-    }
-    if let (Some(why), Some(n), Some(p)) = (why, pr, place) {
-        // A pull request that merged, here or in an earlier work on the item that had it, is not closed.
-        let merged: bool = tx
-            .query_row(
-                &format!(
-                    "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
-                                    WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
-                    db::cells_sql(crate::ENGINEER, &["M2"])
-                ),
-                params![item, n],
-                |r| r.get(0),
-            )
-            .map_err(sql)?;
-        if !merged {
-            let comment = format!("Its work ended without merging: {why}.");
-            outbox(
-                tx,
-                work,
-                "close_pr",
-                &json!({ "repo": p.repo, "pr": n, "comment": comment }),
-            )?;
-        }
     }
     Ok(())
 }
@@ -174,8 +219,8 @@ pub fn end(
 /// Cancels an item, as `by`, the owner or its project's architect, does: it is not to be done, it leaves the owner's
 /// queue, every work on it that has not ended ends, saying why, and it no longer depends on any item or holds any back.
 /// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
-/// a work standing at an engine step, such as waiting for the items it depends on (`A6`) or to enter the
-/// merge queue (`M1`), takes at once to choose the way on (`A4`); an item with no work running, by a
+/// a work standing where it waits, for the items it depends on (`A6`), to enter the merge queue (`M1`) or for the
+/// architect's reply (`A2`), takes at once to choose the way on (`A4`) by a row of its own; an item with no work running, by a
 /// matter for its project's architect, to set straight.
 pub fn cancel_item(
     tx: &Transaction<'_>,
@@ -224,9 +269,11 @@ pub fn cancel_item(
                     "Item {item} ({title}), which this item depended on for: {needs}, was cancelled and will not \
                      deliver it: {why}. This item no longer depends on it."
                 );
+                // The notice names the item cancelled: the cells where the work waits take it to choose the way on
+                // by a row of their own (the engine's value `cancelled`).
                 tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', ?2, ?3)",
-                    params![w, by, text],
+                    "INSERT INTO interjections (work, line, speaker, text, cancelled_item) VALUES (?1, 'engineer', ?2, ?3, ?4)",
+                    params![w, by, text, item],
                 )
                 .map_err(sql)?;
             }

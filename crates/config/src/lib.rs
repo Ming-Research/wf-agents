@@ -120,10 +120,18 @@ pub struct Agents {
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
+    /// The least time, in seconds, between two matters of slots free for one project's architect (cell `U0`'s
+    /// `queue_slots_free`): one that found nothing to start does not come back at once.
+    #[serde(default = "slots_free_wait")]
+    pub slots_free_wait: u64,
 }
 
 fn context_limit() -> u64 {
     500_000
+}
+
+fn slots_free_wait() -> u64 {
+    3_600
 }
 
 /// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine

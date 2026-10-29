@@ -555,14 +555,21 @@ impl Engine {
         self.start_work(item, None)
     }
 
-    /// Starts a work on the item, paused by the owner for the reason given, if one is.
+    /// Starts a work on the item, paused by the owner for the reason given, if one is. The work starts where the cell
+    /// an item waits at to start (`U0`) leads once nothing holds it back: no work stands at that cell, since no work
+    /// exists while the item waits there.
     fn start_work(&mut self, item: i64, paused: Option<&str>) -> Result<i64, String> {
         let v = self.flow_now;
-        let start = self
-            .flow(v)?
-            .graph(ENGINEER)
-            .map(|g| g.start.clone())
-            .ok_or("the flow has no engineer graph")?;
+        let g = self.flow(v)?.graph(ENGINEER).ok_or("the flow has no engineer graph")?;
+        let mut ready = serde_json::Map::new();
+        ready.insert("start".into(), Value::String("ready".into()));
+        let start = match g.cell(&g.start) {
+            Some(c) if c.inenums.contains_key("start") => {
+                let row = g.take(&g.start, &serde_json::json!({}), &ready)?;
+                g.step(&g.start_position(), row)?.at
+            }
+            _ => g.start.clone(),
+        };
         self.db
             .write(Actor::Engine, |tx| {
                 tx.execute(
@@ -618,26 +625,92 @@ impl Engine {
         }))
     }
 
-    /// The next item to start a work on, of the items ready whose project no hold stops and that no change an
-    /// architect's open batch collected names: the first the owner queued, or else the first of the next project in
-    /// turn after the project of the work started last, so that projects with items ready take the slots in turn, each
-    /// in its architect's order.
-    fn next_ready(&self) -> Option<i64> {
+    /// What holds an item back from starting, by the name of the row of the cell an item waits at to start (`U0`)
+    /// that says it, `ready` when nothing does: held by the owner or the architect; an item it depends on by a blocking
+    /// dependency not merged; its project's new starts held; a change the architect's open batch collected naming it
+    /// (`changing`); no slot free (`free`).
+    pub(crate) fn waits_to_start(
+        &self,
+        item: i64,
+        project: &str,
+        changing: &BTreeSet<i64>,
+        free: i64,
+    ) -> Result<&'static str, String> {
+        let conn = self.db.conn();
+        let one = |e: db::rusqlite::Error| e.to_string();
+        let held: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM items WHERE id = ?1 AND held IS NOT NULL",
+                [item],
+                |r| r.get(0),
+            )
+            .map_err(one)?;
+        let blocked: i64 = conn
+            .query_row("SELECT count(*) FROM item_blocked_by WHERE item = ?1", [item], |r| {
+                r.get(0)
+            })
+            .map_err(one)?;
+        let project_held: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM dispatch_holds WHERE project = ?1",
+                [project],
+                |r| r.get(0),
+            )
+            .map_err(one)?;
+        Ok(if held > 0 {
+            "held"
+        } else if blocked > 0 {
+            "blocked"
+        } else if project_held > 0 {
+            "project_held"
+        } else if changing.contains(&item) {
+            "in_batch"
+        } else if free <= 0 {
+            "no_slot"
+        } else {
+            "ready"
+        })
+    }
+
+    /// The next item to start a work on, of the items waiting to start that cell `U0`'s rows let start (those
+    /// [`Engine::waits_to_start`] finds nothing holding back): the first the owner queued, or else the first of the
+    /// next project in turn after the project of the work started last, so that projects with items ready take the
+    /// slots in turn, each in its architect's order. An item held or blocked is not among those waiting (the view
+    /// `ready_items`).
+    fn next_ready(&mut self) -> Option<i64> {
         let changing = architect::held_by_batches(self.db.conn()).ok()?;
-        let ready: Vec<(i64, String, Option<f64>)> = {
+        let free = self.free_slots().ok()?;
+        let waiting: Vec<(i64, String, Option<f64>)> = {
             let mut st = self
                 .db
                 .conn()
-                .prepare(
-                    "SELECT item, project, position FROM ready_items
-                     WHERE project NOT IN (SELECT project FROM dispatch_holds)",
-                )
+                .prepare("SELECT item, project, position FROM ready_items")
                 .ok()?;
             let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
-            rows.filter_map(Result::ok)
-                .filter(|(item, _, _)| !changing.contains(item))
-                .collect()
+            rows.filter_map(Result::ok).collect()
         };
+        let mut why = Vec::new();
+        for (item, project, _) in &waiting {
+            why.push(self.waits_to_start(*item, project, &changing, free).ok()?);
+        }
+        // Each item takes the row of the cell it waits at; one whose row leads on may start.
+        let g = self.flow(self.flow_now).ok()?.graph(ENGINEER)?;
+        let leads_on = |reason: &str| {
+            let mut given = serde_json::Map::new();
+            given.insert("start".into(), Value::String(reason.to_string()));
+            match g.cell(&g.start) {
+                Some(c) if c.inenums.contains_key("start") => g
+                    .take(&g.start, &serde_json::json!({}), &given)
+                    .is_ok_and(|r| r.to != g.start),
+                _ => reason == "ready",
+            }
+        };
+        let ready: Vec<(i64, String, Option<f64>)> = waiting
+            .into_iter()
+            .zip(why)
+            .filter(|(_, reason)| leads_on(*reason))
+            .map(|(x, _)| x)
+            .collect();
         if let Some((item, _, _)) = ready.iter().find(|r| r.2.is_some()) {
             return Some(*item);
         }
