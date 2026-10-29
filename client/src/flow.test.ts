@@ -19,15 +19,31 @@ import stored from './stored-flow.json?raw';
 const { compiled, view } = JSON.parse(stored) as { compiled: Compiled; view: FlowView };
 
 /// How a graph's layout reads, in the chart's pixels: the total length of the arrows of rows (`rows`); the longest
-/// level piece of any arrow (`run`); how many times the arrows bend (`bends`); and how far each node drawn beside a
-/// cell (its circles, rules, interjection and what it does every time) is from the cell, the farthest (`far`) and all
-/// of them together (`beside`).
-function measures(c: Chart, laid: Laid): { rows: number; run: number; bends: number; far: number; beside: number } {
+/// level piece of any arrow (`run`); how many times the arrows bend (`bends`); how far each node drawn beside a cell
+/// (its circles, rules, interjection and what it does every time) is from the cell, the farthest (`far`) and all of
+/// them together (`beside`); and how many arrows of rows, arrows and nodes beside a cell there are.
+type Measures = {
+  rows: number;
+  run: number;
+  bends: number;
+  far: number;
+  beside: number;
+  rowArrows: number;
+  arrows: number;
+  besideNodes: number;
+};
+
+function measures(c: Chart, laid: Laid): Measures {
   let rows = 0;
   let run = 0;
   let bends = 0;
+  let rowArrows = 0;
+  let arrows = 0;
   for (const e of c.edges) {
     const p = laid.edges.get(e.id)?.points ?? [];
+    if (p.length < 2) continue;
+    arrows += 1;
+    if (e.kind === 'row') rowArrows += 1;
     for (let i = 0; i + 1 < p.length; i++) {
       const len = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].y - p[i].y);
       if (e.kind === 'row') rows += len;
@@ -41,6 +57,7 @@ function measures(c: Chart, laid: Laid): { rows: number; run: number; bends: num
   }
   let far = 0;
   let beside = 0;
+  let besideNodes = 0;
   for (const n of c.nodes) {
     if (!['in', 'out', 'rule', 'interjection', 'does'].includes(n.kind)) continue;
     const a = laid.nodes.get(n.id);
@@ -50,9 +67,43 @@ function measures(c: Chart, laid: Laid): { rows: number; run: number; bends: num
     const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
     far = Math.max(far, Math.hypot(dx, dy));
     beside += Math.hypot(dx, dy);
+    besideNodes += 1;
   }
-  return { rows: Math.round(rows), run: Math.round(run), bends, far: Math.round(far), beside: Math.round(beside) };
+  return {
+    rows: Math.round(rows),
+    run: Math.round(run),
+    bends,
+    far: Math.round(far),
+    beside: Math.round(beside),
+    rowArrows,
+    arrows,
+    besideNodes,
+  };
 }
+
+/// What the test holds a graph's layout to: the length of an arrow of a row and the bends of an arrow on average, the
+/// longest level run, the farthest node beside a cell, and how far such a node is on average; the totals over the
+/// arrows and nodes there are, so that a flow that grows does not count as a layout that got worse.
+type Limits = { rowLength: number; run: number; bendsPerArrow: number; far: number; besideEach: number };
+
+function limitsOf(m: Measures): Limits {
+  return {
+    rowLength: m.rows / Math.max(1, m.rowArrows),
+    run: m.run,
+    bendsPerArrow: m.bends / Math.max(1, m.arrows),
+    far: m.far,
+    besideEach: m.beside / Math.max(1, m.besideNodes),
+  };
+}
+
+/// The most each graph's layout may measure, so that a change that makes the layout worse fails here: for now well over
+/// what it measures on a copy of the flow, until CI measures it on the flow itself. Before each cell was laid out with
+/// what is drawn beside it, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384, run
+/// 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside 1539.
+const MOST: Record<string, Limits> = {
+  engineer: { rowLength: 600, run: 2500, bendsPerArrow: 1.9, far: 800, besideEach: 70 },
+  architect: { rowLength: 1200, run: 2200, bendsPerArrow: 3, far: 100, besideEach: 30 },
+};
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {
   const v = view.graphs.find((x) => x.name === g.name);
@@ -159,9 +210,15 @@ describe('the flow as the engine stores it', () => {
         },
       );
       const m = measures(c, laid);
-      console.log(`layout of the ${g.name} graph: ${JSON.stringify(m)}`);
-      expect(Object.values(m).every((x) => Number.isFinite(x)), g.name).toBe(true);
+      console.log(`layout of the ${g.name} graph: ${JSON.stringify({ ...m, ...limitsOf(m) })}`);
+      const most = MOST[g.name];
+      if (most === undefined) continue;
+      const l = limitsOf(m);
+      for (const k of ['rowLength', 'run', 'bendsPerArrow', 'far', 'besideEach'] as const) {
+        expect(l[k], `${g.name} ${k}`).toBeLessThanOrEqual(most[k]);
+      }
     }
+    expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
   }, 30_000);
 
   for (const { g, v } of graphs) {
