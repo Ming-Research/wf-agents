@@ -540,9 +540,115 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
     if (marks.taken) return 'quiet';
     return e.main ? 'main' : 'plain';
   };
+  // On a work's chart, what the work never went by is muted as its cells are: a label of a row it never took, and a
+  // node beside the chart (actions, a rule, a circle to another part) none of whose arrows it took, or, for what sits
+  // beside one cell, whose cell it never reached.
+  const going = (id: string) => (marks.taken?.get(id) ?? 0) > 0 || hot.has(id) || (marks.lit?.has(id) ?? false);
+  const quietNode = (n: ChartNode) => {
+    if (marks.taken === undefined || n.kind === 'cell') return false;
+    if (chart.edges.some((e) => (e.source === n.id || e.target === n.id) && going(e.id))) return false;
+    if (n.kind === 'does' || n.kind === 'rule' || n.kind === 'interjection') return !(marks.overlays?.has(n.cell) ?? true);
+    return true;
+  };
   // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen.
   const over = (e: ChartEdge) => (hot.has(e.id) ? 2 : marks.lit?.has(e.id) ? 1 : 0);
   const edges = [...chart.edges].sort((a, b) => over(a) - over(b));
+  // Each node as it is drawn, before a work's chart mutes what the work never went by.
+  const drawNode = (n: ChartNode) => {
+    const box = laid.nodes.get(n.id);
+    if (!box) return null;
+    const cell = cells.get(n.cell);
+    switch (n.kind) {
+      case 'cell':
+        return cell ? (
+          <CellShape
+            key={n.id}
+            n={n}
+            cell={cell}
+            box={box}
+            lines={lines.get(n.id) ?? []}
+            note={notes.get(n.id)}
+            marks={marks}
+          />
+        ) : null;
+      case 'action':
+      case 'does':
+        return (
+          <Actions
+            key={n.id}
+            n={n}
+            box={box}
+            lines={lines.get(n.id) ?? []}
+            title={actionsTitle(n.actions, engine)}
+            selected={marks.selected === n.id}
+          />
+        );
+      case 'out':
+        return (
+          <Circle
+            key={n.id}
+            n={n}
+            box={box}
+            cls="fc-out"
+            title={t('chart_out_title', { cell: title(n.other ?? '') })}
+            text={[n.other ?? '']}
+          />
+        );
+      case 'in':
+        return (
+          <Circle
+            key={n.id}
+            n={n}
+            box={box}
+            cls="fc-in"
+            title={t('chart_in_title', { cell: title(n.other ?? '') })}
+            text={[n.other ?? '']}
+          />
+        );
+      case 'rule': {
+        const s = 9;
+        const pts = [
+          [box.x + s, box.y],
+          [box.x + box.width, box.y],
+          [box.x + box.width - s, box.y + box.height],
+          [box.x, box.y + box.height],
+        ];
+        return (
+          <g key={n.id} className={`fc-rule${marks.selected === n.id ? ' fc-selected' : ''}`} data-node={n.id}>
+            <title>{t('chart_rule_title', { rule: n.other ?? '' })}</title>
+            <polygon points={pts.map((p) => p.join(',')).join(' ')} />
+            <text x={box.x + box.width / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
+              {`rule:${n.other ?? ''}`}
+            </text>
+          </g>
+        );
+      }
+      case 'interjection': {
+        const notch = 10;
+        const pts = [
+          [box.x, box.y],
+          [box.x + box.width, box.y],
+          [box.x + box.width, box.y + box.height],
+          [box.x, box.y + box.height],
+          [box.x + notch, box.y + box.height / 2],
+        ];
+        return (
+          <g
+            key={n.id}
+            className={`fc-flag${marks.selected === n.id ? ' fc-selected' : ''}`}
+            data-node={n.id}
+          >
+            <title>{t('chart_interjection_title')}</title>
+            <polygon points={pts.map((p) => p.join(',')).join(' ')} />
+            <text x={box.x + box.width / 2 + notch / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
+              {g.interject?.name ?? ''}
+            </text>
+          </g>
+        );
+      }
+    }
+    return null;
+  };
   const b = laid.bounds;
   const pad = 24;
   return (
@@ -651,6 +757,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           n > 0 ? 'fc-label-taken' : '',
           hot.has(e.id) ? 'fc-label-hot' : '',
           marks.lit?.has(e.id) ? 'fc-label-lit' : '',
+          marks.taken !== undefined && !going(e.id) ? 'fc-label-quiet' : '',
         ].join(' ');
         return (
           <g key={`l:${e.id}`} className={cls} data-edge={e.id}>
@@ -674,99 +781,14 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
         );
       })}
       {chart.nodes.map((n) => {
-        const box = laid.nodes.get(n.id);
-        if (!box) return null;
-        const cell = cells.get(n.cell);
-        switch (n.kind) {
-          case 'cell':
-            return cell ? (
-              <CellShape
-                key={n.id}
-                n={n}
-                cell={cell}
-                box={box}
-                lines={lines.get(n.id) ?? []}
-                note={notes.get(n.id)}
-                marks={marks}
-              />
-            ) : null;
-          case 'action':
-          case 'does':
-            return (
-              <Actions
-                key={n.id}
-                n={n}
-                box={box}
-                lines={lines.get(n.id) ?? []}
-                title={actionsTitle(n.actions, engine)}
-                selected={marks.selected === n.id}
-              />
-            );
-          case 'out':
-            return (
-              <Circle
-                key={n.id}
-                n={n}
-                box={box}
-                cls="fc-out"
-                title={t('chart_out_title', { cell: title(n.other ?? '') })}
-                text={[n.other ?? '']}
-              />
-            );
-          case 'in':
-            return (
-              <Circle
-                key={n.id}
-                n={n}
-                box={box}
-                cls="fc-in"
-                title={t('chart_in_title', { cell: title(n.other ?? '') })}
-                text={[n.other ?? '']}
-              />
-            );
-          case 'rule': {
-            const s = 9;
-            const pts = [
-              [box.x + s, box.y],
-              [box.x + box.width, box.y],
-              [box.x + box.width - s, box.y + box.height],
-              [box.x, box.y + box.height],
-            ];
-            return (
-              <g key={n.id} className={`fc-rule${marks.selected === n.id ? ' fc-selected' : ''}`} data-node={n.id}>
-                <title>{t('chart_rule_title', { rule: n.other ?? '' })}</title>
-                <polygon points={pts.map((p) => p.join(',')).join(' ')} />
-                <text x={box.x + box.width / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
-                  {`rule:${n.other ?? ''}`}
-                </text>
-              </g>
-            );
-          }
-          case 'interjection': {
-            const notch = 10;
-            const pts = [
-              [box.x, box.y],
-              [box.x + box.width, box.y],
-              [box.x + box.width, box.y + box.height],
-              [box.x, box.y + box.height],
-              [box.x + notch, box.y + box.height / 2],
-            ];
-            return (
-              <g
-                key={n.id}
-                className={`fc-flag${marks.selected === n.id ? ' fc-selected' : ''}`}
-                data-node={n.id}
-              >
-                <title>{t('chart_interjection_title')}</title>
-                <polygon points={pts.map((p) => p.join(',')).join(' ')} />
-                <text x={box.x + box.width / 2 + notch / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
-                  {g.interject?.name ?? ''}
-                </text>
-              </g>
-            );
-          }
-        }
-        return null;
+        const drawn = drawNode(n);
+        return drawn !== null && quietNode(n) ? (
+          <g key={n.id} className="fc-unvisited">
+            {drawn}
+          </g>
+        ) : (
+          drawn
+        );
       })}
     </svg>
   );

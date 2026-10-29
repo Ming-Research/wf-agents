@@ -1691,6 +1691,15 @@ svg.fc {
   font-weight: 700;
 }
 
+/* On a work's chart, the label of a row the work never took, muted as the arrow is. */
+.fc-label-quiet {
+  opacity: 0.45;
+}
+
+.fc-label-quiet text {
+  font-weight: 400;
+}
+
 /* A row's number: a badge of one size, its digits plain. */
 .fc-no circle {
   fill: var(--fc-no);
