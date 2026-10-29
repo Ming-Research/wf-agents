@@ -2,7 +2,7 @@
 // round of it runs, what holds it back and what it waits for, and the owner's Start, Pause and Step, with the session
 // Start and Step run the next round in.
 
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Status, Waits, WorkSummary } from './api';
 import { controls, type Course, course, heldWords } from './components';
@@ -113,6 +113,28 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
   return { c, can, busy, error, pause, start, step, newSession, setNewSession };
 }
 
+/// What opens the round the owner's Step asked for once it has ended, where it ran: in the work that took the asked
+/// one over, when it was on an older flow version. What it returns marks the Step sent at `at`; `asked` is the work
+/// stepped, or null for the architect's Step, which may wake a new wake.
+export function useOpenStepped(
+  status: Status | null,
+  asked: number | null,
+  open: (work: number, round: number) => void,
+): (at: number) => void {
+  const since = useRef<number | null>(null);
+  const last = status?.last_step ?? null;
+  useEffect(() => {
+    if (since.current === null || last === null || last.at < since.current) return;
+    if (asked !== null && last.asked !== asked) return;
+    since.current = null;
+    const r = last.rounds[last.rounds.length - 1];
+    if (r !== undefined) open(last.work, r);
+  });
+  return (at) => {
+    since.current = at;
+  };
+}
+
 /// The icons of the owner's controls, drawn in the colour of their text: Start a triangle, Pause two bars, Step a
 /// triangle against a bar, and the new session a speech bubble holding a plus.
 function Icon({ of }: { of: 'start' | 'pause' | 'step' | 'session' }) {
@@ -212,7 +234,7 @@ export function Controls({ a, w, status, onStep }: {
       {live && onStep !== null ? (
         <Control
           icon="step"
-          hint={whyNot ?? (c.outdated ? takeoverWords(w, status) : t('work_step_hint'))}
+          hint={whyNot ?? (c.outdated ? t('step_takeover_note', { now: status?.flow_version ?? '' }) : t('work_step_hint'))}
           onClick={onStep}
           disabled={a.busy || whyNot !== null}
         />

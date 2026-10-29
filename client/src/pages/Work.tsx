@@ -2,10 +2,9 @@
 // the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
 // on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
 // it took standing out, the cell a round runs at in a moving halo and the cell a work held back stands at marked. The
-// column holds on top the work's panel in three tabs: its rounds, under how it goes on and, while it does not go on by
-// itself, its next round with the Step that runs it, resuming its session or in a new one as the owner chooses, and
-// shown as it would be sent so; its design cards, the one waiting for the owner's ruling first
-// with its controls; and its conversation, the same the messages view shows: its asks waiting for the owner's answer
+// column holds on top the work's panel in tabs: its rounds, under how it goes on, the Step that runs one being the
+// icon in the line above with what it will do on hovering; its design cards, the one waiting for the owner's ruling
+// first with its controls; its conversation, the same the messages view shows: its asks waiting for the owner's answer
 // pinned with their forms, then what its agents, the owner, the architect and the engine said about it. A round or a
 // cell opened shows in the column's lower part, its cell brought into view.
 
@@ -17,20 +16,18 @@ import type {
   DesignCard,
   FlowView,
   GraphView,
-  NextRound,
   RoundSummary,
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { controls, type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
-import { held, runningWords, SessionChoice, sessionKey, takeoverWords, useNewSession, waitsWords } from '../course';
+import { type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
+import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName } from '../format';
 import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
-import { postJson } from '../http';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
-import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab, workHref } from '../route';
+import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
 import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
 import { ConversationView } from './Messages';
@@ -237,167 +234,6 @@ function Going({ d, onCard, onAsk }: {
   );
 }
 
-/// The work's next round while it does not go on by itself and waits for nothing: what it will be, and the Step that
-/// runs exactly that round; when the round ends, it opens, in the work that took this one over when it was on an older
-/// flow version. A work on an older flow version has no next round of its own: Step takes it over. The architect's
-/// wake is stepped by the architect's own Step.
-export function Next({ d, onRound, onCard, onAsk, stepPath }: {
-  d: WorkDetail;
-  onRound: (r: number) => void;
-  onCard: (id: number) => void;
-  onAsk: (id: number) => void;
-  stepPath?: string;
-}) {
-  const status = useStatus();
-  const w = d.work;
-  const c = course(w, status);
-  const can = controls(c, status);
-  const asked = useRef(false);
-  // When the owner pressed Step: until the round asked for has ended, the button says it is starting.
-  const [pressed, setPressed] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [newSession, setNewSession] = useNewSession(sessionKey(w));
-  const preview = can.step && !c.outdated;
-  const next = useResource<NextRound>(
-    `work:${w.id}`,
-    preview ? `/api/v1/works/${w.id}/next${newSession ? '?new_session=true' : ''}` : null,
-  );
-  const stepping = status?.stepping === w.id;
-  // The round asked for has ended: open it, where it ran.
-  const last = status?.last_step;
-  useEffect(() => {
-    if (!asked.current || stepping || !last || last.asked !== w.id) return;
-    asked.current = false;
-    const r = last.rounds[last.rounds.length - 1] ?? null;
-    if (last.work !== w.id) navigate(workHref(last.work, { round: r }));
-    else if (r !== null) onRound(r);
-  }, [stepping, last, w.id, onRound]);
-  if (!can.step) return null;
-  const starting =
-    pressed !== null && !(last !== null && last !== undefined && last.asked === w.id && last.at >= pressed);
-  const run = () => {
-    setError(null);
-    setPressed(Date.now());
-    asked.current = true;
-    postJson(stepPath ?? `/api/v1/works/${w.id}/step`, { new_session: newSession }).then(
-      () => setNewSession(false),
-      (e: unknown) => {
-        asked.current = false;
-        setPressed(null);
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
-  };
-  const button = (note: string, ready: boolean) => (
-    <div className="next-run">
-      <button
-        type="button"
-        className="next-button"
-        onClick={run}
-        disabled={!ready || starting || !can.canStep}
-        title={can.canStep ? undefined : t('work_step_later')}
-      >
-        {starting ? t('next_starting') : t('work_step')}
-      </button>
-      <SessionChoice on={newSession} set={setNewSession} disabled={starting} />
-      <span className="muted">{note}</span>
-    </div>
-  );
-  if (c.outdated) {
-    return (
-      <section className="next">
-        <div className="next-head">
-          <strong>{t('next_title')}</strong>
-        </div>
-        {button(t('step_takeover_note', { now: status?.flow_version ?? '' }), true)}
-        {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-      </section>
-    );
-  }
-  const n = next.data;
-  const kind =
-    n === undefined
-      ? ''
-      : n.not_asked !== null
-        ? t('next_kind_not_asked')
-        : n.kind === 'agent'
-          ? t('next_kind_agent', { line: n.line ?? '' })
-          : n.kind === 'engine'
-            ? t('next_kind_engine', { step: n.step ?? '' })
-            : n.kind === 'tool'
-              ? t('next_kind_tool')
-              : t('next_kind_owner');
-  const note =
-    n === undefined
-      ? ''
-      : n.not_asked !== null
-        ? t('next_no_agent')
-        : n.kind === 'agent'
-          ? t('next_real')
-          : n.kind === 'tool'
-            ? t('next_tools_note')
-            : n.kind === 'owner'
-              ? t('next_owner_note')
-              : t('next_engine_note');
-  // A judgment that waits offers no round: what it waits for, and where the owner gives it.
-  if (n !== undefined && n.waits !== null) {
-    return (
-      <section className="next">
-        <div className="next-head">
-          <strong>{t('next_title')}</strong>
-          <span>
-            <span className="cell-id">{n.cell}</span> {n.title}
-          </span>
-        </div>
-        <p className="prose">{t('next_waits', { what: n.waits })}</p>
-        {n.design_card !== null ? (
-          <div>
-            <button type="button" className="decide-button" onClick={() => onCard(n.design_card ?? 0)}>
-              {t('next_rule_card', { id: n.design_card })}
-            </button>
-          </div>
-        ) : null}
-        {n.ask !== null ? (
-          <div>
-            <button type="button" className="decide-button" onClick={() => onAsk(n.ask ?? 0)}>
-              {t('next_answer_ask', { id: n.ask })}
-            </button>
-          </div>
-        ) : null}
-      </section>
-    );
-  }
-  return (
-    <section className="next">
-      <div className="next-head">
-        <strong>{t('next_title')}</strong>
-        {n !== undefined ? (
-          <span>
-            <span className="cell-id">{n.cell}</span> {n.title} · <span className="muted">{kind}</span>
-          </span>
-        ) : null}
-      </div>
-      {next.error !== null ? <p className="bad">{next.error}</p> : null}
-      {n !== undefined && n.not_asked !== null ? <p className="prose">{n.not_asked}</p> : null}
-      {n !== undefined && n.tools.length > 0 ? (
-        <ul className="next-tools">
-          {n.tools.map((x, i) => (
-            <li key={i}>{x}</li>
-          ))}
-        </ul>
-      ) : null}
-      {n?.message ? (
-        <details>
-          <summary>{t('next_message')}</summary>
-          <pre className="j-text next-message">{n.message}</pre>
-        </details>
-      ) : null}
-      {button(note, n !== undefined)}
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </section>
-  );
-}
-
 /// The link to a round of the work, by its number in the work, which opens it in the panel.
 function RoundLink({ work, round, onRound }: { work: number; round: number; onRound: (r: number) => void }) {
   return (
@@ -505,7 +341,6 @@ function WorkPanel({ d, g, r, go }: {
         {r.tab === 'rounds' ? (
           <>
             <Going d={d} onCard={onCard} onAsk={onAsk} />
-            <Next d={d} onRound={onRound} onCard={onCard} onAsk={onAsk} />
             {r.only !== null ? (
               <div className="rounds-only">
                 <span>

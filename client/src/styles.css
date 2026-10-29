@@ -508,12 +508,6 @@ td.clip {
 }
 
 .file-text,
-.next-message {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-
 .prose {
   white-space: pre-wrap;
   word-break: break-word;
@@ -2652,33 +2646,6 @@ summary.works-label {
   flex-wrap: wrap;
 }
 
-.next-run {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.next-button {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  border-radius: 7px;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.next-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.next-message {
-  max-height: 320px;
-  overflow: auto;
-}
-
 .next-activity {
   margin: 0;
   padding-left: 18px;
@@ -3126,14 +3093,6 @@ p.rp-note {
 
 .timeline td.nowrap {
   white-space: nowrap;
-}
-
-.next-tools {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12.5px;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  overflow-wrap: anywhere;
 }
 
 /* The card every card the page shows the owner shares, a design card and an ask of the owner alike, wherever it is

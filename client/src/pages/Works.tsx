@@ -11,7 +11,7 @@ import { useEffect, useState, type PointerEvent as ReactPointerEvent, type React
 
 import type { WorkSummary } from '../api';
 import { type Course, heldName, WorkBadge, Loaded } from '../components';
-import { Controls, held, runningWords, takeoverWords, useActions, waitsWords } from '../course';
+import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
@@ -376,11 +376,12 @@ function List({ works, tab, widths, onWidths }: {
 }
 
 /// The line above an open work's chart: back to the list; which work it is; how it goes on; where it is, its rounds,
-/// cost and pull request; the owner's controls of it; and the other works running or waiting, each with what it needs
-/// of the owner, to go from one to the next keeping the tab open.
+/// cost and pull request; the owner's controls of it, its Step opening the round once it has ended; and the other works
+/// running or waiting, each with what it needs of the owner, to go from one to the next keeping the tab open.
 function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; tab: WorkTab }) {
   const status = useStatus();
   const a = useActions(w, status, true);
+  const stepped = useOpenStepped(status, w.id, (work, round) => navigate(workHref(work, { round })));
   const now = useNow(status !== null && status.running === w.id);
   const repo = w.project !== null ? status?.repos[w.project] : undefined;
   const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : `#${w.id}`;
@@ -427,7 +428,15 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
           <span>{t('work_pr', { n: w.pr })}</span>
         )
       ) : null}
-      <Controls a={a} w={w} status={status} onStep={() => a.step()} />
+      <Controls
+        a={a}
+        w={w}
+        status={status}
+        onStep={() => {
+          const at = Date.now();
+          a.step(() => stepped(at));
+        }}
+      />
       {a.error !== null ? (
         <span className="bad why" title={a.error}>
           {t('request_failed', { error: a.error })}

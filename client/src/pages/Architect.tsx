@@ -45,7 +45,7 @@ import {
   wordsWait,
 } from '../architect';
 import { course, heldName, Loaded } from '../components';
-import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
+import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
@@ -78,7 +78,7 @@ import {
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
-import { Next, Timeline, workMarks } from './Work';
+import { Timeline, workMarks } from './Work';
 
 /// The graph the architect's wakes run, as the flow names it.
 const GRAPH = 'architect';
@@ -99,12 +99,15 @@ function useNow(ticking: boolean): number {
 
 /// An architect's Step: one round of the wake going on, or, when none goes on and a matter waits, a new wake and its
 /// first round, resuming its session or in a new one for its wake as the owner chose; and its Start and Pause while no
-/// wake goes on. Step asks first, as a real round runs on the owner's account.
-function useStep(project: string) {
+/// wake goes on. Step asks first, as a real round runs on the owner's account, and `onRound` opens the round once it
+/// has ended.
+function useStep(project: string, onRound: (wake: number, round: number) => void) {
+  const status = useStatus();
+  const stepped = useOpenStepped(status, null, onRound);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newSession, setNewSession] = useNewSession('architect');
-  const send = (path: string, body: object) => {
+  const send = (path: string, body: object, then?: () => void) => {
     setBusy(true);
     setError(null);
     postJson(path, body).then(
@@ -112,6 +115,7 @@ function useStep(project: string) {
         setBusy(false);
         setNewSession(false);
         reread('architect', 'works', 'work:*');
+        then?.();
       },
       (e: unknown) => {
         setBusy(false);
@@ -122,22 +126,25 @@ function useStep(project: string) {
   const start = () => send(forProject('/api/v1/architect/start', project), { new_session: newSession });
   const pause = () => send(forProject('/api/v1/architect/pause', project), {});
   const step = (ask: string) => {
-    if (window.confirm(ask)) send(forProject('/api/v1/architect/step', project), { new_session: newSession });
+    if (!window.confirm(ask)) return;
+    const at = Date.now();
+    send(forProject('/api/v1/architect/step', project), { new_session: newSession }, () => stepped(at));
   };
   return { busy, error, step, start, pause, newSession, setNewSession };
 }
 
 /// How the wake going on goes on, on one line: a round running and for how long, or what holds it back, or what it
 /// waits for, linked to the ask; then the question it is at and the matter it handles; and its Start, Pause and Step.
-function Awake({ w, project, handling, onAsk }: {
+function Awake({ w, project, handling, onAsk, onRound }: {
   w: WorkSummary;
   project: string;
   handling: string;
   onAsk: (id: number) => void;
+  onRound: (wake: number, round: number) => void;
 }) {
   const status = useStatus();
   const a = useActions(w, status, true);
-  const s = useStep(project);
+  const s = useStep(project, onRound);
   const c = a.c;
   const waits = c.waits;
   const now = useNow(c.running !== null);
@@ -190,19 +197,21 @@ const HOLDS: Record<string, Key> = { architect: 'hold_architect', set_straight: 
 
 /// The line above an architect's chart: with more than one project, whose architect it is and the switch to another's;
 /// how it stands, what stops the project's new works, its controls, and the switch between its wakes.
-function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
+function Line({ a, shown, current, onTab, onAsk, onRound, pop, setPop }: {
   a: ArchitectRead;
   shown: Wake | null;
   /// The wake going on, as freshly read as the page has it.
   current: WorkSummary | null;
   onTab: (tab: ArchitectTab) => void;
   onAsk: (id: number) => void;
+  /// Opens a round of a wake: the one the owner's Step asked for, once it has ended.
+  onRound: (wake: number, round: number) => void;
   pop: 'wakes' | null;
   setPop: (p: 'wakes' | null) => void;
 }) {
   const status = useStatus();
   const state = architectState(a.wakes, a.queue);
-  const s = useStep(a.project);
+  const s = useStep(a.project, onRound);
   const handling = state.kind === 'awake' && state.handling !== null ? state.handling.what : '';
   const started = status !== null && status.architects_started.includes(a.project);
   // With no wake going on, the architect is held back while every work is paused and the owner has not started it:
@@ -236,7 +245,7 @@ function Line({ a, shown, current, onTab, onAsk, pop, setPop }: {
         </select>
       ) : null}
       {state.kind === 'awake' && current !== null ? (
-        <Awake w={current} project={a.project} handling={handling} onAsk={onAsk} />
+        <Awake w={current} project={a.project} handling={handling} onAsk={onAsk} onRound={onRound} />
       ) : (
         <span className="work-state">
           <strong>{state.kind === 'never' ? t('arch_never') : t('arch_asleep', { at: time(state.kind === 'asleep' ? state.since : null) })}</strong>
@@ -808,23 +817,14 @@ function Panel({ route, a, d, g, go, onRound }: {
           d === null ? (
             <p className="muted">{a.wakes.length === 0 ? t('arch_never_woke') : t('loading')}</p>
           ) : (
-            <>
-              <Next
-                d={d}
-                onRound={(r) => go({ wake: d.work.id, round: r, cell: null })}
-                onCard={() => undefined}
-                onAsk={onAsk}
-                stepPath={forProject('/api/v1/architect/step', a.project)}
-              />
-              <Timeline
-                work={d.work.id}
-                rounds={d.rounds}
-                g={g}
-                stale={status !== null && status.running !== d.work.id}
-                selected={route.wake === d.work.id ? route.round : null}
-                onRound={(x) => go({ wake: d.work.id, round: x.n, cell: null })}
-              />
-            </>
+            <Timeline
+              work={d.work.id}
+              rounds={d.rounds}
+              g={g}
+              stale={status !== null && status.running !== d.work.id}
+              selected={route.wake === d.work.id ? route.round : null}
+              onRound={(x) => go({ wake: d.work.id, round: x.n, cell: null })}
+            />
           )
         ) : null}
       </div>
@@ -906,6 +906,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
         current={current}
         onTab={(tab) => go({ tab })}
         onAsk={onAsk}
+        onRound={(w, r) => go({ wake: w, round: r, cell: null })}
         pop={pop}
         setPop={setPop}
       />
