@@ -703,6 +703,7 @@ const messages = {
   chart_lacks: 'no {move}',
   chart_lacks_title: '{cell} has no {move} ({to}): most cells that could have it do, and this one answers by itself',
   chart_reads_title: 'What the values this step decides by read',
+  chart_effort: 'Reasoning effort: {effort}',
   chart_stores: 'stores',
   stores_project: "The project's",
   stores_item: "An item's",
@@ -717,6 +718,8 @@ const messages = {
   legend_engine: "the engine's own step",
   legend_tool: 'a tool the engine runs',
   legend_owner: 'the owner',
+  legend_effort:
+    "over an agent cell's top left corner: the reasoning effort it runs at, low to high; the whole word on hovering",
   legend_rule: 'a rule the cell is given',
   legend_interjection: 'the interjection, beside an engine step that takes one',
   legend_actions:

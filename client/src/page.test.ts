@@ -34,7 +34,7 @@ import {
 } from './flow/CellPanel';
 import { conditionsWords, conditionWords, fieldActions, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
-import { badgeRow, labelSize } from './graph/flowDraw';
+import { badgeRow, EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords } from './graph/FlowChart';
 import {
@@ -607,6 +607,24 @@ describe('the chart of a flow', () => {
     const onward = edge('a:b:lock+post->c:b');
     expect(onward && labelSize(onward, true)).toBeNull();
     expect(onward && labelSize(onward, false)).toBeNull();
+  });
+
+  it("badges an agent's cell, a gate's too, with the effort it runs at, and no engine, tool or owner cell", () => {
+    const at = (effort: string | null, extra: Partial<CompiledCell> = {}) => effortOf(cell('e', [], { effort, ...extra }));
+    expect(at('medium')).toEqual({ level: 'medium', text: 'med', cls: 'fc-effort-medium', title: 'Reasoning effort: medium' });
+    expect(at('xhigh', { gate: true })).toMatchObject({ text: 'xhigh', cls: 'fc-effort-xhigh' });
+    // Every level the flow's compiler allows has a colour of its own; one the page does not know is drawn in grey.
+    expect(EFFORTS.map(([level]) => level)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    for (const [level] of EFFORTS) expect(at(level)?.cls).toBe(`fc-effort-${level}`);
+    expect(at('turbo')).toMatchObject({ text: 'turbo', cls: 'fc-effort-other' });
+    // A cell of a flow version stored before cells declared an effort has none.
+    expect(at(null)).toBeNull();
+    expect(effortOf(cell('e', []))).toBeNull();
+    for (const kind of ['engine', 'tool', 'owner']) expect(at('high', { kind }), kind).toBeNull();
+    // The legend gives the levels the chart draws, each once, low to high, one it does not know last.
+    const cells = ['max', 'turbo', 'low', 'high', 'low', 'medium', 'xhigh'].map((e, i) => cell(`c${i}`, [], { effort: e }));
+    expect(effortsOf(cells).map((e) => e.level)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'turbo']);
+    expect(effortsOf(graph.cells)).toEqual([]);
   });
 
   it("keeps an arrow's label on its own line", () => {

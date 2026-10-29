@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
-import { labelSize, sizes } from './graph/flowDraw';
+import { EFFORTS, effortOf, effortsOf, labelSize, sizes } from './graph/flowDraw';
 import { layoutChart } from './graph/flowLayout';
 import { cellActions, cellNode, chart, moves } from './graph/flowModel';
 import { storeLinks, storeUses } from './graph/stores';
@@ -30,6 +30,24 @@ describe('the flow as the engine stores it', () => {
     expect(forms.some((f) => !('lines' in f))).toBe(true);
     expect(forms.some((f) => !('field' in f))).toBe(true);
     expect(cells.some((c) => !('stage' in c))).toBe(true);
+  });
+
+  it("badges every agent's cell, the gates' among them, with an effort of the scale, and no other cell", () => {
+    const cells = compiled.graphs.flatMap((g) => g.cells);
+    for (const c of cells) {
+      const e = effortOf(c);
+      if (c.kind === 'agent') {
+        expect(EFFORTS.some(([level]) => level === c.effort), `${c.id} ${c.effort ?? ''}`).toBe(true);
+        expect(e?.cls, c.id).toBe(`fc-effort-${c.effort ?? ''}`);
+      } else {
+        expect(e, c.id).toBeNull();
+      }
+    }
+    expect(cells.some((c) => c.gate && effortOf(c) !== null)).toBe(true);
+    // The legend gives every level the flow uses, low to high.
+    const levels = effortsOf(cells).map((e) => e.level);
+    expect(levels).toEqual(EFFORTS.map(([level]) => level).filter((l) => cells.some((c) => c.effort === l)));
+    expect(levels.length).toBeGreaterThan(1);
   });
 
   for (const { g, v } of graphs) {

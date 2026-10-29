@@ -1111,6 +1111,18 @@ ul.linked {
   --fc-no-text: #1f4fa8;
   --fc-label: rgb(234 234 230 / 92%);
   --fc-text: #1d1d1b;
+  /* The efforts an agent's cell runs at: one violet in steps, lighter to darker from low to max, so that the order
+     reads in the colour; lettered in whichever of ink and white reads at 4.5:1 or more. */
+  --fc-effort-low: #af9ee4;
+  --fc-effort-low-text: #1d1d1b;
+  --fc-effort-medium: #9578de;
+  --fc-effort-medium-text: #1d1d1b;
+  --fc-effort-high: #7d51d2;
+  --fc-effort-high-text: #ffffff;
+  --fc-effort-xhigh: #6232b2;
+  --fc-effort-xhigh-text: #ffffff;
+  --fc-effort-max: #471e86;
+  --fc-effort-max-text: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1157,6 +1169,17 @@ ul.linked {
     --fc-no-text: #c4d7fa;
     --fc-label: rgb(44 44 41 / 92%);
     --fc-text: #e8e8e3;
+    /* On the dark page the steps go the other way, darker to lighter from low to max, so that more stands out more. */
+    --fc-effort-low: #6342a6;
+    --fc-effort-low-text: #ffffff;
+    --fc-effort-medium: #7a55c7;
+    --fc-effort-medium-text: #ffffff;
+    --fc-effort-high: #9477dd;
+    --fc-effort-high-text: #161615;
+    --fc-effort-xhigh: #af99ed;
+    --fc-effort-xhigh-text: #161615;
+    --fc-effort-max: #cabef7;
+    --fc-effort-max-text: #161615;
   }
 }
 
@@ -1493,6 +1516,58 @@ svg.fc {
 
 .fc-b-failed rect {
   fill: var(--bad);
+}
+
+/* Over an agent cell's top left corner: the reasoning effort it runs at, in its level's step of the violet; a level
+   the page does not know in grey. */
+.fc-effort rect {
+  fill: var(--muted);
+}
+
+.fc .fc-effort text {
+  fill: var(--panel);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fc-effort-low rect {
+  fill: var(--fc-effort-low);
+}
+
+.fc .fc-effort-low text {
+  fill: var(--fc-effort-low-text);
+}
+
+.fc-effort-medium rect {
+  fill: var(--fc-effort-medium);
+}
+
+.fc .fc-effort-medium text {
+  fill: var(--fc-effort-medium-text);
+}
+
+.fc-effort-high rect {
+  fill: var(--fc-effort-high);
+}
+
+.fc .fc-effort-high text {
+  fill: var(--fc-effort-high-text);
+}
+
+.fc-effort-xhigh rect {
+  fill: var(--fc-effort-xhigh);
+}
+
+.fc .fc-effort-xhigh text {
+  fill: var(--fc-effort-xhigh-text);
+}
+
+.fc-effort-max rect {
+  fill: var(--fc-effort-max);
+}
+
+.fc .fc-effort-max text {
+  fill: var(--fc-effort-max-text);
 }
 
 .fc-edge {

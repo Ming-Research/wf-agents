@@ -2,8 +2,9 @@
 // them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
 // takes its line's, a cell on no line is white and dotted, the engine's own step is purple, dashed and rounded, a tool
 // the engine runs grey and dashed, the owner orange and rounded. Under a step the engine decides, what its values read;
-// on a cell that lacks a move most cells that could make make, a small mark saying so. What the engine does on a line
-// or every time a cell returns is a purple hexagon. A row's number is a badge of one size with its digits in it.
+// on a cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its
+// top left corner the reasoning effort it runs at, as a badge in the level's colour. What the engine does on a line or
+// every time a cell returns is a purple hexagon. A row's number is a badge of one size with its digits in it.
 // Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its target.
 
 import { type ReactNode, useRef, useState } from 'react';
@@ -76,6 +77,68 @@ function wrapped(text: string, font: string, wrap: number, first = 0): string[] 
 /// A cell's text, `<id> <title>`, in lines no wider than the cell's text may be; the id leads the first line.
 export function cellLines(c: CompiledCell): string[] {
   return wrapped(c.title, FONT, WRAP, measure(`${c.id} `, BOLD));
+}
+
+/// The reasoning efforts an agent's cell may run at, low to high, as the flow's compiler allows them (`EFFORTS` in
+/// `crates/flow/src/format.rs`), each with the short form its badge on the chart shows.
+export const EFFORTS: ReadonlyArray<readonly [string, string]> = [
+  ['low', 'low'],
+  ['medium', 'med'],
+  ['high', 'high'],
+  ['xhigh', 'xhigh'],
+  ['max', 'max'],
+];
+
+/// The badge of the reasoning effort a cell runs at: its level, the short form it shows, the class that gives it the
+/// level's colour (a grey one for a level the page does not know), and the whole word on hovering.
+export type Effort = { level: string; text: string; cls: string; title: string };
+
+/// A cell's effort badge; none for a cell that declares no effort, as an engine's, a tool's or the owner's.
+export function effortOf(c: CompiledCell): Effort | null {
+  const level = c.effort;
+  if (c.kind !== 'agent' || level == null || level === '') return null;
+  const known = EFFORTS.find(([l]) => l === level);
+  return {
+    level,
+    text: known !== undefined ? known[1] : level,
+    cls: known !== undefined ? `fc-effort-${level}` : 'fc-effort-other',
+    title: t('chart_effort', { effort: level }),
+  };
+}
+
+/// The efforts the cells run at, each once, low to high, a level the page does not know last.
+export function effortsOf(cells: CompiledCell[]): Effort[] {
+  const rank = (e: Effort) => {
+    const i = EFFORTS.findIndex(([l]) => l === e.level);
+    return i < 0 ? EFFORTS.length : i;
+  };
+  const all = new Map<string, Effort>();
+  for (const c of cells) {
+    const e = effortOf(c);
+    if (e !== null && !all.has(e.level)) all.set(e.level, e);
+  }
+  return [...all.values()].sort((a, b) => rank(a) - rank(b));
+}
+
+const EFFORT_FONT = '700 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const EFFORT_HEIGHT = 16;
+
+/// The width of every effort badge, that of the widest short form, so that the badges are of one size.
+export function effortWidth(): number {
+  return Math.ceil(Math.max(...EFFORTS.map(([, s]) => measure(s, EFFORT_FONT)))) + 12;
+}
+
+/// An effort badge, its top left corner at `x`, `y`, `width` wide: the level's short form, the whole word on hovering.
+export function EffortBadge({ effort, x, y, width }: { effort: Effort; x: number; y: number; width: number }) {
+  return (
+    <g className={`fc-effort ${effort.cls}`}>
+      <title>{effort.title}</title>
+      <rect x={x} y={y} width={width} height={EFFORT_HEIGHT} rx={EFFORT_HEIGHT / 2} />
+      <text x={x + width / 2} y={y + 11.5} textAnchor="middle">
+        {effort.text}
+      </text>
+    </g>
+  );
 }
 
 /// A mark on a cell that lacks a move most cells that could make it make: what it says, and why on hovering.
@@ -240,6 +303,11 @@ function CellShape({ n, cell, box, lines, note, marks }: {
     }
   }
   const mark = marks.added.has(cell.id) ? t('chart_added') : marks.changed.has(cell.id) ? t('chart_changed') : null;
+  // The effort badge over the top left corner, centred on the line the work's badges at the top right sit on; a
+  // comparison's mark goes after it.
+  const effort = effortOf(cell);
+  const effortW = effort !== null ? effortWidth() : 0;
+  const markX = effort !== null ? box.x - 4 + effortW + 4 : box.x + 4;
   const name = `${cell.id} ${cell.title}`;
   return (
     <g className={cls} data-node={n.id}>
@@ -279,8 +347,9 @@ function CellShape({ n, cell, box, lines, note, marks }: {
       {note !== undefined && note.lacks.length > 0 ? (
         <Lacks lacks={note.lacks} x={box.x + box.width / 2} y={box.y + box.height - PAD_Y - MARKS + 3} />
       ) : null}
+      {effort !== null ? <EffortBadge effort={effort} x={box.x - 4} y={box.y - 9} width={effortW} /> : null}
       {mark !== null ? (
-        <text className="fc-mark" x={box.x + 4} y={box.y - 4}>
+        <text className="fc-mark" x={markX} y={box.y - 4}>
           {mark}
         </text>
       ) : null}

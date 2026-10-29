@@ -12,7 +12,7 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useR
 
 import type { CompiledGraph, EngineNames, GraphView } from '../api';
 import { t } from '../text';
-import { FlowSvg, Halo, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import { EffortBadge, effortsOf, effortWidth, FlowSvg, Halo, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
 import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
 import { layStores, linkPath, LinksSvg, storeLinks, StoresSvg, storeSize } from './stores';
@@ -98,9 +98,9 @@ export function moveWords(m: Move): string {
   }
 }
 
-/// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the rules and the
-/// interjection, the circles, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or
-/// of a comparison; then how the chart moves.
+/// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the efforts agents' cells
+/// run at, low to high, the rules and the interjection, the circles, and the marks of a work, with the bar beside an
+/// agent round's cost in its rounds list, or of a comparison; then how the chart moves.
 function Legend({ charts, stores, legend }: {
   charts: Array<{ g: CompiledGraph; chart: Chart }>;
   stores: boolean;
@@ -121,6 +121,8 @@ function Legend({ charts, stores, legend }: {
     if (s.startsWith('line-')) return t('legend_line', { line: s === 'line-other' ? t('legend_other_line') : (lines.get(s) ?? '') });
     return s === 'kind-engine' ? t('legend_engine') : s === 'kind-tool' ? t('legend_tool') : t('legend_owner');
   };
+  const efforts = effortsOf(cells);
+  const effortW = effortWidth();
   const rules = cells.some((c) => (c.rules ?? []).length > 0);
   const flags = graphs.some(
     (g) => g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject)),
@@ -238,6 +240,21 @@ function Legend({ charts, stores, legend }: {
             {label(s)}
           </li>
         ))}
+        {efforts.length > 0 ? (
+          <li>
+            <svg
+              className="fc legend-swatch"
+              width={efforts.length * (effortW + 3)}
+              height="18"
+              viewBox={`0 0 ${efforts.length * (effortW + 3)} 18`}
+            >
+              {efforts.map((e, i) => (
+                <EffortBadge key={e.level} effort={e} x={i * (effortW + 3)} y={1} width={effortW} />
+              ))}
+            </svg>
+            {t('legend_effort')}
+          </li>
+        ) : null}
         {rules ? (
           <li>
             <Swatch>
