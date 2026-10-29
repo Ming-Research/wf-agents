@@ -181,7 +181,9 @@ function PolicyAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
           {readings.map((r, i) => (
             <ReadingView
               key={i}
-              round={typeof r.round === 'number' ? roundName(a.work, r.round) : ''}
+              from={
+                typeof r.round === 'number' ? <span className="muted arch-from">{roundName(a.work, r.round)}</span> : null
+              }
               reading={r.reading ?? null}
               verdict={r.verdict ?? null}
             />
