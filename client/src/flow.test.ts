@@ -116,6 +116,18 @@ describe('the flow as the engine stores it', () => {
         }
       });
 
+      it("draws no move as the main path, only a cell's own answers", () => {
+        const c = chart(g, v, engine);
+        const cells = new Map(g.cells.map((x) => [x.id, x]));
+        for (const e of c.edges) {
+          const rows = [
+            ...(e.cell !== null ? e.rows.map((i) => cells.get(e.cell ?? '')?.rows[i]) : []),
+            ...e.through.map((x) => cells.get(x.cell)?.rows[x.row]),
+          ];
+          expect(e.main, e.id).toBe(rows.some((r) => r !== undefined && r.main && !r.common));
+        }
+      });
+
       it("lists in a cell's panel every move of its own, or names it as in the legend", () => {
         for (const c of g.cells) {
           const own = ownMoves(g, c);

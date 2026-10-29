@@ -45,7 +45,7 @@ export type ChartEdge = {
   label: string;
   /// The rows' numbers as `runs` writes them, for the chart to draw beside the names; none when the cell has one row.
   numbers: Array<[number, number]>;
-  /// Some row of it is on the main path.
+  /// Some row of it is on the main path: a cell's own answer the flow marks so, never a move.
   main: boolean;
   kind: 'row' | 'rule' | 'interjection' | 'does';
 };
@@ -103,6 +103,12 @@ export function fallback(r: CompiledRow): boolean {
 /// Whether a row is one the engine takes itself for the cell's line, as when its session would start afresh.
 export function engineRow(r: CompiledRow): boolean {
   return r.if.some((a) => a[0] === 'engine');
+}
+
+/// Whether a row is on the main path: only a cell's own answer is, never a move or the engine's fallback, whatever the
+/// row says.
+export function mainPath(r: CompiledRow): boolean {
+  return r.main && !r.common;
 }
 
 /// Whether a row is a move of an agent's cell of its own, which every cell that has it shares: one its agent chooses,
@@ -308,7 +314,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     const e = edges.get(id);
     if (e) {
       if (!e.rows.includes(row)) e.rows.push(row);
-      e.main = e.main || c.rows[row].main;
+      e.main = e.main || mainPath(c.rows[row]);
     } else {
       edges.set(id, {
         id,
@@ -319,7 +325,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
         through: [],
         label: '',
         numbers: [],
-        main: c.rows[row].main,
+        main: mainPath(c.rows[row]),
         kind: 'row',
       });
     }
@@ -331,9 +337,10 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     const one = { cell: c.id, row };
     if (e) {
       if (!e.through.some((x) => x.cell === c.id && x.row === row)) e.through.push(one);
-      e.main = e.main || c.rows[row].main;
+      e.main = e.main || mainPath(c.rows[row]);
     } else {
-      edges.set(id, { id, source, target, cell: null, rows: [], through: [one], label: '', numbers: [], main: c.rows[row].main, kind: 'row' });
+      const main = mainPath(c.rows[row]);
+      edges.set(id, { id, source, target, cell: null, rows: [], through: [one], label: '', numbers: [], main, kind: 'row' });
     }
   };
   for (const c of g.cells) node({ id: cellNode(c.id), kind: 'cell', cell: c.id, other: null });

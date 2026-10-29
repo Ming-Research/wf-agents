@@ -37,7 +37,20 @@ import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords } from './graph/FlowChart';
-import { ASKING, chart, letterOf, MAIN, moves, overlays, partsOf, related, roundArrows, runs, taken } from './graph/flowModel';
+import {
+  ASKING,
+  chart,
+  letterOf,
+  MAIN,
+  mainPath,
+  moves,
+  overlays,
+  partsOf,
+  related,
+  roundArrows,
+  runs,
+  taken,
+} from './graph/flowModel';
 import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
@@ -385,7 +398,7 @@ const graph: CompiledGraph = {
         row('again', 'b'),
         row('other', 'c'),
         move('tools', 't', { main: true }),
-        move('search', 'x'),
+        move('search', 'x', { main: true }),
         move('pause', 'p'),
         sentBack,
       ],
@@ -492,6 +505,10 @@ describe('the chart of a flow', () => {
     expect(c.notes.get('d')?.lacks.map((m) => m.row)).toEqual(['ask_q']);
     // A search, which few cells make, is a line; tools, pauses and asks are not, nor the engine's fallback.
     expect(edge('c:a->c:x')).toMatchObject({ label: 'search', numbers: [[5, 5]] });
+    // A move is on no main path, on the chart or in the panel, though its row says it is; a cell's own answer is.
+    expect(edge('c:a->c:x')?.main).toBe(false);
+    expect(mainPath(graph.cells[1].rows[5])).toBe(false);
+    expect(mainPath(graph.cells[1].rows[1])).toBe(true);
     expect(c.edges.filter((e) => ['c:t', 'c:p', 'o:q:a'].includes(e.target))).toEqual([]);
     expect(c.edges.some((e) => e.label.includes('sent_back'))).toBe(false);
     expect(moveWords(moves(graph)[0])).toBe('ask q → q: every agent cell, but d, each marked');

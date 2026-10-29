@@ -27,7 +27,7 @@ import type {
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
 import { styleOf } from '../graph/flowDraw';
-import { actionWords, fallback, letterOf, type Move, moves, rowActions } from '../graph/flowModel';
+import { actionWords, fallback, letterOf, mainPath, type Move, moves, rowActions } from '../graph/flowModel';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { type Key, t } from '../text';
@@ -596,7 +596,7 @@ function RowItem({ c, i, on, counter }: { c: CompiledCell; i: number; on: boolea
       <div className="tb">
         <div>
           <strong>{r.name}</strong> → <Target c={c} row={i} />
-          {r.main && !r.common ? <span className="tag tag-main">{t('row_main')}</span> : null}
+          {mainPath(r) ? <span className="tag tag-main">{t('row_main')}</span> : null}
           {r.waits ? <span className="tag">{t('row_waits')}</span> : null}
           {r.pauses ? <span className="tag">{t('row_pauses')}</span> : null}
           {r.interject ? <span className="tag">{t('row_interjection')}</span> : null}
