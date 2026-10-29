@@ -1591,9 +1591,13 @@ svg.fc {
   stroke-width: 1.4;
 }
 
+/* The rows a work took: their dashes flow the way the work went, at their own width; still for who asks for less
+   motion. */
 .fc-edge-taken {
   stroke: var(--fc-taken);
   stroke-width: 2.6;
+  stroke-dasharray: 10 6;
+  animation: fc-flow 0.9s linear infinite;
 }
 
 /* The row the pointer is on, from its source to its target. */
@@ -1618,7 +1622,8 @@ svg.fc {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fc-edge-lit {
+  .fc-edge-lit,
+  .fc-edge-taken {
     animation: none;
     stroke-dasharray: none;
   }
