@@ -66,9 +66,25 @@ possible happens by itself.
 Violations: a hand-over, an escalation, a retry or a wait that the engine does out of the flow's sight; behaviour that
 can be found only by reading the engine's code.
 
+## Article 8. The owner's page holds what the owner uses
+
+Everything on the owner's page is there for the owner to know something, decide something or do something. Each element
+answers five questions: why it is there; why it is shown this way; what the owner does with it where it stands; whether
+a better way to show it exists; whether its space matches its weight. What the owner needs often and at once takes the
+room and the first look, what is needed now and then is folded or a click away, and what is never needed is not there.
+A page and each of its parts is designed from what it is for: what it must hold, what it leaves out and how it is laid
+out; leaving out is half the work, and putting on what the owner needs and does not yet have is the other half. Each
+thing has one place, named for what produced it, and is shown there once.
+
+Violations: a column, a field or a log put on the page because the data exists (the engine's bookkeeping, raw values,
+internal names, JSON); the same thing shown in two places; text written for agents or the engine shown as if written for
+the owner; a table squeezed until it cannot be read; marks, motion or colour that tell the owner nothing; a page whose
+parts follow how the system stores things rather than what the owner does with them.
+
 ## When articles conflict
 
 Article 1 governs all the others. Article 2 comes before Article 3: without the right information nothing works, and
 being efficient means wasting nothing, not giving less than is needed. Article 4 decides whether a thing should exist
 and Article 5 how a thing that exists is built; neither is ranked against the articles before them. Article 6 is the
 way judgments are made. Article 7 decides where a behaviour is written: in the flow, unless the flow cannot say it.
+Article 8 is Article 2 for the owner: what the owner's page shows, and how.
