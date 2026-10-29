@@ -12,9 +12,11 @@ import type { Compiled, FlowDiff, RoundSummary } from '../api';
 import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph/FlowChart';
 import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
+import { actionWords, chart } from '../graph/flowModel';
 import { t } from '../text';
-import { CellPanel, type CellTab, cellWho } from './CellPanel';
+import { CellPanel, type CellTab, cellDoes, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
+import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { CellLinks, inline } from './words';
@@ -26,14 +28,15 @@ export function graphOfCell(graphs: Graph[], cell: string): Graph | undefined {
   return graphs.find((x) => x.g.cells.some((c) => c.id === cell)) ?? graphs[0];
 }
 
-/// A subject with its graph named: a cell's the graph that has it, a rule's and the interjection's the first graph,
-/// when the subject names none.
+/// A subject with its graph named: a cell's the graph that has it, a rule's, the interjection's and the actions on a
+/// line's the first graph, when the subject names none.
 export function withGraph(s: Subject, graphs: Graph[]): Subject {
   switch (s.kind) {
     case 'cell':
       return s.graph !== undefined ? s : { ...s, graph: graphOfCell(graphs, s.cell)?.g.name };
     case 'rule':
     case 'interjection':
+    case 'action':
       return s.graph !== undefined ? s : { ...s, graph: graphs[0]?.g.name };
     default:
       return s;
@@ -171,8 +174,8 @@ export function FlowScreen(props: FlowScreenProps) {
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
   const trail = useTrail<Subject>(same);
-  // The node whose panel is open, in its graph.
-  const [picked, setPicked] = useState<{ graph: string; node: string } | null>(null);
+  // The node whose panel is open, in its graph, or the store.
+  const [picked, setPicked] = useState<{ graph: string; node: string } | { store: string } | null>(null);
   // The tab of a cell's panel the owner chose last: going to another cell keeps it.
   const [cellTab, setCellTab] = useState<CellTab | null>(null);
   const open = (s: Subject, from?: Subject) =>
@@ -188,8 +191,11 @@ export function FlowScreen(props: FlowScreenProps) {
           flowOf(compiled, g, view, (s) => {
             trail.open(withGraph(s, graphs));
             if (s.kind === 'cell') {
-              setPicked({ graph: g.name, node: `c:${s.cell}` });
-              window.setTimeout(() => chartRef.current?.focus(s.cell, false, g.name), 0);
+              const graph = s.graph ?? g.name;
+              setPicked({ graph, node: `c:${s.cell}` });
+              window.setTimeout(() => chartRef.current?.focus(s.cell, false, graph), 0);
+            } else if (s.kind === 'store') {
+              setPicked({ store: s.store });
             }
           }),
         ]),
@@ -197,6 +203,11 @@ export function FlowScreen(props: FlowScreenProps) {
     // `trail.open` keeps no state of its own between renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [compiled, graphs],
+  );
+  // Each graph's chart, for the panel of the actions on a line, which names the rows through them.
+  const charts = useMemo(
+    () => new Map(graphs.map(({ g, view }) => [g.name, chart(g, view, compiled.engine)])),
+    [graphs, compiled],
   );
   const first = graphs[0];
   const flowFor = (graph: string | undefined): Flow | null =>
@@ -255,17 +266,13 @@ export function FlowScreen(props: FlowScreenProps) {
         setPicked({ graph, node: `j:${p.cell}` });
         open({ kind: 'interjection', graph }, { kind: 'cell', graph, cell: p.cell });
         break;
-      case 'shared':
-        pickCell(graph, p.cell);
-        setCellTab('route');
-        open({
-          kind: 'cell',
-          graph,
-          cell: p.cell,
-          rows: graphFor(graph)
-            ?.g.cells.find((c) => c.id === p.cell)
-            ?.rows.flatMap((r, i) => (r.common ? [i] : [])),
-        });
+      case 'action':
+        setPicked({ graph, node: p.node });
+        open({ kind: 'action', graph, node: p.node });
+        break;
+      case 'store':
+        setPicked({ store: p.store });
+        open({ kind: 'store', store: p.store });
         break;
       case 'out':
         pickCell(graph, p.to);
@@ -289,6 +296,16 @@ export function FlowScreen(props: FlowScreenProps) {
         return `rule:${s.rule}`;
       case 'interjection':
         return graphFor(s.graph)?.g.interject?.name ?? '';
+      case 'action':
+        return (
+          charts
+            .get(graphFor(s.graph)?.g.name ?? '')
+            ?.nodes.find((n) => n.id === s.node)
+            ?.actions.map(actionWords)
+            .join(' · ') ?? ''
+        );
+      case 'store':
+        return compiled.engine.stores?.[s.store]?.title ?? s.store;
       case 'changes':
         return t('panel_changes');
       case 'round':
@@ -303,14 +320,16 @@ export function FlowScreen(props: FlowScreenProps) {
         const x = graphFor(now.graph);
         const c = x?.g.cells.find((y) => y.id === now.cell);
         if (!x || !c) return null;
+        const where = cellWhere(x.g, c);
         return {
           flow: flowFor(x.g.name),
           title: (
             <>
               <strong>{c.id}</strong> {c.title}
+              {where !== null ? <span className="panel-where"> ({where})</span> : null}
             </>
           ),
-          who: cellWho(x.view, c),
+          who: cellDoes(x.g, c),
           body: (
             <CellPanel
               c={c}
@@ -341,6 +360,25 @@ export function FlowScreen(props: FlowScreenProps) {
           title: x?.g.interject?.name ?? '',
           who: x?.g.interject?.desc,
           body: <InterjectionPanel />,
+        };
+      }
+      case 'action': {
+        const x = graphFor(now.graph);
+        const model = charts.get(x?.g.name ?? '');
+        return {
+          flow: flowFor(x?.g.name),
+          title: titleOf(now),
+          who: t('panel_actions_who'),
+          body: model !== undefined ? <ActionPanel chart={model} node={now.node} /> : null,
+        };
+      }
+      case 'store': {
+        const s = compiled.engine.stores?.[now.store];
+        return {
+          flow: flowFor(undefined),
+          title: titleOf(now),
+          who: s !== undefined ? storeWho(s.layer, s.computed === true) : null,
+          body: <StorePanel store={now.store} graphs={graphs} />,
         };
       }
       case 'changes':
@@ -423,10 +461,11 @@ export function FlowScreen(props: FlowScreenProps) {
     () =>
       graphs.map((x, i) => ({
         ...(marks[i] ?? { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() }),
-        selected: now !== null && picked !== null && picked.graph === x.g.name ? picked.node : null,
+        selected: now !== null && picked !== null && 'graph' in picked && picked.graph === x.g.name ? picked.node : null,
       })),
     [graphs, marks, now, picked],
   );
+  const openStore = now !== null && picked !== null && 'store' in picked ? picked.store : null;
   return (
     <FlowContext.Provider value={flowFor(undefined)}>
       <div className="flow-screen">
@@ -435,6 +474,8 @@ export function FlowScreen(props: FlowScreenProps) {
             ref={chartRef}
             graphs={graphs}
             marks={chartMarks}
+            engine={compiled.engine}
+            store={openStore}
             start={start}
             startGraph={startGraph}
             onPick={onPick}

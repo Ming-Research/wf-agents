@@ -262,7 +262,7 @@ pub struct RoundSummary {
     pub outcome: RoundOutcome,
     /// The row its return took.
     pub transition: Option<String>,
-    /// Why it was sent back, failed or was cut off.
+    /// Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
     pub why: Option<String>,
     pub started_at: i64,
     pub ended_at: Option<i64>,

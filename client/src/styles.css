@@ -1065,7 +1065,8 @@ ul.linked {
 
 /* The flow's chart. Each kind of box has a fill of its own: an agent's round its line's, a cell on no line white and
    dotted, the engine's own step purple, a tool the engine runs grey, the owner orange, a rule blue, the interjection
-   orange, the shared rows and a way to another part lavender, a way from another part shaded orange. */
+   orange, a way to another part lavender, a way from another part shaded orange; what the engine does on a line or
+   every time a cell returns is a purple hexagon, and a store a teal box, dashed when it is computed. */
 
 :root {
   --fc-group: #fffde4;
@@ -1094,8 +1095,8 @@ ul.linked {
   --fc-rule-fill: #dae5fd;
   --fc-flag: #c26a1b;
   --fc-flag-fill: #f8e7d7;
-  --fc-shared: #7c7c96;
-  --fc-shared-fill: #e9e9fb;
+  --fc-store: #0f766e;
+  --fc-store-fill: #e3f3f1;
   --fc-out: #6b7280;
   --fc-out-fill: #ececff;
   --fc-in: #ea580c;
@@ -1140,8 +1141,8 @@ ul.linked {
     --fc-rule-fill: #1b2a4b;
     --fc-flag: #e6a04a;
     --fc-flag-fill: #3f2f1e;
-    --fc-shared: #a0a0c0;
-    --fc-shared-fill: #2b2b47;
+    --fc-store: #3cc2b4;
+    --fc-store-fill: #12302d;
     --fc-out: #a3a8b1;
     --fc-out-fill: #2a2a45;
     --fc-in: #f9813a;
@@ -1185,7 +1186,9 @@ svg.fc {
 .fc-cell,
 .fc-circle,
 .fc-rule,
-.fc-flag {
+.fc-flag,
+.fc-act,
+.fc-store {
   cursor: pointer;
 }
 
@@ -1259,13 +1262,83 @@ svg.fc {
   font-size: 12px;
 }
 
-.fc-shared ellipse {
-  fill: var(--fc-shared-fill);
-  stroke: var(--fc-shared);
+/* What the engine does on a line, or every time a cell returns. */
+.fc-act polygon {
+  fill: var(--fc-engine-fill);
+  stroke: var(--fc-engine);
+  stroke-width: 1.5;
 }
 
-.fc-shared text {
+.fc-act text {
+  font-size: 12px;
+}
+
+.fc-edge.fc-edge-does {
+  stroke: var(--fc-engine);
+  stroke-dasharray: 3 3;
+}
+
+/* Under a step the engine decides, what its values read; on a cell, a move it lacks. */
+.fc .fc-reads {
+  font-size: 12px;
+  fill: var(--muted);
+}
+
+.fc-reads-line {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.fc-lack rect {
+  fill: var(--fc-label);
+  stroke: var(--fc-arrow);
+  stroke-dasharray: 2 2;
+}
+
+.fc .fc-lack text {
   font-size: 11px;
+  fill: var(--muted);
+}
+
+/* The stores, in boxes by what they belong to, and the lines to them from what is pointed at or open. */
+.fc-store rect {
+  fill: var(--fc-store-fill);
+  stroke: var(--fc-store);
+  stroke-width: 1.5;
+}
+
+.fc-store-computed rect {
+  stroke-dasharray: 4 3;
+}
+
+.fc-store-lit rect {
+  stroke-width: 3;
+}
+
+.fc .fc-store-note {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+.fc-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+.fc-link {
+  fill: none;
+  stroke: var(--fc-store);
+  stroke-width: 1.6;
+}
+
+.fc-link-read {
+  stroke-dasharray: 5 4;
+}
+
+.fc-link-head path {
+  fill: var(--fc-store);
 }
 
 .fc-out ellipse {
@@ -1431,10 +1504,6 @@ svg.fc {
 .fc-edge-main {
   stroke: var(--fc-arrow-main);
   stroke-width: 2;
-}
-
-.fc-edge-shared {
-  stroke-dasharray: 5 3;
 }
 
 .fc-edge-rule {
@@ -3109,10 +3178,41 @@ p.rp-note {
   cursor: pointer;
 }
 
-/* How a line's session is kept, under a cell's title. */
-.panel-session {
-  display: block;
+/* Where a cell stands, after its title. */
+.panel-where {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* A part of a section, and a check beside the field it checks. */
+.ds-sub {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.use-check {
+  font-size: 12.5px;
   margin-top: 2px;
+}
+
+.use-check .ul {
+  margin-right: 6px;
+}
+
+.use-check code {
+  margin-right: 4px;
+}
+
+details.fallback > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.legend-moves ul {
+  margin: 2px 0 4px 10px;
+  color: var(--muted);
 }
 
 /* A work's state on one line: the badge, how long it has run, what waits for the owner as small chips; the reason the

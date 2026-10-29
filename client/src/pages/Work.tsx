@@ -96,7 +96,9 @@ export function Timeline(props: {
     <table className="list timeline">
       <tbody ref={body}>
         {newest.map((r) => {
-          const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
+          // A row the engine took as a session would start afresh says why after its name.
+          const took = r.transition !== null && r.why !== null ? `${r.transition}: ${r.why}` : (r.transition ?? r.why ?? '');
+          const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : took;
           return (
             <tr
               key={r.n}

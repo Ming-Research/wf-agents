@@ -1,18 +1,21 @@
 // A flow's state machine, filling the space it is given: the chart is built from the compiled flow and what the
 // interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a "?" in the bottom-left
 // corner that opens what every mark means. Several graphs are drawn side by side on the one chart, each under its
-// name, and move and zoom together. On a work's page each cell carries what the work did there and the arrows the work
-// took stand out, and the rows' numbers, which serve the flow's author, are left out; when two flows are compared, the
-// cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it; when a round
-// starts running at another cell than the one it last centred on, it centres on that cell at the zoom it has.
+// name, and move and zoom together; the stores the engine keeps what it writes in are drawn between the first two, or
+// beside the one, and pointing at a cell, the actions on a line or a store, or opening one, draws the lines between
+// them. On a work's page each cell carries what the work did there and the arrows the work took stand out, and the
+// rows' numbers, which serve the flow's author, are left out; when two flows are compared, the cells added and changed
+// are marked. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
+// cell than the one it last centred on, it centres on that cell at the zoom it has.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
-import type { CompiledGraph, GraphView } from '../api';
+import type { CompiledGraph, EngineNames, GraphView } from '../api';
 import { t } from '../text';
 import { FlowSvg, Halo, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
-import { type Chart, chart as build, MAIN } from './flowModel';
+import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
+import { layStores, linkPath, LinksSvg, storeLinks, StoresSvg, storeSize } from './stores';
 import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
 /// A graph of the flow, with what the interface says of it.
@@ -23,7 +26,8 @@ export type Pick =
   | { kind: 'cell'; graph: string; cell: string }
   | { kind: 'rule'; graph: string; rule: string; cell: string }
   | { kind: 'interjection'; graph: string; cell: string }
-  | { kind: 'shared'; graph: string; cell: string }
+  | { kind: 'action'; graph: string; node: string }
+  | { kind: 'store'; store: string }
   | { kind: 'out'; graph: string; cell: string; to: string }
   | { kind: 'in'; graph: string; cell: string; from: string };
 
@@ -43,6 +47,10 @@ export type FlowChartProps = {
   graphs: Graph[];
   /// What is marked on each graph, in the same order.
   marks: Marks[];
+  /// The flow's engine part: the stores, what each action writes and what each value reads.
+  engine: EngineNames | null;
+  /// The store whose panel is open.
+  store?: string | null;
   /// The cell the chart opens on; with none, the top of the first graph.
   start: string | null;
   /// The graph of that cell; with none, the first that has it.
@@ -75,10 +83,30 @@ function BadgeSwatch({ k, text }: { k: string; text: string }) {
   );
 }
 
+/// What the legend says of a move of an agent's cell: where it goes, and which cells make it, as the chart draws it.
+export function moveWords(m: Move): string {
+  const name = t('legend_move', { move: actionWords(m.row), to: m.to });
+  const who = m.lines === null ? t('legend_move_every') : t('legend_move_lines', { lines: m.lines.join(', ') });
+  const missing = m.could.filter((c) => !m.cells.includes(c)).join(', ');
+  switch (m.tier) {
+    case 'legend':
+      return `${name}: ${who}`;
+    case 'marked':
+      return `${name}: ${who}, ${t(m.engine ? 'legend_move_but' : 'legend_move_marked', { cells: missing })}`;
+    case 'lines':
+      return `${name}: ${t('legend_move_drawn', { n: m.cells.length, of: m.could.length })}`;
+  }
+}
+
 /// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the rules and the
 /// interjection, the circles, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or
 /// of a comparison; then how the chart moves.
-function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChartProps['legend'] }) {
+function Legend({ charts, stores, legend }: {
+  charts: Array<{ g: CompiledGraph; chart: Chart }>;
+  stores: boolean;
+  legend: FlowChartProps['legend'];
+}) {
+  const graphs = charts.map((x) => x.g);
   const cells = graphs.flatMap((g) => g.cells);
   const styles: string[] = [];
   for (const c of cells) {
@@ -97,8 +125,11 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
   const flags = graphs.some(
     (g) => g.interject !== null && g.cells.some((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject)),
   );
-  const shared = [...new Set(cells.flatMap((c) => (c.kind === 'agent' ? c.rows.filter((r) => r.common) : [])).map((r) => r.name))];
   const work = legend === 'work';
+  const several = charts.length > 1;
+  const acting = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'action' || n.kind === 'does'));
+  const reading = charts.some((x) => [...x.chart.notes.values()].some((n) => n.reads !== null));
+  const lacking = charts.some((x) => [...x.chart.notes.values()].some((n) => n.lacks.length > 0));
   return (
     <details className="legend">
       <summary aria-label={t('legend')} title={t('legend')}>
@@ -225,17 +256,90 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
             {t('legend_interjection')}
           </li>
         ) : null}
-        {shared.length > 0 ? (
+        {acting ? (
           <li>
             <Swatch>
-              <path className="fc-edge fc-edge-shared" d="M 1 9 L 14 9" />
-              <g className="fc-circle fc-shared">
-                <ellipse cx="24" cy="9" rx="8" ry="7" />
+              <g className="fc-act">
+                <polygon points="6,3 28,3 33,9 28,15 6,15 1,9" />
               </g>
             </Swatch>
-            {t('legend_shared', { rows: shared.join(', ') })}
+            {t('legend_actions')}
           </li>
         ) : null}
+        {reading ? (
+          <li>
+            <Swatch>
+              <g className="fc-cell kind-engine">
+                <rect x="4" y="1" width="26" height="16" rx="8" />
+              </g>
+              <path className="fc-reads-line" d="M 10 12 L 24 12" />
+            </Swatch>
+            {t('legend_reads')}
+          </li>
+        ) : null}
+        {lacking ? (
+          <li>
+            <Swatch>
+              <g className="fc-lack">
+                <rect x="3" y="2" width="28" height="14" rx="7" />
+              </g>
+            </Swatch>
+            {t('legend_lacks')}
+          </li>
+        ) : null}
+        {stores ? (
+          <>
+            <li>
+              <Swatch>
+                <g className="fc-store">
+                  <rect x="4" y="2" width="26" height="14" rx="5" />
+                </g>
+              </Swatch>
+              {t('legend_store')}
+            </li>
+            <li>
+              <Swatch>
+                <g className="fc-store fc-store-computed">
+                  <rect x="4" y="2" width="26" height="14" rx="5" />
+                </g>
+              </Swatch>
+              {t('legend_store_computed')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-link fc-link-write" d="M 2 9 L 31 9" />
+              </Swatch>
+              {t('legend_link_write')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-link fc-link-read" d="M 2 9 L 31 9" />
+              </Swatch>
+              {t('legend_link_read')}
+            </li>
+          </>
+        ) : null}
+        {charts.map(({ g, chart: c }) =>
+          c.moves.length + c.shared.length > 0 ? (
+            <li key={g.name} className="legend-moves">
+              <div>
+                <strong>{several ? t('legend_moves_of', { graph: g.name }) : t('legend_moves')}</strong>
+                <ul>
+                  {c.moves.map((m) => (
+                    <li key={m.row}>{moveWords(m)}</li>
+                  ))}
+                  {c.shared.length > 0 ? (
+                    <li>
+                      {t('legend_shared_actions', {
+                        actions: c.shared.map((a) => t('legend_shared_action', { action: actionWords(a.action), at: a.at })).join(', '),
+                      })}
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            </li>
+          ) : null,
+        )}
         <li>
           <Swatch>
             <g className="fc-circle fc-out">
@@ -300,10 +404,19 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { graphs, marks, start, startGraph, onPick, legend, ref } = props;
+  const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, ref } = props;
   const numbered = legend !== 'work';
-  const models = useMemo(() => graphs.map(({ g, view }) => build(g, view)), [graphs]);
+  const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
+  // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
+  const stores = useMemo(() => {
+    const all = engine?.stores ?? {};
+    return Object.keys(all).length > 0 ? { all, laid: layStores(all, storeSize) } : null;
+  }, [engine]);
+  const links = useMemo(
+    () => models.map((m, i) => (engine !== null ? storeLinks(engine, graphs[i].g, m) : [])),
+    [engine, graphs, models],
+  );
   const [laid, setLaid] = useState<{ models: Chart[]; laid: Laid[] } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
@@ -333,16 +446,20 @@ export function FlowChart(props: FlowChartProps) {
     };
   }, [models, measured, numbered]);
   const current = laid !== null && laid.models === models ? laid.laid : null;
-  // Each graph at the size its drawing takes, side by side.
-  const placed = useMemo(
-    () =>
-      current === null
-        ? null
-        : besides(current.map((l) => ({ width: l.bounds.width + 2 * PAD, height: l.bounds.height + 2 * PAD }))),
-    [current],
-  );
+  // The sheet each graph is drawn on, the stores' sheet taking its place among them.
+  const storesAt = graphs.length >= 2 ? 1 : graphs.length;
+  const sheetOf = (i: number) => (stores !== null && i >= storesAt ? i + 1 : i);
+  // Each sheet at the size its drawing takes, side by side.
+  const placed = useMemo(() => {
+    if (current === null) return null;
+    const sheets = current.map((l) => ({ width: l.bounds.width + 2 * PAD, height: l.bounds.height + 2 * PAD }));
+    if (stores !== null) {
+      sheets.splice(storesAt, 0, { width: stores.laid.width + 2 * PAD, height: stores.laid.height + 2 * PAD });
+    }
+    return besides(sheets);
+  }, [current, stores, storesAt]);
   const viewer = useRef<ViewerHandle>(null);
-  // Chart pixels: each drawing starts PAD before its layout's bounds, at its place among the graphs. A node is found
+  // Chart pixels: each drawing starts PAD before its layout's bounds, at its place among the sheets. A node is found
   // in the graph named, or else in the first graph that has it.
   const rect = (id: string, graph?: string): Rect | null => {
     if (current === null || placed === null) return null;
@@ -352,11 +469,16 @@ export function FlowChart(props: FlowChartProps) {
     const b = l?.nodes.get(id);
     if (!l || !b) return null;
     return {
-      x: placed.x[i] + b.x - l.bounds.x + PAD,
+      x: placed.x[sheetOf(i)] + b.x - l.bounds.x + PAD,
       y: placed.top + b.y - l.bounds.y + PAD,
       width: b.width,
       height: b.height,
     };
+  };
+  const storeRect = (name: string): Rect | null => {
+    const b = stores?.laid.stores.get(name);
+    if (placed === null || b === undefined) return null;
+    return { x: placed.x[storesAt] + b.x + PAD, y: placed.top + b.y + PAD, width: b.width, height: b.height };
   };
   const rectRef = useRef(rect);
   rectRef.current = rect;
@@ -416,8 +538,42 @@ export function FlowChart(props: FlowChartProps) {
     // Only when the cell that runs changes, or the chart is laid out again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningKey, current, placed]);
+  // What the lines to the stores are drawn for: what the pointer is on, a store before a node, or else what is open.
+  const [pointedNode, setPointedNode] = useState<{ graph: number; node: string } | null>(null);
+  const [pointedStore, setPointedStore] = useState<string | null>(null);
+  const openNode = marks.findIndex((m) => m.selected !== null);
+  const subject: { store: string } | { graph: number; node: string } | null =
+    pointedStore !== null
+      ? { store: pointedStore }
+      : pointedNode !== null
+        ? pointedNode
+        : store !== null
+          ? { store }
+          : openNode >= 0
+            ? { graph: openNode, node: marks[openNode].selected ?? '' }
+            : null;
+  const drawnLinks: Array<{ d: string; write: boolean }> = [];
+  const litStores = new Set<string>();
+  if (subject !== null && current !== null) {
+    links.forEach((ls, i) => {
+      for (const l of ls) {
+        const on = 'store' in subject ? l.store === subject.store : subject.graph === i && l.node === subject.node;
+        if (!on) continue;
+        const a = rect(l.node, graphs[i].g.name);
+        const b = storeRect(l.store);
+        if (a === null || b === null) continue;
+        drawnLinks.push({ d: linkPath(a, b, l.write), write: l.write });
+        litStores.add(l.store);
+      }
+    });
+  }
   const nodes = useMemo(() => models.map((m) => new Map(m.nodes.map((n) => [n.id, n]))), [models]);
   const pick = (target: Element) => {
+    const s = target.closest('[data-store]')?.getAttribute('data-store');
+    if (s) {
+      onPick({ kind: 'store', store: s });
+      return;
+    }
     const i = Number(target.closest('[data-sheet]')?.getAttribute('data-sheet') ?? -1);
     const id = target.closest('[data-node]')?.getAttribute('data-node');
     const n = id ? nodes[i]?.get(id) : undefined;
@@ -425,6 +581,7 @@ export function FlowChart(props: FlowChartProps) {
     if (!n || graph === undefined) return;
     switch (n.kind) {
       case 'cell':
+      case 'does':
         onPick({ kind: 'cell', graph, cell: n.cell });
         break;
       case 'rule':
@@ -433,8 +590,8 @@ export function FlowChart(props: FlowChartProps) {
       case 'interjection':
         onPick({ kind: 'interjection', graph, cell: n.cell });
         break;
-      case 'shared':
-        onPick({ kind: 'shared', graph, cell: n.cell });
+      case 'action':
+        onPick({ kind: 'action', graph, node: n.id });
         break;
       case 'out':
         onPick({ kind: 'out', graph, cell: n.cell, to: n.other ?? '' });
@@ -455,7 +612,7 @@ export function FlowChart(props: FlowChartProps) {
             {current.map((l, i) => {
               const { g } = graphs[i];
               return (
-                <div key={g.name} className="fc-sheet" data-sheet={i} style={{ left: placed.x[i] }}>
+                <div key={g.name} className="fc-sheet" data-sheet={i} style={{ left: placed.x[sheetOf(i)] }}>
                   <div className="fc-sheet-body" style={{ marginTop: placed.top }}>
                     {several ? (
                       <>
@@ -468,18 +625,38 @@ export function FlowChart(props: FlowChartProps) {
                       chart={models[i]}
                       laid={l}
                       lines={measured[i].lines}
+                      notes={measured[i].notes}
+                      engine={engine}
                       marks={marks[i] ?? NO_MARKS}
                       numbered={numbered}
                       defs={i === 0}
+                      onNode={(n) => setPointedNode(n === null ? null : { graph: i, node: n })}
                     />
                   </div>
                 </div>
               );
             })}
+            {stores !== null ? (
+              <div className="fc-sheet" style={{ left: placed.x[storesAt] }}>
+                <div className="fc-sheet-body" style={{ marginTop: placed.top }}>
+                  <div className="fc-sheet-frame" />
+                  <div className="fc-sheet-name">{t('chart_stores')}</div>
+                  <StoresSvg
+                    stores={stores.all}
+                    laid={stores.laid}
+                    pad={PAD}
+                    selected={store}
+                    lit={litStores}
+                    onHover={setPointedStore}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {drawnLinks.length > 0 ? <LinksSvg width={placed.width} height={placed.height} links={drawnLinks} /> : null}
           </div>
         </Viewer>
       ) : null}
-      <Legend graphs={graphs.map((x) => x.g)} legend={legend} />
+      <Legend charts={graphs.map((x, i) => ({ g: x.g, chart: models[i] }))} stores={stores !== null} legend={legend} />
     </div>
   );
 }

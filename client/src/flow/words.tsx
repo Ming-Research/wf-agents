@@ -244,15 +244,35 @@ export function UseChip({ u, here }: { u: Use; here: string }) {
   }
 }
 
-/// The uses of a field, after a label.
+/// A check the engine makes on a field, or on the whole return: its name and what it checks, where the field is.
+function CheckLine({ check }: { check: string }) {
+  const f = useFlow();
+  return (
+    <div className="use-check">
+      <span className="ul">{t('check_label')}</span>
+      <code>{check}</code> <span className="fw">{f.compiled.engine.checks[check] ?? ''}</span>
+    </div>
+  );
+}
+
+/// The uses of a field: first the checks on it, each with what it checks; then what else reads it, after a label.
 export function Uses({ uses, here, label }: { uses: Use[]; here: string; label?: string }) {
   if (uses.length === 0) return null;
+  const checks = uses.flatMap((u) => (u.kind === 'check' ? [u.check] : []));
+  const rest = uses.filter((u) => u.kind !== 'check');
   return (
-    <div className="uses">
-      <span className="ul">{label ?? t('used_by')}</span>
-      {uses.map((u, i) => (
-        <UseChip key={i} u={u} here={here} />
+    <>
+      {checks.map((k, i) => (
+        <CheckLine key={`${k}:${i}`} check={k} />
       ))}
-    </div>
+      {rest.length > 0 ? (
+        <div className="uses">
+          <span className="ul">{label ?? t('used_by')}</span>
+          {rest.map((u, i) => (
+            <UseChip key={i} u={u} here={here} />
+          ))}
+        </div>
+      ) : null}
+    </>
   );
 }

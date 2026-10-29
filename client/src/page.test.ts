@@ -5,6 +5,8 @@ import type {
   CompiledGraph,
   CompiledRow,
   DesignCard,
+  EngineNames,
+  Form,
   GraphView,
   JsonValue,
   Conversation,
@@ -17,12 +19,14 @@ import type {
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
 import { held, runningWords, stepWhyNot } from './course';
-import { cellTab, cellTabs, numbered } from './flow/CellPanel';
+import { cellTab, cellTabs, cellWhere, enteredFrom, fallbackWords, leavesTo, numbered, telling } from './flow/CellPanel';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { badgeRow, labelSize } from './graph/flowDraw';
 import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
-import { ASKING, chart, letterOf, MAIN, overlays, partsOf, related, roundArrows, runs, sharedRows, taken } from './graph/flowModel';
+import { moveWords } from './graph/FlowChart';
+import { ASKING, chart, letterOf, MAIN, moves, overlays, partsOf, related, roundArrows, runs, taken } from './graph/flowModel';
+import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
@@ -315,9 +319,18 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
   };
 }
 
-// A start, two agent cells that share the rows to the tools and to asking, the tool cell, an asking part that
-// answers back, and the end.
-const shared = { common: true };
+// A start; four agent cells, each with the moves of its own its forms give it: every one runs tools and pauses, all
+// but `d` ask `q`, and only `a` searches, which only the engineer line may; `a` and `c` lead into `b` through the
+// same actions, and `d` is reached by no row; an engine step that decides by a value of the engine's and waits through
+// an action; the tools, the search, the pause, an asking part that answers back, and the end.
+const form = (field: string | null, lines: string[] | null = null): Form => ({ field, say: '', lines });
+const forms = [form(null), form('ask'), form('tools'), form('search', ['engineer']), form('pause')];
+const without = (...fields: string[]) => forms.filter((f) => f.field === null || !fields.includes(f.field));
+const move = (name: string, to: string, extra: Partial<CompiledRow> = {}) =>
+  row(name, to, { if: [['has', name]], common: true, ...extra });
+const asks = row('ask_q', 'q', { if: [['is', 'ask.to', ['q']]], common: true });
+const sentBack = row('sent_back', '@self', { if: [['sent_back']], common: true, fallback: true });
+const told = { at: 'tell_owner', view: null, do: 'tell_owner' };
 const graph: CompiledGraph = {
   name: 'engineer',
   start: 's',
@@ -328,87 +341,181 @@ const graph: CompiledGraph = {
   counters: [],
   rules: [{ name: 'tree', desc: 'How the tree is written', text: ['Write it so.'] }],
   interject: { name: 'interjection', desc: 'What is said', text: [], from: [] },
+  rounds: {
+    desc: '',
+    sentBack: { desc: 'Sent back to be written again.', pauseAfter: 3, pause: 'Paused after three.' },
+    failed: { desc: '', kinds: [] },
+    record: [],
+    environment: [],
+  },
   cells: [
     cell('s', [row('started', 'a', { main: true })], { kind: 'engine', line: null, stage: 'start' }),
     cell(
       'a',
       [
-        row('ask', 'q', shared),
-        row('done', 'b', { main: true }),
+        asks,
+        row('done', 'b', { if: [['own']], main: true, do: ['lock', { at: 'card', do: 'post' }] }),
         row('again', 'b'),
-        row('tools', 't', { ...shared, main: true }),
-        row('pause', '@self', shared),
+        row('other', 'c'),
+        move('tools', 't', { main: true }),
+        move('search', 'x'),
+        move('pause', 'p'),
+        sentBack,
       ],
-      { rules: [{ name: 'tree', shared: false }, { name: 'general', shared: true }] },
+      { forms, always: [told], rules: [{ name: 'tree', shared: false }, { name: 'general', shared: true }] },
     ),
-    cell('b', [row('ask', 'q', shared), row('done', 'z', { main: true }), row('back', 'a'), row('tools', 't', shared)], {
-      line: 'review',
+    cell(
+      'b',
+      [asks, row('done', 'z', { main: true }), row('back', 'a'), move('tools', 't'), move('pause', 'p'), sentBack],
+      { line: 'review', forms: without('search'), always: [told, { at: 'card', view: null, do: 'update_card' }] },
+    ),
+    cell('c', [asks, row('ok', 'b', { do: ['lock', 'post'] }), move('tools', 't'), move('pause', 'p'), sentBack], {
+      line: 'observer',
+      forms: without('search'),
+      always: [told],
     }),
-    cell('t', [row('ran', '@caller'), row('failed', 'r')], { kind: 'tool', line: null, stage: null }),
+    cell('d', [row('ok', 'm'), move('tools', 't'), move('pause', 'p'), sentBack], {
+      forms: without('search', 'ask'),
+      always: [told],
+    }),
+    cell(
+      'm',
+      [
+        row('wait', 'm', { if: [['inp', 'gates', ['waiting']]], waits: true, do: ['notify'] }),
+        row('clear', 'z', { if: [['inp', 'gates', ['clear']]], main: true }),
+      ],
+      { kind: 'engine', line: null, inputs: [{ id: null, what: 'the cards', from: [{ db: 'design_cards', by: 'item' }], maybe: false }] },
+    ),
+    cell('t', [row('ran', '@caller'), row('failed', 'r')], {
+      kind: 'tool',
+      line: null,
+      stage: null,
+      always: [{ at: 'results', view: null, do: 'record' }],
+    }),
+    cell('x', [row('found', '@caller')], { kind: 'tool', line: null, stage: null }),
+    cell('p', [row('started', '@caller', { waits: true })], { kind: 'engine', line: null, stage: null }),
     cell('q', [row('answered', '@asker')], { kind: 'engine', line: null, stage: null }),
     cell('r', [row('back', '@stopped'), row('redo', 'a')], { kind: 'engine', line: null, stage: null }),
     cell('z', [row('interjection', 'a', { interject: true })], { kind: 'engine', line: null, stage: 'done' }),
   ],
 };
 
+// The cells a row's target can be: whoever has a row to the cell, for one back to whoever called or asked.
+const callers = (id: string) => graph.cells.filter((x) => x.rows.some((r) => r.to === id)).map((x) => x.id);
+const resolve = (c: CompiledCell, to: string): string[] => {
+  if (to === '@self') return [c.id];
+  if (to === '@caller' || to === '@asker') return callers(c.id);
+  if (to === '@stopped') return ['a'];
+  return [to];
+};
 const view: GraphView = {
   lines: [],
   name: 'engineer',
   common_format: '',
   cells: graph.cells.map((c) => ({
     id: c.id,
-    targets: c.rows.map((r) => {
-      if (r.to === '@self') return [c.id];
-      if (r.to === '@caller') return ['a', 'b'];
-      if (r.to === '@asker') return ['a', 'b'];
-      if (r.to === '@stopped') return ['a'];
-      return [r.to];
-    }),
+    targets: c.rows.map((r) => resolve(c, r.to)),
     entered_from: graph.cells.flatMap((x) =>
-      x.rows.flatMap((r, i) => {
-        const to = r.to === '@self' ? [x.id] : r.to === '@caller' || r.to === '@asker' ? ['a', 'b'] : r.to === '@stopped' ? ['a'] : [r.to];
-        return to.includes(c.id) ? [{ cell: x.id, row: i }] : [];
-      }),
+      x.rows.flatMap((r, i) => (resolve(x, r.to).includes(c.id) ? [{ cell: x.id, row: i }] : [])),
     ),
     inputs: [],
     returns: { within: null, forms: [], every: [], used_by: [] },
   })),
 };
 
+const engine: EngineNames = {
+  steps: {},
+  actions: { lock: 'Locks it.', post: 'Posts it.', notify: 'Tells you.' },
+  checks: {},
+  inputs: {},
+  values: { gates: 'Whether the gates are clear.' },
+  needs: {},
+  stores: {
+    cards: { title: 'Design cards', desc: 'The cards', layer: 'round', relations: ['design_cards'] },
+    queue: { title: "The architect's queue", desc: 'What waits', layer: 'project' },
+    acceptance: { title: 'Locked acceptance', desc: 'What is locked', layer: 'item' },
+    merged: { title: 'Merge record', desc: 'What merged', layer: 'item', computed: true },
+  },
+  writes: { lock: ['acceptance'], post: ['cards', 'queue'], notify: [], update_card: ['cards'], record: [] },
+  reads: { gates: { says: 'dependencies merged', stores: ['merged'] } },
+};
+
 describe('the chart of a flow', () => {
-  const c = chart(graph, view);
+  const c = chart(graph, view, engine);
   const node = (id: string) => c.nodes.find((n) => n.id === id);
   const edge = (id: string) => c.edges.find((e) => e.id === id);
 
-  it('puts the asking part apart, and a cell only the shared rows lead to apart too', () => {
-    const parts = partsOf(graph, view);
+  it('draws the moves of a cell of its own by how many of the cells that could make them do', () => {
+    const tiers = Object.fromEntries(moves(graph).map((m) => [m.row, [m.tier, m.cells.join(''), m.could.join('')]]));
+    // Every cell runs tools and pauses: the legend says so. All but one ask: the one that does not is marked.
+    expect(tiers).toEqual({
+      ask_q: ['marked', 'abc', 'abcd'],
+      tools: ['legend', 'abcd', 'abcd'],
+      search: ['lines', 'a', 'ad'],
+      pause: ['legend', 'abcd', 'abcd'],
+    });
+    expect(c.notes.get('d')?.lacks.map((m) => m.row)).toEqual(['ask_q']);
+    // A search, which few cells make, is a line; tools, pauses and asks are not, nor the engine's fallback.
+    expect(edge('c:a->c:x')).toMatchObject({ label: 'search', numbers: [[5, 5]] });
+    expect(c.edges.filter((e) => ['c:t', 'c:p', 'o:q:a'].includes(e.target))).toEqual([]);
+    expect(c.edges.some((e) => e.label.includes('sent_back'))).toBe(false);
+    expect(moveWords(moves(graph)[0])).toBe('ask q → q: every agent cell, but d, each marked');
+    expect(moveWords(moves(graph)[2])).toBe('search → x: a line from each cell that does (1 of the 2 that could)');
+  });
+
+  it('puts the asking part apart, a cell only moves in the legend lead to apart too, and one a line leads to in it', () => {
+    const parts = partsOf(graph, view, new Set(['search']));
     expect(parts.get('a')).toBe(MAIN);
+    expect(parts.get('x')).toBe(MAIN);
     expect(parts.get('q')).toBe(ASKING);
     expect(parts.get('t')).toBe('t');
-    expect(c.parts).toEqual([MAIN, 't', ASKING]);
+    expect(c.parts).toEqual([MAIN, 'd', 't', 'p', ASKING]);
     expect(c.groups.map((g) => g.id)).toEqual(['stage:start', 'stage:build', ASKING, 'stage:done']);
   });
 
   it("gives a stage's box the letter its cells' codes start with, and none where they are not codes", () => {
     expect([letterOf('T6'), letterOf('P10'), letterOf('S0'), letterOf('a'), letterOf('t1')]).toEqual(['T', 'P', 'S', '', '']);
-    const code = <T,>(x: T): T => JSON.parse(JSON.stringify(x).replaceAll('"a"', '"B1"').replaceAll('"b"', '"B2"')) as T;
+    const ids: Array<[string, string]> = [
+      ['"a"', '"B1"'],
+      ['"b"', '"B2"'],
+      ['"c"', '"B3"'],
+      ['"d"', '"B4"'],
+      ['"m"', '"B5"'],
+    ];
+    const code = <T,>(x: T): T => JSON.parse(ids.reduce((j, [from, to]) => j.replaceAll(from, to), JSON.stringify(x))) as T;
     const coded = chart(code(graph), code(view));
     expect(coded.groups.find((g) => g.id === 'stage:build')?.letter).toBe('B');
     expect(c.groups.every((g) => g.letter === '')).toBe(true);
   });
 
-  it('draws the rows every agent cell shares as one circle beside it, those back to itself too, with no label', () => {
-    expect(sharedRows(graph.cells[1])).toEqual([0, 3, 4]);
-    expect(node('k:a')?.rows).toEqual([0, 3, 4]);
-    expect(edge('c:a->k:a')).toMatchObject({ label: '', numbers: [] });
-    expect(edge('c:a->c:t')).toBeUndefined();
-    expect(runs([0, 3, 4, 5, 6, 8])).toEqual([[0, 0], [3, 6], [8, 8]]);
+  it('draws the actions on rows into the same cell as one node in the middle of their lines', () => {
+    expect(node('a:b:lock+post')).toMatchObject({ kind: 'action', cell: 'b', actions: ['lock', 'post'], group: 'stage:build' });
+    expect(edge('c:a->a:b:lock+post')).toMatchObject({ label: 'done', rows: [1], main: true });
+    expect(edge('c:c->a:b:lock+post')).toMatchObject({ label: 'ok', rows: [1] });
+    expect(edge('a:b:lock+post->c:b')).toMatchObject({
+      label: '',
+      through: [
+        { cell: 'a', row: 1 },
+        { cell: 'c', row: 1 },
+      ],
+      main: true,
+    });
+    // A row with no action goes straight; one that waits where it is goes through its action and back.
+    expect(edge('c:a->c:b')).toMatchObject({ label: 'again', numbers: [[2, 2]] });
+    expect(edge('a:m:notify->c:m')?.through).toEqual([{ cell: 'm', row: 0 }]);
   });
 
-  it('draws the rows to one cell as one arrow with their names and numbers, the main path marked', () => {
-    expect(edge('c:a->c:b')).toMatchObject({ rows: [1, 2], label: 'done, again', numbers: [[1, 1], [2, 2]], main: true });
-    // A cell of one row needs no number.
-    expect(edge('c:s->c:a')).toMatchObject({ label: 'started', numbers: [] });
+  it('puts what a cell does every time beside it, and what every agent cell does in the legend', () => {
+    expect(node('d:b')).toMatchObject({ kind: 'does', actions: ['update_card'] });
+    expect(edge('c:b->d:b')?.kind).toBe('does');
+    expect(node('d:t')?.actions).toEqual(['record']);
+    expect(c.shared).toEqual([{ action: 'tell_owner', at: 'tell_owner' }]);
+    expect(node('d:a')).toBeUndefined();
+  });
+
+  it('says under a step the engine decides what its values read', () => {
+    expect(c.notes.get('m')?.reads).toBe('dependencies merged');
+    expect(chart(graph, view).notes.get('m')).toBeUndefined();
   });
 
   it("draws a row's number as a badge, and leaves the numbers out of a work's chart", () => {
@@ -421,10 +528,11 @@ describe('the chart of a flow', () => {
       ],
       width: 60,
     });
-    // The arrow to the shared circle has no label at all, numbered or not.
-    const shared = c.edges.find((e) => e.id === 'c:a->k:a');
-    expect(shared && labelSize(shared, true)).toBeNull();
-    expect(shared && labelSize(shared, false)).toBeNull();
+    expect(runs([0, 3, 4, 5, 6, 8])).toEqual([[0, 0], [3, 6], [8, 8]]);
+    // The arrow out of the actions on a line has no label at all, numbered or not.
+    const onward = edge('a:b:lock+post->c:b');
+    expect(onward && labelSize(onward, true)).toBeNull();
+    expect(onward && labelSize(onward, false)).toBeNull();
   });
 
   it("keeps an arrow's label on its own line", () => {
@@ -443,12 +551,15 @@ describe('the chart of a flow', () => {
     expect(onLine(route({ x: 0, y: 0 })).label).toEqual({ x: 80, y: 190, width: 40, height: 20 });
   });
 
-  it('lights up only the arrow pointed at, with its other half through the circles into the same cell', () => {
+  it('lights up the row pointed at from its source to its target, through actions and circles, and no other', () => {
+    expect(related(c.edges, 'c:a->a:b:lock+post')).toEqual(new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']));
+    expect(related(c.edges, 'a:b:lock+post->c:b')).toEqual(
+      new Set(['a:b:lock+post->c:b', 'c:a->a:b:lock+post', 'c:c->a:b:lock+post']),
+    );
     // The asking part answers back into each cell that asked: pointing at the way into a lights that way alone.
     expect(related(c.edges, 'i:q:a->c:a')).toEqual(new Set(['i:q:a->c:a', 'c:q->o:a:q']));
     expect(related(c.edges, 'c:q->o:b:q')).toEqual(new Set(['c:q->o:b:q', 'i:q:b->c:b']));
     expect(related(c.edges, 'c:t->o:r:t')).toEqual(new Set(['c:t->o:r:t']));
-    expect(related(c.edges, 'c:a->c:b')).toEqual(new Set(['c:a->c:b']));
     expect(related(c.edges, 'r:tree:a->c:a')).toEqual(new Set(['r:tree:a->c:a']));
     expect(related(c.edges, null).size).toBe(0);
   });
@@ -469,6 +580,35 @@ describe('the chart of a flow', () => {
     expect(edge('r:tree:a->c:a')?.kind).toBe('rule');
     expect(node('j:z')?.kind).toBe('interjection');
     expect(node('j:s')).toBeUndefined();
+  });
+
+  it('says which node reads or writes each store, and lays the stores out by what they belong to', () => {
+    const links = storeLinks(engine, graph, c);
+    expect(links.filter((l) => l.node === 'a:b:lock+post')).toEqual([
+      { node: 'a:b:lock+post', store: 'acceptance', write: true },
+      { node: 'a:b:lock+post', store: 'cards', write: true },
+      { node: 'a:b:lock+post', store: 'queue', write: true },
+    ]);
+    expect(links.filter((l) => l.node === 'c:m')).toEqual([
+      { node: 'c:m', store: 'cards', write: false },
+      { node: 'c:m', store: 'merged', write: false },
+    ]);
+    expect(links.filter((l) => l.node === 'd:b')).toEqual([{ node: 'd:b', store: 'cards', write: true }]);
+    const uses = storeUses(engine, graph, 'cards');
+    expect(uses.writes.map((w) => [w.what, w.at.map((x) => `${x.cell} ${x.row ?? ''}`.trim())])).toEqual([
+      ['post', ['a done', 'c ok']],
+      ['update_card', ['b']],
+    ]);
+    expect(uses.reads).toEqual(['m']);
+    const laid = layStores(engine.stores ?? {}, () => ({ width: 100, height: 30 }));
+    expect(laid.boxes.map((b) => b.id)).toEqual(['project', 'item', 'work']);
+    const y = (n: string) => laid.stores.get(n)?.y ?? -1;
+    expect(y('queue') < y('acceptance') && y('acceptance') < y('merged') && y('merged') < y('cards')).toBe(true);
+    // A write runs from the node to the store, a read from the store to the node, out of their facing sides.
+    const at = { x: 0, y: 0, width: 50, height: 20 };
+    const store = { x: 200, y: 100, width: 60, height: 20 };
+    expect(linkPath(at, store, true)).toBe('M 50 10 C 125 10 125 110 200 110');
+    expect(linkPath(at, store, false)).toBe('M 200 110 C 125 110 125 10 50 10');
   });
 
   it('marks what a work did at each cell, and the arrows it took', () => {
@@ -496,12 +636,13 @@ describe('the chart of a flow', () => {
     });
     const w = taken(c, graph, rounds);
     expect(w.get('c:s->c:a')).toBe(1);
-    expect(w.get('c:a->k:a')).toBe(1);
-    expect(w.get('c:a->c:b')).toBe(1);
+    expect(w.get('c:a->a:b:lock+post')).toBe(1);
+    expect(w.get('a:b:lock+post->c:b')).toBe(1);
     expect(w.get('c:b->c:z')).toBeUndefined();
-    // A round chosen lights the arrows it came in by and left by; one that has taken no row yet, only the way in.
-    expect(roundArrows(c, graph, rounds, 2)).toEqual(new Set(['c:s->c:a', 'c:a->k:a']));
-    expect(roundArrows(c, graph, rounds, 6)).toEqual(new Set(['c:a->c:b']));
+    // A round chosen lights the arrows it came in by and left by; one that has taken no row yet, only the way in;
+    // tools in the legend draw no arrow.
+    expect(roundArrows(c, graph, rounds, 2)).toEqual(new Set(['c:s->c:a']));
+    expect(roundArrows(c, graph, rounds, 6)).toEqual(new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']));
     expect(roundArrows(c, graph, rounds, 7)).toEqual(new Set());
   });
 });
@@ -551,14 +692,39 @@ describe('the routes of arrows', () => {
 });
 
 describe("a cell's panel", () => {
-  const a = graph.cells[1];
-  it('has its tabs in order, the rounds on a work\'s chart and the checks only when there are any', () => {
-    expect(cellTabs(a, { rounds: false, diff: false })).toEqual(['inputs', 'returns', 'route']);
-    const checked = { ...a, checks: [{ check: 'x', at: null }] };
-    expect(cellTabs(checked, { rounds: true, diff: true })).toEqual(['changes', 'rounds', 'inputs', 'returns', 'route', 'checks']);
-    expect(cellTab(['inputs', 'returns', 'route'], 'checks')).toBe('inputs');
+  const cellOf = (id: string) => graph.cells.find((x) => x.id === id) ?? graph.cells[0];
+  const into = (id: string) => view.cells.find((x) => x.id === id)?.entered_from ?? [];
+  it('has its tabs in order, the rounds on a work\'s chart and the changes when two flows are compared', () => {
+    expect(cellTabs({ rounds: false, diff: false })).toEqual(['inputs', 'returns', 'route']);
+    expect(cellTabs({ rounds: true, diff: true })).toEqual(['changes', 'rounds', 'inputs', 'returns', 'route']);
+    expect(cellTab(['inputs', 'returns', 'route'], 'rounds')).toBe('inputs');
     expect(cellTab(['rounds', 'inputs', 'returns', 'route'], 'route')).toBe('route');
     expect(cellTab(['rounds', 'inputs', 'returns', 'route'], null)).toBe('rounds');
+  });
+
+  it('says after the title where the cell stands, and its line only when the chart has no colour for it', () => {
+    expect(cellWhere(graph, cellOf('a'))).toBe('Stage: build');
+    expect(cellWhere(graph, cellOf('c'))).toBe('Stage: build; on the observer line');
+    expect(cellWhere(graph, cellOf('q'))).toBe('Asking part: ask');
+    expect(cellWhere(graph, cellOf('t'))).toBeNull();
+  });
+
+  it('lists where a cell is entered from and where it leaves to by kind, the fallback apart', () => {
+    const a = enteredFrom(graph, into('a'), 'a');
+    expect(a.answers.map((r) => `${r.cell}:${r.row}`)).toEqual(['s:0', 'b:2', 'r:1', 'z:0']);
+    expect(a.back.map((r) => `${r.cell}:${r.row}`)).toEqual(['t:0', 'x:0', 'p:0', 'q:0', 'r:0']);
+    expect(a.fallback).toBe(true);
+    expect(enteredFrom(graph, into('t'), 't').moves).toEqual([{ row: 'tools', cells: ['a', 'b', 'c', 'd'] }]);
+    expect(leavesTo(cellOf('a'))).toEqual({ answers: [1, 2, 3], moves: [0, 4, 5, 6], fallback: [7] });
+    // The main path first.
+    expect(leavesTo(cellOf('m')).answers).toEqual([1, 0]);
+    expect(fallbackWords(graph, sentBack)).toBe('Sent back to be written again.');
+  });
+
+  it('shows a condition only where it says more than the row', () => {
+    expect(telling(cellOf('a').rows[1])).toEqual([]);
+    expect(telling(asks)).toEqual([]);
+    expect(telling(cellOf('m').rows[0])).toEqual([['inp', 'gates', ['waiting']]]);
   });
 
   it('numbers the inputs as the message does, leaving out those the agent reads itself', () => {

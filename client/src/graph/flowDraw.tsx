@@ -1,15 +1,16 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
 // takes its line's, a cell on no line is white and dotted, the engine's own step is purple, dashed and rounded, a tool
-// the engine runs grey and dashed, the owner orange and rounded. A row's number is a badge of one size with its digits
-// in it. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its
-// target.
+// the engine runs grey and dashed, the owner orange and rounded. Under a step the engine decides, what its values read;
+// on a cell that lacks a move most cells that could make make, a small mark saying so. What the engine does on a line
+// or every time a cell returns is a purple hexagon. A row's number is a badge of one size with its digits in it.
+// Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to its target.
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 
-import type { CompiledCell, CompiledGraph } from '../api';
+import type { CompiledCell, CompiledGraph, EngineNames } from '../api';
 import { t } from '../text';
-import { type Chart, type ChartEdge, type ChartNode, type Overlay, related } from './flowModel';
+import { actionWords, type Chart, type ChartEdge, type ChartNode, type Overlay, related } from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
@@ -43,24 +44,26 @@ export function measure(text: string, font = FONT): number {
   return text.length * size * (font.startsWith('600') ? 0.6 : 0.55);
 }
 
-/// The widest a cell's text runs before it wraps, and the height of a line of it.
+/// The widest a cell's text runs before it wraps, and the height of a line of it and of a small line under it.
 const WRAP = 230;
 const LINE = 18;
+const SMALL_LINE = 15;
 const PAD_X = 16;
 const PAD_Y = 11;
+/// The height of the row of marks of the moves a cell lacks.
+const MARKS = 20;
 
-/// A cell's text, `<id> <title>`, in lines no wider than the cell's text may be; the id leads the first line.
-export function cellLines(c: CompiledCell): string[] {
-  const words = c.title.split(/\s+/).filter((w) => w !== '');
+/// A text in lines no wider than `wrap` in `font`, the first starting `first` in.
+function wrapped(text: string, font: string, wrap: number, first = 0): string[] {
   const lines: string[] = [];
   let line = '';
-  let width = measure(`${c.id} `, BOLD);
-  for (const w of words) {
-    const add = measure(line === '' ? w : ` ${w}`);
-    if (line !== '' && width + add > WRAP) {
+  let width = first;
+  for (const w of text.split(/\s+/).filter((x) => x !== '')) {
+    const add = measure(line === '' ? w : ` ${w}`, font);
+    if (line !== '' && width + add > wrap) {
       lines.push(line);
       line = w;
-      width = measure(w);
+      width = measure(w, font);
     } else {
       line = line === '' ? w : `${line} ${w}`;
       width += add;
@@ -70,24 +73,58 @@ export function cellLines(c: CompiledCell): string[] {
   return lines;
 }
 
-const CIRCLE = 36;
-const SHARED = 58;
+/// A cell's text, `<id> <title>`, in lines no wider than the cell's text may be; the id leads the first line.
+export function cellLines(c: CompiledCell): string[] {
+  return wrapped(c.title, FONT, WRAP, measure(`${c.id} `, BOLD));
+}
 
-/// Each node's size, and each cell's lines.
-export function sizes(g: CompiledGraph, c: Chart): { size: Map<string, Size>; lines: Map<string, string[]> } {
+/// A mark on a cell that lacks a move most cells that could make it make: what it says, and why on hovering.
+export type Lack = { text: string; title: string };
+
+/// What a cell's box says under its title: what the values its step decides by read, in lines, and the moves it lacks.
+export type CellNote = { reads: string[]; lacks: Lack[] };
+
+const CIRCLE = 36;
+/// The room a hexagon's points take on each side of its text.
+const POINT = 12;
+
+/// Each node's size, each cell's lines and those of the actions a node names, and what each cell's box says under
+/// its title.
+export function sizes(
+  g: CompiledGraph,
+  c: Chart,
+): { size: Map<string, Size>; lines: Map<string, string[]>; notes: Map<string, CellNote> } {
   const cells = new Map(g.cells.map((x) => [x.id, x]));
   const size = new Map<string, Size>();
   const lines = new Map<string, string[]>();
+  const notes = new Map<string, CellNote>();
   for (const n of c.nodes) {
     const cell = cells.get(n.cell);
     if (n.kind === 'cell' && cell) {
       const ls = cellLines(cell);
       lines.set(n.id, ls);
-      const widths = ls.map((l, i) => measure(l) + (i === 0 ? measure(`${cell.id} `, BOLD) : 0));
+      const about = c.notes.get(cell.id);
+      const note: CellNote = {
+        reads: about?.reads != null ? wrapped(about.reads, SMALL, WRAP) : [],
+        lacks: (about?.lacks ?? []).map((m) => ({
+          text: t('chart_lacks', { move: actionWords(m.row) }),
+          title: t('chart_lacks_title', { cell: cell.id, move: actionWords(m.row), to: m.to }),
+        })),
+      };
+      if (note.reads.length > 0 || note.lacks.length > 0) notes.set(n.id, note);
+      const widths = [
+        ...ls.map((l, i) => measure(l) + (i === 0 ? measure(`${cell.id} `, BOLD) : 0)),
+        ...note.reads.map((l) => measure(l, SMALL)),
+        note.lacks.reduce((w, l) => w + measure(l.text, SMALL) + 14, 0),
+      ];
       const width = Math.max(110, Math.ceil(Math.max(...widths)) + 2 * PAD_X + (cell.kind === 'agent' ? 0 : 14));
-      size.set(n.id, { width, height: ls.length * LINE + 2 * PAD_Y });
-    } else if (n.kind === 'shared') {
-      size.set(n.id, { width: SHARED, height: SHARED });
+      const height = ls.length * LINE + note.reads.length * SMALL_LINE + (note.lacks.length > 0 ? MARKS : 0) + 2 * PAD_Y;
+      size.set(n.id, { width, height });
+    } else if (n.kind === 'action' || n.kind === 'does') {
+      const ls = n.actions.map(actionWords);
+      lines.set(n.id, ls);
+      const width = Math.ceil(Math.max(...ls.map((l) => measure(l, SMALL)))) + 2 * POINT + 8;
+      size.set(n.id, { width, height: ls.length * SMALL_LINE + 12 });
     } else if (n.kind === 'out' || n.kind === 'in') {
       size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', SMALL)) + 14), height: CIRCLE });
     } else if (n.kind === 'rule') {
@@ -96,7 +133,7 @@ export function sizes(g: CompiledGraph, c: Chart): { size: Map<string, Size>; li
       size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', SMALL)) + 44, height: 28 });
     }
   }
-  return { size, lines };
+  return { size, lines, notes };
 }
 
 /// A row number's badge: its diameter, the room between two badges, and the room a dash between a run's first and
@@ -158,11 +195,12 @@ export type Marks = {
   lit?: Set<string>;
 };
 
-function CellShape({ n, cell, box, lines, marks }: {
+function CellShape({ n, cell, box, lines, note, marks }: {
   n: ChartNode;
   cell: CompiledCell;
   box: Box;
   lines: string[];
+  note: CellNote | undefined;
   marks: Marks;
 }) {
   const o = marks.overlays?.get(cell.id) ?? null;
@@ -226,6 +264,19 @@ function CellShape({ n, cell, box, lines, marks }: {
           </tspan>
         ))}
       </text>
+      {note !== undefined && note.reads.length > 0 ? (
+        <text className="fc-reads" x={box.x + box.width / 2} y={textTop + lines.length * LINE - 2} textAnchor="middle">
+          <title>{t('chart_reads_title')}</title>
+          {note.reads.map((l, i) => (
+            <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : SMALL_LINE}>
+              {l}
+            </tspan>
+          ))}
+        </text>
+      ) : null}
+      {note !== undefined && note.lacks.length > 0 ? (
+        <Lacks lacks={note.lacks} x={box.x + box.width / 2} y={box.y + box.height - PAD_Y - MARKS + 3} />
+      ) : null}
       {mark !== null ? (
         <text className="fc-mark" x={box.x + 4} y={box.y - 4}>
           {mark}
@@ -234,6 +285,30 @@ function CellShape({ n, cell, box, lines, marks }: {
       {o?.current && o.held !== null ? <HeldMark x={box.x - RING - 4} y={box.y - 10} why={o.held} /> : null}
       {badges}
     </g>
+  );
+}
+
+/// The marks of the moves a cell lacks, in a row centred on `x`, each saying why on hovering.
+function Lacks({ lacks, x, y }: { lacks: Lack[]; x: number; y: number }) {
+  const widths = lacks.map((l) => Math.ceil(measure(l.text, SMALL)) + 10);
+  const total = widths.reduce((a, w) => a + w, 0) + 4 * (lacks.length - 1);
+  let at = x - total / 2;
+  return (
+    <>
+      {lacks.map((l, i) => {
+        const left = at;
+        at += widths[i] + 4;
+        return (
+          <g key={l.text} className="fc-lack">
+            <title>{l.title}</title>
+            <rect x={left} y={y} width={widths[i]} height={16} rx={8} />
+            <text x={left + widths[i] / 2} y={y + 12} textAnchor="middle">
+              {l.text}
+            </text>
+          </g>
+        );
+      })}
+    </>
   );
 }
 
@@ -290,6 +365,34 @@ function Circle({ n, box, title, text, cls }: { n: ChartNode; box: Box; title: s
   );
 }
 
+/// What the engine does on a line, or every time a cell returns, as a hexagon naming each action on a line of its own,
+/// what each does on hovering.
+function Actions({ n, box, lines, title, selected }: { n: ChartNode; box: Box; lines: string[]; title: string; selected: boolean }) {
+  const p = Math.min(POINT, box.height / 2);
+  const pts = [
+    [box.x + p, box.y],
+    [box.x + box.width - p, box.y],
+    [box.x + box.width, box.y + box.height / 2],
+    [box.x + box.width - p, box.y + box.height],
+    [box.x + p, box.y + box.height],
+    [box.x, box.y + box.height / 2],
+  ];
+  const top = box.y + box.height / 2 - ((lines.length - 1) * SMALL_LINE) / 2 + 4;
+  return (
+    <g className={`fc-act${n.kind === 'does' ? ' fc-does' : ''}${selected ? ' fc-selected' : ''}`} data-node={n.id}>
+      <title>{title}</title>
+      <polygon points={pts.map((q) => q.join(',')).join(' ')} />
+      <text x={box.x + box.width / 2} y={top} textAnchor="middle">
+        {lines.map((l, i) => (
+          <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : SMALL_LINE}>
+            {l}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
+
 /// A row number's badge in a label, centred on `x`.
 function RowBadge({ x, y, row }: { x: number; y: number; row: number }) {
   return (
@@ -302,11 +405,23 @@ function RowBadge({ x, y, row }: { x: number; y: number; row: number }) {
   );
 }
 
-/// What hovering an arrow says: the rows it draws, and how many times the work took them.
-function edgeTitle(e: ChartEdge, cell: CompiledCell | undefined, n: number): string {
-  const rows = [...new Set(e.rows.map((i) => cell?.rows[i]?.name ?? ''))].filter((x) => x !== '');
-  const what = e.kind === 'shared' ? `${t('chart_shared_title')}: ${rows.join(', ')}` : rows.join(', ');
+/// What hovering an arrow says: the rows it draws, each with its cell for the arrow out of the actions on a line, and
+/// how many times the work took them.
+function edgeTitle(e: ChartEdge, cells: Map<string, CompiledCell>, n: number): string {
+  const cell = e.cell !== null ? cells.get(e.cell) : undefined;
+  const rows = [
+    ...new Set([
+      ...e.rows.map((i) => cell?.rows[i]?.name ?? ''),
+      ...e.through.map((x) => `${x.cell} ${cells.get(x.cell)?.rows[x.row]?.name ?? ''}`),
+    ]),
+  ].filter((x) => x !== '');
+  const what = rows.join(', ');
   return n > 0 ? `${what}\n${t('chart_taken', { n })}` : what;
+}
+
+/// What hovering the actions a node names says: each action and what it does.
+export function actionsTitle(actions: string[], engine: EngineNames | null): string {
+  return actions.map((a) => `${actionWords(a)}: ${engine?.actions[a] ?? a}`).join('\n');
 }
 
 export type DrawProps = {
@@ -314,17 +429,23 @@ export type DrawProps = {
   chart: Chart;
   laid: Laid;
   lines: Map<string, string[]>;
+  notes: Map<string, CellNote>;
+  /// The flow's engine part, which says what each action does.
+  engine: EngineNames | null;
   marks: Marks;
   /// Whether the labels carry the rows' numbers: the flow's author reads them; a work's chart leaves them out.
   numbered: boolean;
   /// Whether this drawing defines the arrowheads every drawing on the page refers to: the first of the graphs drawn
   /// side by side does, so that an id is defined once.
   defs?: boolean;
+  /// Told the node under the pointer, as it changes, and none once the pointer leaves the nodes.
+  onNode?: (node: string | null) => void;
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered, defs = true, onNode }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
+  const pointed = useRef<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
   const title = (id: string) => {
     const c = cells.get(id);
@@ -337,7 +458,7 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
     const n = marks.taken?.get(e.id) ?? 0;
     if (hot.has(e.id)) return 'hot';
     if (marks.lit?.has(e.id)) return 'lit';
-    if (e.kind === 'rule' || e.kind === 'interjection') return 'rule';
+    if (e.kind === 'rule' || e.kind === 'interjection' || e.kind === 'does') return 'rule';
     if (n > 0) return 'taken';
     if (marks.taken) return 'quiet';
     return e.main ? 'main' : 'plain';
@@ -354,10 +475,22 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
       height={b.height + 2 * pad}
       viewBox={`${b.x - pad} ${b.y - pad} ${b.width + 2 * pad} ${b.height + 2 * pad}`}
       onPointerOver={(ev) => {
-        const id = (ev.target as Element).closest('[data-edge]')?.getAttribute('data-edge') ?? null;
+        const under = ev.target as Element;
+        const id = under.closest('[data-edge]')?.getAttribute('data-edge') ?? null;
         if (id !== hover) setHover(id);
+        const node = under.closest('[data-node]')?.getAttribute('data-node') ?? null;
+        if (node !== pointed.current) {
+          pointed.current = node;
+          onNode?.(node);
+        }
       }}
-      onPointerLeave={() => setHover(null)}
+      onPointerLeave={() => {
+        setHover(null);
+        if (pointed.current !== null) {
+          pointed.current = null;
+          onNode?.(null);
+        }
+      }}
     >
       {defs ? (
         <defs>
@@ -397,17 +530,17 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
         const r = laid.edges.get(e.id);
         if (!r) return null;
         const kind = kindOf(e);
-        const cls = ['fc-edge', `fc-edge-${kind}`, e.kind === 'shared' ? 'fc-edge-shared' : ''].join(' ');
+        const cls = ['fc-edge', `fc-edge-${kind}`, e.kind === 'does' ? 'fc-edge-does' : ''].join(' ');
         // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
         const d = pathOf(r, {
           start: e.source === ring ? RING_CUT : 0,
-          end: (kind === 'lit' ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
+          end: (e.kind === 'does' ? 0 : kind === 'lit' ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
         });
         return (
           <g key={e.id} data-edge={e.id}>
-            <title>{edgeTitle(e, e.cell !== null ? cells.get(e.cell) : undefined, marks.taken?.get(e.id) ?? 0)}</title>
+            <title>{edgeTitle(e, cells, marks.taken?.get(e.id) ?? 0)}</title>
             <path className="fc-hit" d={d} />
-            <path className={cls} d={d} markerEnd={`url(#fc-arrow-${kind})`} />
+            <path className={cls} d={d} markerEnd={e.kind === 'does' ? undefined : `url(#fc-arrow-${kind})`} />
           </g>
         );
       })}
@@ -432,7 +565,7 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
         ].join(' ');
         return (
           <g key={`l:${e.id}`} className={cls} data-edge={e.id}>
-            <title>{edgeTitle(e, e.cell !== null ? cells.get(e.cell) : undefined, n)}</title>
+            <title>{edgeTitle(e, cells, n)}</title>
             <rect x={l.x + (l.width - w) / 2} y={l.y} width={w} height={l.height} rx={3} />
             {nos.items.map((it, i) =>
               it.row === null ? (
@@ -458,17 +591,26 @@ export function FlowSvg({ g, chart, laid, lines, marks, numbered, defs = true }:
         switch (n.kind) {
           case 'cell':
             return cell ? (
-              <CellShape key={n.id} n={n} cell={cell} box={box} lines={lines.get(n.id) ?? []} marks={marks} />
+              <CellShape
+                key={n.id}
+                n={n}
+                cell={cell}
+                box={box}
+                lines={lines.get(n.id) ?? []}
+                note={notes.get(n.id)}
+                marks={marks}
+              />
             ) : null;
-          case 'shared':
+          case 'action':
+          case 'does':
             return (
-              <Circle
+              <Actions
                 key={n.id}
                 n={n}
                 box={box}
-                cls="fc-shared"
-                title={n.rows.map((i) => `${cell?.rows[i]?.name ?? ''} → ${cell?.rows[i]?.to ?? ''}`).join('\n')}
-                text={[t('chart_shared_1'), t('chart_shared_2')]}
+                lines={lines.get(n.id) ?? []}
+                title={actionsTitle(n.actions, engine)}
+                selected={marks.selected === n.id}
               />
             );
           case 'out':

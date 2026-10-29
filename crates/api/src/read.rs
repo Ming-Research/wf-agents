@@ -488,7 +488,8 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        json_extract(r.input, '$.call.command'),
        CASE WHEN s.started <> 'wake'
          AND r.n = (SELECT min(x.n) FROM rounds x WHERE x.work = r.work AND x.session = r.session)
-       THEN s.started END
+       THEN s.started END,
+       CASE WHEN r.session IS NULL THEN json_extract(r.input, '$.engine.new_session') END
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
@@ -562,7 +563,8 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         cell: r.get(1)?,
         line: r.get(2)?,
         outcome: outcome(transition.as_deref(), rejected.as_ref(), ended_at.is_some()),
-        why: why(rejected.as_ref()),
+        // A row the engine took for a line whose session would start afresh says why it would.
+        why: why(rejected.as_ref()).or(r.get(26)?),
         transition,
         started_at: r.get(5)?,
         ended_at,

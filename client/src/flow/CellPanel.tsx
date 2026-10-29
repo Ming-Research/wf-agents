@@ -1,17 +1,33 @@
-// A cell, as its panel explains it, in tabs. For an agent's cell: its inputs, first the message as the engine sends it
-// every time the cell is entered, in the order sent (why the round happens, what is given, the task word for word,
-// what to work from, the review table if any, what to hand in), with what the engine fills in each round shown as a
-// placeholder, then the conditional inputs that message gives or points at by their numbers; what it hands back, what
-// is shown on the item and what others read; where it is entered from and where each of its rows goes; its checks,
-// what the engine does every time it returns a field and what it hands over. For an engine step, a tool or the owner:
-// what the step does and what it reads, which never goes into any agent's context, and the same after. A work's chart
-// adds its rounds at the cell; a comparison, what changed.
+// A cell, as its panel explains it: under its title, where it stands on the chart when the chart does not show it
+// plainly, and what the engine does every time it returns; then tabs. For an agent's cell: its inputs, first the
+// message as the engine sends it every time the cell is entered, in the order sent (why the round happens, what is
+// given, the task word for word, what to work from, the review table if any, what to hand in), with what the engine
+// fills in each round shown as a placeholder, then the conditional inputs that message gives or points at by their
+// numbers; what it hands back, each field with the checks on it, what is shown on the item and what others read;
+// where it is entered from and where it leaves to, by kind: its own answers, the moves it makes of its own, and the
+// engine's fallback apart. For an engine step, a tool or the owner: what the step does and what it reads, which never
+// goes into any agent's context, and the same after. A work's chart adds its rounds at the cell; a comparison, what
+// changed.
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import type { CellDiff, CellInput, CompiledCell, CompiledInput, GraphView, InputsNow, Named, RoundSummary, Src } from '../api';
+import type {
+  Atom,
+  CellDiff,
+  CellInput,
+  CompiledCell,
+  CompiledGraph,
+  CompiledInput,
+  CompiledRow,
+  InputsNow,
+  RoundSummary,
+  RowRef,
+  Src,
+} from '../api';
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
+import { styleOf } from '../graph/flowDraw';
+import { actionWords, cellActions, fallback, letterOf, rowActions } from '../graph/flowModel';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { type Key, t } from '../text';
@@ -35,37 +51,51 @@ export function Section({ title, note, children, id }: {
   );
 }
 
-/// The words under a cell's title: who does its work, its line, its stage, and how its line's session is kept (when
-/// it starts and which cells continue it) as the flow says it.
-export function who(c: CompiledCell, lines: Named[]): ReactNode {
+/// Where a cell stands, as its title's parenthesis says it: its stage, as the box around it on the chart names it, or
+/// the asking part; and its line, when the chart does not draw that line in a colour of its own. None for neither.
+export function cellWhere(g: CompiledGraph, c: CompiledCell): string | null {
   const parts: string[] = [];
-  const session = c.kind === 'agent' && c.line != null ? (lines.find((l) => l.name === c.line)?.desc ?? null) : null;
-  if (c.kind === 'agent') {
-    parts.push(c.line == null ? t('who_agent_fresh') : t('who_agent', { line: c.line }));
-  } else {
-    parts.push(t(c.kind === 'tool' ? 'who_tool' : c.kind === 'owner' ? 'who_owner' : 'who_engine'));
+  if (g.asking.includes(c.id)) {
+    const letters = new Set(g.asking.map(letterOf));
+    const letter = letters.size === 1 ? [...letters][0] : '';
+    parts.push(t(letter !== '' ? 'chart_asking_part_letter' : 'chart_asking_part', { letter }));
+  } else if (c.stage) {
+    const letters = new Set(g.cells.filter((x) => x.stage === c.stage).map((x) => letterOf(x.id)));
+    const letter = letters.size === 1 ? [...letters][0] : '';
+    parts.push(t(letter !== '' ? 'chart_stage_letter' : 'chart_stage', { stage: c.stage, letter }));
   }
-  if (c.gate) parts.push(t('who_gate'));
-  if (c.stage) parts.push(t('who_stage', { stage: c.stage }));
-  return (
-    <>
-      {parts.join(' · ')}
-      {session !== null ? <span className="panel-session">{session}</span> : null}
-    </>
+  if (styleOf(c) === 'line-other' && c.line != null) parts.push(t('panel_line', { line: c.line }));
+  return parts.length > 0 ? parts.join('; ') : null;
+}
+
+/// The line under a cell's title: what the engine does every time the cell returns what sets it off, or, at a cell
+/// a work ends at, as the work ends; none for a cell that does nothing every time but what every agent's cell does.
+export function cellDoes(g: CompiledGraph, c: CompiledCell): ReactNode {
+  const own = cellActions(g).own.get(c.id) ?? [];
+  if (own.length === 0) return null;
+  const at = (a: string) => (c.always ?? []).find((x) => x.do === a)?.at ?? null;
+  return inline(
+    t('panel_does', {
+      actions: own
+        .map((a) => {
+          const on = at(a);
+          return on !== null ? t('panel_does_on', { action: actionWords(a), at: `\`${on}\`` }) : actionWords(a);
+        })
+        .join('; '),
+    }),
   );
 }
 
 /// The tabs of a cell's panel.
-export type CellTab = 'changes' | 'rounds' | 'inputs' | 'returns' | 'route' | 'checks';
+export type CellTab = 'changes' | 'rounds' | 'inputs' | 'returns' | 'route';
 
 /// A cell's tabs, in order: what changed, when two flows are compared; its rounds, on a work's chart; its inputs,
-/// what it hands back, and where it is entered from and where its rows go; its checks, when it has any.
-export function cellTabs(c: CompiledCell, has: { rounds: boolean; diff: boolean }): CellTab[] {
+/// what it hands back with the checks on it, and where it is entered from and where it leaves to.
+export function cellTabs(has: { rounds: boolean; diff: boolean }): CellTab[] {
   const tabs: CellTab[] = [];
   if (has.diff) tabs.push('changes');
   if (has.rounds) tabs.push('rounds');
   tabs.push('inputs', 'returns', 'route');
-  if ((c.checks ?? []).length + (c.always ?? []).length + (c.handoff ?? []).length > 0) tabs.push('checks');
   return tabs;
 }
 
@@ -81,7 +111,6 @@ const TAB_NAMES: Record<CellTab, Key> = {
   inputs: 'sec_inputs',
   returns: 'sec_returns',
   route: 'tab_route',
-  checks: 'sec_checks',
 };
 
 /// What the engine fills in each round, in the placeholder's style: a description between angle quotes, or the parts
@@ -455,64 +484,267 @@ function StepInputs({ c }: { c: CompiledCell }) {
   );
 }
 
-function Table({ c, highlight }: { c: CompiledCell; highlight: number[] }) {
+/// The parts of a row's condition that say something its name and kind do not: not that the return is the cell's own
+/// answer, nor what a move or the engine's fallback turns on, which their names and the list they are in say, nor a
+/// value that is the row's own name.
+export function telling(r: CompiledRow): Atom[] {
+  if (r.common) return [];
+  return r.if.filter((a) => {
+    if (a[0] === 'own' || a[0] === 'all') return false;
+    if (a[0] === 'is' && a[2].length === 1 && a[2][0] === r.name) return false;
+    return true;
+  });
+}
+
+/// What the engine does for a row of its fallback, as the flow's section on rounds says it; none in a flow version
+/// stored before it said it so.
+export function fallbackWords(g: CompiledGraph, r: CompiledRow): string | null {
+  const rounds = g.rounds;
+  const a = r.if[0];
+  if (rounds == null || a === undefined) return null;
+  if (a[0] === 'sent_back') return a.length === 2 ? rounds.sentBack.pause : rounds.sentBack.desc;
+  if (a[0] === 'failed') return rounds.failed.kinds.find((k) => k.name === a[1])?.desc ?? null;
+  if (a[0] === 'engine') return rounds.engine?.find((k) => k.name === a[1])?.desc ?? null;
+  return null;
+}
+
+/// Where a cell is entered from, by kind: other cells' own answers that lead here, and the cell's own back to itself;
+/// the rows back here after a move (from the tools, a pause, answers, an ask, or to where the work stopped); the
+/// moves of other cells that lead here, each with the cells that make it; and whether the engine's fallback brings the
+/// cell back to itself.
+export type EnteredFrom = {
+  answers: RowRef[];
+  back: RowRef[];
+  moves: Array<{ row: string; cells: string[] }>;
+  fallback: boolean;
+};
+
+export function enteredFrom(g: CompiledGraph, refs: RowRef[], id: string): EnteredFrom {
+  const out: EnteredFrom = { answers: [], back: [], moves: [], fallback: false };
+  for (const ref of refs) {
+    const row = g.cells.find((x) => x.id === ref.cell)?.rows[ref.row];
+    if (row === undefined) continue;
+    if (fallback(row)) {
+      if (ref.cell === id) out.fallback = true;
+    } else if (row.common) {
+      if (ref.cell === id) continue;
+      const m = out.moves.find((x) => x.row === row.name);
+      if (m === undefined) out.moves.push({ row: row.name, cells: [ref.cell] });
+      else if (!m.cells.includes(ref.cell)) m.cells.push(ref.cell);
+    } else if (row.to.startsWith('@') && ref.cell !== id) {
+      out.back.push(ref);
+    } else {
+      out.answers.push(ref);
+    }
+  }
+  return out;
+}
+
+/// Where a cell leaves to, by kind, each a list of its rows by their places: its own answers, those on the main path
+/// first; the moves it makes of its own; and the engine's fallback.
+export function leavesTo(c: CompiledCell): { answers: number[]; moves: number[]; fallback: number[] } {
+  const all = c.rows.map((_, i) => i);
+  const answers = all.filter((i) => !c.rows[i].common && !fallback(c.rows[i]));
+  return {
+    answers: [...answers.filter((i) => c.rows[i].main), ...answers.filter((i) => !c.rows[i].main)],
+    moves: all.filter((i) => c.rows[i].common && !fallback(c.rows[i])),
+    fallback: all.filter((i) => fallback(c.rows[i])),
+  };
+}
+
+/// The longest a condition is written out before it is folded.
+const LONG = 140;
+
+/// A row's condition, where it says something, folded when it is long.
+function Condition({ r }: { r: CompiledRow }) {
   const f = useFlow();
-  const known = new Set(Object.keys(f.compiled.engine.values));
+  const atoms = telling(r);
+  if (atoms.length === 0) return null;
+  const words = conditionsWords(atoms, new Set(Object.keys(f.compiled.engine.values)));
+  if (words.length <= LONG) return <div className="tx">{inline(words)}</div>;
   return (
-    <ol className="tt">
-      {c.rows.map((r, i) => (
-        <li key={r.name} className={highlight.includes(i) ? 'tt-on' : undefined}>
-          <RowNo row={i} />
-          <div className="tb">
-            <div>
-              <strong>{r.name}</strong>
-              {r.main ? <span className="tag tag-main">{t('row_main')}</span> : null}
-              {r.common ? <span className="tag">{t('row_shared')}</span> : null}
-              {r.waits ? <span className="tag">{t('row_waits')}</span> : null}
-              {r.pauses ? <span className="tag">{t('row_pauses')}</span> : null}
-              {r.interject ? <span className="tag">{t('row_interjection')}</span> : null}
-            </div>
-            <div className="tx">
-              <span className="ul">{t('row_if')}</span>
-              <span>{inline(conditionsWords(r.if, known))}</span>
-            </div>
-            <div className="tx">
-              <span className="ul">{t('row_to')}</span>
-              <Target c={c} row={i} />
-            </div>
-            {r.counts ? (
-              <div className="tx">
-                <span className="ul">{t('row_counts')}</span>
-                <code>{r.counts}</code>
-                <span className="fw">{f.g.counters.find((k) => k.name === r.counts)?.desc ?? ''}</span>
-              </div>
-            ) : null}
-            {Object.entries(r.sets ?? {}).length > 0 ? (
-              <div className="tx">
-                <span className="ul">{t('row_records')}</span>
-                {Object.entries(r.sets ?? {}).map(([k, v]) => (
-                  <code key={k}>
-                    {k} = {v}
-                  </code>
-                ))}
-              </div>
-            ) : null}
-            {(r.do ?? []).map((d, j) => {
-              const name = typeof d === 'string' ? d : d.do;
+    <details className="tx">
+      <summary className="muted">{t('row_if')}</summary>
+      {inline(words)}
+    </details>
+  );
+}
+
+/// One row the cell leaves by: its number, name and target, and what the engine does on it, counts and records.
+function RowItem({ c, i, on }: { c: CompiledCell; i: number; on: boolean }) {
+  const f = useFlow();
+  const r = c.rows[i];
+  const acts = rowActions(r);
+  return (
+    <li className={on ? 'tt-on' : undefined}>
+      <RowNo row={i} />
+      <div className="tb">
+        <div>
+          <strong>{r.name}</strong> → <Target c={c} row={i} />
+          {r.main ? <span className="tag tag-main">{t('row_main')}</span> : null}
+          {r.waits ? <span className="tag">{t('row_waits')}</span> : null}
+          {r.pauses ? <span className="tag">{t('row_pauses')}</span> : null}
+          {r.interject ? <span className="tag">{t('row_interjection')}</span> : null}
+        </div>
+        <Condition r={r} />
+        {acts.length > 0 ? (
+          <div className="tx">
+            <span className="ul">{t('row_action')}</span>
+            {acts.map((a, j) => (
+              <span key={a} title={f.compiled.engine.actions[a] ?? ''}>
+                {j > 0 ? ' · ' : null}
+                {actionWords(a)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {r.counts ? (
+          <div className="tx">
+            <span className="ul">{t('row_counts')}</span>
+            <code>{r.counts}</code>
+            <span className="fw">{f.g.counters.find((k) => k.name === r.counts)?.desc ?? ''}</span>
+          </div>
+        ) : null}
+        {Object.entries(r.sets ?? {}).length > 0 ? (
+          <div className="tx">
+            <span className="ul">{t('row_records')}</span>
+            {Object.entries(r.sets ?? {}).map(([k, v]) => (
+              <code key={k}>
+                {k} = {v}
+              </code>
+            ))}
+          </div>
+        ) : null}
+        {r.note ? <div className="tx">{inline(r.note)}</div> : null}
+      </div>
+    </li>
+  );
+}
+
+/// One row of the engine's fallback: what it is for, and what the engine does; a return sent back points at the
+/// checks, in what the cell hands back.
+function FallbackItem({ c, i, onReturns }: { c: CompiledCell; i: number; onReturns: () => void }) {
+  const f = useFlow();
+  const r = c.rows[i];
+  const words = fallbackWords(f.g, r);
+  const back = r.if[0]?.[0] === 'sent_back';
+  return (
+    <li>
+      <RowNo row={i} />
+      <div className="tb">
+        <div>
+          <strong>{r.name}</strong>
+        </div>
+        <div className="tx">{inline(words ?? conditionsWords(r.if, new Set()))}</div>
+        {back ? (
+          <button type="button" className="link" onClick={onReturns}>
+            {t('fallback_checks')}
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/// Cells by their codes alone, each a link that opens it, with its title on hovering: for a move many cells make.
+function CellCodes({ ids }: { ids: string[] }) {
+  const f = useFlow();
+  return (
+    <span className="links">
+      {ids.map((id, i) => (
+        <span key={id}>
+          {i > 0 ? ', ' : null}
+          <button type="button" className="go" title={f.cell(id)?.title} onClick={() => f.open({ kind: 'cell', cell: id })}>
+            {id}
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/// Where the cell is entered from and where it leaves to, by kind.
+function Route({ c, highlight, onReturns }: { c: CompiledCell; highlight: number[]; onReturns: () => void }) {
+  const f = useFlow();
+  const into = enteredFrom(f.g, f.cellView(c.id)?.entered_from ?? [], c.id);
+  const out = leavesTo(c);
+  const none = into.answers.length + into.back.length + into.moves.length === 0 && !into.fallback;
+  return (
+    <>
+      <Section title={t('sec_entered')}>
+        {none ? <p className="fmt">{t('entered_none')}</p> : null}
+        {into.answers.length > 0 ? (
+          <ul className="bl">
+            {into.answers.map((ref) => {
+              const row = f.cell(ref.cell)?.rows[ref.row];
+              if (row === undefined) return null;
               return (
-                <div key={j} className="tx">
-                  <span className="ul">{t('row_action')}</span>
-                  <code>{name}</code>
-                  {typeof d === 'string' ? null : <span className="fw">{inline(t('row_action_at', { at: `\`${d.at}\`` }))}</span>}
-                  <span className="fw">{f.compiled.engine.actions[name] ?? ''}</span>
-                </div>
+                <li key={`${ref.cell}:${ref.row}`}>
+                  {ref.cell === c.id ? t('entered_itself') : <CellLink id={ref.cell} />} <RowNo row={ref.row} />{' '}
+                  <strong>{row.name}</strong>
+                  <Condition r={row} />
+                </li>
               );
             })}
-            {r.note ? <div className="tx">{inline(r.note)}</div> : null}
-          </div>
-        </li>
-      ))}
-    </ol>
+          </ul>
+        ) : null}
+        {into.back.length > 0 ? (
+          <>
+            <h5 className="ds-sub">{t('entered_back')}</h5>
+            <ul className="bl">
+              {into.back.map((ref) => (
+                <li key={`${ref.cell}:${ref.row}`}>
+                  <CellLink id={ref.cell} /> <strong>{f.cell(ref.cell)?.rows[ref.row]?.name ?? ''}</strong>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {into.moves.length > 0 ? (
+          <>
+            <h5 className="ds-sub">{t('entered_moves')}</h5>
+            <ul className="bl">
+              {into.moves.map((m) => (
+                <li key={m.row}>
+                  <strong>{actionWords(m.row)}</strong>: <CellCodes ids={m.cells} />
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {into.fallback ? <p className="fmt">{t('entered_fallback')}</p> : null}
+      </Section>
+      <Section title={t('sec_leaves')}>
+        {out.answers.length + out.moves.length + out.fallback.length === 0 ? <p className="fmt">{t('leaves_none')}</p> : null}
+        {out.answers.length > 0 ? (
+          <ol className="tt">
+            {out.answers.map((i) => (
+              <RowItem key={i} c={c} i={i} on={highlight.includes(i)} />
+            ))}
+          </ol>
+        ) : null}
+        {out.moves.length > 0 ? (
+          <>
+            <h5 className="ds-sub">{t('leaves_moves')}</h5>
+            <ol className="tt">
+              {out.moves.map((i) => (
+                <RowItem key={i} c={c} i={i} on={highlight.includes(i)} />
+              ))}
+            </ol>
+          </>
+        ) : null}
+        {out.fallback.length > 0 ? (
+          <details className="fallback">
+            <summary>{t('leaves_fallback', { n: out.fallback.length })}</summary>
+            <ol className="tt">
+              {out.fallback.map((i) => (
+                <FallbackItem key={i} c={c} i={i} onReturns={onReturns} />
+              ))}
+            </ol>
+          </details>
+        ) : null}
+      </Section>
+    </>
   );
 }
 
@@ -541,34 +773,9 @@ function RoundsHere({ work, rounds, onRound }: { work: number; rounds: RoundSumm
   );
 }
 
-/// Where the cell is entered from: every row of every cell that leads here.
-function Entered({ c }: { c: CompiledCell }) {
-  const f = useFlow();
-  const view = f.cellView(c.id);
-  return (
-    <Section title={t('sec_entered')}>
-      {(view?.entered_from ?? []).length === 0 ? <p className="fmt">{t('entered_none')}</p> : null}
-      <ul className="bl">
-        {(view?.entered_from ?? []).map((r) => {
-          const from = f.cell(r.cell);
-          const row = from?.rows[r.row];
-          if (!from || !row) return null;
-          return (
-            <li key={`${r.cell}:${r.row}`}>
-              {r.cell === c.id ? t('entered_itself') : <CellLink id={r.cell} />} <RowNo row={r.row} />{' '}
-              <strong>{row.name}</strong>
-              <div className="tx">{inline(conditionsWords(row.if, new Set(Object.keys(f.compiled.engine.values))))}</div>
-            </li>
-          );
-        })}
-      </ul>
-    </Section>
-  );
-}
-
 export function CellPanel(props: {
   c: CompiledCell;
-  /// Rows to point out, such as those of the shared circle the panel was opened from.
+  /// Rows to point out.
   rows?: number[];
   /// On a work's page, the work and its rounds at this cell.
   work?: number;
@@ -584,21 +791,17 @@ export function CellPanel(props: {
   const f = useFlow();
   const view = f.cellView(c.id);
   const agent = c.kind === 'agent';
-  const tabs = cellTabs(c, {
+  const tabs = cellTabs({
     rounds: work !== undefined && rounds !== undefined && onRound !== undefined,
     diff: diff != null,
   });
   const tab = cellTab(tabs, chosen);
-  const table = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
-  // A tab shows from its top; the transition table, when rows of it are pointed out, from the table.
+  // A tab shows from its top.
   useEffect(() => {
-    if (rows.length > 0 && tab === 'route') table.current?.scrollIntoView({ block: 'start' });
-    else bar.current?.parentElement?.scrollTo({ top: 0 });
-  }, [rows, tab]);
-  const checks = c.checks ?? [];
-  const always = c.always ?? [];
-  const handoff = c.handoff ?? [];
+    bar.current?.parentElement?.scrollTo({ top: 0 });
+  }, [c.id, tab]);
+  const checked = (c.checks ?? []).length > 0;
   return (
     <>
       <div className="tabs cell-tabs" role="tablist" ref={bar}>
@@ -616,7 +819,7 @@ export function CellPanel(props: {
       {tab === 'inputs' ? agent ? <AgentInputs c={c} /> : <StepInputs c={c} /> : null}
       {tab === 'returns' ? (
         <>
-          <Section>{view ? <Returns c={c} r={view.returns} /> : null}</Section>
+          <Section note={checked ? t('checks_note') : undefined}>{view ? <Returns c={c} r={view.returns} /> : null}</Section>
           {(c.shown ?? []).length > 0 ? (
             <Section title={t('sec_shown')} note={t('shown_note')}>
               <ul className="bl">
@@ -641,63 +844,7 @@ export function CellPanel(props: {
           ) : null}
         </>
       ) : null}
-      {tab === 'route' ? (
-        <>
-          <Entered c={c} />
-          <div ref={table} className="cell-table">
-            <Section title={t('sec_table')}>
-              <Table c={c} highlight={rows} />
-            </Section>
-          </div>
-        </>
-      ) : null}
-      {tab === 'checks' ? (
-        <>
-          {checks.length > 0 ? (
-            <Section title={t('sec_checks')} note={t('checks_note')}>
-              <ul className="bl">
-                {checks.map((k, i) => (
-                  <li key={i}>
-                    <code>{k.check}</code>
-                    {k.at ? <span className="fw"> · {inline(t('check_at', { at: `\`${k.at}\`` }))}</span> : null}
-                    <div className="fd">{f.compiled.engine.checks[k.check] ?? ''}</div>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
-          {always.length > 0 ? (
-            <Section title={t('sec_always')} note={t('always_note')}>
-              <ul className="bl">
-                {always.map((a, i) => (
-                  <li key={i}>
-                    {a.view
-                      ? inline(t('always_view', { at: `\`${a.at}\``, view: `\`${a.view}\`` }))
-                      : inline(t('always_action', { at: `\`${a.at}\``, action: `\`${a.do ?? ''}\`` }))}
-                    {a.do ? <div className="fd">{f.compiled.engine.actions[a.do] ?? ''}</div> : null}
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
-          {handoff.length > 0 ? (
-            <Section title={t('sec_handoff')} note={t('handoff_note')}>
-              <ul className="bl">
-                {handoff.map((h) => (
-                  <li key={h}>
-                    <code>{h}</code>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
-        </>
-      ) : null}
+      {tab === 'route' ? <Route c={c} highlight={rows} onReturns={() => onTab('returns')} /> : null}
     </>
   );
-}
-
-/// The words under a cell's title, with how its line's session is kept, as the flow's view of the graph says it.
-export function cellWho(view: GraphView, c: CompiledCell): ReactNode {
-  return who(c, view.lines);
 }

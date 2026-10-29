@@ -4,12 +4,14 @@ import { createContext, useContext } from 'react';
 
 import type { CellView, Compiled, CompiledCell, CompiledGraph, GraphView } from '../api';
 
-/// What the panel shows. A cell, a rule and the interjection are of a graph; a chart that shows several graphs names
-/// it, and a panel that opens one of them opens it in its own graph.
+/// What the panel shows. A cell, a rule, the interjection and the actions on a line are of a graph; a chart that shows
+/// several graphs names it, and a panel that opens one of them opens it in its own graph. A store is every graph's.
 export type Subject =
   | { kind: 'cell'; cell: string; graph?: string; rows?: number[] }
   | { kind: 'rule'; rule: string; graph?: string }
   | { kind: 'interjection'; graph?: string }
+  | { kind: 'action'; node: string; graph?: string }
+  | { kind: 'store'; store: string }
   | { kind: 'changes' }
   | { kind: 'round'; round: number };
 
@@ -31,9 +33,9 @@ export function useFlow(): Flow {
   return f;
 }
 
-/// A subject in a graph: a cell, a rule or the interjection that names no graph is of `graph`.
+/// A subject in a graph: a cell, a rule, the interjection or the actions on a line that names no graph is of `graph`.
 export function inGraph(s: Subject, graph: string): Subject {
-  if (s.kind === 'cell' || s.kind === 'rule' || s.kind === 'interjection') {
+  if (s.kind === 'cell' || s.kind === 'rule' || s.kind === 'interjection' || s.kind === 'action') {
     return s.graph !== undefined ? s : { ...s, graph };
   }
   return s;
@@ -48,6 +50,10 @@ export function subjectKey(s: Subject): string {
       return `rule:${s.graph ?? ''}:${s.rule}`;
     case 'interjection':
       return `interjection:${s.graph ?? ''}`;
+    case 'action':
+      return `action:${s.graph ?? ''}:${s.node}`;
+    case 'store':
+      return `store:${s.store}`;
     case 'changes':
       return 'changes';
     case 'round':
