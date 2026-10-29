@@ -96,13 +96,14 @@ function limitsOf(m: Measures): Limits {
   };
 }
 
-/// The most each graph's layout may measure, so that a change that makes the layout worse fails here: for now well over
-/// what it measures on a copy of the flow, until CI measures it on the flow itself. Before each cell was laid out with
-/// what is drawn beside it, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384, run
-/// 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside 1539.
+/// The most each graph's layout may measure: a tenth over what it measured on the flow of e9bddd0 (CI run
+/// 40865042355), each cell laid out with what is drawn beside it, so that a change that makes the layout worse fails
+/// here. Before cells were laid out so, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows
+/// 42384, run 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198,
+/// beside 1539.
 const MOST: Record<string, Limits> = {
-  engineer: { rowLength: 600, run: 2500, bendsPerArrow: 1.9, far: 800, besideEach: 70 },
-  architect: { rowLength: 1200, run: 2200, bendsPerArrow: 3, far: 100, besideEach: 30 },
+  engineer: { rowLength: 590, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 76 },
+  architect: { rowLength: 1114, run: 1769, bendsPerArrow: 2.44, far: 68, besideEach: 33 },
 };
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {
