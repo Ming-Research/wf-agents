@@ -367,6 +367,19 @@
   gap: var(--base-size-8);
 }
 
+/* Whom the words are for, ticked in a row above the box. */
+.talk-say-to {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--base-size-16);
+  margin-bottom: var(--base-size-8);
+}
+
+.talk-say-to-label {
+  color: var(--fgColor-muted);
+}
+
 .talk-say-target {
   display: flex;
   align-items: center;
@@ -380,12 +393,6 @@
 .talk-say-target > span {
   flex: 1;
   min-width: 0;
-}
-
-.talk-say-closed {
-  margin: 0;
-  color: var(--fgColor-muted);
-  font-size: var(--text-body-size-small);
 }
 
 /* What an agent handed back, word for word, wherever a card shows it: the box. */

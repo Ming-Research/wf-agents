@@ -29,7 +29,6 @@ import {
   IconButton,
   NavList,
   PageLayout,
-  Select,
   Textarea,
   Timeline,
 } from '@primer/react';
@@ -48,6 +47,7 @@ import {
   party,
   pendingWords,
   sayTo,
+  sayToTicked,
   streamOf,
   voiceOf,
 } from '../conversation';
@@ -329,7 +329,9 @@ function askAnswer(target: Extract<Target, { kind: 'ask' }>, text: string, back:
 function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null; answering: Answering }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
-  const [to, setTo] = useState(choices[0] ?? '');
+  const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
+  const sendTo = sayToTicked(c, ticked);
+  const to = sendTo.length === 1 ? sendTo[0] : '';
   const [back, setBack] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -338,7 +340,9 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
   if (choices.length === 0 && target === null) return null;
   const handsBack = target !== null && target.kind === 'ask' && isObj(target.ask.body) && target.ask.body.to === 'owner';
   const answer = target !== null && target.kind === 'ask' ? askAnswer(target, text, handsBack && back) : null;
-  const ready = closed === null && (target !== null && target.kind === 'ask' ? answer !== null : text.trim() !== '');
+  const ready =
+    closed === null &&
+    (target !== null && target.kind === 'ask' ? answer !== null : text.trim() !== '' && (target !== null || sendTo.length > 0));
   const done = () => {
     setBusy(false);
     setText('');
@@ -363,20 +367,16 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
     } else if (c.kind === 'work') {
       sent = postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: words, to });
     } else if (c.kind === 'projects') {
-      sent = postJson('/api/v1/projects/say', to === 'all' ? { key: c.key, text: words } : { key: c.key, text: words, to });
+      sent = Promise.all(
+        sendTo.map((x) => postJson('/api/v1/projects/say', x === 'all' ? { key: c.key, text: words } : { key: c.key, text: words, to: x })),
+      ).then(() => undefined);
     } else {
       sent = postJson(forProject('/api/v1/architect/say', c.project), { text: words });
     }
     sent.then(done, failed);
   };
-  const toWords = (x: string) =>
-    x === 'all'
-      ? t('conv_to_every_architect')
-      : x === 'both'
-        ? t('conv_to_both')
-        : c.kind === 'projects'
-          ? t('conv_to_architect_of', { project: x })
-          : `@${words(x)}`;
+  const toWords = (x: string) => (c.kind === 'projects' ? t('conv_to_architect_of', { project: x }) : `@${words(x)}`);
+  const tick = (x: string, on: boolean) => setTicked((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
   return (
     <div className="talk-say">
       {target !== null ? (
@@ -398,17 +398,18 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
           />
         </div>
       ) : null}
-      {closed !== null ? <p className="talk-say-closed">{closed}</p> : null}
+      {target === null && closed === null && choices.length > 1 ? (
+        <div className="talk-say-to" role="group" aria-label={t('conv_to')}>
+          <span className="talk-say-to-label">{t('conv_to')}</span>
+          {choices.map((x) => (
+            <FormControl key={x} layout="horizontal">
+              <Checkbox checked={ticked.includes(x)} onChange={(e) => tick(x, e.target.checked)} />
+              <FormControl.Label>{toWords(x)}</FormControl.Label>
+            </FormControl>
+          ))}
+        </div>
+      ) : null}
       <div className="talk-say-row">
-        {target === null && choices.length > 1 ? (
-          <Select size="small" value={to} aria-label={t('conv_to')} onChange={(e) => setTo(e.target.value)} disabled={closed !== null}>
-            {choices.map((x) => (
-              <Select.Option key={x} value={x}>
-                {toWords(x)}
-              </Select.Option>
-            ))}
-          </Select>
-        ) : null}
         <Textarea
           block
           resize="vertical"
@@ -416,10 +417,12 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
           value={text}
           disabled={busy || closed !== null}
           placeholder={
-            target !== null
+            closed !== null
+              ? closed
+              : target !== null
               ? t('conv_answer_words')
               : c.kind === 'work'
-                ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : 'conv_say_both')
+                ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : sendTo.length === 0 ? 'conv_say_nobody' : 'conv_say_both')
                 : t('conv_say_architect')
           }
           title={t('send_keys_hint')}

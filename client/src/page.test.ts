@@ -72,6 +72,7 @@ import {
   party,
   pendingWords,
   sayTo,
+  sayToTicked,
   streamOf,
   totals,
   voiceOf,
@@ -1635,8 +1636,14 @@ describe("the owner's conversations", () => {
   });
 
   it('says whom the box at the bottom says things to, and why it cannot at a work at its end', () => {
-    expect(sayTo(talk('work:5'))).toEqual(['engineer', 'architect', 'both']);
-    expect(sayTo(talk('projects:p|q', { projects: ['p', 'q'] }))).toEqual(['p', 'q', 'all']);
+    expect(sayTo(talk('work:5'))).toEqual(['engineer', 'architect']);
+    expect(sayTo(talk('projects:p|q', { projects: ['p', 'q'] }))).toEqual(['p', 'q']);
+    // What the ticks come to: both parties of a work's group are both, every architect of a group of projects is all.
+    expect(sayToTicked(talk('work:5'), ['engineer'])).toEqual(['engineer']);
+    expect(sayToTicked(talk('work:5'), ['engineer', 'architect'])).toEqual(['both']);
+    expect(sayToTicked(talk('work:5'), [])).toEqual([]);
+    expect(sayToTicked(talk('projects:p|q|r', { projects: ['p', 'q', 'r'] }), ['p', 'q', 'r'])).toEqual(['all']);
+    expect(sayToTicked(talk('projects:p|q|r', { projects: ['p', 'q', 'r'] }), ['p', 'r'])).toEqual(['p', 'r']);
     expect(sayTo(talk('wf-agents'))).toEqual([]);
     expect(closedWhy(talk('work:5', { over: true }), null)).not.toBeNull();
     expect(closedWhy(talk('work:5'), null)).toBeNull();

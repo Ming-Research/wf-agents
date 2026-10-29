@@ -114,14 +114,25 @@ export function latestAt(d: ConversationDetail): number | null {
 export const pendingWords = (entries: ConversationEntry[]): ConversationEntry[] =>
   entries.filter((e) => e.pending && e.sender === 'owner');
 
-/// Whom the box at the bottom of a conversation can say something to: in a work's group its engineer (the first), its
-/// architect, or both; in a group of projects each project's architect, or every one; in the one-to-one the architect
-/// alone; in wf-agents' own, nobody.
+/// Whom the box at the bottom of a conversation can say something to, each one ticked or not: in a work's group its
+/// engineer (ticked at first) and its architect; in a group of projects each project's architect; in the one-to-one the
+/// architect alone; in wf-agents' own, nobody.
 export function sayTo(c: Conversation): string[] {
-  if (c.kind === 'work') return ['engineer', 'architect', 'both'];
-  if (c.kind === 'projects') return [...c.projects, 'all'];
+  if (c.kind === 'work') return ['engineer', 'architect'];
+  if (c.kind === 'projects') return [...c.projects];
   if (c.kind === 'architect') return ['architect'];
   return [];
+}
+
+/// What the parties ticked come to as whom a group's words are for: in a work's group `engineer`, `architect` or
+/// `both`; in a group of projects `all` when every architect is ticked, else each ticked project; none when nobody is.
+export function sayToTicked(c: Conversation, ticked: string[]): string[] {
+  const all = sayTo(c);
+  const on = all.filter((x) => ticked.includes(x));
+  if (on.length === 0) return [];
+  if (c.kind === 'work') return on.length === 2 ? ['both'] : on;
+  if (c.kind === 'projects') return on.length === all.length && all.length > 1 ? ['all'] : on;
+  return on;
 }
 
 /// Why the box of a work's group cannot say anything now, or null when it can: the work is at its end or over, and
