@@ -16,6 +16,7 @@ import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, ItemRef, RoundLink, Section } from '../parts';
+import { Link } from '../route';
 import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
 
