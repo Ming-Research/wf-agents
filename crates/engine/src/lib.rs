@@ -708,7 +708,7 @@ impl Engine {
         let ready: Vec<(i64, String, Option<f64>)> = waiting
             .into_iter()
             .zip(why)
-            .filter(|(_, reason)| leads_on(*reason))
+            .filter(|(_, reason)| leads_on(reason))
             .map(|(x, _)| x)
             .collect();
         if let Some((item, _, _)) = ready.iter().find(|r| r.2.is_some()) {
