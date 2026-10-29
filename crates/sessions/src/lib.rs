@@ -182,9 +182,9 @@ mod tests {
         );
     }
 
-    // The flow starts the engineer's new sessions at implementing and fixing.
+    // The flow starts the engineer's new sessions at researching, implementing and fixing.
     #[test]
-    fn the_engineer_starts_new_sessions_at_implementing_and_fixing() {
+    fn the_engineer_starts_new_sessions_at_researching_implementing_and_fixing() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let starts: Vec<&str> = g
@@ -193,6 +193,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["I1", "T6"]);
+        assert_eq!(starts, ["R1", "I1", "T6"]);
     }
 }
