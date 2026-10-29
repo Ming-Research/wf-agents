@@ -785,8 +785,10 @@ svg.fc {
   stroke: var(--fgColor-success);
 }
 
+/* The part of the chart in view: a light wash over the map, so that what lies under it still shows. */
 .fc-map-frame {
   fill: var(--bgColor-accent-muted);
+  fill-opacity: 0.35;
   stroke: var(--borderColor-accent-emphasis);
   stroke-width: var(--chart-line-box);
 }
