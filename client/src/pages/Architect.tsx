@@ -37,7 +37,7 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, matterKind, matterSentence, observationsShown, overWake, shownWake } from '../architect';
+import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWake, shownWake } from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { runningWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
@@ -110,8 +110,6 @@ function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) 
   );
 }
 
-const HOLDS: Record<string, Key> = { architect: 'hold_architect', set_straight: 'hold_set_straight', policy: 'hold_policy' };
-
 /// The line above an architect's chart: with more than one project, whose architect it is and the switch to another's;
 /// what it does now, what stops the project's new works, its one-to-one in the messages view, where the owner acts on
 /// it, and the switch between the stretches it worked in.
@@ -148,7 +146,7 @@ function Line({ a, shown, current, pop, setPop }: {
       {state.waiting > 0 ? <span className="muted">{t('talk_queue_left', { n: state.waiting })}</span> : null}
       {a.holds.map((h) => (
         <Label key={h.reason} variant="attention" title={t('hold_since', { at: time(h.since) })}>
-          {HOLDS[h.reason] !== undefined ? t(HOLDS[h.reason]) : t('hold_other', { reason: words(h.reason) })}
+          {holdWords(h.reason)}
           {h.why !== null ? `: ${h.why}` : null}
         </Label>
       ))}

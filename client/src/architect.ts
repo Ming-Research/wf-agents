@@ -233,3 +233,12 @@ export function againstInOrder(rows: JsonValue): Obj[] {
     .sort((a, b) => rank(str(a.r.status)) - rank(str(b.r.status)) || a.i - b.i)
     .map((x) => x.r);
 }
+
+/// What stops a project's new works from starting, in words: the architect's own hold, setting the project straight, or a
+/// new policy being set; any other reason as it is written.
+export function holdWords(reason: string): string {
+  if (reason === 'architect') return t('hold_architect');
+  if (reason === 'set_straight') return t('hold_set_straight');
+  if (reason === 'policy') return t('hold_policy');
+  return t('hold_other', { reason: words(reason) });
+}

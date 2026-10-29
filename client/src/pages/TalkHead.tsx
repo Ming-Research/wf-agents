@@ -10,16 +10,16 @@ import { Label, Select } from '@primer/react';
 import { useState } from 'react';
 
 import type { Architect, Conversation, Settings, Status, WorkSummary } from '../api';
-import { architectState, matterKind, matterSentence, queueParts } from '../architect';
+import { architectState, holdWords, matterKind, matterSentence, queueParts } from '../architect';
 import { course, heldName } from '../components';
 import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
-import { words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t } from '../text';
 import { stageName } from './TalkCards';
+import { Halo } from '../graph/flowDraw';
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
 export function tiersAllowed(s: Settings): string[] {
@@ -65,7 +65,14 @@ function Tier({ item, level }: { item: number; level: string }) {
 function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   const c = course(w, status);
   if (c.over) return <Label variant={w.state === 'done' ? 'success' : 'danger'}>{t(`state_${w.state}`)}</Label>;
-  if (c.running !== null) return <Label variant="accent">{runningWords(c)}</Label>;
+  if (c.running !== null) {
+    return (
+      <span className="talk-head-running">
+        <RunningMark />
+        <Label variant="accent">{runningWords(c)}</Label>
+      </span>
+    );
+  }
   if (c.held !== null) {
     const h = heldName(c);
     return <Label variant={h.problem ? 'danger' : 'attention'}>{h.name}</Label>;
@@ -208,6 +215,7 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
           <Label variant="secondary">{t('talk_architect_between')}</Label>
         )}
         <span className="talk-head-now" title={what ?? undefined}>
+          {c.running !== null ? <RunningMark /> : null}
           {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
         </span>
       </>
@@ -218,6 +226,16 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
     return <Label variant="attention">{t('talk_architect_held')}</Label>;
   }
   return <Label variant="secondary">{state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}</Label>;
+}
+
+/// The mark beside the cell a round runs at, in a conversation's head: the chart's halo drawn small round a dot, the one
+/// animation the page has, so that what runs looks the same on the chart and here.
+export function RunningMark() {
+  return (
+    <svg className="running-mark" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+      <Halo box={{ x: 4, y: 4, width: 8, height: 8 }} round small />
+    </svg>
+  );
 }
 
 /// The start of today in the browser's time zone.
@@ -295,7 +313,7 @@ export function ArchitectHead({ c }: { c: Conversation }) {
         {a !== null
           ? a.holds.map((h) => (
               <Label key={h.reason} variant="attention" title={t('hold_since', { at: time(h.since) })}>
-                {t('talk_hold', { reason: words(h.reason) })}
+                {holdWords(h.reason)}
               </Label>
             ))
           : null}

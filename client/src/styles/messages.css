@@ -476,3 +476,15 @@
   gap: var(--base-size-4);
   margin-bottom: var(--base-size-12);
 }
+
+/* The mark beside what runs now in a conversation's head: the chart's halo, small, in line with the text. */
+.running-mark {
+  flex: none;
+  vertical-align: middle;
+  margin-right: var(--base-size-4);
+}
+
+.talk-head-running {
+  display: inline-flex;
+  align-items: center;
+}
