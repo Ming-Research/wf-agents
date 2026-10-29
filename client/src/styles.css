@@ -3857,6 +3857,10 @@ details.dc[open] > summary::before,
   font-size: 12px;
 }
 
+.arch-block-from {
+  margin-bottom: 4px;
+}
+
 .arch-compare {
   display: block;
   margin: 2px 0 6px;

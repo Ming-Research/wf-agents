@@ -7,6 +7,7 @@ import type {
   GraphView,
   Matter,
   Observation,
+  OwnerAsk,
   Status,
   Wake,
   WorkSummary,
@@ -14,6 +15,7 @@ import type {
 import {
   againstInOrder,
   architectState,
+  askTab,
   choicesOf,
   observationsShown,
   queueParts,
@@ -201,6 +203,14 @@ describe("the architect's page", () => {
 
   it('is read again when what it shows changed', () => {
     expect(named({ kind: 'architect' })).toEqual(['architect', 'messages']);
+  });
+
+  it('puts an ask in the tab of the stage that put it', () => {
+    const ask = (kind: string): OwnerAsk => ({ id: 1, round: 2, work: 3, item: null, body: { from: 'architect', kind }, answer: null, kinds: [] });
+    expect(askTab(ask('study'))).toBe('policy');
+    expect(askTab(ask('policy_approval'))).toBe('policy');
+    expect(askTab(ask('ask'))).toBe('asks');
+    expect(askTab(ask('open'))).toBe('asks');
   });
 
   it("says why the owner's words still wait for the architect", () => {

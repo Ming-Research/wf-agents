@@ -1091,6 +1091,8 @@ pub struct ItemChange {
     /// The round that handed it in: its wake and its number.
     pub work: i64,
     pub round: i64,
+    /// The cell of that round.
+    pub cell: String,
     pub matter: i64,
     /// The change as handed in, with its reason.
     pub change: Value,
@@ -1141,6 +1143,8 @@ pub struct CloseObservation {
 pub struct PolicyInForce {
     pub work: i64,
     pub round: i64,
+    /// The cell of the round that wrote it.
+    pub cell: String,
     pub at: Option<i64>,
     pub policy: Value,
 }
@@ -1158,6 +1162,8 @@ pub struct PolicySetting {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Draft {
     pub round: i64,
+    /// The cell of that round.
+    pub cell: String,
     pub policy: Value,
     pub probes: Value,
     pub readings: Vec<Reading>,
@@ -1167,25 +1173,27 @@ pub struct Draft {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Reading {
     pub round: i64,
+    /// The cell of that round.
+    pub cell: String,
     pub reading: Value,
     pub verdict: Value,
 }
 
-/// Where the project stands, as its architect last wrote it: its latest understanding (the state of things, the
-/// direction, the mismatches and what is unclear), what its wrap-ups learned since and the notes written since, oldest
-/// first, and its latest check of the policy against the constitution.
+/// Where the project stands, as the stage of the architect's that understands it last wrote it: its latest
+/// understanding (the state of things, the direction, what changed, the mismatches and what is unclear), its latest
+/// check of the policy against the constitution, and its latest check of whether what runs fits.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Understanding {
     pub state: Option<Said>,
-    pub learned: Vec<Value>,
-    pub notes: Vec<Value>,
     pub against: Option<Said>,
-    /// Every version of the understanding, newest first, each with what the wrap-ups after it learned.
+    pub fit: Option<Said>,
+    /// The matters the places to set straight of that check of what runs became, in their order.
+    pub fit_matters: Vec<i64>,
+    /// Every version of the understanding, newest first.
     pub versions: Vec<StateVersion>,
 }
 
-/// One version of the understanding: what an understanding round answered, by the wake and its round, with what the
-/// wrap-ups after it, before the next version, learned.
+/// One version of the understanding: what an understanding round answered, by the wake and its round.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StateVersion {
     pub work: i64,
@@ -1193,7 +1201,6 @@ pub struct StateVersion {
     pub cell: String,
     pub at: Option<i64>,
     pub state: Value,
-    pub learned: Vec<Value>,
 }
 
 /// What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings

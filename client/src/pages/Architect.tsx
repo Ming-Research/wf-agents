@@ -32,14 +32,14 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, observationsShown, overWake, queueParts, shownWake, wordsWait } from '../architect';
+import { architectState, askTab, observationsShown, overWake, queueParts, shownWake, wordsWait } from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
 import { Fold } from '../item/Shapes';
-import { Labelled, words } from '../labelled';
+import { isObj, Labelled, str, words } from '../labelled';
 import { Markdown } from '../markdown';
 import { reread, useResource, useStatus } from '../live';
 import {
@@ -61,9 +61,9 @@ import {
   PolicyText,
   ProbesView,
   ReadingView,
-  RoundLink,
   StudyView,
   UnderstandingView,
+  Wrote,
 } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
@@ -369,7 +369,7 @@ const SOURCES: Record<string, Key> = {
 function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: number) => void }) {
   const since = duration(Math.max(0, now - m.at));
   return (
-    <li className="arch-matter">
+    <li className="arch-matter" id={`matter-${m.id}`}>
       <div className="work-item-head">
         <span
           className={`badge kind src-${m.source}`}
@@ -440,7 +440,7 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
           <div className="work-item-head">
             <span className={`badge ${c.state === 'made' ? 'verdict-good' : 'verdict-bad'}`}>{words(c.state)}</span>
             <span className="muted">{t('change_matter', { n: c.matter })}</span>
-            <RoundLink work={c.work} round={c.round} onRound={onRound} />
+            <Wrote cell={c.cell} work={c.work} round={c.round} onRound={onRound} />
           </div>
           <ChangeView value={c.change} />
           {c.outcome !== null ? (
@@ -550,9 +550,11 @@ function Observations({ a }: { a: ArchitectRead }) {
   );
 }
 
-/// The architect's asks of the owner: those waiting first, with their forms; those answered folded under them.
-function Asks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
-  if (asks.length === 0) return <p className="muted">{t('arch_asks_none')}</p>;
+/// The architect's asks of the owner: those waiting first, with their forms, each under the cell that put it; those
+/// answered folded under them. The Asks tab holds those its matters' paths put, the Policy tab the study and the
+/// approval of a new policy.
+function Asks({ asks, onRound, none = true }: { asks: OwnerAsk[]; onRound: OpenRound; none?: boolean }) {
+  if (asks.length === 0) return none ? <p className="muted">{t('arch_asks_none')}</p> : null;
   const waiting = asks.filter((x) => x.answer === null);
   const answered = asks.filter((x) => x.answer !== null).reverse();
   const one = (x: OwnerAsk) => (
@@ -561,14 +563,14 @@ function Asks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
         <strong>{t('ask_head', { id: x.id })}</strong>
         <span className="badge">{askKindWords(x)}</span>
         <span className="muted">{x.answer === null ? t('ask_waits') : t('ask_answered')}</span>
-        <RoundLink work={x.work} round={x.round} onRound={onRound} />
+        <Wrote cell={isObj(x.body) ? str(x.body.cell) : ''} work={x.work} round={x.round} onRound={onRound} />
       </span>
       <ArchitectAsk a={x} />
     </div>
   );
   return (
     <>
-      {waiting.length === 0 ? <p className="muted">{t('arch_asks_none_waiting')}</p> : waiting.map(one)}
+      {waiting.length === 0 ? (none ? <p className="muted">{t('arch_asks_none_waiting')}</p> : null) : waiting.map(one)}
       {answered.length > 0 ? (
         <details className="boxed work-old">
           <summary>{t('work_answered_asks', { n: answered.length })}</summary>
@@ -579,13 +581,15 @@ function Asks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
   );
 }
 
-/// The policy: the one being set, while a wake sets one (the latest study, the text with its probes and the readings
-/// of it); and the policy in force, with when it took effect.
-function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
+/// The policy, all that the cells that set a policy produced, each under the cell and round that wrote it: its asks of
+/// the owner (the study to read, the policy to approve) with their forms; the one being set, while a wake sets one (the
+/// latest study, the text with its probes and the readings of it); and the policy in force, with when it took effect.
+function Policy({ a, asks, onRound }: { a: ArchitectRead; asks: OwnerAsk[]; onRound: OpenRound }) {
   const s = a.setting;
   const p = a.policy;
   return (
     <>
+      <Asks asks={asks} onRound={onRound} none={false} />
       {s !== null ? (
         <section className="arch-part arch-setting">
           <div className="decision-label">{t('policy_being_set')}</div>
@@ -594,10 +598,11 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
               open={s.draft === null}
               title={
                 <>
-                  {t('policy_study')} · {roundName(s.study.work, s.study.round)}
+                  {t('policy_study')} · {s.study.cell} · {roundName(s.study.work, s.study.round)}
                 </>
               }
             >
+              <Wrote cell={s.study.cell} work={s.study.work} round={s.study.round} onRound={onRound} />
               <StudyView value={s.study.value} />
             </Fold>
           ) : null}
@@ -605,14 +610,19 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
             <>
               <div className="work-item-head">
                 <span className="decision-label">{t('policy_draft')}</span>
-                <RoundLink work={s.work} round={s.draft.round} onRound={onRound} />
+                <Wrote cell={s.draft.cell} work={s.work} round={s.draft.round} onRound={onRound} />
               </div>
               <PolicyText value={s.draft.policy} />
               <Fold title={t('policy_probes', { n: Array.isArray(s.draft.probes) ? s.draft.probes.length : 0 })}>
                 <ProbesView value={s.draft.probes} />
               </Fold>
               {s.draft.readings.map((r) => (
-                <ReadingView key={r.round} round={roundName(s.work, r.round)} reading={r.reading} verdict={r.verdict} />
+                <ReadingView
+                  key={r.round}
+                  from={<Wrote cell={r.cell} work={s.work} round={r.round} onRound={onRound} />}
+                  reading={r.reading}
+                  verdict={r.verdict}
+                />
               ))}
             </>
           ) : null}
@@ -623,7 +633,7 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
           <span className="decision-label">{t('policy_in_force')}</span>
           {p !== null ? (
             <span className="muted">
-              {t('policy_took_effect', { at: time(p.at) })} <RoundLink work={p.work} round={p.round} onRound={onRound} />
+              {t('policy_took_effect', { at: time(p.at) })} <Wrote cell={p.cell} work={p.work} round={p.round} onRound={onRound} />
             </span>
           ) : null}
         </div>
@@ -654,11 +664,20 @@ function Panel({ route, a, d, g, go, onRound }: {
   useEffect(() => {
     if (want.current !== null && bringIntoView(want.current)) want.current = null;
   });
+  // An ask is in the tab of the stage that put it; a matter in the queue while it waits, else in the log.
   const onAsk = (id: number) => {
+    const ask = a.asks.find((x) => x.id === id);
     want.current = `ask-${id}`;
-    go({ tab: 'asks' });
+    go({ tab: ask !== undefined ? askTab(ask) : 'asks' });
   };
-  const waiting = a.asks.filter((x) => x.answer === null).length;
+  const onMatter = (id: number) => {
+    want.current = `matter-${id}`;
+    go({ tab: a.queue.some((m) => m.id === id) ? 'queue' : 'decisions' });
+  };
+  const policyAsks = a.asks.filter((x) => askTab(x) === 'policy');
+  const otherAsks = a.asks.filter((x) => askTab(x) === 'asks');
+  const waiting = otherAsks.filter((x) => x.answer === null).length;
+  const policyWaiting = policyAsks.filter((x) => x.answer === null).length;
   const live = new Set(a.wakes.filter((w) => !overWake(w.work)).map((w) => w.work.id));
   const titles = new Map<string, string>(g.cells.map((c) => [c.id, c.title]));
   // The conversation's tab says how many of its messages are unread and how many things in it wait for the owner, as
@@ -681,7 +700,7 @@ function Panel({ route, a, d, g, go, onRound }: {
     {
       tab: 'asks',
       label: t('arch_tab_asks'),
-      n: a.asks.length,
+      n: otherAsks.length,
       chip: waiting > 0 ? t('open_asks_chip', { n: waiting }) : null,
       hint: t('open_asks_n', { n: waiting }),
     },
@@ -695,7 +714,13 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: null,
       hint: '',
     },
-    { tab: 'policy', label: t('arch_tab_policy'), n: null, chip: null, hint: '' },
+    {
+      tab: 'policy',
+      label: t('arch_tab_policy'),
+      n: null,
+      chip: policyWaiting > 0 ? t('open_asks_chip', { n: policyWaiting }) : null,
+      hint: t('open_asks_n', { n: policyWaiting }),
+    },
     { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
     { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
   ];
@@ -728,7 +753,7 @@ function Panel({ route, a, d, g, go, onRound }: {
       </div>
       <div className="drawer-body" role="tabpanel" ref={body}>
         {route.tab === 'conversation' ? <ConversationView conversation={key} note={why} /> : null}
-        {route.tab === 'asks' ? <Asks asks={a.asks} onRound={onRound} /> : null}
+        {route.tab === 'asks' ? <Asks asks={otherAsks} onRound={onRound} /> : null}
         {route.tab === 'queue' ? <Queue queue={a.queue} onAsk={onAsk} /> : null}
         {route.tab === 'decisions' ? (
           a.log.length === 0 ? (
@@ -748,8 +773,10 @@ function Panel({ route, a, d, g, go, onRound }: {
         ) : null}
         {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
         {route.tab === 'observations' ? <Observations a={a} /> : null}
-        {route.tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
-        {route.tab === 'understanding' ? <UnderstandingView u={a.understanding} onRound={onRound} /> : null}
+        {route.tab === 'policy' ? <Policy a={a} asks={policyAsks} onRound={onRound} /> : null}
+        {route.tab === 'understanding' ? (
+          <UnderstandingView u={a.understanding} onRound={onRound} onMatter={onMatter} />
+        ) : null}
         {route.tab === 'rounds' ? (
           d === null ? (
             <p className="muted">{a.wakes.length === 0 ? t('arch_never_woke') : t('loading')}</p>
@@ -840,7 +867,8 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
     if (at !== '') bringIntoView(at);
   }, [ready]);
   const onAsk = (ask: number) => {
-    go({ tab: 'asks' });
+    const asked = a.asks.find((x) => x.id === ask);
+    go({ tab: asked !== undefined ? askTab(asked) : 'asks' });
     window.setTimeout(() => bringIntoView(`ask-${ask}`), 0);
   };
   return (

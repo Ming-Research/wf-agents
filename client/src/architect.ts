@@ -3,7 +3,7 @@
 // the articles of the constitution in the order the owner reads them, and what an answer to an ask of the architect's
 // sends.
 
-import type { ConversationEntry, JsonValue, Matter, Observation, Status, Wake, WorkSummary } from './api';
+import type { ConversationEntry, JsonValue, Matter, Observation, OwnerAsk, Status, Wake, WorkSummary } from './api';
 import { isObj, str, type Obj } from './labelled';
 
 /// A wake goes on no more once it reached its end or was ended.
@@ -56,6 +56,13 @@ export function wordsWait(
   if (state.kind === 'awake' && state.wake.paused !== null) return 'paused';
   if (status !== null && status.paused && !status.architects_started.includes(project)) return 'held';
   return state.kind === 'awake' ? 'awake' : 'asleep';
+}
+
+/// The tab of the architect's panel an ask of the owner is in, by the stage that put it: the policy's for the study of a
+/// new policy and its approval, which the cells that set a policy put; the asks' for every other.
+export function askTab(a: OwnerAsk): 'policy' | 'asks' {
+  const kind = isObj(a.body) ? str(a.body.kind) : '';
+  return kind === 'study' || kind === 'policy_approval' ? 'policy' : 'asks';
 }
 
 /// The observations the owner looks for: with the tag chosen, if one is, and the words searched for, if any, in what

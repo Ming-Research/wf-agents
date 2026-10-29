@@ -1145,7 +1145,11 @@ export type ItemChange = { id: number,
 /**
  * The round that handed it in: its wake and its number.
  */
-work: number, round: number, matter: number, 
+work: number, round: number, 
+/**
+ * The cell of that round.
+ */
+cell: string, matter: number, 
 /**
  * The change as handed in, with its reason.
  */
@@ -1205,7 +1209,11 @@ export type CloseObservation = { why: string, };
 /**
  * The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
  */
-export type PolicyInForce = { work: number, round: number, at: number | null, policy: JsonValue, };
+export type PolicyInForce = { work: number, round: number, 
+/**
+ * The cell of the round that wrote it.
+ */
+cell: string, at: number | null, policy: JsonValue, };
 
 /**
  * A new policy as a wake sets it: the latest study of it, and the latest text with its probes and every reading of it
@@ -1216,29 +1224,40 @@ export type PolicySetting = { work: number, study: Said | null, draft: Draft | n
 /**
  * A version of the policy being set, by the round that wrote it.
  */
-export type Draft = { round: number, policy: JsonValue, probes: JsonValue, readings: Array<Reading>, };
+export type Draft = { round: number, 
+/**
+ * The cell of that round.
+ */
+cell: string, policy: JsonValue, probes: JsonValue, readings: Array<Reading>, };
 
 /**
  * A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
  */
-export type Reading = { round: number, reading: JsonValue, verdict: JsonValue, };
+export type Reading = { round: number, 
+/**
+ * The cell of that round.
+ */
+cell: string, reading: JsonValue, verdict: JsonValue, };
 
 /**
- * Where the project stands, as its architect last wrote it: its latest understanding (the state of things, the
- * direction, the mismatches and what is unclear), what its wrap-ups learned since and the notes written since, oldest
- * first, and its latest check of the policy against the constitution.
+ * Where the project stands, as the stage of the architect's that understands it last wrote it: its latest
+ * understanding (the state of things, the direction, what changed, the mismatches and what is unclear), its latest
+ * check of the policy against the constitution, and its latest check of whether what runs fits.
  */
-export type Understanding = { state: Said | null, learned: Array<JsonValue>, notes: Array<JsonValue>, against: Said | null, 
+export type Understanding = { state: Said | null, against: Said | null, fit: Said | null, 
 /**
- * Every version of the understanding, newest first, each with what the wrap-ups after it learned.
+ * The matters the places to set straight of that check of what runs became, in their order.
+ */
+fit_matters: Array<number>, 
+/**
+ * Every version of the understanding, newest first.
  */
 versions: Array<StateVersion>, };
 
 /**
- * One version of the understanding: what an understanding round answered, by the wake and its round, with what the
- * wrap-ups after it, before the next version, learned.
+ * One version of the understanding: what an understanding round answered, by the wake and its round.
  */
-export type StateVersion = { work: number, round: number, cell: string, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
+export type StateVersion = { work: number, round: number, cell: string, at: number | null, state: JsonValue, };
 
 /**
  * What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings

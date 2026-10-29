@@ -45,11 +45,27 @@ export function RoundLink({ work, round, onRound }: { work: number; round: numbe
   );
 }
 
-/// When a round handed it back, and the round.
-function From({ said, onRound, label }: { said: Said; onRound: OpenRound; label?: string }) {
+/// The cell that wrote something, as the flow names it, and its round, which opens on the chart.
+export function Wrote({ cell, work, round, onRound }: { cell: string; work: number; round: number; onRound: OpenRound }) {
+  return (
+    <span className="muted arch-from">
+      {cell !== '' ? <span className="cell-id">{cell}</span> : null}
+      <RoundLink work={work} round={round} onRound={onRound} />
+    </span>
+  );
+}
+
+/// The cell that handed it back, unless what shows it names the cell already (`named`), when, and the round.
+export function From({ said, onRound, label, named = true }: {
+  said: Said;
+  onRound: OpenRound;
+  label?: string;
+  named?: boolean;
+}) {
   return (
     <span className="muted arch-from">
       {label !== undefined ? `${label} ` : ''}
+      {named && said.cell !== '' ? <span className="cell-id">{said.cell}</span> : null}
       {said.at !== null ? `${time(said.at)} · ` : ''}
       <RoundLink work={said.work} round={said.round} onRound={onRound} />
     </span>
@@ -205,16 +221,17 @@ function ReadingVerdict({ value }: { value: JsonValue }) {
   );
 }
 
-/// A new architect's reading of the policy, folded under the verdict on it: its restatement point by point, what it
-/// asked, and its answers to the probes.
-export function ReadingView({ round, reading, verdict }: { round: string; reading: JsonValue; verdict: JsonValue }) {
+/// A new architect's reading of the policy, under the cell and round that read it, folded under the verdict on it: its
+/// restatement point by point, what it asked, and its answers to the probes.
+export function ReadingView({ from, reading, verdict }: { from: ReactNode; reading: JsonValue; verdict: JsonValue }) {
   const r = isObj(reading) ? reading : {};
   const restate = objs(r.restate);
   const answers = objs(r.answers);
   return (
     <div className="arch-reading">
       <div className="work-item-head">
-        <strong>{t('reading_head', { round })}</strong>
+        <strong>{t('reading_head')}</strong>
+        {from}
       </div>
       <ReadingVerdict value={verdict} />
       <Fold title={t('reading_text')}>
@@ -305,7 +322,7 @@ function Part({ title, said, onRound, children }: { title: string; said: Said; o
     <section className="arch-part">
       <div className="work-item-head">
         <span className="decision-label">{title}</span>
-        <From said={said} onRound={onRound} />
+        <From said={said} onRound={onRound} named={false} />
       </div>
       {children}
     </section>
@@ -331,7 +348,7 @@ export function LogEntryView({ e, open, live, title, onRound }: {
           <span className="work-item-head">
             <span className="cell-id">{e.cell}</span>
             <strong>{title(e.cell)}</strong>
-            <From said={{ work: e.work, round: e.round, cell: e.cell, at: e.at, value: null }} onRound={onRound} />
+            <From said={{ work: e.work, round: e.round, cell: e.cell, at: e.at, value: null }} onRound={onRound} named={false} />
           </span>
         </summary>
         <Labelled value={e.value} />
@@ -339,7 +356,7 @@ export function LogEntryView({ e, open, live, title, onRound }: {
     );
   }
   return (
-    <details className="boxed arch-entry" open={open}>
+    <details className="boxed arch-entry" id={`matter-${e.matter}`} open={open}>
       <summary>
         <span className="work-item-head">
           <span className="badge">{words(e.matter_kind)}</span>
@@ -408,17 +425,28 @@ function LineBlock({ l, compare }: { l: LineChange; compare: boolean }) {
   );
 }
 
-/// A part of the understanding folded under its title and how many it holds, closed unless `open`; none when it holds
-/// nothing.
-function Section({ title, n, open = false, children }: { title: string; n?: number; open?: boolean; children: ReactNode }) {
+/// A part of the understanding folded under its title and how many it holds, closed unless `open`, with the cell and
+/// round that wrote it first; none when it holds nothing.
+function Section({ title, n, open = false, from = null, children }: {
+  title: string;
+  n?: number;
+  open?: boolean;
+  from?: ReactNode;
+  children: ReactNode;
+}) {
   if (n === 0) return null;
-  return <Fold title={n !== undefined ? t('understanding_count', { title, n }) : title} open={open}>{children}</Fold>;
+  return (
+    <Fold title={n !== undefined ? t('understanding_count', { title, n }) : title} open={open}>
+      {from !== null ? <div className="arch-block-from">{from}</div> : null}
+      {children}
+    </Fold>
+  );
 }
 
 /// Every version of the understanding, newest first, one at a time with the newer and older ones a click away: its
 /// wake and round, each line of work as a block; with the switch on, each line marked new, changed or gone since the
 /// version before it (a line written again in other words matched by what it says), the latest shown clean otherwise;
-/// where it heads, open; and folded, what it says changed and what the wrap-ups after it learned.
+/// where it heads, open; and folded, what it says changed; each part naming the cell and round that wrote it.
 function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
   const [at, setAt] = useState(0);
   const [compare, setCompare] = useState(false);
@@ -431,7 +459,7 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
   const c = stateChanges(before !== undefined ? before.state : null, v.state);
   const said: Said = { work: v.work, round: v.round, cell: v.cell, at: v.at, value: v.state };
   const lines = c.lines.filter((l) => comparing || l.kind !== 'removed');
-  const learned = Array.isArray(v.learned) ? v.learned.filter((x) => str(x) !== '') : [];
+  const from = <From said={said} onRound={onRound} />;
   return (
     <section className="arch-part">
       <div className="work-item-head">
@@ -460,40 +488,68 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
         <LineBlock key={i} l={l} compare={comparing} />
       ))}
       {isObj(v.state) && str(v.state.direction) !== '' ? (
-        <Section title={t('understanding_direction')} open>
+        <Section title={t('understanding_direction')} open from={from}>
           <Markdown text={str(v.state.direction)} />
         </Section>
       ) : null}
       {c.changed.after !== '' ? (
-        <Section title={t('understanding_changed')}>
+        <Section title={t('understanding_changed')} from={from}>
           <Markdown text={c.changed.after} />
         </Section>
       ) : null}
-      <Section title={t('understanding_learned_wake')} n={learned.length}>
-        <ul className="arch-list">
-          {learned.map((x, i) => (
-            <li key={i}>
-              <MarkdownInline text={str(x)} />
-            </li>
-          ))}
-        </ul>
-      </Section>
     </section>
   );
 }
 
-/// Where the project stands, as its architect last wrote it: its understanding with its versions; then, each folded
-/// under its title and how many it holds, the notes written since, where the facts no longer match an earlier judgment
-/// and what it could not settle, each as blocks; and the policy's check against the constitution, its counts by status
-/// in its title, the articles broken and at risk first.
-export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
-  if (u.state === null && u.against === null) return <p className="muted">{t('understanding_none')}</p>;
+/// The kinds of a place to set straight the check of what runs found, in words.
+function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefined; onMatter: (id: number) => void }) {
+  const steps = texts(fix.steps);
+  return (
+    <div className="arch-block">
+      <div className="arch-block-h">
+        <span className="badge">{words(str(fix.kind))}</span>
+        <strong>
+          <MarkdownInline text={str(fix.where)} />
+        </strong>
+        {fix.pause_now === true ? <span className="badge verdict-bad">{t('fit_paused')}</span> : null}
+        {matter !== undefined ? (
+          <button type="button" className="link" onClick={() => onMatter(matter)}>
+            {t('fit_matter', { id: matter })}
+          </button>
+        ) : null}
+      </div>
+      <Markdown text={str(fix.wrong)} />
+      {steps.length > 0 ? (
+        <ol className="arch-list">
+          {steps.map((x, i) => (
+            <li key={i}>
+              <MarkdownInline text={x} />
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
+/// Where the project stands, as the stage of the architect's that understands it last wrote it, each part naming the
+/// cell and round that wrote it: the state of things with its versions; then, each folded under its title and how many
+/// it holds, where the facts no longer match an earlier judgment and what it could not settle, as blocks; the policy's
+/// check against the constitution, its counts by status in its title, the articles broken and at risk first; and the
+/// check of whether what runs fits, its verdict and why, and each place to set straight with its steps and the matter
+/// it became, which opens in the queue or the log.
+export function UnderstandingView({ u, onRound, onMatter }: {
+  u: Understanding;
+  onRound: OpenRound;
+  onMatter: (id: number) => void;
+}) {
+  if (u.state === null && u.against === null && u.fit === null) return <p className="muted">{t('understanding_none')}</p>;
   const state = u.state !== null && isObj(u.state.value) ? u.state.value : null;
   const against = u.against !== null && isObj(u.against.value) ? u.against.value : null;
   const rows = againstInOrder(against?.against ?? null);
   const mismatches = objs(state?.mismatches);
   const unclear = objs(state?.unclear);
-  const notes = objs(u.notes);
+  const fromState = u.state !== null ? <From said={u.state} onRound={onRound} /> : null;
   const count = (status: string) => rows.filter((r) => str(r.status) === status).length;
   const counts = (
     [
@@ -504,18 +560,13 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
   )
     .filter(([s]) => count(s) > 0)
     .map(([s, key]) => t(key, { n: count(s) }));
+  const fit = u.fit !== null && isObj(u.fit.value) && isObj(u.fit.value.fit) ? u.fit.value.fit : null;
+  const fixes = objs(fit?.fixes);
+  const verdict = fit !== null ? words(str(fit.verdict)) : '';
   return (
     <>
       {u.versions.length > 0 ? <StateVersions u={u} onRound={onRound} /> : null}
-      <Section title={t('understanding_notes')} n={notes.length}>
-        {notes.map((n, i) => (
-          <div key={i} className="arch-block">
-            {n.item !== null && n.item !== undefined ? <strong>#{str(n.item)} </strong> : null}
-            <MarkdownInline text={str(n.text)} />
-          </div>
-        ))}
-      </Section>
-      <Section title={t('understanding_mismatches')} n={mismatches.length}>
+      <Section title={t('understanding_mismatches')} n={mismatches.length} from={fromState}>
         {mismatches.map((m, i) => (
           <div key={i} className="arch-block">
             <div className="arch-block-h">
@@ -528,7 +579,7 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
           </div>
         ))}
       </Section>
-      <Section title={t('understanding_unclear')} n={unclear.length}>
+      <Section title={t('understanding_unclear')} n={unclear.length} from={fromState}>
         {unclear.map((x, i) => (
           <div key={i} className="arch-block">
             <div className="arch-block-h">
@@ -541,8 +592,10 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
         ))}
       </Section>
       {u.against !== null ? (
-        <Section title={[t('understanding_against'), ...counts].join(' · ')}>
-          <From said={u.against} onRound={onRound} />
+        <Section
+          title={[t('understanding_against'), ...counts].join(' · ')}
+          from={<From said={u.against} onRound={onRound} />}
+        >
           {rows.map((r, i) => (
             <div key={i} className="arch-block">
               <div className="arch-block-h">
@@ -556,6 +609,17 @@ export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: O
               ) : null}
               <Markdown text={str(r.grounds)} />
             </div>
+          ))}
+        </Section>
+      ) : null}
+      {u.fit !== null && fit !== null ? (
+        <Section
+          title={fixes.length > 0 ? t('understanding_fit_places', { verdict, n: fixes.length }) : t('understanding_fit', { verdict })}
+          from={<From said={u.fit} onRound={onRound} />}
+        >
+          {str(fit.why) !== '' ? <Markdown text={str(fit.why)} /> : null}
+          {fixes.map((fix, i) => (
+            <FitPlace key={i} fix={fix} matter={u.fit_matters[i]} onMatter={onMatter} />
           ))}
         </Section>
       ) : null}

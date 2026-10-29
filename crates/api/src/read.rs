@@ -1971,8 +1971,9 @@ fn holds(conn: &Connection, project: &str) -> Result<Vec<DispatchHold>> {
 /// The item changes a project's architect's batches made or dropped, newest first.
 fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
     let mut st = conn.prepare(
-        "SELECT c.id, c.work, c.round, c.matter, c.change, c.state, c.outcome
+        "SELECT c.id, c.work, c.round, c.matter, c.change, c.state, c.outcome, coalesce(r.cell, '')
          FROM architect_item_changes c JOIN works w ON w.id = c.work
+         LEFT JOIN rounds r ON r.work = c.work AND r.n = c.round
          WHERE w.project = ?1 AND c.state IN ('made', 'dropped') ORDER BY c.id DESC LIMIT 500",
     )?;
     let rows = st.query_map([project], |r| {
@@ -1984,6 +1985,7 @@ fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
             change: json(r.get(4)?).unwrap_or(Value::Null),
             state: r.get(5)?,
             outcome: json(r.get(6)?),
+            cell: r.get(7)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -2124,13 +2126,14 @@ fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
 fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyInForce>> {
     Ok(conn
         .query_row(
-            "SELECT p.work, p.round, r.ended_at, p.policy FROM policy_current p
+            "SELECT p.work, p.round, r.ended_at, p.policy, coalesce(r.cell, '') FROM policy_current p
              JOIN rounds r ON r.work = p.work AND r.n = p.round WHERE p.project = ?1",
             [project],
             |r| {
                 Ok(PolicyInForce {
                     work: r.get(0)?,
                     round: r.get(1)?,
+                    cell: r.get(4)?,
                     at: r.get(2)?,
                     policy: json(r.get(3)?).unwrap_or(Value::Null),
                 })
@@ -2162,6 +2165,13 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
             },
         )
         .optional()?;
+    // The cell of each round of the wake, which each part of the policy being set names.
+    let cells: HashMap<i64, String> = {
+        let mut st = conn.prepare("SELECT n, coalesce(cell, '') FROM rounds WHERE work = ?1")?;
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let cell = |n: i64| cells.get(&n).cloned().unwrap_or_default();
     let draft = conn
         .query_row(
             "SELECT round, policy, probes, readings FROM policy_trials WHERE work = ?1",
@@ -2171,14 +2181,20 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
                     .and_then(|v| v.as_array().cloned())
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|x| Reading {
-                        round: x["round"].as_i64().unwrap_or_default(),
-                        reading: x["reading"].clone(),
-                        verdict: x["verdict"].clone(),
+                    .map(|x| {
+                        let round = x["round"].as_i64().unwrap_or_default();
+                        Reading {
+                            round,
+                            cell: cell(round),
+                            reading: x["reading"].clone(),
+                            verdict: x["verdict"].clone(),
+                        }
                     })
                     .collect();
+                let round: i64 = r.get(0)?;
                 Ok(Draft {
-                    round: r.get(0)?,
+                    round,
+                    cell: cell(round),
                     policy: json(r.get(1)?).unwrap_or(Value::Null),
                     probes: json(r.get(2)?).unwrap_or(Value::Null),
                     readings,
@@ -2194,31 +2210,8 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
 fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
     let state = conn
         .query_row(
-            "SELECT a.work, a.round, r.cell, r.ended_at, r.output, a.learned, a.notes FROM architect_state a
+            "SELECT a.work, a.round, r.cell, r.ended_at, r.output FROM architect_state a
              JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.project = ?1",
-            [project],
-            |r| {
-                let said = Said {
-                    work: r.get(0)?,
-                    round: r.get(1)?,
-                    cell: r.get(2)?,
-                    at: r.get(3)?,
-                    value: returned(r.get(4)?, None),
-                };
-                let list = |v: Option<String>| json(v).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-                Ok((said, list(r.get(5)?), list(r.get(6)?)))
-            },
-        )
-        .optional()?;
-    let against = conn
-        .query_row(
-            &format!(
-                "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-                 ORDER BY r.work DESC, r.n DESC LIMIT 1",
-                db::cells_sql("architect", &["policy_right"])
-            ),
             [project],
             |r| {
                 Ok(Said {
@@ -2231,32 +2224,51 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
             },
         )
         .optional()?;
-    let (state, learned, notes) = match state {
-        Some((s, l, n)) => (Some(s), l, n),
-        None => (None, Vec::new(), Vec::new()),
+    // The latest round of a cell of the stage that understands the project that answered.
+    let latest = |cell: &str| -> Result<Option<Said>> {
+        Ok(conn
+            .query_row(
+                &format!(
+                    "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
+                     WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+                       AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+                     ORDER BY r.work DESC, r.n DESC LIMIT 1",
+                    db::cells_sql("architect", &[cell])
+                ),
+                [project],
+                |r| {
+                    Ok(Said {
+                        work: r.get(0)?,
+                        round: r.get(1)?,
+                        cell: r.get(2)?,
+                        at: r.get(3)?,
+                        value: returned(r.get(4)?, None),
+                    })
+                },
+            )
+            .optional()?)
     };
-    // Every version, read from the round records alone: each understanding, with what the wrap-ups after it, before
-    // the next, learned; a round that asked for tools or paused gave none.
-    let (wrap_ups, understandings) = (
-        db::cells_sql("architect", &["wrap_up"]),
-        db::cells_sql("architect", &["state"]),
-    );
+    let against = latest("policy_right")?;
+    let fit = latest("fit")?;
+    // Each place to set straight of the check of what runs is a matter its round queued, in the same order.
+    let fit_matters: Vec<i64> = match &fit {
+        Some(f) => {
+            let mut st = conn.prepare(
+                "SELECT id FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = 'set_straight' ORDER BY id",
+            )?;
+            st.query_map([f.work, f.round], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        }
+        None => Vec::new(),
+    };
+    // Every version, read from the round records alone; a round that asked for tools or paused gave none.
     let mut st = conn.prepare(&format!(
-        "SELECT r.work, r.n, r.cell, r.ended_at, json_extract(r.output, '$.outcome'),
-                (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y
-                 ON y.id = x.work
-                 WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN {wrap_ups} AND x.transition IS NOT NULL
-                   AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-                   AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))
-                   AND NOT EXISTS (SELECT 1 FROM rounds z JOIN works v ON v.id = z.work
-                     WHERE v.project = w.project AND z.cell IN {understandings} AND z.transition IS NOT NULL
-                       AND z.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-                       AND (z.work > r.work OR (z.work = r.work AND z.n > r.n))
-                       AND (z.work < x.work OR (z.work = x.work AND z.n < x.n))))
+        "SELECT r.work, r.n, r.cell, r.ended_at, json_extract(r.output, '$.outcome')
          FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {understandings} AND r.transition IS NOT NULL
+         WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
            AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
          ORDER BY r.work DESC, r.n DESC",
+        db::cells_sql("architect", &["state"])
     ))?;
     let versions = st
         .query_map([project], |r| {
@@ -2266,15 +2278,14 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
                 cell: r.get(2)?,
                 at: r.get(3)?,
                 state: json(r.get(4)?).unwrap_or(Value::Null),
-                learned: json(r.get(5)?).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Understanding {
         state,
-        learned,
-        notes,
         against,
+        fit,
+        fit_matters,
         versions,
     })
 }
@@ -3230,12 +3241,17 @@ mod tests {
         let u = &a.understanding;
         assert_eq!(u.state.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
         assert_eq!(u.state.as_ref().unwrap().value["changed"], "c");
-        assert_eq!(u.learned, [json!("L")]);
-        assert_eq!(u.notes, [json!({ "item": null, "text": "N" })]);
         assert_eq!(u.against.as_ref().map(|x| (x.work, x.round)), Some((3, 3)));
         assert_eq!(u.against.as_ref().unwrap().value["against"][0]["status"], "broken");
+        // The check of what runs, by its cell and round; it found everything fits, so it queued no place to set
+        // straight.
+        assert_eq!(
+            u.fit.as_ref().map(|x| (x.work, x.round, x.cell.as_str())),
+            Some((2, 5, "fit"))
+        );
+        assert_eq!(u.fit.as_ref().unwrap().value["fit"]["verdict"], "fits");
+        assert!(u.fit_matters.is_empty());
         assert_eq!(u.versions.len(), 1);
-        assert_eq!(u.versions[0].learned, [json!("L")]);
 
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);
