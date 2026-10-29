@@ -12,7 +12,17 @@
 // what more there is to say. Both write what the command line writes, and the engine goes on at once.
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
-import { Button, ButtonGroup, Flash, Label, Textarea, type FlashProps, type LabelColorOptions } from '@primer/react';
+import {
+  Button,
+  ButtonGroup,
+  Checkbox,
+  Flash,
+  FormControl,
+  Label,
+  Textarea,
+  type FlashProps,
+  type LabelColorOptions,
+} from '@primer/react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
@@ -511,28 +521,43 @@ export function KindChip({ k }: { k: AskKind }) {
   );
 }
 
-/// The owner's answer to an ask that waits: the option clicked in its choice, when one is, and words.
+/// The owner's answer to an ask that waits: the option clicked in its choice, when one is, and words. An ask that holds
+/// a work's question may instead be handed to the project's architect, the words the decision it carries out.
 export function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string; options: boolean }) {
   const [text, setText] = useState('');
+  const [back, setBack] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const handsBack = isObj(a.body) && a.body.to === 'owner';
   const answer =
     picked !== '' ? `${t('answer_chosen', { option: picked })}${text.trim() !== '' ? ` ${text.trim()}` : ''}` : text.trim();
   const send = () => {
     setBusy(true);
     setError(null);
-    postJson(`/api/v1/asks/${a.id}/answer`, { text: answer }).then(decided, (e: unknown) => {
+    const body = handsBack && back ? { text: answer, to: 'architect' } : { text: answer };
+    postJson(`/api/v1/asks/${a.id}/answer`, body).then(decided, (e: unknown) => {
       setBusy(false);
       setError(e instanceof Error ? e.message : String(e));
     });
   };
+  const pick = options ? (
+    <p className="muted pick-hint">{picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}</p>
+  ) : null;
+  const toArchitect = handsBack ? (
+    <FormControl>
+      <Checkbox checked={back} onChange={(e) => setBack(e.target.checked)} />
+      <FormControl.Label>{t('answer_to_architect')}</FormControl.Label>
+      <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
+    </FormControl>
+  ) : null;
   return (
     <SendForm
       above={
-        options ? (
-          <p className="muted pick-hint">
-            {picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}
-          </p>
+        pick !== null || toArchitect !== null ? (
+          <>
+            {pick}
+            {toArchitect}
+          </>
         ) : null
       }
       words={{ text, set: setText, placeholder: t(options ? 'answer_more_hint' : 'answer_text_hint') }}

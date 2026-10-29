@@ -21,7 +21,9 @@ export function waitsWords(w: Waits): string {
     case 'ruling':
       return t('waits_ruling', { id: w.design_card });
     case 'architect':
-      return t('waits_architect', { id: w.matter });
+      return w.project === undefined
+        ? t('waits_architect', { id: w.matter })
+        : t('waits_architect_of', { id: w.matter, project: w.project });
     case 'items':
       return t('waits_items', { items: w.items.map((i) => `#${i}`).join(', ') });
     default:

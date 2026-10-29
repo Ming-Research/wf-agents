@@ -300,6 +300,7 @@ const messages = {
   waits_answer: 'waiting for your answer to ask {id}',
   waits_ruling: 'waiting for your ruling on design card {id}',
   waits_architect: "waiting for the architect's reply to matter {id}",
+  waits_architect_of: "waiting for the reply of {project}'s architect to matter {id}",
   waits_items: 'waiting for items {items} to be merged',
   waits_row: 'waiting at cell {cell} ({row}); its next round says for what',
   work_start: 'Start',
@@ -678,6 +679,9 @@ const messages = {
   answer_chosen: 'Chosen option: {option}.',
   answer_more_hint: 'Anything more to say (optional)',
   answer_text_hint: 'Your answer',
+  answer_to_architect: "Hand it to the architect to carry out what you decide",
+  answer_to_architect_hint:
+    "The question goes back to the project's architect, with your words as the decision it carries out, and the architect answers the work.",
   answer_send: 'Answer',
   ask_for_architect: "Asked of the architect: your answer is the architect's reply.",
   ask_tried_label: 'What was tried',

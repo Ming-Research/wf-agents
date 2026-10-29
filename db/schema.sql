@@ -1278,7 +1278,8 @@ CREATE VIEW conversation_entries AS
   -- what the entry is (message, notice, ask, answer, interjection, words, question, reply, advice_ask, advice, card,
   -- ruling or between) and id its row in the table it comes from, for advice_ask and advice the round. sender and
   -- recipient are a line, the owner, the engine or wf-agents; for between, the projects. waiting: it waits for the owner
-  -- (an ask not answered, a design card not ruled, a fault not read). pending: the owner's words not taken up yet.
+  -- (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter, not
+  -- answered; a design card not ruled; a fault not read). pending: the owner's words not taken up yet.
   -- agents: it passes between agents.
   SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END AS conversation,
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
@@ -1306,7 +1307,9 @@ CREATE VIEW conversation_entries AS
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
              (SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
     coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.work, a.round, a.id, NULL,
-    NULL, a.answer IS NULL, 0, 0, NULL
+    NULL,
+    a.answer IS NULL AND (w.graph = 'architect' OR EXISTS (
+      SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, NULL
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
   UNION ALL

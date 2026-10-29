@@ -267,10 +267,13 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 }
 
 /// What a work waits for, as the engine judges it, read from the database alone, never from the kind of cell it is
-/// at: the owner's answer to the ask it put, at a cell that asks, or else the architect's reply to the matter it
-/// queued; at a row that waits, the items its item depends on that are not merged, then the owner's ruling on its
-/// design card waiting for one, else the row. A paused work is said to wait too, so that the owner sees both. Beside
-/// it, the ask whose answer came at the cell that asked, which the work's next step takes in.
+/// at: first from its open blocker, by who holds it: the owner's answer to the ask that stands for it, the reply of
+/// the architect that holds it (of the work's project or a related one, which is named) to its matter, the items it
+/// waits for, or the owner's ruling on its design card. A work of a flow version before blockers is read as then: the
+/// owner's answer to the ask it put, at a cell that asks, or else the architect's reply to the matter it queued; at a
+/// row that waits, the items its item depends on that are not merged, then the owner's ruling on its design card
+/// waiting for one, else the row. A paused work is said to wait too, so that the owner sees both. Beside it, the ask
+/// whose answer came, which the work's next step takes in.
 fn waits(
     conn: &Connection,
     w: &WorkRow,
@@ -279,6 +282,9 @@ fn waits(
 ) -> Result<(Option<Waits>, Option<i64>)> {
     if w.ended.is_some() {
         return Ok((None, None));
+    }
+    if let Some(held) = held_by(conn, w.id)? {
+        return Ok(held);
     }
     let cell = g.and_then(|g| g.cell(&w.at));
     if cell.is_some_and(is_ask) {
@@ -298,7 +304,7 @@ fn waits(
             Some((ask, false)) => (Some(Waits::Answer { ask }), None),
             Some((ask, true)) => (None, Some(ask)),
             None => (
-                asked_architect(conn, r)?.map(|matter| Waits::Architect { matter }),
+                asked_architect(conn, r)?.map(|matter| Waits::Architect { matter, project: None }),
                 None,
             ),
         });
@@ -328,6 +334,68 @@ fn waits(
         },
     };
     Ok((Some(waits), None))
+}
+
+/// What a work waits for by its open blocker, by who holds it; none when it has none, or one the owner holds by no ask
+/// and for no ruling, nor the advisor, whose round runs.
+fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option<i64>)>> {
+    type Open = (String, String, Option<String>, Option<String>, Option<i64>, Option<i64>);
+    let open: Option<Open> = conn
+        .query_row(
+            "SELECT kind, holder, project, items, matter, ask FROM blockers WHERE work = ?1 AND ended IS NULL",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .optional()?;
+    let Some((kind, holder, project, items, matter, ask)) = open else {
+        return Ok(None);
+    };
+    Ok(match (holder.as_str(), ask, matter) {
+        ("owner", Some(ask), _) => {
+            let answered: bool =
+                conn.query_row("SELECT answer IS NOT NULL FROM owner_asks WHERE id = ?1", [ask], |r| {
+                    r.get(0)
+                })?;
+            Some(if answered {
+                (None, Some(ask))
+            } else {
+                (Some(Waits::Answer { ask }), None)
+            })
+        }
+        ("owner", None, _) if kind == "ruling" => {
+            let card: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM design_cards WHERE work = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1",
+                    [work],
+                    |x| x.get(0),
+                )
+                .optional()?;
+            card.map(|design_card| (Some(Waits::Ruling { design_card }), None))
+        }
+        ("architect", _, Some(m)) => {
+            let replied: bool = conn.query_row(
+                "SELECT reply IS NOT NULL FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| r.get(0),
+            )?;
+            Some(if replied {
+                (None, None)
+            } else {
+                (Some(Waits::Architect { matter: m, project }), None)
+            })
+        }
+        ("items", _, _) => {
+            let waited: Vec<i64> = serde_json::from_str::<Value>(items.as_deref().unwrap_or("[]"))
+                .ok()
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|x| x["item"].as_i64())
+                .collect();
+            Some((Some(Waits::Items { items: waited }), None))
+        }
+        _ => None,
+    })
 }
 
 /// The matter a round queued for the architect, while the architect has not replied to it.
@@ -2676,7 +2744,13 @@ mod tests {
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!(
             (ws[1].state, &ws[1].waits),
-            (WorkState::Asking, &Some(Waits::Architect { matter: 1 }))
+            (
+                WorkState::Asking,
+                &Some(Waits::Architect {
+                    matter: 1,
+                    project: None
+                })
+            )
         );
         s.db.write(Actor::Architect, |tx| {
             tx.execute(
@@ -2688,6 +2762,64 @@ mod tests {
         .unwrap();
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!((ws[1].state, &ws[1].waits), (WorkState::Ready, &None));
+    }
+
+    // What a work waits for is read from its open blocker: a question handed to a related project's architect waits for
+    // that architect's reply to the matter in its queue, which names the project; a wait for items names them.
+    #[test]
+    fn a_work_s_wait_names_the_holder_of_its_blocker() {
+        let mut s = setup("blocker-holder");
+        let g = s.compiled.graph("engineer").unwrap();
+        let asking = g
+            .cells
+            .iter()
+            .find(|c| c.step.as_deref() == Some("ask_architect"))
+            .unwrap()
+            .id
+            .clone();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (2, 1, 'engineer', ?1)",
+                [&asking],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 1, ?1, '{}', 'c', 60)",
+                [&asking],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
+                 VALUES ('q', 'engineer_question', 'Work 2 of p asks', '{}', 2, 2, 1, 60)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO blockers (work, cell, round, kind, what, holder, project, matter, at, since, moves)
+                 VALUES (2, 'R1', NULL, 'question', 'Work 2 asks', 'architect', 'q', 1, 50, 60,
+                         '[{\"from\": {\"holder\": \"architect\", \"project\": \"p\"}}]')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let cache = Flows::default();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(
+            ws[1].waits,
+            Some(Waits::Architect {
+                matter: 1,
+                project: Some("q".into())
+            })
+        );
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE blockers SET holder = 'items', project = NULL, matter = NULL,
+                   items = '[{\"item\": 1, \"project\": \"p\"}]' WHERE work = 2",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(ws[1].waits, Some(Waits::Items { items: vec![1] }));
     }
 
     // A round recorded with its message gives each conditional input, given or referred to, and the call; a step's inputs,
@@ -3084,6 +3216,12 @@ mod tests {
                 "study": { "intent": "i" }, "choices": [["satisfied", "s"]] })
             .to_string();
             run("INSERT INTO owner_asks (work, round, body) VALUES (3, 2, ?1)", &[&study])?;
+            // The setting stopped for the owner to read its study: its blocker, which the ask stands for.
+            run(
+                "INSERT INTO blockers (work, cell, round, kind, what, holder, ask, at, since)
+                 VALUES (3, 'P2', 1, 'owner_ask', 'The study waits for the owner', 'owner', 1, 400, 400)",
+                &[],
+            )?;
             let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "A3",
                 "asked": [], "holds": [3] })
             .to_string();

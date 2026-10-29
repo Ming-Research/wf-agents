@@ -154,7 +154,7 @@ export type PausedBy = "owner" | "engine" | "architect";
 /**
  * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
  */
-export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
 
 /**
  * A work as a list shows it: what it works on, where it stands and what it has cost.

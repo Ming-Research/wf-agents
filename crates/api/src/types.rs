@@ -183,8 +183,14 @@ pub enum Waits {
     Answer { ask: i64 },
     /// The owner's ruling on a design card.
     Ruling { design_card: i64 },
-    /// The architect's reply to the matter it queued at the cell that asks the architect.
-    Architect { matter: i64 },
+    /// The reply of the architect that holds the work's question, to the matter that stands for it in that
+    /// architect's queue: the project's own architect, or a related project's (`project`) that it was handed to.
+    Architect {
+        matter: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        project: Option<String>,
+    },
     /// The items its item depends on, until each is merged.
     Items { items: Vec<i64> },
     /// What the row it took waits for, when it is none of these: the cell and the row.
