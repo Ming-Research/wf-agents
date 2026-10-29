@@ -197,7 +197,7 @@ describe("the architect's page", () => {
     expect(ids(observationsShown(all, 'perf', '', true))).toEqual([2, 1]);
     expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
     expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
-    expect(ids(observationsShown(all, 'ui', 'cell HANDLE.WAYS', false))).toEqual([3, 2]);
+    expect(ids(observationsShown(all, 'ui', 'CELL h3', false))).toEqual([3, 2]);
   });
 
   it('sends a ruling with words unless the owner agrees', () => {
