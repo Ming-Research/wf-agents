@@ -9,7 +9,7 @@
 
 import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
-import type { WorkSummary } from '../api';
+import type { Status, WorkSummary } from '../api';
 import { type Course, heldName, WorkBadge, Loaded } from '../components';
 import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
@@ -133,12 +133,19 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   );
 }
 
+/// The project a work's item is of, said after its title only while there is more than one project, as the engine's
+/// configuration has them: with one, it says nothing.
+function projectOf(w: WorkSummary, status: Status | null): string | null {
+  return status !== null && Object.keys(status.repos).length > 1 ? w.project : null;
+}
+
 /// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
 /// its controls act without opening it.
 function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
   const status = useStatus();
   const a = useActions(w, status, true);
-  const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : w.graph;
+  const project = projectOf(w, status);
+  const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : w.graph;
   const at = `${w.at} ${w.at_title ?? ''}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
@@ -148,7 +155,7 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
         {w.item !== null ? (
           <>
             <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} />
-            {w.project ? <span className="muted"> · {w.project}</span> : null}
+            {project ? <span className="muted"> · {project}</span> : null}
           </>
         ) : (
           w.graph
@@ -384,7 +391,8 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
   const stepped = useOpenStepped(status, w.id, (work, round) => navigate(workHref(work, { round })));
   const now = useNow(status !== null && status.running === w.id);
   const repo = w.project !== null ? status?.repos[w.project] : undefined;
-  const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${w.project ? ` · ${w.project}` : ''}` : `#${w.id}`;
+  const project = projectOf(w, status);
+  const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : `#${w.id}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   const at = `${w.at} ${w.at_title ?? ''}${stage ? ` · ${stage}` : ''}`;
   return (
@@ -397,7 +405,7 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
         {w.item !== null ? (
           <>
             <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />
-            {w.project ? <span className="muted"> · {w.project}</span> : null}
+            {project ? <span className="muted"> · {project}</span> : null}
           </>
         ) : (
           w.graph
