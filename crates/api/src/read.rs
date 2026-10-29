@@ -1,7 +1,7 @@
 //! The reads that fill the interface's types from the database. Where a work stands is derived here as the engine
 //! derives it (`Engine::done` and `Engine::waiting`): from the work's row, its rounds and its flow version.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::Read as _;
 use std::path::Path;
@@ -333,6 +333,7 @@ fn summary(
     open: (i64, i64),
     (waits, answered): (Option<Waits>, Option<i64>),
     pinged: f64,
+    tools: &HashSet<(i64, i64)>,
 ) -> WorkSummary {
     let cell = g.and_then(|g| g.cell(&w.at));
     // A cell at no stage asks, answers or runs tools for another: the work is at the stage of the cell it stopped at,
@@ -386,6 +387,7 @@ fn summary(
                 n: r.n,
                 cell: r.cell.clone(),
                 started_at: r.started_at,
+                tool: tools.contains(&(r.work, r.n)),
             }),
         cost_usd: rounds.iter().filter_map(|r| r.cost).sum::<f64>() + pinged,
         open_asks: open.0,
@@ -438,6 +440,13 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?
     };
+    // The rounds a tool runs in now: started, and not ended.
+    let tools: HashSet<(i64, i64)> = {
+        let mut st = conn
+            .prepare("SELECT DISTINCT work, round FROM tool_runs WHERE started_at IS NOT NULL AND ended_at IS NULL")?;
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
     let mut graphs: HashMap<(i64, String), Option<CompiledGraph>> = HashMap::new();
     let mut out = Vec::new();
     for (w, rounds) in work_rows(conn, filter, args)? {
@@ -455,7 +464,7 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
             waits(conn, &w, &rounds, g.as_ref())?
         };
         let pinged = pinged.get(&w.id).copied().unwrap_or(0.0);
-        let s = summary(&w, &rounds, g.as_ref(), open, waits, pinged);
+        let s = summary(&w, &rounds, g.as_ref(), open, waits, pinged, &tools);
         out.push((w, s));
     }
     Ok(out)
@@ -2339,6 +2348,32 @@ mod tests {
         })
         .unwrap();
         Setup { db, compiled, data }
+    }
+
+    // The round that runs says whether a tool of it is under way: started and not ended; one only queued, or ended, is
+    // not.
+    #[test]
+    fn the_running_round_says_whether_its_tool_is_under_way() {
+        let mut s = setup("tool");
+        let cache = Flows::default();
+        let tool = |s: &Setup| works(s.db.conn(), &cache).unwrap()[0].running.as_ref().map(|r| (r.n, r.tool));
+        assert_eq!(tool(&s), Some((3, false)));
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at)
+                 VALUES (1, 3, 'full_ci', '{}', 1, 51, 52)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(tool(&s), Some((3, true)));
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE tool_runs SET result = '{}', ended_at = 60 WHERE round = 3", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(tool(&s), Some((3, false)));
     }
 
     #[test]

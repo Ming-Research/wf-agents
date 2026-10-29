@@ -15,6 +15,8 @@ export type ViewerHandle = {
   /// Brings a rectangle of the drawing to the middle of what can be seen. With `keep`, it keeps the zoom and moves
   /// only when the rectangle is not wholly in sight; without, it zooms in to a zoom one can read at.
   focus: (r: Rect, keep: boolean) => void;
+  /// Brings a rectangle of the drawing to the middle of what can be seen at the zoom it has now.
+  centre: (r: Rect) => void;
   toggle: () => void;
 };
 
@@ -127,6 +129,12 @@ export function Viewer(props: {
         const px = r.x + r.width / 2;
         const py = r.y + r.height / 2;
         moveTo({ s, x: cx - px * s, y: cy - py * s });
+      },
+      centre: (r) => {
+        settle();
+        const v = view.current;
+        const [cx, cy] = centre();
+        moveTo({ s: v.s, x: cx - (r.x + r.width / 2) * v.s, y: cy - (r.y + r.height / 2) * v.s });
       },
       toggle: () => {
         settle();

@@ -184,6 +184,8 @@ pub struct RunningRound {
     pub n: i64,
     pub cell: Option<String>,
     pub started_at: i64,
+    /// Whether a tool it runs is under way: started, as tool_runs records it, and not ended.
+    pub tool: bool,
 }
 
 /// Who paused a work.

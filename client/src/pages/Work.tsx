@@ -546,7 +546,8 @@ export function workMarks(
 ) {
   const model = chart(g, v);
   return {
-    overlays: overlays(rounds, w.at, { running: c.running !== null, held: held(c, w) }),
+    // A tool cell runs while its tool is under way, as well as while the engine takes its step.
+    overlays: overlays(rounds, w.at, { running: c.running !== null || w.running?.tool === true, held: held(c, w) }),
     taken: taken(model, g, rounds),
     lit: round !== null ? roundArrows(model, g, rounds, round) : undefined,
     added: new Set<string>(),

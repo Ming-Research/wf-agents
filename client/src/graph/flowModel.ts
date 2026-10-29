@@ -279,7 +279,7 @@ export type Overlay = {
 export type Now = { running: boolean; held: string | null };
 
 /// What the work's rounds did at each cell; `at` is the cell the work is at, where it goes on as `now` says. A round
-/// still open is running only while the engine runs it.
+/// still open is running only while the engine runs it, or a tool of it is under way.
 export function overlays(rounds: RoundSummary[], at: string | null, now: Now): Map<string, Overlay> {
   const out = new Map<string, Overlay>();
   const get = (cell: string) => {

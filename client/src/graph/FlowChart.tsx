@@ -3,7 +3,8 @@
 // corner that opens what every mark means. Several graphs are drawn side by side on the one chart, each under its
 // name, and move and zoom together. On a work's page each cell carries what the work did there and the arrows the work
 // took stand out, and the rows' numbers, which serve the flow's author, are left out; when two flows are compared, the
-// cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it.
+// cells added and changed are marked. A chart that opens on a cell opens at full size, centred on it; when a round
+// starts running at another cell than the one it last centred on, it centres on that cell at the zoom it has.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
@@ -361,6 +362,28 @@ export function FlowChart(props: FlowChartProps) {
         : null;
     viewer.current.start(READABLE, around);
   }, [current, placed, start]);
+  // The cell a round runs at now, in its graph; the chart centres on it when it is another than the one it centred on
+  // last, the one it opened on included.
+  const centred = useRef<string | null>(start);
+  const running = useMemo(() => {
+    for (const [i, m] of marks.entries()) {
+      for (const [cell, o] of m.overlays ?? []) {
+        if (o.current && o.running) return { graph: graphs[i]?.g.name, cell };
+      }
+    }
+    return null;
+  }, [marks, graphs]);
+  const runningKey = running !== null ? `${running.graph ?? ''}\u0000${running.cell}` : null;
+  useEffect(() => {
+    if (running === null || current === null || placed === null || !viewer.current) return;
+    if (centred.current === running.cell) return;
+    const r = rectRef.current(`c:${running.cell}`, running.graph);
+    if (!r) return;
+    centred.current = running.cell;
+    viewer.current.centre(r);
+    // Only when the cell that runs changes, or the chart is laid out again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningKey, current, placed]);
   const nodes = useMemo(() => models.map((m) => new Map(m.nodes.map((n) => [n.id, n]))), [models]);
   const pick = (target: Element) => {
     const i = Number(target.closest('[data-sheet]')?.getAttribute('data-sheet') ?? -1);

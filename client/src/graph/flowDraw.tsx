@@ -255,8 +255,6 @@ export function Halo({ box, round, small = false }: { box: Box; round: boolean; 
       <rect className="fc-halo-arc fc-halo-a" pathLength={100} {...at} />
       <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at} />
       <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at} />
-      <rect className="fc-halo-arc fc-halo-b" pathLength={100} {...at(arcs)} />
-      <rect className="fc-halo-arc fc-halo-c" pathLength={100} {...at(arcs)} />
     </g>
   );
 }

@@ -179,7 +179,11 @@ export type RunningRound = {
 /**
  * Its number in the work.
  */
-n: number, cell: string | null, started_at: number, };
+n: number, cell: string | null, started_at: number, 
+/**
+ * Whether a tool it runs is under way: started, as tool_runs records it, and not ended.
+ */
+tool: boolean, };
 
 /**
  * Who paused a work.
