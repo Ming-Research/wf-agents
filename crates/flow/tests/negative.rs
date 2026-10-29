@@ -304,19 +304,17 @@ case!(
     }
 );
 case!(a_cell_at_two_stages, "a cell at two stages", |v| {
-    graph(v)["stages"]["list"][2]["nodes"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!("D1"));
+    let stages = graph(v)["stages"]["list"].as_array_mut().unwrap();
+    let research = stages.iter_mut().find(|s| s["name"] == "research").unwrap();
+    research["nodes"].as_array_mut().unwrap().push(json!("D1"));
 });
 case!(
     a_cell_at_no_stage_that_goes_on_by_itself,
     "a cell at no stage that goes on by itself",
     |v| {
-        graph(v)["stages"]["list"][4]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|x| x != "I1");
+        let stages = graph(v)["stages"]["list"].as_array_mut().unwrap();
+        let implement = stages.iter_mut().find(|s| s["name"] == "implement").unwrap();
+        implement["nodes"].as_array_mut().unwrap().retain(|x| x != "I1");
     }
 );
 case!(
