@@ -1,11 +1,14 @@
-// The items: on the left, each project's items as a tree of what depends on what, with chips that show or hide the
-// items in each state; on the right, the item picked, in place, or while none is, the first the tree shows. The split
-// between them is dragged, and kept in this browser. A row says the item's state by the colour of its edge, its number and title, what it needs from the owner,
-// the items it waits for before it starts, the kind of the dependency by which the item above depends on it, its
-// work's stage in words where the row has room, how far through the stages on hovering, how many of what it depends
-// on are done, and its place in the queue.
+// The items: on the left, each project's items as a tree of what depends on what, with the buttons that show or hide
+// the items in each state; on the right, the item picked, in place, or while none is, the first the tree shows. The
+// split between them is Primer's PageLayout with a pane the owner drags, its width kept in this browser. Each project's
+// tree is Primer's TreeView: a row says the item's state by the colour of its edge, its number and title, what it needs
+// from the owner, the items it waits for before it starts, and after them the kind of the dependency by which the item
+// above depends on it, its work's stage in words where the row has room, how far through the stages on hovering, how
+// many of what it depends on are done, and its place in the queue.
 
-import { useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { CheckIcon, LinkIcon } from '@primer/octicons-react';
+import { Button, Heading, Label, PageLayout, TreeView } from '@primer/react';
+import { useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { DependencyKind, Loaded } from '../components';
@@ -16,7 +19,7 @@ import { navigate } from '../route';
 import { t } from '../text';
 import { Item } from './Item';
 
-/// The states shown until their chip says otherwise: what is settled is hidden.
+/// The states shown until their button says otherwise: what is settled is hidden.
 const SHOWN: ItemState[] = ['working', 'queued', 'new', 'stopped'];
 
 /// A value the owner set on this view, kept in this browser where it lets the page keep it.
@@ -41,111 +44,114 @@ function keep(key: string, value: unknown) {
 
 const isStates = (v: unknown): v is ItemState[] =>
   Array.isArray(v) && v.every((s) => typeof s === 'string' && (STATES as string[]).includes(s));
-const isWidth = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 240;
 
 type RowProps = {
   row: TreeRow;
-  depth: number;
+  /// The row's place in its tree, which names it among the rows: an item shown in several places is several rows.
+  path: string;
   data: ItemsData;
   place: Map<number, number>;
   selected: number | null;
-  folded: Set<number>;
-  onFold: (id: number) => void;
+  folded: Set<string>;
+  onFold: (path: string, open: boolean) => void;
 };
 
-function Row({ row, depth, data, place, selected, folded, onFold }: RowProps) {
+function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   const i = row.item;
-  const pad = { paddingLeft: 8 + depth * 18 };
+  const open = () => navigate(`/items/${i.id}`);
   if (!row.full) {
     return (
-      <div
-        className={`tree-row tree-ref item-edge-${i.state}${i.id === selected ? ' selected' : ''}`}
-        style={pad}
-        onClick={() => navigate(`/items/${i.id}`)}
-        title={t('items_ref_title')}
+      <TreeView.Item
+        id={path}
+        className={`tree-row tree-ref item-edge-${i.state}`}
+        current={i.id === selected}
+        onSelect={open}
       >
-        <span className="tree-fold" />
-        <span className="muted">↳ #{i.id}</span> <span className="tree-title muted">{i.title}</span>
-        <span className="tree-facts">
-          <DependencyKind kind={row.kind} />
+        <TreeView.LeadingVisual label={t('items_ref_title')}>
+          <LinkIcon />
+        </TreeView.LeadingVisual>
+        <span className="muted" title={t('items_ref_title')}>
+          #{i.id} {i.title}
         </span>
-      </div>
+        {row.kind !== null ? (
+          <TreeView.TrailingVisual>
+            <span className="tree-facts">
+              <DependencyKind kind={row.kind} />
+            </span>
+          </TreeView.TrailingVisual>
+        ) : null}
+      </TreeView.Item>
     );
   }
   const deps = depsDone(i.id, data.items, data.links);
   const stage = i.state === 'done' || i.state === 'cancelled' ? null : stageAt(i.stage, i.stages);
-  const open = !folded.has(i.id);
-  return (
-    <>
-      <div
-        className={`tree-row item-edge-${i.state}${i.id === selected ? ' selected' : ''}`}
-        style={pad}
-        onClick={() => navigate(`/items/${i.id}`)}
-      >
-        {row.children.length > 0 ? (
-          <button
-            type="button"
-            className="tree-fold"
-            aria-expanded={open}
-            title={t(open ? 'items_fold' : 'items_unfold')}
-            onClick={(e) => {
-              e.stopPropagation();
-              onFold(i.id);
-            }}
-          >
-            {open ? '▾' : '▸'}
-          </button>
-        ) : (
-          <span className="tree-fold" />
-        )}
-        <span className="muted">#{i.id}</span> <span className="tree-title">{i.title}</span>
-        {i.open_design_cards > 0 ? (
-          <span className="chip warn">{t('open_design_cards_chip', { n: i.open_design_cards })}</span>
-        ) : null}
-        {i.open_asks > 0 ? <span className="chip warn">{t('open_asks_chip', { n: i.open_asks })}</span> : null}
-        {i.blocked_by.length > 0 ? (
-          <span className="chip waits" title={t('items_blocked_title')}>
-            {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+  const facts =
+    row.kind !== null || (stage !== null && i.stage !== null) || deps.of > 0 || place.has(i.id) ? (
+      <span className="tree-facts">
+        <DependencyKind kind={row.kind} />
+        {stage !== null && i.stage !== null ? (
+          <span className="muted tree-stage" title={t('items_stage_title', stage)}>
+            {words(i.stage)}
           </span>
         ) : null}
-        <span className="tree-facts">
-          <DependencyKind kind={row.kind} />
-          {stage !== null && i.stage !== null ? (
-            <span className="muted tree-stage" title={t('items_stage_title', stage)}>
-              {words(i.stage)}
-            </span>
-          ) : null}
-          {deps.of > 0 ? (
-            <span className={deps.done === deps.of ? 'good' : 'muted'} title={t('items_deps_title', deps)}>
-              {deps.done}/{deps.of}
-            </span>
-          ) : null}
-          {place.has(i.id) ? (
-            <span className="muted" title={t('items_queue_title')}>
-              {t('items_queue', { n: place.get(i.id) ?? 0 })}
-            </span>
-          ) : null}
-        </span>
-      </div>
-      {open
-        ? row.children.map((c) => (
-            <Row
-              key={`${c.item.id}:${c.full ? 'full' : 'ref'}`}
-              row={c}
-              depth={depth + 1}
-              data={data}
-              place={place}
-              selected={selected}
-              folded={folded}
-              onFold={onFold}
-            />
-          ))
-        : null}
-    </>
+        {deps.of > 0 ? (
+          <span className={deps.done === deps.of ? 'good' : 'muted'} title={t('items_deps_title', deps)}>
+            {deps.done}/{deps.of}
+          </span>
+        ) : null}
+        {place.has(i.id) ? (
+          <span className="muted" title={t('items_queue_title')}>
+            {t('items_queue', { n: place.get(i.id) ?? 0 })}
+          </span>
+        ) : null}
+      </span>
+    ) : null;
+  return (
+    <TreeView.Item
+      id={path}
+      className={`tree-row item-edge-${i.state}`}
+      current={i.id === selected}
+      onSelect={open}
+      expanded={row.children.length > 0 ? !folded.has(path) : null}
+      onExpandedChange={(expanded) => onFold(path, expanded)}
+    >
+      <span className="tree-line">
+        <span className="muted">#{i.id}</span> <span className="tree-title">{i.title}</span>
+        {i.open_design_cards > 0 ? (
+          <Label variant="attention">{t('open_design_cards_chip', { n: i.open_design_cards })}</Label>
+        ) : null}
+        {i.open_asks > 0 ? <Label variant="attention">{t('open_asks_chip', { n: i.open_asks })}</Label> : null}
+        {i.blocked_by.length > 0 ? (
+          <Label variant="attention" title={t('items_blocked_title')}>
+            {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+          </Label>
+        ) : null}
+      </span>
+      {facts !== null ? <TreeView.TrailingVisual>{facts}</TreeView.TrailingVisual> : null}
+      {row.children.length > 0 ? (
+        <TreeView.SubTree>
+          {row.children.map((c) => {
+            const at = `${path}/${c.item.id}${c.full ? '' : 'r'}`;
+            return (
+              <Row
+                key={at}
+                row={c}
+                path={at}
+                data={data}
+                place={place}
+                selected={selected}
+                folded={folded}
+                onFold={onFold}
+              />
+            );
+          })}
+        </TreeView.SubTree>
+      ) : null}
+    </TreeView.Item>
   );
 }
 
-/// One project: its heading, the chips that show or hide each state's items with their counts, and its tree.
+/// One project: its heading, the buttons that show or hide each state's items with their counts, and its tree.
 function Project(props: {
   name: string;
   items: ItemSummary[];
@@ -155,48 +161,61 @@ function Project(props: {
   shown: ItemState[];
   onShown: (s: ItemState) => void;
   selected: number | null;
-  folded: Set<number>;
-  onFold: (id: number) => void;
+  folded: Set<string>;
+  onFold: (path: string, open: boolean) => void;
 }) {
   const visible = props.items.filter((i) => props.shown.includes(i.state));
   const rows = tree(visible, props.links);
+  const heading = `items-project-${props.name}`;
   return (
     <section className="tree-project">
       <div className="tree-head">
-        <span className="works-label">{props.name}</span>
-        <span className="tree-chips">
+        <Heading as="h2" variant="small" id={heading}>
+          {props.name}
+        </Heading>
+        <span className="tree-states">
           {STATES.map((s) => {
             const n = props.items.filter((i) => i.state === s).length;
             if (n === 0) return null;
             const on = props.shown.includes(s);
             return (
-              <button
+              <Button
                 key={s}
-                type="button"
-                className={`state-chip item-${s}${on ? '' : ' state-chip-off'}`}
+                size="small"
+                variant="invisible"
+                className="tree-state"
+                leadingVisual={on ? CheckIcon : undefined}
+                count={n}
                 aria-pressed={on}
                 title={t(on ? 'items_hide' : 'items_show', { state: t(`item_${s}`) })}
                 onClick={() => props.onShown(s)}
               >
-                {t(`item_${s}`)} {n}
-              </button>
+                {t(`item_${s}`)}
+              </Button>
             );
           })}
         </span>
       </div>
       {rows.length === 0 ? <p className="muted tree-none">{t('items_none_shown')}</p> : null}
-      {rows.map((r) => (
-        <Row
-          key={r.item.id}
-          row={r}
-          depth={0}
-          data={props.data}
-          place={props.place}
-          selected={props.selected}
-          folded={props.folded}
-          onFold={props.onFold}
-        />
-      ))}
+      {rows.length > 0 ? (
+        <TreeView aria-labelledby={heading}>
+          {rows.map((r) => {
+            const at = `${props.name}/${r.item.id}`;
+            return (
+              <Row
+                key={at}
+                row={r}
+                path={at}
+                data={props.data}
+                place={props.place}
+                selected={props.selected}
+                folded={props.folded}
+                onFold={props.onFold}
+              />
+            );
+          })}
+        </TreeView>
+      ) : null}
     </section>
   );
 }
@@ -207,7 +226,8 @@ function Tree({ data, selected, shown, onShown }: {
   shown: ItemState[];
   onShown: (s: ItemState) => void;
 }) {
-  const [folded, setFolded] = useState<Set<number>>(() => new Set());
+  // The rows folded, by their place in the tree.
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
   if (data.items.length === 0) return <p className="muted tree-none">{t('no_items')}</p>;
   const projects = [...new Set(data.items.map((i) => i.project))].sort();
   // The queue is one for every project: an item's place in it counts from 1.
@@ -217,11 +237,11 @@ function Tree({ data, selected, shown, onShown }: {
       .sort((a, b) => (a.queued ?? 0) - (b.queued ?? 0))
       .map((i, n) => [i.id, n + 1]),
   );
-  const fold = (id: number) =>
+  const fold = (path: string, open: boolean) =>
     setFolded((f) => {
       const next = new Set(f);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (open) next.delete(path);
+      else next.add(path);
       return next;
     });
   return (
@@ -245,9 +265,6 @@ function Tree({ data, selected, shown, onShown }: {
   );
 }
 
-/// The width of the tree at first.
-const WIDTH = 520;
-
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');
   const [shown, setShown] = useState<ItemState[]>(() => kept('items-states', SHOWN, isStates));
@@ -258,40 +275,28 @@ export function Items({ selected }: { selected: number | null }) {
   };
   // While no item is picked, the first the tree shows is open.
   const open = selected ?? (items.data !== undefined ? firstShown(items.data.items, items.data.links, shown) : null);
-  const [width, setWidth] = useState(() => kept('items-width', WIDTH, isWidth));
-  const [from, setFrom] = useState<{ x: number; w: number } | null>(null);
-  const grip = (e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setFrom({ x: e.clientX, w: width });
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (from === null) return;
-    setWidth(Math.max(240, Math.min(window.innerWidth - 320, from.w + e.clientX - from.x)));
-  };
-  const up = () => {
-    if (from === null) return;
-    setFrom(null);
-    keep('items-width', width);
-  };
   return (
-    <div className="items-screen">
-      <div className="items-tree" style={{ width }}>
-        <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>
-      </div>
-      <div
-        className={`items-grip${from !== null ? ' items-grip-on' : ''}`}
-        role="separator"
-        aria-orientation="vertical"
-        title={t('items_drag')}
-        onPointerDown={grip}
-        onPointerMove={move}
-        onPointerUp={up}
-        onPointerCancel={up}
-      />
-      <div className="items-item">
+    <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none" className="items-screen">
+      {/* The pane stays under the bar, which is as tall as Primer's UnderlineNav, while the item scrolls the page. */}
+      <PageLayout.Pane
+        position="start"
+        resizable
+        widthStorageKey="wf-agents.items-pane"
+        width={{ min: '240px', default: '520px', max: '1200px' }}
+        divider="line"
+        padding="none"
+        sticky
+        offsetHeader={48}
+        className="items-tree"
+        aria-label={t('nav_items')}
+      >
+        <div className="items-trees">
+          <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>
+        </div>
+      </PageLayout.Pane>
+      <PageLayout.Content padding="none" width="full" className="items-item">
         {open !== null ? <Item id={open} /> : null}
-      </div>
-    </div>
+      </PageLayout.Content>
+    </PageLayout>
   );
 }

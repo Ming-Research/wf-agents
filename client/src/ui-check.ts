@@ -15,9 +15,9 @@ export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
   {
     file: 'styles.css',
     why:
-      'The styles of the views not yet converted to the UI spec (the chart, the items tree, the messages, the ' +
-      "system) and of what a cell's tabs and a round's panel hold, which a redesign of their own converts; each part " +
-      'leaves it for a file under styles/ when it is converted.',
+      'The styles of the views not yet converted to the UI spec (the chart, the messages, the system) and of what a ' +
+      "cell's tabs and a round's panel hold, which a redesign of their own converts; each part leaves it for a file " +
+      'under styles/ when it is converted.',
   },
   {
     file: 'graph/flowDraw.tsx',
@@ -43,11 +43,6 @@ export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
     file: 'graph/stores.tsx',
     text: '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
     why: "The font the chart measures a store's notes in, until the chart's conversion reads it from the tokens.",
-  },
-  {
-    file: 'pages/Items.tsx',
-    text: 'paddingLeft: 8 + depth * 18',
-    why: "The items tree's indent of each level, until the items view is converted to Primer's TreeView.",
   },
 ];
 

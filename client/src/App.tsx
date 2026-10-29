@@ -22,7 +22,9 @@ export function App() {
     if (route.page === 'system' && location.pathname === '/spend') navigate(href(route), true);
   }, [route]);
   const work = route.page === 'work' ? route : null;
-  const screen = ['flow', 'work', 'works', 'architect', 'items', 'item', 'messages'].includes(route.page);
+  // A view that fills the window and scrolls inside its parts; the items scroll the page, their tree's pane staying
+  // under the bar as Primer's PageLayout keeps a sticky pane.
+  const screen = ['flow', 'work', 'works', 'architect', 'messages'].includes(route.page);
   return (
     <div className={screen ? 'app app-screen' : 'app'}>
       <TopBar route={route} />

@@ -22,6 +22,7 @@ import './styles/charts.css';
 import './styles/works.css';
 import './styles/usage.css';
 import './styles/architect.css';
+import './styles/items.css';
 import './styles.css';
 
 const root = document.getElementById('root');

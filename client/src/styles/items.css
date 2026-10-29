@@ -1,0 +1,98 @@
+/* The items: Primer's PageLayout filling the window under the bar, the trees in its pane on the left and the item
+   picked in its content on the right, each scrolling on its own. Each project's tree is Primer's TreeView under the
+   project's heading and the buttons that show or hide each state's items; a row's state is the colour of its edge. */
+
+.items-screen {
+  flex: 1;
+}
+
+/* The trees, whose rows say their stage only where they have room for it. */
+.items-trees {
+  container-type: inline-size;
+}
+
+.items-item {
+  min-width: 0;
+}
+
+.tree-project {
+  display: grid;
+  gap: var(--base-size-8);
+  padding: var(--base-size-16) var(--base-size-8) 0;
+}
+
+.tree-project:last-child {
+  padding-bottom: var(--base-size-16);
+}
+
+.tree-head {
+  display: grid;
+  gap: var(--base-size-4);
+  padding: 0 var(--base-size-8) var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.tree-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4);
+}
+
+.tree-none {
+  margin: 0;
+  padding: 0 var(--base-size-8);
+}
+
+/* A row: its number and title, then what it needs from the owner as Labels; its facts at its end. */
+.tree-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tree-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-facts {
+  display: inline-flex;
+  gap: var(--base-size-8);
+  font-size: var(--text-body-size-small);
+}
+
+/* The stage an item's work is at, in words, only where the row has room for it beside the title. */
+@container (max-width: 420px) {
+  .tree-stage {
+    display: none;
+  }
+}
+
+/* An item's state, as the colour of its row's edge: the thicker line the UI spec gives the tree. */
+.tree-row > div:first-child {
+  box-shadow: inset var(--borderWidth-thicker) 0 0 var(--tree-edge, var(--borderColor-default));
+}
+
+.item-edge-working {
+  --tree-edge: var(--borderColor-accent-emphasis);
+}
+
+.item-edge-queued {
+  --tree-edge: var(--borderColor-attention-emphasis);
+}
+
+.item-edge-new {
+  --tree-edge: var(--borderColor-neutral-emphasis);
+}
+
+.item-edge-done {
+  --tree-edge: var(--borderColor-success-emphasis);
+}
+
+.item-edge-stopped,
+.item-edge-cancelled {
+  --tree-edge: var(--borderColor-danger-emphasis);
+}
