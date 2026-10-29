@@ -17939,14 +17939,13 @@
             },
             {
               "name": "Study",
-              "what": "Your latest study; none before the first",
+              "what": "Your latest study",
               "from": [
                 [
                   "P2",
                   "study"
                 ]
-              ],
-              "maybe": true
+              ]
             },
             {
               "name": "Text and probes",
