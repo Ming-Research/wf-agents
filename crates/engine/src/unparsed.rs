@@ -373,7 +373,7 @@ mod tests {
         let closed = closes(MISSING_BRACE).expect("closes");
         assert_eq!(&closed[MISSING_BRACE.trim_end().len()..], "}");
         let f = compiled();
-        let g = f.graph("architect").unwrap();
+        let g = f.graph("policy").unwrap();
         let cell = g.cell("P8").unwrap();
         for text in [closed.as_str(), INSIDE_A, INSIDE_B] {
             let v: Value = serde_json::from_str(text).unwrap();
