@@ -493,8 +493,8 @@ last_at: number | null, };
  */
 export type ConversationEntry = { 
 /**
- * What it is: message, notice, ask, answer, interjection, words, question, report, reply, card, ruling, between;
- * stage, matter, policy or observation.
+ * What it is: message, notice, ask, interjection, words, question, report, reply, card, ruling, between; stage,
+ * matter, policy or observation. The owner's answer to an ask is in the ask's entry, never one of its own.
  */
 source: string, 
 /**
@@ -511,7 +511,7 @@ sender: string, recipient: string, text: string, at: number,
  */
 work: number | null, round: number | null, 
 /**
- * For an ask and its answer, the ask; for a design card and a ruling on it, the card; for what is or holds an
+ * For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
  * architect's matter, the matter.
  */
 ask: number | null, design_card: number | null, matter: number | null, 
@@ -671,9 +671,9 @@ withdrawn: string | null,
 asked: number | null, };
 
 /**
- * A conversation in full: its entries in time order; what is pinned at its top for the owner, the open blockers the
- * owner holds with their forms (the asks, and the design cards whose ruling a work waits for); and how far the owner
- * has read it.
+ * A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
+ * holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
+ * for, pinned at its top); and how far the owner has read it.
  */
 export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
 /**

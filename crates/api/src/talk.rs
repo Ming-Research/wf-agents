@@ -2,8 +2,8 @@
 //! that never changes for what waits (the one-to-ones with the architects and wf-agents' own first, then a group for
 //! each work, newest first, then the groups of connected projects), with what waits for the owner in each and what is
 //! unread; and one in full, its entries in time order, with what the engine writes from the flow beside what was said
-//! (a work's stage cards, an architect's matter cards, the policy taking effect, wf-agents' observations), what is
-//! pinned for the owner, and how far the owner has read it.
+//! (a work's stage cards, an architect's matter cards, the policy taking effect, wf-agents' observations), what waits
+//! for the owner, and how far the owner has read it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -217,8 +217,8 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
 
 /// One of the owner's conversations in full: its entries in time order, with what the engine writes from the flow
 /// beside what was said (a work's stage cards; an architect's matter cards and the policy in force, with the documents
-/// of its asks; wf-agents' observations); the open blockers the owner holds in it, pinned with their forms; and how far
-/// the owner has read it.
+/// of its asks; wf-agents' observations); the open blockers the owner holds in it, with their forms; and how far the
+/// owner has read it.
 pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> Result<ConversationDetail> {
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
@@ -292,7 +292,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
             e.revisions = Some(revisions(conn, a.work, a.round)?);
         }
     }
-    let pinned: Vec<_> = asks
+    let waiting: Vec<_> = asks
         .iter()
         .filter(|a| entries.iter().any(|e| e.source == "ask" && e.id == a.id && e.waiting))
         .cloned()
@@ -363,7 +363,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     Ok(ConversationDetail {
         key: key.to_string(),
         entries,
-        asks: pinned,
+        asks: waiting,
         design_cards,
         read_to,
         forwarding: if key == "wf-agents" {

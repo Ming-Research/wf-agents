@@ -1317,7 +1317,7 @@ CREATE VIEW conversation_entries AS
   -- Every entry of the owner's conversations, gathered from the tables that hold them: a group for each engineer's
   -- work, whose members are the owner, its engineer and its project's architect (what the engineer and the architect
   -- tell and ask the owner and each other about the work, the architect's messages while it handles a matter of the
-  -- work, the owner's words to either or both and answers, the design cards and the rulings on them, and the engine's
+  -- work, the owner's words to either or both and replies, the design cards and the rulings on them, and the engine's
   -- notices about it); the owner's one-to-one with each project's architect (the owner's words to it, what it tells and
   -- asks the owner about no work, in its wakes and in the settings of its policy); one for the architects of projects
   -- the configuration connects (what they say to each other, and the owner's words to them); and one of wf-agents
@@ -1328,14 +1328,15 @@ CREATE VIEW conversation_entries AS
   -- shows each.
   -- conversation is work:<id>, architect:<project>, architects:<project>[|<project>] (the projects' architects; the
   -- interface takes it to the group of every project the configuration connects them with), or wf-agents. source is
-  -- what the entry is (message, notice, ask, answer, interjection, words, question, report, reply, card, ruling or
-  -- between) and id its row in the table it comes from. sender and recipient are a line, the owner, the engine or
-  -- wf-agents, the recipient of the owner's words in a work's group the engineer, the architect or both; for between,
-  -- the projects. matter: the architect's matter the entry is, or holds the owner's words of. waiting: it waits for the
-  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter, not
-  -- answered; a design card not ruled while its work goes on; a fault not read). pending: the owner's words not taken
-  -- up yet. undelivered: the owner's words to the engineer that its work ended without taking in. answerable: an
-  -- engineer's question the architect holds now, which the owner may answer in the group instead.
+  -- what the entry is (message, notice, ask, interjection, words, question, report, reply, card, ruling or between) and
+  -- id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never an entry of
+  -- its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of the
+  -- owner's words in a work's group the engineer, the architect or both; for between, the projects. matter: the
+  -- architect's matter the entry is, or holds the owner's words of. waiting: it waits for the owner (an ask that stands
+  -- for an open blocker the owner holds, or an architect's ask that holds a matter, not answered; a design card not
+  -- ruled while its work goes on; a fault not read). pending: the owner's words not taken up yet. undelivered: the
+  -- owner's words to the engineer that its work ended without taking in. answerable: an engineer's question the
+  -- architect holds now, which the owner may answer in the group instead.
   SELECT CASE WHEN w.graph = 'engineer' THEN 'work:' || w.id
               ELSE coalesce((SELECT 'work:' || x.work FROM architect_matters x JOIN works y ON y.id = x.work
                              WHERE y.graph = 'engineer' AND x.id = (
@@ -1379,17 +1380,6 @@ CREATE VIEW conversation_entries AS
       SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, 0, NULL
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
-  UNION ALL
-  SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
-    coalesce(w.project, i.project), 'answer', a.id, 'owner',
-    CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect'
-         ELSE coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session
-                        WHERE x.work = a.work AND x.n < a.round ORDER BY x.n DESC LIMIT 1), 'engineer') END,
-    coalesce(nullif(json_extract(a.answer, '$.text'), ''), json_extract(a.answer, '$.choice'), ''),
-    coalesce(json_extract(a.answer, '$.at'), r.started_at), a.work, a.round, a.id, NULL, NULL, NULL, 0, 0, 0, 0, NULL
-  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
-  LEFT JOIN items i ON i.id = w.item
-  WHERE a.answer IS NOT NULL AND coalesce(json_extract(a.answer, '$.by'), 'owner') <> 'engine'
   UNION ALL
   SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker,

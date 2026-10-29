@@ -1,7 +1,7 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
-// page draws it, what of it is pinned and what streams, what the box at the bottom says things to, what a stage card's
-// facts are, what is new for the owner to be told of, and where a fault of wf-agents can go and went.
+// page draws it, what of it streams, what the box at the bottom says things to, what a stage card's facts are, what is
+// new for the owner to be told of, and where a fault of wf-agents can go and went.
 
 import type {
   Conversation,
@@ -105,12 +105,35 @@ export function mention(e: ConversationEntry): string {
   return `@${words(e.recipient)}`;
 }
 
-/// What streams in a conversation, oldest first: everything but the asks pinned at its top, which take their place in
-/// the stream once answered, and the design cards its stage cards hold.
+/// Whether an entry is what an engineer put to the architect (a question, a failure, a report), which the owner may
+/// answer in the group while the architect holds it.
+export const isQuestion = (e: ConversationEntry): boolean => e.source === 'question' || e.source === 'report';
+
+/// The owner's replies to what an engineer put to the architect, by its matter, each shown in the bubble it answers.
+export function ownerReplies(entries: ConversationEntry[]): Map<number, ConversationEntry> {
+  const put = new Set(entries.filter(isQuestion).map((e) => e.matter ?? e.id));
+  return new Map(
+    entries
+      .filter((e) => e.source === 'reply' && e.sender === 'owner' && put.has(e.matter ?? e.id))
+      .map((e) => [e.matter ?? e.id, e]),
+  );
+}
+
+/// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
+/// architect, which show in the bubble they answer, and the design cards its stage cards hold. An ask streams where it
+/// was asked, waiting or answered, the owner's answer in it.
 export function streamOf(d: ConversationDetail): ConversationEntry[] {
-  const pinned = new Set(d.asks.map((a) => a.id));
   const held = heldCards(d);
-  return d.entries.filter((e) => !(e.source === 'ask' && pinned.has(e.id)) && voiceOf(e, held) !== 'none');
+  const replies = ownerReplies(d.entries);
+  return d.entries.filter((e) => !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) && voiceOf(e, held) !== 'none');
+}
+
+/// Where an ask that waits for the owner is from the part of the stream in view, by its bounds and the stream's: above
+/// it or below it, or none when any of it is in view.
+export function awayOf(ask: { top: number; bottom: number }, view: { top: number; bottom: number }): 'above' | 'below' | null {
+  if (ask.bottom <= view.top) return 'above';
+  if (ask.top >= view.bottom) return 'below';
+  return null;
 }
 
 /// The time of the latest entry of a conversation, up to which opening it reads it.

@@ -1597,18 +1597,20 @@ describe("the owner's conversations", () => {
     expect(mention(entry('message'))).toBe('@you');
   });
 
-  it("draws each entry in its voice, pins the open blockers the owner holds, and leaves a stage card's design cards to it", () => {
+  it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a stage card's design cards in it", () => {
     const d: ConversationDetail = {
       key: 'work:5',
       entries: [
         entry('message', { id: 1 }),
-        entry('question', { id: 2, sender: 'engineer', recipient: 'architect' }),
-        entry('reply', { id: 3, sender: 'architect', recipient: 'engineer' }),
+        entry('question', { id: 2, matter: 2, sender: 'engineer', recipient: 'architect' }),
+        entry('reply', { id: 3, matter: 3, sender: 'architect', recipient: 'engineer' }),
         entry('ask', { id: 4, waiting: true }),
         entry('notice', { id: 5, sender: 'engine' }),
         entry('card', { id: 6, design_card: 6, sender: 'engineer' }),
         entry('interjection', { id: 7, sender: 'owner', recipient: 'engineer', at: 3 }),
         entry('message', { id: 8, sender: 'review' }),
+        entry('ask', { id: 9 }),
+        entry('reply', { id: 2, matter: 2, sender: 'owner', recipient: 'engineer' }),
       ],
       asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null }],
       design_cards: [],
@@ -1625,8 +1627,21 @@ describe("the owner's conversations", () => {
       'system',
       'owner',
       'system',
+      'agent',
+      'owner',
     ]);
-    expect(streamOf(d).map((e) => e.id)).toEqual([1, 2, 3, 5, 6, 7, 8]);
+    // An ask streams where it was asked; the owner's reply to the engineer's question shows in the question's bubble.
+    expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual([
+      'message-1',
+      'question-2',
+      'reply-3',
+      'ask-4',
+      'notice-5',
+      'card-6',
+      'interjection-7',
+      'message-8',
+      'ask-9',
+    ]);
     expect(latestAt(d)).toBe(3);
     expect(pendingWords([entry('words', { sender: 'owner', pending: true })]).length).toBe(1);
   });

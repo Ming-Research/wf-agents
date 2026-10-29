@@ -3134,7 +3134,7 @@ mod tests {
 
     // The owner's conversations: the one-to-ones with the architects and wf-agents' own first, then a group for each
     // work. The architect's one-to-one holds the owner's words, still waiting for it, and its asks, waiting for the
-    // owner, pinned with their forms, beside a card for each of its matters, where it stands; what a wake told the owner
+    // owner where they were asked, beside a card for each of its matters, where it stands; what a wake told the owner
     // while it handled a matter of a work, and what the work's engineer told the owner and asked the architect, are in
     // the work's group, with a card for each stage the work went through. Another project's are its own.
     #[test]
@@ -3206,6 +3206,44 @@ mod tests {
             "{said:?}"
         );
         assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
+    }
+
+    // An ask the owner answered is one entry of its conversation, the ask, which holds the answer: the answer is no
+    // entry of its own beside it. The ask waits no longer, and nothing the owner did is unread.
+    #[test]
+    fn an_answered_ask_is_one_entry_holding_its_answer() {
+        let mut s = architect_setup("answered");
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            own: Some("p".into()),
+            sets: Vec::new(),
+        };
+        let counts = |s: &Setup| {
+            let all = crate::conversations(s.db.conn(), &t).unwrap();
+            let p = all.iter().find(|c| c.key == "architect:p").unwrap();
+            (p.waiting, p.unread)
+        };
+        let (waiting, unread) = counts(&s);
+        let given = json!({ "by": "owner", "at": 500, "choice": "satisfied", "text": "Good." }).to_string();
+        s.db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE owner_asks SET answer = ?1 WHERE id = 1", [&given])?;
+            Ok(())
+        })
+        .unwrap();
+        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let of_ask: Vec<&str> = d
+            .entries
+            .iter()
+            .filter(|e| e.ask == Some(1))
+            .map(|e| e.source.as_str())
+            .collect();
+        assert_eq!(of_ask, ["ask"]);
+        let e = d.entries.iter().find(|e| e.ask == Some(1)).unwrap();
+        assert!(!e.waiting);
+        let answer = e.ask_detail.as_ref().and_then(|a| a.answer.clone());
+        assert_eq!(answer.map(|a| a["choice"].clone()), Some(json!("satisfied")));
+        assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
+        assert_eq!(counts(&s), (waiting - 1, unread));
     }
 
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card

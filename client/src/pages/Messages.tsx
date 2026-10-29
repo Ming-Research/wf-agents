@@ -8,19 +8,25 @@
 // the design's with the design folded and the design card to rule on. The one-to-one holds the owner's words, what the
 // architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue.
 // wf-agents' own holds its faults, each of which the owner forwards to any project's architect, once to each, and says
-// where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
-// waits for the owner (the open blockers the owner holds) is pinned at the top with its options, and the one box at the
-// bottom answers the one picked, as a reply does in a chat; otherwise it says something, in a work's group to the
-// engineer, the architect or both. Opening a conversation reads it up to its latest entry.
+// where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. An ask
+// of the owner shows once, where it was asked, as the asking agent's bubble, in full while it waits, and is answered in
+// that bubble: the buttons of its options or of the choices its cell offers, the one picked marked, then a small box
+// for the owner's words, free unless the ask or the choice asks for them, and Answer; a question the architect holds
+// has the small box in its bubble too. What is written there answers that bubble; once answered, the buttons and the
+// box give way to the owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere
+// else. While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design
+// card a work waits on to be ruled is pinned at the top. The one box at the bottom only says something, in a work's
+// group to the engineer, the architect or both. Opening a conversation reads it up to its latest entry.
 
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
   CommentDiscussionIcon,
   CpuIcon,
   ProjectRoadmapIcon,
-  ReplyIcon,
   StackIcon,
   ToolsIcon,
-  XIcon,
 } from '@primer/octicons-react';
 import {
   ActionList,
@@ -30,13 +36,12 @@ import {
   CounterLabel,
   Flash,
   FormControl,
-  IconButton,
   NavList,
   PageLayout,
   Textarea,
   Timeline,
 } from '@primer/react';
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
   Conversation,
@@ -49,18 +54,20 @@ import type {
   OwnerAsk,
   WorkSummary,
 } from '../api';
-import { type Answering, AnsweringContext, type Target } from '../answer';
-import { choicesOf, rulingAnswer } from '../architect';
+import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
 import {
+  awayOf,
   closedWhy,
   conversationTitle,
   type ForwardChoice,
   forwardMenu,
   forwardParts,
   heldCards,
+  isQuestion,
   latestAt,
   listParts,
   mention,
+  ownerReplies,
   party,
   pendingWords,
   sayTo,
@@ -70,7 +77,7 @@ import {
 } from '../conversation';
 import { cost, time } from '../format';
 import { postJson } from '../http';
-import { isObj, str, words } from '../labelled';
+import { isObj, label, str, words } from '../labelled';
 import { reread, useResource } from '../live';
 import { Markdown } from '../markdown';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
@@ -166,9 +173,11 @@ function MissesLine({ m }: { m: Misses }) {
 }
 
 /// What a message of the owner's or an agent's says: its words as written, in the page's markdown; a ruling, which
-/// card; an ask once answered, folded under its question in full.
+/// card; an ask, in full while it waits, so that it is read where it is answered, and once answered its words with the
+/// ask in full folded under them.
 function Words({ e }: { e: ConversationEntry }) {
   if (e.source === 'ruling') return <p>{t('conv_ruling', { id: e.design_card ?? e.id })}</p>;
+  if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} revisions={e.revisions} />;
   return (
     <>
       {e.text !== '' ? <Markdown text={e.text} /> : null}
@@ -195,16 +204,213 @@ function AskIn({ a, revisions = null }: { a: OwnerAsk; revisions?: JsonValue }) 
   );
 }
 
+/// The small box in a bubble where the owner's words answer that bubble, beside Answer: Enter sends and Shift with
+/// Enter starts a new line; what failed is said under it.
+function AnswerBox({ placeholder, ready, busy, text, setText, send, error, children = null }: {
+  placeholder: string;
+  ready: boolean;
+  busy: boolean;
+  text: string;
+  setText: (text: string) => void;
+  send: () => void;
+  error: string | null;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <div className="talk-answer-box">
+        <Textarea
+          block
+          resize="vertical"
+          rows={1}
+          value={text}
+          disabled={busy}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          title={t('send_keys_hint')}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (enterSends(e)) {
+              e.preventDefault();
+              if (ready && !busy) send();
+            }
+          }}
+        />
+        <Button size="small" onClick={send} disabled={!ready || busy}>
+          {t('answer_send')}
+        </Button>
+      </div>
+      {children}
+      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
+    </>
+  );
+}
+
+/// What answering in a bubble needs: the words, whether they are being sent, what failed, and how to send them.
+function useAnswer(): {
+  text: string;
+  setText: (text: string) => void;
+  busy: boolean;
+  error: string | null;
+  post: (url: string, body: object) => void;
+} {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const post = (url: string, body: object) => {
+    setBusy(true);
+    setError(null);
+    postJson(url, body).then(
+      () => {
+        setBusy(false);
+        setText('');
+        reread('messages', 'architect', 'works', 'work:*');
+      },
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  return { text, setText, busy, error, post };
+}
+
+/// How an ask that waits is answered, in its bubble: the buttons of what it offers (the choices its cell offers, each
+/// saying on hovering what it means and, once picked, under the buttons; or the options of its choice), a click picking
+/// one and a second clearing it, the one picked marked; then the small box of the owner's words and Answer. The words
+/// are needed for an ask in words alone and for a choice that asks for them, else they are free; an engineer's ask the
+/// owner holds can be handed back to the architect with them.
+function AskAnswer({ a }: { a: OwnerAsk }) {
+  const way = answerWay(a);
+  const [pick, setPick] = useState('');
+  const [back, setBack] = useState(false);
+  const { text, setText, busy, error, post } = useAnswer();
+  const answer = askAnswer(a, pick, text, handsBack(a) && back);
+  const meaning = way.by === 'ruling' ? (way.choices.find(([v]) => v === pick)?.[1] ?? '') : '';
+  const button = (value: string, name: string, title?: string) => (
+    <Button
+      key={value}
+      size="small"
+      leadingVisual={pick === value ? CheckIcon : undefined}
+      aria-pressed={pick === value}
+      title={title}
+      onClick={() => setPick(pickAfter(pick, value))}
+    >
+      {name}
+    </Button>
+  );
+  return (
+    <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
+      {way.by !== 'words' ? (
+        <div className="talk-answer-buttons">
+          {way.by === 'ruling' ? way.choices.map(([v, m]) => button(v, label(v), m)) : way.options.map((o) => button(o, o))}
+        </div>
+      ) : null}
+      {meaning !== '' ? <p className="talk-said-note">{meaning}</p> : null}
+      <AnswerBox
+        placeholder={t(needsWords(way, pick) ? 'conv_answer_words' : 'conv_answer_more')}
+        ready={answer !== null}
+        busy={busy}
+        text={text}
+        setText={setText}
+        send={() => {
+          if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
+        }}
+        error={error}
+      >
+        {handsBack(a) ? (
+          <FormControl>
+            <Checkbox checked={back} onChange={(e) => setBack(e.target.checked)} />
+            <FormControl.Label>{t('answer_to_architect')}</FormControl.Label>
+            <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
+          </FormControl>
+        ) : null}
+      </AnswerBox>
+    </div>
+  );
+}
+
+/// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
+/// the owner's words and Answer; the answer is the reply, and the architect is told.
+function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
+  const { text, setText, busy, error, post } = useAnswer();
+  return (
+    <div className="talk-answer">
+      <AnswerBox
+        placeholder={t('conv_answer_words')}
+        ready={text.trim() !== ''}
+        busy={busy}
+        text={text}
+        setText={setText}
+        send={() => {
+          if (text.trim() !== '') post(`/api/v1/works/${work}/say`, { text: text.trim(), question: matter });
+        }}
+        error={error}
+      />
+    </div>
+  );
+}
+
+/// The owner's answer inside the bubble it answers, named as the owner's answer to it so that it is not read as other
+/// words of the owner's: what it answers and when, then the choice made and the words, in the look of what is sent to
+/// an agent.
+function AnswerIn({ head, at, choice = '', text }: { head: string; at: number | null; choice?: string; text: string }) {
+  return (
+    <div className="talk-answer">
+      <div className="talk-bubble-head">
+        <span className="talk-who">{head}</span>
+        {at !== null ? <span className="talk-when">{time(at)}</span> : null}
+      </div>
+      <div className="talk-bubble talk-bubble-owner">
+        <div className="talk-bubble-body">
+          {choice !== '' ? (
+            <p>
+              <strong>{label(choice)}</strong>
+            </p>
+          ) : null}
+          {text !== '' ? <Markdown text={text} /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/// What an ask once answered holds of its answer: the owner's, as the owner's answer to that ask; or, closed by the
+/// engine, why no answer was needed, in the page's own voice.
+function AskAnswered({ a }: { a: OwnerAsk }) {
+  const ans = isObj(a.answer) ? a.answer : {};
+  if (str(ans.by) === 'engine') {
+    return (
+      <div className="talk-answer">
+        <p className="talk-said-note">{str(ans.text)}</p>
+      </div>
+    );
+  }
+  return (
+    <AnswerIn
+      head={t('conv_your_answer', { id: a.id })}
+      at={typeof ans.at === 'number' ? ans.at : null}
+      choice={str(ans.choice)}
+      text={str(ans.text)}
+    />
+  );
+}
+
 /// One message of the owner's or an agent's: who it is from, to whom (in a group, at its head), when, its round, and
 /// what it says; the owner's on the right in the look of what is sent to an agent, an agent's beside its avatar in the
 /// look of what an agent handed back, in its colour. The owner's words not taken up yet, and those never taken in,
-/// say so on themselves; a question the architect holds can be answered here.
-function Message({ e, group, answering }: { e: ConversationEntry; group: boolean; answering: Answering | null }) {
+/// say so on themselves. Each answer to a bubble is in that bubble: an ask holds what answers it while it waits, then
+/// the owner's answer; a question the architect holds, the box that answers it, then the owner's answer (`reply`).
+function Message({ e, group, reply }: { e: ConversationEntry; group: boolean; reply: ConversationEntry | null }) {
   const own = e.sender === 'owner';
   const from = e.source === 'between' ? `architect:${e.sender}` : e.sender;
   const round = e.work !== null && e.round !== null && e.source !== 'between';
+  const ask = e.source === 'ask' ? e.ask_detail : null;
+  const question = e.answerable && e.work !== null && e.matter !== null ? { work: e.work, matter: e.matter } : null;
+  const answers = (ask !== null && ask.answer === null) || question !== null;
+  const rowClass = own ? 'talk-row talk-row-owner' : answers ? 'talk-row talk-row-answers' : 'talk-row';
   return (
-    <div className={own ? 'talk-row talk-row-owner' : 'talk-row'}>
+    <div className={rowClass} data-ask={ask !== null ? ask.id : undefined}>
       {own ? null : <Avatar who={from} />}
       <div className={own ? 'talk-bubble talk-bubble-owner' : `talk-bubble talk-bubble-${from.startsWith('architect') ? 'architect' : 'engineer'}`}>
         <div className="talk-bubble-head">
@@ -222,17 +428,9 @@ function Message({ e, group, answering }: { e: ConversationEntry; group: boolean
         <div className="talk-bubble-body">
           <Words e={e} />
         </div>
-        {e.answerable && answering !== null && e.work !== null && e.matter !== null ? (
-          <div className="talk-bubble-actions">
-            <Button
-              size="small"
-              leadingVisual={ReplyIcon}
-              onClick={() => answering.set({ kind: 'question', work: e.work ?? 0, matter: e.matter ?? 0, text: e.text })}
-            >
-              {t('conv_answer_question')}
-            </Button>
-          </div>
-        ) : null}
+        {ask !== null ? ask.answer === null ? <AskAnswer a={ask} /> : <AskAnswered a={ask} /> : null}
+        {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
+        {reply !== null ? <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} /> : null}
       </div>
     </div>
   );
@@ -344,14 +542,14 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
   );
 }
 
-/// One entry of the stream, in its voice.
-function Entry({ e, c, w, held, current, answering, forwarding }: {
+/// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter).
+function Entry({ e, c, w, held, current, replies, forwarding }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
   held: ReadonlySet<number>;
   current: number | null;
-  answering: Answering | null;
+  replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
 }) {
   const voice = voiceOf(e, held);
@@ -367,20 +565,17 @@ function Entry({ e, c, w, held, current, answering, forwarding }: {
   if (voice === 'system') return <SystemLine e={e} />;
   if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
-  return <Message e={e} group={c.kind === 'work' || c.kind === 'projects'} answering={answering} />;
+  const reply = e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null;
+  return <Message e={e} group={c.kind === 'work' || c.kind === 'projects'} reply={reply} />;
 }
 
-/// What waits for the owner, pinned at the top of the conversation with its options: the asks that stand for the open
-/// blockers the owner holds, and the design card whose ruling a work waits for before its merge. An ask is answered
-/// with the box at the bottom, the option or the ruling picked on it.
+/// What waits for the owner pinned at the top of the conversation: the design card whose ruling a work waits for
+/// before its merge, with the verdicts to send. An ask is not pinned: it waits where it was asked.
 function Pinned({ d }: { d: ConversationDetail }) {
-  if (d.asks.length === 0 && d.design_cards.length === 0) return null;
+  if (d.design_cards.length === 0) return null;
   return (
     <section className="talk-pins" aria-label={t('conv_waits_for_you')}>
       <h3 className="talk-pins-title">{t('conv_waits_for_you')}</h3>
-      {d.asks.map((a) => (
-        <AskIn key={a.id} a={a} revisions={d.entries.find((e) => e.source === 'ask' && e.id === a.id)?.revisions ?? null} />
-      ))}
       {d.design_cards.map((c) => (
         <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} />
       ))}
@@ -388,47 +583,24 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
-/// What the box sends to answer an ask: an architect's choice (a study, a policy to approve) with its ruling picked and
-/// words; an engineer's ask with the option picked and words, or handed back to the architect with the words as the
-/// decision it carries out. None while it cannot be sent.
-function askAnswer(target: Extract<Target, { kind: 'ask' }>, text: string, back: boolean): object | null {
-  const body = isObj(target.ask.body) ? target.ask.body : {};
-  const kind = str(body.kind);
-  if (body.from === 'architect' && (kind === 'study' || kind === 'policy_approval')) {
-    return rulingAnswer(choicesOf(target.ask.body), target.ruling === '' ? null : target.ruling, text);
-  }
-  const words = text.trim();
-  const answer = target.option !== '' ? `${t('answer_chosen', { option: target.option })}${words !== '' ? ` ${words}` : ''}` : words;
-  if (answer === '') return null;
-  return back ? { text: answer, to: 'architect' } : { text: answer };
-}
-
-/// The one box at the bottom of a conversation: it says something (in a work's group to the engineer, the architect or
-/// both; in a group of projects to one architect or every one; in the one-to-one to the architect), or, switched like a
-/// reply in a chat, answers what is picked: an ask pinned above, or a question the architect holds. Closed, it says why:
-/// a work at its end no longer changes its way on.
-function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null; answering: Answering }) {
+/// The one box at the bottom of a conversation: it says something, in a work's group to the engineer, the architect or
+/// both; in a group of projects to one architect or every one; in the one-to-one to the architect. It never answers a
+/// bubble: an ask, and a question the architect holds, are answered in their bubbles. Closed, it says why: a work at
+/// its end no longer changes its way on.
+function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
   const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
-  const [back, setBack] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const target = answering.target;
-  const closed = target === null ? closedWhy(c, w) : null;
-  if (choices.length === 0 && target === null) return null;
-  const handsBack = target !== null && target.kind === 'ask' && isObj(target.ask.body) && target.ask.body.to === 'owner';
-  const answer = target !== null && target.kind === 'ask' ? askAnswer(target, text, handsBack && back) : null;
-  const ready =
-    closed === null &&
-    (target !== null && target.kind === 'ask' ? answer !== null : text.trim() !== '' && (target !== null || sendTo.length > 0));
+  const closed = closedWhy(c, w);
+  if (choices.length === 0) return null;
+  const ready = closed === null && text.trim() !== '' && sendTo.length > 0;
   const done = () => {
     setBusy(false);
     setText('');
-    setBack(false);
-    answering.set(null);
     reread('messages', 'architect', 'works', 'work:*');
   };
   const failed = (e: unknown) => {
@@ -441,11 +613,7 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
     setError(null);
     const words = text.trim();
     let sent: Promise<void>;
-    if (target !== null && target.kind === 'ask') {
-      sent = postJson(`/api/v1/asks/${target.ask.id}/answer`, answer);
-    } else if (target !== null) {
-      sent = postJson(`/api/v1/works/${target.work}/say`, { text: words, question: target.matter });
-    } else if (c.kind === 'work') {
+    if (c.kind === 'work') {
       sent = postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: words, to });
     } else if (c.kind === 'projects') {
       sent = Promise.all(
@@ -460,26 +628,7 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
   const tick = (x: string, on: boolean) => setTicked((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
   return (
     <div className="talk-say">
-      {target !== null ? (
-        <div className="talk-say-target">
-          <ReplyIcon />
-          <span>
-            {target.kind === 'ask'
-              ? t('conv_answering_ask', { id: target.ask.id })
-              : t('conv_answering_question', { work: target.work })}
-            {target.kind === 'ask' && target.option !== '' ? ` · ${t('answer_picked', { option: target.option })}` : null}
-            {target.kind === 'ask' && target.ruling !== '' ? ` · ${words(target.ruling)}` : null}
-          </span>
-          <IconButton
-            size="small"
-            variant="invisible"
-            icon={XIcon}
-            aria-label={t('conv_answer_cancel')}
-            onClick={() => answering.set(null)}
-          />
-        </div>
-      ) : null}
-      {target === null && closed === null && choices.length > 1 ? (
+      {closed === null && choices.length > 1 ? (
         <div className="talk-say-to" role="group" aria-label={t('conv_to')}>
           <span className="talk-say-to-label">{t('conv_to')}</span>
           {choices.map((x) => (
@@ -500,8 +649,6 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
           placeholder={
             closed !== null
               ? closed
-              : target !== null
-              ? t('conv_answer_words')
               : c.kind === 'work'
                 ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : sendTo.length === 0 ? 'conv_say_nobody' : 'conv_say_both')
                 : t('conv_say_architect')
@@ -509,35 +656,48 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
           title={t('send_keys_hint')}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            // Enter sends and Shift with Enter starts a new line; an Enter that ends a word typed through an input method
-            // (Chinese, for one) only ends the word.
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            if (enterSends(e)) {
               e.preventDefault();
               send();
             }
           }}
         />
         <Button variant="primary" onClick={send} disabled={!ready || busy}>
-          {target !== null ? t('answer_send') : t('conv_send')}
+          {t('conv_send')}
         </Button>
       </div>
-      {handsBack ? (
-        <FormControl>
-          <Checkbox checked={back} onChange={(e) => setBack(e.target.checked)} />
-          <FormControl.Label>{t('answer_to_architect')}</FormControl.Label>
-          <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
-        </FormControl>
-      ) : null}
       {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
     </div>
   );
 }
 
+/// The slim line over the stream while an ask that waits for the owner is out of view, so that none is missed however
+/// much is said after it: each such ask, with which way it is, and a click brings it into view.
+function AwayLine({ away, list }: { away: Array<[number, 'above' | 'below']>; list: RefObject<HTMLDivElement | null> }) {
+  if (away.length === 0) return null;
+  return (
+    <div className="talk-away">
+      {away.map(([id, where]) => (
+        <Button
+          key={id}
+          size="small"
+          variant="invisible"
+          leadingVisual={where === 'above' ? ArrowUpIcon : ArrowDownIcon}
+          onClick={() => list.current?.querySelector(`[data-ask="${id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+        >
+          {t('conv_ask_waits', { id })}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 /// The stream of a conversation, oldest first, scrolled to its newest: the engine's cards and lines in the page's own
-/// voice, the members' messages beside them; under it, while the owner's words wait to be taken up in the one-to-one,
-/// that they do.
-function Stream({ d, c, w, answering }: { d: ConversationDetail; c: Conversation; w: WorkSummary | null; answering: Answering }) {
+/// voice, the members' messages beside them, an ask where it was asked; under it, while the owner's words wait to be
+/// taken up in the one-to-one, that they do; over it, while an ask that waits is out of view, the line that says so.
+export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w: WorkSummary | null }) {
   const held = useMemo(() => heldCards(d), [d]);
+  const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const stream = streamOf(d);
   const current = d.entries.find((e) => e.matter_card?.state === 'working')?.matter_card?.matter ?? null;
   const list = useRef<HTMLDivElement>(null);
@@ -546,6 +706,35 @@ function Stream({ d, c, w, answering }: { d: ConversationDetail; c: Conversation
     const el = list.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
   }, [c.key, shown]);
+  // Which of the asks that wait for the owner are out of view, and which way: watched as the stream scrolls and grows.
+  const waiting = d.asks.map((a) => a.id).join(',');
+  const [away, setAway] = useState<Array<[number, 'above' | 'below']>>([]);
+  useEffect(() => {
+    const root = list.current;
+    const ids = waiting === '' ? [] : waiting.split(',').map(Number);
+    if (root === null || ids.length === 0 || typeof IntersectionObserver === 'undefined') {
+      setAway([]);
+      return;
+    }
+    const where = new Map<number, 'above' | 'below' | null>();
+    const seen = new IntersectionObserver(
+      (changes) => {
+        for (const x of changes) {
+          const view = x.rootBounds ?? root.getBoundingClientRect();
+          where.set(Number((x.target as HTMLElement).dataset.ask), awayOf(x.boundingClientRect, view));
+        }
+        setAway(ids.flatMap((id): Array<[number, 'above' | 'below']> => {
+          const w = where.get(id);
+          return w === undefined || w === null ? [] : [[id, w]];
+        }));
+      },
+      { root },
+    );
+    for (const el of root.querySelectorAll<HTMLElement>('[data-ask]')) {
+      if (ids.includes(Number(el.dataset.ask))) seen.observe(el);
+    }
+    return () => seen.disconnect();
+  }, [waiting, shown, c.key]);
   // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline.
   const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
   for (const e of stream) {
@@ -557,46 +746,47 @@ function Stream({ d, c, w, answering }: { d: ConversationDetail; c: Conversation
   }
   const pending = c.kind === 'architect' && pendingWords(d.entries).length > 0;
   return (
-    <div className="talk-stream" ref={list}>
-      {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
-      {runs.map((run) => {
-        const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
-        const items: ReactNode = run.entries.map((e) => (
-          <Entry
-            key={`${e.source}-${e.id}-${e.at}`}
-            e={e}
-            c={c}
-            w={w}
-            held={held}
-            current={current}
-            answering={answering}
-            forwarding={d.forwarding}
-          />
-        ));
-        return run.cards ? (
-          <Timeline key={key} clipSidebar className="talk-cards">
-            {items}
-          </Timeline>
-        ) : (
-          <div key={key} className="talk-messages">
-            {items}
-          </div>
-        );
-      })}
-      {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
-    </div>
+    <>
+      <AwayLine away={away} list={list} />
+      <div className="talk-stream" ref={list}>
+        {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
+        {runs.map((run) => {
+          const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
+          const items: ReactNode = run.entries.map((e) => (
+            <Entry
+              key={`${e.source}-${e.id}-${e.at}`}
+              e={e}
+              c={c}
+              w={w}
+              held={held}
+              current={current}
+              replies={replies}
+              forwarding={d.forwarding}
+            />
+          ));
+          return run.cards ? (
+            <Timeline key={key} clipSidebar className="talk-cards">
+              {items}
+            </Timeline>
+          ) : (
+            <div key={key} className="talk-messages">
+              {items}
+            </div>
+          );
+        })}
+        {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
+      </div>
+    </>
   );
 }
 
-/// One conversation: its head with the owner's controls, what waits for the owner pinned under it, the stream, and the
-/// one box at the bottom; reading it marks it read up to its latest entry.
+/// One conversation: its head with the owner's controls, the design card a work waits on pinned under it, the stream,
+/// and the one box at the bottom; reading it marks it read up to its latest entry.
 function Open({ c }: { c: Conversation }) {
   const r = useResource<ConversationDetail>('messages', `/api/v1/conversation?key=${encodeURIComponent(c.key)}`);
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   const d = r.data !== undefined && r.data.key === c.key ? r.data : null;
   const w = c.work !== null ? ((works.data ?? []).find((x) => x.id === c.work) ?? null) : null;
-  const [target, setTarget] = useState<Target | null>(null);
-  const answering = useMemo<Answering>(() => ({ target, set: setTarget }), [target]);
   const latest = d !== null ? latestAt(d) : null;
   const readTo = d?.read_to ?? null;
   useEffect(() => {
@@ -619,7 +809,7 @@ function Open({ c }: { c: Conversation }) {
       <PlainHead title={conversationTitle(c)} />
     );
   return (
-    <AnsweringContext.Provider value={answering}>
+    <AnswersHere.Provider value={true}>
       <div className="talk-open">
         {head}
         {d === null ? (
@@ -627,12 +817,12 @@ function Open({ c }: { c: Conversation }) {
         ) : (
           <>
             <Pinned d={d} />
-            <Stream d={d} c={c} w={w} answering={answering} />
+            <Stream d={d} c={c} w={w} />
           </>
         )}
-        <Composer key={c.key} c={c} w={w} answering={answering} />
+        <Composer key={c.key} c={c} w={w} />
       </div>
-    </AnsweringContext.Provider>
+    </AnswersHere.Provider>
   );
 }
 

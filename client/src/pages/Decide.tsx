@@ -8,12 +8,12 @@
 // on each decision (confirm, disagree with a reason, or click another of its approaches to choose it) and sends the
 // verdicts on all of them at once, after a summary of what is sent. A replacing card says first what it changed from
 // the one it replaced. An ask of the owner holds what it asks about, each point under its kind coloured by the kind's
-// group, and for a decision the options with the one recommended; while it waits, the owner clicks an option and says
-// what more there is to say in the box at the bottom of the conversation, which answers it. Both write what the
-// command line writes, and the engine goes on at once. The owner rules and answers in the messages view alone: wherever
-// else a card shows, it says where it waits to be ruled on or answered.
+// group, and for a decision the options with the one recommended; in its conversation the ask is the asking agent's
+// bubble, answered in that bubble by its buttons and a small box of the owner's words. Both write what the command
+// line writes, and the engine goes on at once. The owner rules and answers in the messages view alone: wherever else
+// a card shows, it says where it waits to be ruled on or answered.
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ReplyIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import {
   Button,
   ButtonGroup,
@@ -25,7 +25,7 @@ import {
 } from '@primer/react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 
-import { answersAsk, askTarget, useAnswering } from '../answer';
+import { askChoice, askParts, useAnswersHere } from '../answer';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
 import { time } from '../format';
 import { postJson } from '../http';
@@ -460,7 +460,7 @@ const cellText = (cell: string | null, title: string | null) => (cell === null ?
 export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
   const tone = cardTone(c);
   const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const can = useAnswering() !== null;
+  const can = useAnswersHere();
   const open = c.status === 'open' && can;
   const [set, setSet] = useState<Verdict[]>([]);
   const given = decisions.map((_, i) => set[i] ?? UNSET);
@@ -543,19 +543,12 @@ export function KindChip({ k }: { k: AskKind }) {
   );
 }
 
-/// The owner's answer to an ask that waits, in the conversation it is in: the button that has the box at the bottom
-/// answer it, which says so while it does; elsewhere, where the ask is answered.
-export function AnswerHere({ a }: { a: OwnerAsk }) {
-  const answering = useAnswering();
-  if (answering === null) return <AnswerThere conversation={askConversation(a)} what="answer" />;
-  if (answersAsk(answering.target, a.id)) return <p className="answer-there">{t('answer_below')}</p>;
-  return (
-    <div className="answer-there">
-      <Button size="small" leadingVisual={ReplyIcon} onClick={() => answering.set(askTarget(answering.target, a))}>
-        {t('answer_this')}
-      </Button>
-    </div>
-  );
+/// The part of an ask's card about the owner's answer: none in a conversation, where what answers the ask and the
+/// answer once given are in its bubble; elsewhere the answer once given (`given`), or where the ask waits to be
+/// answered.
+export function AnswerPart({ a, given }: { a: OwnerAsk; given: ReactNode }) {
+  if (useAnswersHere()) return null;
+  return a.answer === null ? <AnswerThere conversation={askConversation(a)} what="answer" /> : <>{given}</>;
 }
 
 /// A text an agent wrote, as it reads.
@@ -563,32 +556,16 @@ export function Written({ text }: { text: string }) {
   return <Markdown text={text} />;
 }
 
-/// What an ask holds: what the cells handed in, each with its points and its choice. The engine keeps them under
-/// `asked`, each with what it is and its value; an ask written as one is its own.
-function parts(body: Obj): Obj[] {
-  const asked = Array.isArray(body.asked)
-    ? body.asked
-        .filter(isObj)
-        .map((x) => x.value)
-        .filter((v): v is Obj => v !== undefined && isObj(v))
-    : [];
-  return asked.length > 0 ? asked : [body];
-}
-
 /// An ask of the owner as the owner reads and answers it, in the card every card shares: its head (its number, whether
 /// it waits, the round that asked); a band saying who answered and when, or that it waits; for each point, its kind as
 /// a chip, what it says and what was tried, in boxes; the choice, when there is one, its question and its options in
-/// option boxes with the one recommended, which the owner answers by clicking an option; then the answer, or the form
-/// to give it. `round` is the link to the round that asked.
+/// option boxes with the one recommended; then, but in a conversation, the answer, or where it waits to be answered.
+/// `round` is the link to the round that asked.
 export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; round?: ReactNode; folded?: boolean }) {
-  const answering = useAnswering();
-  const target = answering?.target ?? null;
-  const picked = target !== null && target.kind === 'ask' && target.ask.id === a.id ? target.option : '';
-  const pick = (name: string) => answering?.set(askTarget(target, a, { option: picked === name ? '' : name }));
   const body = isObj(a.body) ? a.body : {};
-  const held = parts(body);
+  const held = askParts(body);
   const points = held.flatMap((x) => (Array.isArray(x.points) ? x.points.filter(isObj) : []));
-  const choice = held.map((x) => x.choice).find((c): c is Obj => c !== undefined && isObj(c)) ?? null;
+  const choice = askChoice(body);
   const options = choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [];
   const answer = a.answer !== null && isObj(a.answer) ? a.answer : null;
   const kind = (k: string): AskKind => a.kinds.find((x) => x.kind === k) ?? { kind: k, group: null };
@@ -631,8 +608,6 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
                 ]}
                 recommended={str(choice.recommended)}
                 mark={t('ask_recommended')}
-                picked={waits ? picked : ''}
-                onPick={waits && answering !== null ? pick : null}
               />
             </Box>
           ) : null}
@@ -642,7 +617,7 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
         </>
       ) : null}
       {points.length === 0 && choice === null ? <Labelled value={a.body} /> : null}
-      {answer !== null ? <TextBox label={t('dc_answer')} value={answer.text} /> : <AnswerHere a={a} />}
+      <AnswerPart a={a} given={answer !== null ? <TextBox label={t('dc_answer')} value={answer.text} /> : null} />
     </CardFrame>
   );
 }

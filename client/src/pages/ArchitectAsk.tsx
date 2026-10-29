@@ -1,19 +1,16 @@
 // An ask an architect put to the owner, as the owner reads and answers it, by its kind: a question, laid out as an
 // engineer's ask is, with the matters it holds; an open choice, which holds no wake; the study of a new policy to read;
 // and the policy to approve, with its probes and every reading of it by a new architect. Every kind but the question,
-// which the card every ask shares heads, is a block under its number, kind and the cell and round that put it. While
-// it waits, in the conversation it is in, an option clicked or one of the choices its cell offers (satisfied, study on
-// or no change; approved or not good enough), which the box at the bottom of the conversation sends with the owner's
-// words, needed unless the owner agrees; elsewhere, where it is answered. Each answer goes to the interface's answer
-// of an ask, and the engine goes on. The documents an ask is about (the study, the policy to approve and what changed
-// in it since the owner last read it) are folded, each as one document.
+// which the card every ask shares heads, is a block under its number, kind and the cell and round that put it. In the
+// conversation it is in, it is the architect's bubble, answered in that bubble by a button (an option, or one of the
+// choices its cell offers: satisfied, study on or no change; approved or not good enough) and the owner's words in a
+// small box, needed unless the owner agrees; elsewhere it says where it is answered. Each answer goes to the
+// interface's answer of an ask, and the engine goes on. The documents an ask is about (the study, the policy to approve
+// and what changed in it since the owner last read it) are folded, each as one document.
 
-import { CheckIcon } from '@primer/octicons-react';
-import { Button, ButtonGroup, Label } from '@primer/react';
+import { Label } from '@primer/react';
 
-import { askTarget, useAnswering } from '../answer';
 import type { JsonValue, OwnerAsk } from '../api';
-import { choicesOf } from '../architect';
 import { time } from '../format';
 import { Field, OptionBoxes } from '../item/Shapes';
 import { isObj, label, str, words, type Obj } from '../labelled';
@@ -21,7 +18,7 @@ import { Markdown, MarkdownInline } from '../markdown';
 import { Block, By, type OpenRound, RoundLink, Section, SubHeading } from '../parts';
 import { t, type Key } from '../text';
 import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
-import { AnswerHere, AskView } from './Decide';
+import { AnswerPart, AskView } from './Decide';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 
@@ -62,13 +59,9 @@ function Answered({ a }: { a: OwnerAsk }) {
 /// An open choice: the question, the options with the one recommended, how sure the architect is, and what it leaves
 /// alone until the owner answers; it holds no wake.
 function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
-  const answering = useAnswering();
-  const target = answering?.target ?? null;
-  const picked = target !== null && target.kind === 'ask' && target.ask.id === a.id ? target.option : '';
   const choice = isObj(body.choice) ? body.choice : {};
   const options = objs(choice.options);
   const affects = Array.isArray(body.affects) ? body.affects.map((x) => str(x)) : [];
-  const waits = a.answer === null;
   return (
     <div className="card-view">
       <p className="muted">{t('ask_open_note')}</p>
@@ -81,12 +74,6 @@ function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
         ]}
         recommended={str(choice.recommended)}
         mark={t('ask_recommended')}
-        picked={waits ? picked : ''}
-        onPick={
-          waits && answering !== null
-            ? (name) => answering.set(askTarget(target, a, { option: picked === name ? '' : name }))
-            : null
-        }
       />
       {choice.confidence !== undefined ? (
         <Field label={t('ask_confidence', { n: str(choice.confidence) })} value={choice.confidence_why} />
@@ -103,39 +90,7 @@ function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
           </ul>
         </div>
       ) : null}
-      {waits ? <AnswerHere a={a} /> : <Answered a={a} />}
-    </div>
-  );
-}
-
-/// The owner's ruling on what the architect put, in the conversation it is in: one of the choices its cell offers,
-/// each saying on hovering what it means, which the box at the bottom sends with the owner's words, needed unless the
-/// owner agrees; elsewhere, where it is answered.
-function RulingPick({ a }: { a: OwnerAsk }) {
-  const answering = useAnswering();
-  const choices = choicesOf(a.body);
-  if (answering === null) return <AnswerHere a={a} />;
-  const target = answering.target;
-  const choice = target !== null && target.kind === 'ask' && target.ask.id === a.id ? target.ruling : '';
-  const meaning = choices.find(([v]) => v === choice)?.[1] ?? '';
-  return (
-    <div className="ruling-pick">
-      <ButtonGroup>
-        {choices.map(([v, m]) => (
-          <Button
-            key={v}
-            size="small"
-            leadingVisual={choice === v ? CheckIcon : undefined}
-            aria-pressed={choice === v}
-            title={m}
-            onClick={() => answering.set(askTarget(target, a, { ruling: choice === v ? '' : v }))}
-          >
-            {label(v)}
-          </Button>
-        ))}
-      </ButtonGroup>
-      {meaning !== '' ? <p className="muted pick-hint">{meaning}</p> : null}
-      <AnswerHere a={a} />
+      <AnswerPart a={a} given={<Answered a={a} />} />
     </div>
   );
 }
@@ -212,7 +167,7 @@ function PolicyAsk({ a, body, onRound, revisions }: {
           />
         ))}
       </Section>
-      {a.answer === null ? <RulingPick a={a} /> : <Answered a={a} />}
+      <AnswerPart a={a} given={<Answered a={a} />} />
     </div>
   );
 }
@@ -233,7 +188,7 @@ export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; on
               <StudyView value={body.study ?? null} />
             </div>
           </details>
-          {a.answer === null ? <RulingPick a={a} /> : <Answered a={a} />}
+          <AnswerPart a={a} given={<Answered a={a} />} />
         </div>
       );
     case 'policy_approval':

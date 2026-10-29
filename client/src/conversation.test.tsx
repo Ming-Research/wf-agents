@@ -1,0 +1,307 @@
+// How what the owner is asked is answered in a conversation: an ask shows once, where it was asked, as the asking
+// agent's bubble, never pinned; it is answered in that bubble, by the buttons of what it offers and a small box of the
+// owner's words beside Answer, and once answered the owner's answer is in that bubble and nowhere else; a question the
+// architect holds alike. And what is sent, and which asks that wait are out of view.
+
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+
+import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
+import type { Conversation, ConversationDetail, ConversationEntry, JsonValue, OwnerAsk } from './api';
+import { awayOf, streamOf } from './conversation';
+import { Stream } from './pages/Messages';
+
+const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
+  id,
+  round: 2,
+  work: 5,
+  item: 3,
+  body,
+  kinds: [],
+  answer,
+});
+
+const entry = (source: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
+  source,
+  id: 1,
+  sender: 'engineer',
+  recipient: 'owner',
+  text: 'said',
+  at: 1,
+  work: 5,
+  round: 2,
+  ask: null,
+  design_card: null,
+  matter: null,
+  read_at: null,
+  waiting: false,
+  pending: false,
+  undelivered: false,
+  answerable: false,
+  fault: null,
+  misses: null,
+  ask_detail: null,
+  revisions: null,
+  stage: null,
+  matter_card: null,
+  policy: null,
+  observation: null,
+  forwards: [],
+  ...extra,
+});
+
+/// The entry of an ask, as the conversation gives it: from the line that asked, to the owner, with the ask in full.
+const asked = (a: OwnerAsk, extra: Partial<ConversationEntry> = {}): ConversationEntry =>
+  entry('ask', { id: a.id, ask: a.id, ask_detail: a, waiting: a.answer === null, text: 'Which table?', at: 2, ...extra });
+
+const group: Conversation = {
+  key: 'work:5',
+  kind: 'work',
+  project: 'p',
+  projects: [],
+  work: 5,
+  item: 3,
+  title: 'Parse it',
+  level: 'sonnet',
+  over: false,
+  waiting: 1,
+  unread: 0,
+  last_at: 3,
+};
+
+const detail = (entries: ConversationEntry[]): ConversationDetail => ({
+  key: 'work:5',
+  entries,
+  asks: entries.flatMap((e) => (e.source === 'ask' && e.waiting && e.ask_detail !== null ? [e.ask_detail] : [])),
+  design_cards: [],
+  forwarding: null,
+  read_to: null,
+});
+
+/// The stream as the page draws it in a conversation.
+const drawn = (d: ConversationDetail): string =>
+  renderToStaticMarkup(
+    <AnswersHere.Provider value={true}>
+      <Stream d={d} c={group} w={null} />
+    </AnswersHere.Provider>,
+  );
+
+/// The row of a message drawn, from its mark (`data-ask="4"`, or its words) to the next row.
+function row(html: string, mark: string): string {
+  const at = html.indexOf(mark);
+  expect(at).toBeGreaterThanOrEqual(0);
+  const begin = html.lastIndexOf('<div class="talk-row', at);
+  const next = html.indexOf('<div class="talk-row', at + 1);
+  return html.slice(begin, next < 0 ? undefined : next);
+}
+
+/// A row's bubble, its element whole, and what comes after it in the row.
+function bubble(r: string): { inside: string; after: string } {
+  const start = r.indexOf('<div class="talk-bubble ');
+  expect(start).toBeGreaterThanOrEqual(0);
+  let depth = 0;
+  for (const m of r.slice(start).matchAll(/<div\b|<\/div>/g)) {
+    depth += m[0] === '</div>' ? -1 : 1;
+    if (depth === 0) {
+      const end = start + (m.index ?? 0) + '</div>'.length;
+      return { inside: r.slice(start, end), after: r.slice(end) };
+    }
+  }
+  return { inside: r.slice(start), after: '' };
+}
+
+/// The buttons drawn, each as its words and whether it is pressed and disabled.
+const buttons = (html: string): string[] =>
+  [...html.matchAll(/<button\b([^>]*)>((?:(?!<\/button>).)*)<\/button>/g)].map((m) => {
+    const words = m[2].replace(/<[^>]+>/g, '');
+    const pressed = /aria-pressed="true"/.test(m[1]) ? ' (picked)' : '';
+    const disabled = /\bdisabled=""/.test(m[1]) ? ' (disabled)' : '';
+    return `${words}${pressed}${disabled}`;
+  });
+
+const choice = {
+  asked: [
+    {
+      kind: 'ask',
+      value: {
+        points: [{ kind: 'design', what: 'Which table?' }],
+        choice: {
+          question: 'One table or two?',
+          options: [
+            { name: 'One table', does: 'Keeps it simple' },
+            { name: 'Two tables', does: 'Splits the reads' },
+          ],
+          recommended: 'One table',
+        },
+      },
+    },
+  ],
+};
+
+const study = {
+  from: 'architect',
+  kind: 'study',
+  project: 'p',
+  study: 'The study.',
+  choices: [
+    ['satisfied', 'The study is enough'],
+    ['study_on', 'Study more, saying what'],
+    ['no_change', 'Keep the policy'],
+  ],
+};
+
+const words = { asked: [{ kind: 'ask', value: { points: [{ kind: 'environment', what: 'Run the probe?' }] } }] };
+
+describe('an ask in its conversation', () => {
+  it('shows once, where it was asked, as the asking agent’s bubble, and is never pinned', () => {
+    const a = ask(4, choice);
+    const d = detail([entry('message', { id: 1, text: 'Before.', at: 1 }), asked(a), entry('message', { id: 5, text: 'After.', at: 3 })]);
+    expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual(['message-1', 'ask-4', 'message-5']);
+    const html = drawn(d);
+    expect(html).not.toContain('talk-pins');
+    expect(html.indexOf('Before.')).toBeLessThan(html.indexOf('data-ask="4"'));
+    expect(html.indexOf('data-ask="4"')).toBeLessThan(html.indexOf('After.'));
+    const r = row(html, 'data-ask="4"');
+    expect(r).toContain('talk-bubble-engineer');
+    expect(r).toContain('One table or two?');
+    expect(html.match(/data-ask="4"/g)).toHaveLength(1);
+  });
+
+  it('is answered in its bubble: its options as buttons, none picked, then a small box and Answer', () => {
+    const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
+    expect(after).toMatch(/^(<\/div>)+$/);
+    const answer = inside.slice(inside.indexOf('class="talk-answer"'));
+    expect(buttons(answer)).toEqual(['One table', 'Two tables', 'Answer (disabled)']);
+    expect(answer).toContain('<textarea');
+    expect(answer).toContain('placeholder="Your answer"');
+    // The ask's card in the bubble only reads: its option boxes are not picked, and it says nothing of where to answer.
+    expect(inside).not.toContain('role="radio"');
+    expect(inside).not.toContain('Answer it in its conversation');
+  });
+
+  it('has only the small box for an ask in words alone, and the choices its cell offers for a study', () => {
+    const plain = bubble(row(drawn(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
+    expect(plain).not.toContain('talk-answer-buttons');
+    expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
+    const ruled = bubble(row(drawn(detail([asked(ask(7, study), { sender: 'architect' })])), 'data-ask="7"')).inside;
+    expect(ruled).toContain('talk-bubble-architect');
+    expect(buttons(ruled.slice(ruled.indexOf('class="talk-answer"')))).toEqual([
+      'Satisfied',
+      'Study on',
+      'No change',
+      'Answer (disabled)',
+    ]);
+    expect(ruled).toContain('title="Study more, saying what"');
+  });
+
+  it('once answered is one entry, one bubble, the owner’s answer in it with the choice made', () => {
+    const a = ask(7, study, { by: 'owner', at: 9, choice: 'satisfied', text: 'Good enough.' });
+    const d = detail([asked(a, { sender: 'architect' })]);
+    expect(streamOf(d)).toHaveLength(1);
+    const html = drawn(d);
+    expect(html.match(/class="talk-row/g)).toHaveLength(1);
+    expect(html).not.toContain('talk-row-owner');
+    const { inside, after } = bubble(row(html, 'data-ask="7"'));
+    expect(after).toMatch(/^(<\/div>)+$/);
+    expect(inside).not.toContain('<textarea');
+    expect(buttons(inside)).toEqual([]);
+    expect(inside).toMatch(/<span class="talk-who">Your answer to ask 7<\/span><span class="talk-when">[^<]+<\/span>/);
+    expect(inside).toContain('<strong>Satisfied</strong>');
+    expect(inside).toContain('Good enough.');
+    // Its words show, with the ask in full folded under them.
+    expect(inside).toContain('Ask 7 in full');
+  });
+
+  it('closed by the engine, says in its bubble why no answer was needed', () => {
+    const a = ask(4, choice, { by: 'engine', at: 9, text: 'No answer is needed: the work ended (cancelled).' });
+    const { inside } = bubble(row(drawn(detail([asked(a)])), 'data-ask="4"'));
+    expect(inside).toContain('No answer is needed: the work ended (cancelled).');
+    expect(inside).not.toContain('Your answer');
+  });
+});
+
+describe('a question the architect holds', () => {
+  it('is answered in its bubble, and the owner’s answer is then in it, not an entry of its own', () => {
+    const q = entry('question', { id: 8, matter: 8, recipient: 'architect', answerable: true, text: 'Split it?' });
+    const open = bubble(row(drawn(detail([q])), 'Split it?')).inside;
+    expect(buttons(open.slice(open.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
+    const answered = { ...q, answerable: false };
+    const reply = entry('reply', { id: 8, matter: 8, sender: 'owner', recipient: 'engineer', text: 'Split it in two.', at: 4 });
+    const theirs = entry('reply', { id: 9, matter: 9, sender: 'architect', recipient: 'engineer', text: 'Keep it.', at: 5 });
+    const d = detail([answered, reply, theirs]);
+    expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual(['question-8', 'reply-9']);
+    const html = drawn(d);
+    expect(html).not.toContain('talk-row-owner');
+    const { inside } = bubble(row(html, 'Split it?'));
+    expect(inside).not.toContain('<textarea');
+    expect(inside).toContain('<span class="talk-who">Your answer</span>');
+    expect(inside).toContain('Split it in two.');
+    // The architect's reply is the architect's own message.
+    expect(row(html, 'Keep it.')).toContain('talk-bubble-architect');
+  });
+});
+
+describe('answering an ask', () => {
+  it('answers by the choices its cell offers, by its options, or in words alone', () => {
+    expect(answerWay(ask(1, study))).toEqual({
+      by: 'ruling',
+      choices: [
+        ['satisfied', 'The study is enough'],
+        ['study_on', 'Study more, saying what'],
+        ['no_change', 'Keep the policy'],
+      ],
+    });
+    expect(answerWay(ask(2, choice))).toEqual({ by: 'option', options: ['One table', 'Two tables'] });
+    // An open choice of the architect's is its own choice.
+    const open = { from: 'architect', kind: 'open', choice: { question: 'Now?', options: [{ name: 'Yes' }, { name: 'Later' }] } };
+    expect(answerWay(ask(3, open))).toEqual({ by: 'option', options: ['Yes', 'Later'] });
+    expect(answerWay(ask(4, words))).toEqual({ by: 'words' });
+  });
+
+  it('picks with a click and clears with a second, and needs words only where the ask or the choice does', () => {
+    expect(pickAfter('', 'One table')).toBe('One table');
+    expect(pickAfter('One table', 'Two tables')).toBe('Two tables');
+    expect(pickAfter('One table', 'One table')).toBe('');
+    const ruling = answerWay(ask(1, study));
+    expect(needsWords(ruling, 'satisfied')).toBe(false);
+    expect(needsWords(ruling, 'study_on')).toBe(true);
+    const option = answerWay(ask(2, choice));
+    expect(needsWords(option, 'One table')).toBe(false);
+    expect(needsWords(option, '')).toBe(true);
+    expect(needsWords(answerWay(ask(4, words)), '')).toBe(true);
+  });
+
+  it('sends the option picked with any words, the words alone, or the ruling with words unless the owner agrees', () => {
+    const a = ask(4, { ...choice, to: 'owner' });
+    expect(handsBack(a)).toBe(true);
+    expect(handsBack(ask(5, choice))).toBe(false);
+    expect(askAnswer(a, 'One table', ' Keep it small. ', false)).toEqual({ text: 'Chosen option: One table. Keep it small.' });
+    expect(askAnswer(a, 'One table', '', false)).toEqual({ text: 'Chosen option: One table.' });
+    expect(askAnswer(a, '', 'Neither.', true)).toEqual({ text: 'Neither.', to: 'architect' });
+    expect(askAnswer(a, '', ' ', false)).toBeNull();
+    const s = ask(7, study);
+    expect(askAnswer(s, 'satisfied', '', false)).toEqual({ choice: 'satisfied', text: '' });
+    expect(askAnswer(s, 'study_on', '', false)).toBeNull();
+    expect(askAnswer(s, 'study_on', 'The costs.', false)).toEqual({ choice: 'study_on', text: 'The costs.' });
+    expect(askAnswer(s, '', 'x', false)).toBeNull();
+  });
+
+  it('sends on Enter, and not on Shift with Enter or an Enter that ends a word of an input method', () => {
+    const key = (extra: Partial<Parameters<typeof enterSends>[0]> = {}) =>
+      enterSends({ key: 'Enter', shiftKey: false, keyCode: 13, nativeEvent: { isComposing: false }, ...extra });
+    expect(key()).toBe(true);
+    expect(key({ shiftKey: true })).toBe(false);
+    expect(key({ nativeEvent: { isComposing: true } })).toBe(false);
+    expect(key({ keyCode: 229 })).toBe(false);
+    expect(key({ key: 'a' })).toBe(false);
+  });
+
+  it('tells which way an ask that waits is out of view, and none while any of it shows', () => {
+    const view = { top: 100, bottom: 500 };
+    expect(awayOf({ top: 0, bottom: 90 }, view)).toBe('above');
+    expect(awayOf({ top: 520, bottom: 700 }, view)).toBe('below');
+    expect(awayOf({ top: 50, bottom: 120 }, view)).toBeNull();
+    expect(awayOf({ top: 480, bottom: 900 }, view)).toBeNull();
+    expect(awayOf({ top: 0, bottom: 900 }, view)).toBeNull();
+  });
+});

@@ -964,8 +964,8 @@ pub struct Conversation {
 /// flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
-    /// What it is: message, notice, ask, answer, interjection, words, question, report, reply, card, ruling, between;
-    /// stage, matter, policy or observation.
+    /// What it is: message, notice, ask, interjection, words, question, report, reply, card, ruling, between; stage,
+    /// matter, policy or observation. The owner's answer to an ask is in the ask's entry, never one of its own.
     pub source: String,
     /// Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
     pub id: i64,
@@ -978,7 +978,7 @@ pub struct ConversationEntry {
     /// The work and the round it came with, when it came with one.
     pub work: Option<i64>,
     pub round: Option<i64>,
-    /// For an ask and its answer, the ask; for a design card and a ruling on it, the card; for what is or holds an
+    /// For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
     /// architect's matter, the matter.
     pub ask: Option<i64>,
     pub design_card: Option<i64>,
@@ -1092,9 +1092,9 @@ pub struct MatterProgress {
     pub asked: Option<i64>,
 }
 
-/// A conversation in full: its entries in time order; what is pinned at its top for the owner, the open blockers the
-/// owner holds with their forms (the asks, and the design cards whose ruling a work waits for); and how far the owner
-/// has read it.
+/// A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
+/// holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
+/// for, pinned at its top); and how far the owner has read it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationDetail {
     pub key: String,
