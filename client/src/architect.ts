@@ -1,10 +1,22 @@
 // What an architect's page works out from what the interface reads, apart from drawing it: the wake it shows, how the
-// architect stands, its queue in parts, why the owner's words still wait for it, the observations the owner looks for,
-// the articles of the constitution in the order the owner reads them, and what an answer to an ask of the architect's
-// sends.
+// architect stands, its queue in parts, what became of each matter handled, why the owner's words still wait for it,
+// the observations the owner looks for, the articles of the constitution in the order the owner reads them, and what
+// an answer to an ask of the architect's sends.
 
-import type { ConversationEntry, JsonValue, Matter, Observation, OwnerAsk, Status, Wake, WorkSummary } from './api';
+import type {
+  ConversationEntry,
+  Handled,
+  JsonValue,
+  Matter,
+  Observation,
+  OwnerAsk,
+  Status,
+  Wake,
+  WorkSummary,
+} from './api';
 import { isObj, str, type Obj } from './labelled';
+import { type Key, t } from './messages';
+import type { ArchitectTab } from './route';
 
 /// A wake goes on no more once it reached its end or was ended.
 export const overWake = (w: WorkSummary): boolean => w.state === 'done' || w.state === 'ended';
@@ -56,6 +68,58 @@ export function wordsWait(
   if (state.kind === 'awake' && state.wake.paused !== null) return 'paused';
   if (status !== null && status.paused && !status.architects_started.includes(project)) return 'held';
   return state.kind === 'awake' ? 'awake' : 'asleep';
+}
+
+/// One kind of outcome of a matter handled, on one line: what it is, what came of it, and the tab that holds the rest of
+/// it, if one does.
+export type Outcome = { key: string; label: string; text: string; tab: ArchitectTab | null };
+
+const ACTIONS: Record<string, Key> = {
+  pause_work: 'handled_pause_work',
+  resume_work: 'handled_resume_work',
+  hold_starts: 'handled_hold_starts',
+  release_starts: 'handled_release_starts',
+  interject: 'handled_interject',
+};
+
+/// What became of a matter handled, one line for each kind of outcome it had, in the order the owner reads them: the
+/// reply taken back to the work that asked; what its path told the owner and the ask it put, both in the conversation;
+/// the item changes it collected; the changes to the observations; what it did at once; whom it wrote to. When nothing
+/// came of it, why, as the cell that closed it said.
+export function outcomes(h: Handled): Outcome[] {
+  const out: Outcome[] = [];
+  const counted = (parts: Array<[number, Key]>) =>
+    parts
+      .filter(([n]) => n > 0)
+      .map(([n, key]) => t(key, { n }))
+      .join(', ');
+  if (h.reply !== null) {
+    out.push({ key: 'reply', label: t('handled_reply', { work: h.reply_to ?? '' }), text: h.reply, tab: null });
+  }
+  if (h.told > 0) out.push({ key: 'told', label: t('handled_told', { n: h.told }), text: '', tab: 'conversation' });
+  if (h.ask !== null) out.push({ key: 'ask', label: t('handled_ask', { id: h.ask }), text: '', tab: 'conversation' });
+  const changes = counted([
+    [h.made, 'handled_made'],
+    [h.dropped, 'handled_dropped'],
+    [h.collected, 'handled_collected'],
+  ]);
+  if (changes !== '') out.push({ key: 'changes', label: t('handled_changes'), text: changes, tab: 'changes' });
+  const kinds = (kind: string) => h.observations.filter((k) => k === kind).length;
+  const observed = counted([
+    [kinds('new'), 'handled_recorded'],
+    [kinds('merge'), 'handled_merged'],
+    [kinds('close'), 'handled_closed'],
+  ]);
+  if (observed !== '') out.push({ key: 'observations', label: t('handled_observations'), text: observed, tab: 'observations' });
+  if (h.actions.length > 0) {
+    const did = h.actions.map((a) => (ACTIONS[a.kind] !== undefined ? t(ACTIONS[a.kind], { item: a.item ?? '' }) : a.kind));
+    out.push({ key: 'actions', label: t('handled_did'), text: did.join('; '), tab: null });
+  }
+  if (h.messages.length > 0) {
+    out.push({ key: 'messages', label: t('handled_wrote'), text: [...new Set(h.messages)].join(', '), tab: null });
+  }
+  if (out.length === 0) out.push({ key: 'nothing', label: t('handled_nothing'), text: h.why ?? '', tab: null });
+  return out;
 }
 
 /// The tab of the architect's panel an ask of the owner is in, by the stage that put it: the policy's for the study of a

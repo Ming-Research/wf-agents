@@ -5,6 +5,7 @@ import type {
   ConversationEntry,
   FlowDiff,
   GraphView,
+  Handled,
   Matter,
   Observation,
   OwnerAsk,
@@ -18,6 +19,7 @@ import {
   askTab,
   choicesOf,
   observationsShown,
+  outcomes,
   queueParts,
   rulingAnswer,
   shownWake,
@@ -203,6 +205,52 @@ describe("the architect's page", () => {
 
   it('is read again when what it shows changed', () => {
     expect(named({ kind: 'architect' })).toEqual(['architect', 'messages']);
+  });
+
+  it('says what became of a matter handled, one line for each kind of outcome, or why nothing did', () => {
+    const handled = (extra: Partial<Handled> = {}): Handled => ({
+      matter: 4,
+      kind: 'engineer_question',
+      detail: 'split',
+      what: 'Split #3?',
+      work: 9,
+      round: 12,
+      cell: 'ways',
+      at: 1,
+      reply: null,
+      reply_to: null,
+      told: 0,
+      made: 0,
+      dropped: 0,
+      collected: 0,
+      observations: [],
+      actions: [],
+      messages: [],
+      ask: null,
+      why: null,
+      ...extra,
+    });
+    const lines = outcomes(
+      handled({
+        reply: 'Split it in two.',
+        reply_to: 7,
+        made: 2,
+        dropped: 1,
+        observations: ['new', 'close'],
+        actions: [{ kind: 'pause_work', item: 3 }],
+        messages: ['q', 'q'],
+      }),
+    );
+    expect(lines.map((o) => [o.key, o.label, o.text, o.tab])).toEqual([
+      ['reply', 'Replied to work 7:', 'Split it in two.', null],
+      ['changes', 'Item changes:', '2 made, 1 dropped', 'changes'],
+      ['observations', 'Observations:', '1 recorded, 1 closed', 'observations'],
+      ['actions', 'Did at once:', 'paused the work on #3', null],
+      ['messages', 'Wrote to the architect of:', 'q', null],
+    ]);
+    expect(outcomes(handled({ why: 'Already done by #2.' })).map((o) => [o.key, o.text])).toEqual([
+      ['nothing', 'Already done by #2.'],
+    ]);
   });
 
   it('puts an ask in the tab of the stage that put it', () => {

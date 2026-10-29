@@ -73,7 +73,7 @@ with git and compiled, nothing written), its graphs side by side, and compares t
 flow is reviewed there.
 
 The Architect view shows a project's architect, with a switch to another project's when there are several: its wakes
-on its graph, its asks of the owner with their forms, its queue, its log, the item changes its batches made, the
+on its graph, its asks of the owner with their forms, its queue with what became of each matter it handled, the item changes its batches made, the
 project's observations (by tag, searchable, each closed by the owner with why), the policy, and where things stand as
 it understands them, each a tab of the column at its right, the first being the owner's conversation with the
 architect: the owner's words, what the architect answered and asked, and a box that says more; its line holds the

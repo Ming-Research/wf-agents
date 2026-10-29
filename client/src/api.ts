@@ -1021,10 +1021,9 @@ holds: Array<DispatchHold>,
  */
 asks: Array<OwnerAsk>, 
 /**
- * Its log over its latest fifty wakes, newest first: its judgments of the whole, and each matter it took with
- * what each round of its path answered.
+ * The matters it handled, newest first, each with what became of it.
  */
-log: Array<LogEntry>, 
+handled: Array<Handled>, 
 /**
  * The item changes its batches made or dropped, newest first.
  */
@@ -1134,9 +1133,52 @@ export type DispatchHold = { reason: string, since: number, why: string | null, 
 export type Said = { work: number, round: number, cell: string, at: number | null, value: JsonValue, };
 
 /**
- * One entry of an architect's log, by the wake and the round it starts at.
+ * A matter an architect handled, and what became of it, from what was done on its path rather than what was said of
+ * it: each kind of outcome it had.
  */
-export type LogEntry = { "kind": "judgment", work: number, round: number, cell: string, at: number | null, value: JsonValue, } | { "kind": "matter", work: number, round: number, at: number | null, matter: number, matter_kind: string, what: string, rounds: Array<Said>, closed: number | null, };
+export type Handled = { matter: number, kind: string, detail: string | null, what: string, 
+/**
+ * The round that closed it: its wake, its number and its cell, and when it ended.
+ */
+work: number, round: number, cell: string, at: number | null, 
+/**
+ * The reply taken back to the work that asked, and that work.
+ */
+reply: string | null, reply_to: number | null, 
+/**
+ * How many messages its path told the owner.
+ */
+told: number, 
+/**
+ * The item changes it collected: made, dropped, and still waiting for the review of their batch.
+ */
+made: number, dropped: number, collected: number, 
+/**
+ * The kind of each change its path made to the observations: new, merge or close.
+ */
+observations: Array<string>, 
+/**
+ * What its path did at once: each action's kind, with the item it was about.
+ */
+actions: Array<HandledAction>, 
+/**
+ * The projects whose architects its path wrote to.
+ */
+messages: Array<string>, 
+/**
+ * The ask of the owner its path put about it.
+ */
+ask: number | null, 
+/**
+ * When nothing else came of it: why, as the cell that closed it said.
+ */
+why: string | null, };
+
+/**
+ * Something a matter's path did at once: its kind (pause_work, resume_work, hold_starts, release_starts,
+ * interject), with the item it was about.
+ */
+export type HandledAction = { kind: string, item: number | null, };
 
 /**
  * An item change an architect's batch made or dropped, with the matter it came from.

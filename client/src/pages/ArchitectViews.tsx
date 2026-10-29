@@ -6,7 +6,7 @@
 
 import { type ReactNode, useState } from 'react';
 
-import type { JsonValue, LogEntry, Said, Understanding } from '../api';
+import type { JsonValue, Said, Understanding } from '../api';
 import { againstInOrder, type LineChange, stateChanges } from '../architect';
 import { time } from '../format';
 import { Field, Fold } from '../item/Shapes';
@@ -313,68 +313,6 @@ export function ChangeView({ value }: { value: JsonValue }) {
         </dl>
       ) : null}
     </div>
-  );
-}
-
-/// A part of an entry: its title, when and in which round, and what it holds.
-function Part({ title, said, onRound, children }: { title: string; said: Said; onRound: OpenRound; children: ReactNode }) {
-  return (
-    <section className="arch-part">
-      <div className="work-item-head">
-        <span className="decision-label">{title}</span>
-        <From said={said} onRound={onRound} named={false} />
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/// One entry of an architect's log, folded under one line: a judgment of the whole, under its cell's title, with what
-/// it handed in; or a matter it took, under its kind and what it is, with what each round of its path answered, and
-/// whether a round closed it.
-export function LogEntryView({ e, open, live, title, onRound }: {
-  e: LogEntry;
-  open: boolean;
-  /// Whether the wake that took it still goes on.
-  live: boolean;
-  /// A cell's title in the graph.
-  title: (cell: string) => string;
-  onRound: OpenRound;
-}) {
-  if (e.kind === 'judgment') {
-    return (
-      <details className="boxed arch-entry" open={open}>
-        <summary>
-          <span className="work-item-head">
-            <span className="cell-id">{e.cell}</span>
-            <strong>{title(e.cell)}</strong>
-            <From said={{ work: e.work, round: e.round, cell: e.cell, at: e.at, value: null }} onRound={onRound} named={false} />
-          </span>
-        </summary>
-        <Labelled value={e.value} />
-      </details>
-    );
-  }
-  return (
-    <details className="boxed arch-entry" id={`matter-${e.matter}`} open={open}>
-      <summary>
-        <span className="work-item-head">
-          <span className="badge">{words(e.matter_kind)}</span>
-          <strong>
-            <MarkdownInline text={e.what} />
-          </strong>
-          {e.closed === null ? <span className="badge">{t(live ? 'log_handling' : 'log_not_closed')}</span> : null}
-          <From said={{ work: e.work, round: e.round, cell: '', at: e.at, value: null }} onRound={onRound} />
-        </span>
-      </summary>
-      <div className="arch-entry-body">
-        {e.rounds.map((r) => (
-          <Part key={r.round} title={`${r.cell} ${title(r.cell)}`} said={r} onRound={onRound}>
-            <Labelled value={r.value} />
-          </Part>
-        ))}
-      </div>
-    </details>
   );
 }
 

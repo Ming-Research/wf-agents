@@ -3861,6 +3861,14 @@ details.dc[open] > summary::before,
   margin-bottom: 4px;
 }
 
+/* One kind of outcome of a matter handled, on one line; the whole of it on hovering. */
+.arch-outcome {
+  margin: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .arch-compare {
   display: block;
   margin: 2px 0 6px;

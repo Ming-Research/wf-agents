@@ -11,9 +11,10 @@
 // conversation the messages view shows: what waits pinned on top, the owner's words and what the architect told the
 // owner and asked, in time order, the newest at the bottom; whether the owner's words still wait for the architect,
 // and why; and a box that says more); its asks of the owner, those waiting first with their forms; its queue, the
-// matters in it, then those an ask holds; its log, newest first; the item changes its batches made; the project's
-// observations; the policy in force and the one being set; where things stand as it understands them; and the rounds
-// of the wake shown.
+// matters in it, then those an ask holds, then, folded, those it handled with what became of each; the item changes
+// its batches made; the project's observations; the policy in force and the one being set, with the asks that read
+// and approve it; where things stand as it understands them; and the rounds of the wake shown. Each part names the cell
+// that wrote it.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -24,6 +25,7 @@ import type {
   Conversation,
   ConversationEntry,
   FlowView,
+  Handled,
   ItemChange,
   Matter,
   Observation,
@@ -32,7 +34,16 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, askTab, observationsShown, overWake, queueParts, shownWake, wordsWait } from '../architect';
+import {
+  architectState,
+  askTab,
+  observationsShown,
+  outcomes,
+  overWake,
+  queueParts,
+  shownWake,
+  wordsWait,
+} from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
@@ -56,7 +67,6 @@ import { t, type Key } from '../text';
 import { ArchitectAsk, askKindWords } from './ArchitectAsk';
 import {
   ChangeView,
-  LogEntryView,
   type OpenRound,
   PolicyText,
   ProbesView,
@@ -283,7 +293,6 @@ const TAB_NAMES: Record<ArchitectTab, Key> = {
   conversation: 'talk_title',
   asks: 'arch_tab_asks',
   queue: 'arch_tab_queue',
-  decisions: 'arch_tab_decisions',
   changes: 'arch_tab_changes',
   observations: 'arch_tab_observations',
   policy: 'arch_tab_policy',
@@ -404,10 +413,45 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
   );
 }
 
-/// An architect's queue: the matters in it, in the order they came; then those an ask of the owner holds.
-function Queue({ queue, onAsk }: { queue: Matter[]; onAsk: (id: number) => void }) {
+/// A matter handled, as a block: its kind and what it was, the cell and round that closed it, and one line for each
+/// kind of outcome it had, each leading to the tab that holds the rest of it.
+function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; onTab: (tab: ArchitectTab) => void }) {
+  return (
+    <li className="arch-block" id={`matter-${h.matter}`}>
+      <div className="arch-block-h">
+        <span className="badge">
+          {words(h.kind)}
+          {h.detail !== null ? ` · ${words(h.detail)}` : ''}
+        </span>
+        <span className="arch-matter-what">{h.what}</span>
+        <Wrote cell={h.cell} work={h.work} round={h.round} onRound={onRound} />
+      </div>
+      {outcomes(h).map((o) => (
+        <p key={o.key} className="arch-outcome" title={o.text !== '' ? o.text : undefined}>
+          {o.tab !== null ? (
+            <button type="button" className="link" onClick={() => onTab(o.tab ?? 'queue')}>
+              {o.label}
+            </button>
+          ) : (
+            <span className="arch-block-label">{o.label}</span>
+          )}{' '}
+          {o.text}
+        </p>
+      ))}
+    </li>
+  );
+}
+
+/// An architect's queue: the matters in it, in the order they came; then those an ask of the owner holds; then, folded,
+/// the matters it handled, newest first, with what became of each.
+function Queue({ queue, handled, onAsk, onRound, onTab }: {
+  queue: Matter[];
+  handled: Handled[];
+  onAsk: (id: number) => void;
+  onRound: OpenRound;
+  onTab: (tab: ArchitectTab) => void;
+}) {
   const now = useNow(false);
-  if (queue.length === 0) return <p className="muted">{t('arch_queue_none')}</p>;
   const { waiting, held: holding } = queueParts(queue);
   const list = (ms: Matter[]) => (
     <ul className="arch-matters">
@@ -418,12 +462,23 @@ function Queue({ queue, onAsk }: { queue: Matter[]; onAsk: (id: number) => void 
   );
   return (
     <>
-      {waiting.length > 0 ? list(waiting) : <p className="muted">{t('arch_queue_none_waiting')}</p>}
+      {queue.length === 0 ? <p className="muted">{t('arch_queue_none')}</p> : null}
+      {queue.length > 0 && waiting.length === 0 ? <p className="muted">{t('arch_queue_none_waiting')}</p> : null}
+      {waiting.length > 0 ? list(waiting) : null}
       {holding.length > 0 ? (
         <section>
           <div className="works-label">{t('arch_queue_held', { n: holding.length })}</div>
           {list(holding)}
         </section>
+      ) : null}
+      {handled.length > 0 ? (
+        <Fold title={t('handled_title', { n: handled.length })}>
+          <ul className="arch-matters">
+            {handled.map((h) => (
+              <HandledBlock key={h.matter} h={h} onRound={onRound} onTab={onTab} />
+            ))}
+          </ul>
+        </Fold>
       ) : null}
     </>
   );
@@ -664,7 +719,7 @@ function Panel({ route, a, d, g, go, onRound }: {
   useEffect(() => {
     if (want.current !== null && bringIntoView(want.current)) want.current = null;
   });
-  // An ask is in the tab of the stage that put it; a matter in the queue while it waits, else in the log.
+  // An ask is in the tab of the stage that put it; a matter in the queue, among those waiting or those handled.
   const onAsk = (id: number) => {
     const ask = a.asks.find((x) => x.id === id);
     want.current = `ask-${id}`;
@@ -672,14 +727,12 @@ function Panel({ route, a, d, g, go, onRound }: {
   };
   const onMatter = (id: number) => {
     want.current = `matter-${id}`;
-    go({ tab: a.queue.some((m) => m.id === id) ? 'queue' : 'decisions' });
+    go({ tab: 'queue' });
   };
   const policyAsks = a.asks.filter((x) => askTab(x) === 'policy');
   const otherAsks = a.asks.filter((x) => askTab(x) === 'asks');
   const waiting = otherAsks.filter((x) => x.answer === null).length;
   const policyWaiting = policyAsks.filter((x) => x.answer === null).length;
-  const live = new Set(a.wakes.filter((w) => !overWake(w.work)).map((w) => w.work.id));
-  const titles = new Map<string, string>(g.cells.map((c) => [c.id, c.title]));
   // The conversation's tab says how many of its messages are unread and how many things in it wait for the owner, as
   // the list of conversations has them.
   const key = `architect:${a.project}`;
@@ -705,7 +758,6 @@ function Panel({ route, a, d, g, go, onRound }: {
       hint: t('open_asks_n', { n: waiting }),
     },
     { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
-    { tab: 'decisions', label: t('arch_tab_decisions'), n: a.log.length, chip: null, hint: '' },
     { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null, hint: '' },
     {
       tab: 'observations',
@@ -754,22 +806,8 @@ function Panel({ route, a, d, g, go, onRound }: {
       <div className="drawer-body" role="tabpanel" ref={body}>
         {route.tab === 'conversation' ? <ConversationView conversation={key} note={why} /> : null}
         {route.tab === 'asks' ? <Asks asks={otherAsks} onRound={onRound} /> : null}
-        {route.tab === 'queue' ? <Queue queue={a.queue} onAsk={onAsk} /> : null}
-        {route.tab === 'decisions' ? (
-          a.log.length === 0 ? (
-            <p className="muted">{t('arch_log_none')}</p>
-          ) : (
-            a.log.map((e, i) => (
-              <LogEntryView
-                key={`${e.kind}-${e.work}-${e.round}`}
-                e={e}
-                open={i === 0}
-                live={live.has(e.work)}
-                title={(cell) => titles.get(cell) ?? ''}
-                onRound={onRound}
-              />
-            ))
-          )
+        {route.tab === 'queue' ? (
+          <Queue queue={a.queue} handled={a.handled} onAsk={onAsk} onRound={onRound} onTab={(tab) => go({ tab })} />
         ) : null}
         {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
         {route.tab === 'observations' ? <Observations a={a} /> : null}

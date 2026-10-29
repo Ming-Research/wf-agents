@@ -28,7 +28,6 @@ export const ARCHITECT_TABS = [
   'conversation',
   'asks',
   'queue',
-  'decisions',
   'changes',
   'observations',
   'policy',

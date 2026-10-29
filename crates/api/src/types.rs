@@ -887,9 +887,8 @@ pub struct Architect {
     pub holds: Vec<DispatchHold>,
     /// What its wakes asked the owner, oldest first.
     pub asks: Vec<OwnerAsk>,
-    /// Its log over its latest fifty wakes, newest first: its judgments of the whole, and each matter it took with
-    /// what each round of its path answered.
-    pub log: Vec<LogEntry>,
+    /// The matters it handled, newest first, each with what became of it.
+    pub handled: Vec<Handled>,
     /// The item changes its batches made or dropped, newest first.
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
@@ -1056,32 +1055,46 @@ pub struct Said {
     pub value: Value,
 }
 
-/// One entry of an architect's log, by the wake and the round it starts at.
+/// A matter an architect handled, and what became of it, from what was done on its path rather than what was said of
+/// it: each kind of outcome it had.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum LogEntry {
-    /// A judgment of the whole: understanding the project (`state`), whether the policy is right (`policy_right`),
-    /// whether what runs fits (`fit`), the review of a batch's item changes and their revision (`review`, `revise`), a
-    /// rethink after a batch (`rethink`), a wrap-up (`wrap_up`).
-    Judgment {
-        work: i64,
-        round: i64,
-        cell: String,
-        at: Option<i64>,
-        value: Value,
-    },
-    /// A matter taken: its number and kind, what it is, each round of its path in order with what it answered, and the
-    /// round that closed it; none for one an ask of the owner holds, or still in hand.
-    Matter {
-        work: i64,
-        round: i64,
-        at: Option<i64>,
-        matter: i64,
-        matter_kind: String,
-        what: String,
-        rounds: Vec<Said>,
-        closed: Option<i64>,
-    },
+pub struct Handled {
+    pub matter: i64,
+    pub kind: String,
+    pub detail: Option<String>,
+    pub what: String,
+    /// The round that closed it: its wake, its number and its cell, and when it ended.
+    pub work: i64,
+    pub round: i64,
+    pub cell: String,
+    pub at: Option<i64>,
+    /// The reply taken back to the work that asked, and that work.
+    pub reply: Option<String>,
+    pub reply_to: Option<i64>,
+    /// How many messages its path told the owner.
+    pub told: i64,
+    /// The item changes it collected: made, dropped, and still waiting for the review of their batch.
+    pub made: i64,
+    pub dropped: i64,
+    pub collected: i64,
+    /// The kind of each change its path made to the observations: new, merge or close.
+    pub observations: Vec<String>,
+    /// What its path did at once: each action's kind, with the item it was about.
+    pub actions: Vec<HandledAction>,
+    /// The projects whose architects its path wrote to.
+    pub messages: Vec<String>,
+    /// The ask of the owner its path put about it.
+    pub ask: Option<i64>,
+    /// When nothing else came of it: why, as the cell that closed it said.
+    pub why: Option<String>,
+}
+
+/// Something a matter's path did at once: its kind (pause_work, resume_work, hold_starts, release_starts,
+/// interject), with the item it was about.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct HandledAction {
+    pub kind: String,
+    pub item: Option<i64>,
 }
 
 /// An item change an architect's batch made or dropped, with the matter it came from.

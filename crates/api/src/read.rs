@@ -16,11 +16,12 @@ use serde_json::Value;
 use crate::view;
 use crate::{
     Architect, AskKind, Conversation, ConversationDetail, ConversationEntry, DesignCard, DispatchHold, Draft,
-    FlowVersion, FlowView, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
-    KeptFile, LevelChange, LinkedItem, LogEntry, Matter, Misses, NamedText, Observation, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional,
-    RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Spend,
-    StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState, WorkSummary,
+    FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
+    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, Misses, NamedText, Observation, OwnerAsk,
+    OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement,
+    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session,
+    Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
+    WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1706,7 +1707,7 @@ pub fn architect(
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
-        log: log(conn, project)?,
+        handled: handled(conn, project)?,
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
         setting,
@@ -1799,7 +1800,7 @@ fn woke_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>
     Ok(out)
 }
 
-/// The cells on a matter's path, whose rounds a matter's entry of the log holds.
+/// The cells on a matter's path, whose rounds do what becomes of a matter.
 const PATH: [&str; 11] = [
     "set_straight",
     "crux",
@@ -1814,106 +1815,127 @@ const PATH: [&str; 11] = [
     "to_owner",
 ];
 
-/// The cells whose rounds are judgments of the whole, each an entry of the log of its own.
-const JUDGMENTS: [&str; 7] = ["state", "policy_right", "fit", "review", "revise", "rethink", "wrap_up"];
+/// The first `why` a return says, looking through it in order: why a cell closed a matter with nothing else done.
+fn first_why(v: &Value) -> Option<String> {
+    match v {
+        Value::Object(o) => o
+            .get("why")
+            .and_then(Value::as_str)
+            .filter(|w| !w.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| o.values().find_map(first_why)),
+        Value::Array(xs) => xs.iter().find_map(first_why),
+        _ => None,
+    }
+}
 
-/// A project's architect's log over its latest fifty wakes, newest first: each judgment of the whole, and each matter
-/// taken with each round of its path in order and the round that closed it.
-fn log(conn: &Connection, project: &str) -> Result<Vec<LogEntry>> {
+/// The matters a project's architect handled, newest first, the latest hundred, each with what became of it: what its
+/// path did, from the pick that took it to the round that closed it, as the records of what was done have it (the
+/// reply kept with the matter, the item changes it collected, the effects its rounds handed in and the engine carried
+/// out, what they told the owner, the ask put about it); and when nothing came of it, why.
+fn handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
     let mut st = conn.prepare(
-        "SELECT r.work, r.n, r.cell, r.transition, r.ended_at, r.output
-         FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND r.transition IS NOT NULL
-           AND r.transition NOT IN ('tools', 'search', 'pause')
-           AND r.work IN (SELECT id FROM works WHERE graph = 'architect' AND project = ?1 ORDER BY id DESC LIMIT 50)
-         ORDER BY r.work, r.n",
+        "SELECT m.id, m.kind, m.detail, m.what, m.handled_work, m.handled_round, coalesce(r.cell, ''), r.ended_at,
+                m.work, json_extract(m.reply, '$.text'), m.asked, r.output
+         FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+         WHERE m.project = ?1 AND m.handled_round IS NOT NULL
+         ORDER BY m.handled_work DESC, m.handled_round DESC, m.id DESC LIMIT 100",
     )?;
-    let rows = st.query_map([project], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-            r.get::<_, Option<i64>>(4)?,
-            r.get::<_, Option<String>>(5)?,
-        ))
-    })?;
-    let mut out: Vec<LogEntry> = Vec::new();
-    // The matter taken whose path has not ended yet; it ends at the next look at the queue, or with its wake.
-    let mut open: Option<LogEntry> = None;
-    for row in rows {
-        let (work, round, cell, _transition, at, output) = row?;
-        if matches!(&open, Some(LogEntry::Matter { work: w, .. }) if *w != work) {
-            out.extend(open.take());
-        }
-        // A round of a wake keeps the cell's id of the flow version the wake ran on.
-        let is = |names: &[&str]| names.iter().any(|n| db::is_cell("architect", n, &cell));
-        let look = is(&["anything"]);
-        let picked = if look {
-            returned(output.clone(), None)["queue"]["matter"].as_i64()
-        } else if is(&["pick"]) {
-            returned(output.clone(), Some("pick"))["matter"].as_i64()
-        } else {
-            None
-        };
-        if look {
-            out.extend(open.take());
-        }
-        if let Some(m) = picked {
-            out.extend(open.take());
-            let (kind, what): (String, String) = conn
-                .query_row("SELECT kind, what FROM architect_matters WHERE id = ?1", [m], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
-                .optional()?
-                .unwrap_or_default();
-            let closed: Option<i64> = conn
-                .query_row(
-                    "SELECT handled_round FROM architect_matters WHERE id = ?1 AND handled_work = ?2",
-                    params![m, work],
-                    |r| r.get(0),
-                )
-                .optional()?
-                .flatten();
-            open = Some(LogEntry::Matter {
-                work,
-                round,
-                at,
-                matter: m,
-                matter_kind: kind,
-                what,
-                rounds: Vec::new(),
-                closed,
-            });
-            continue;
-        }
-        if is(&PATH) {
-            if let Some(LogEntry::Matter { rounds, .. }) = open.as_mut() {
-                rounds.push(Said {
-                    work,
-                    round,
-                    cell: cell.clone(),
-                    at,
-                    value: returned(output, None),
+    let rows: Vec<(Handled, Option<String>)> = st
+        .query_map([project], |r| {
+            let reply: Option<String> = r.get(9)?;
+            let from: Option<i64> = r.get(8)?;
+            Ok((
+                Handled {
+                    matter: r.get(0)?,
+                    kind: r.get(1)?,
+                    detail: r.get(2)?,
+                    what: r.get(3)?,
+                    work: r.get(4)?,
+                    round: r.get(5)?,
+                    cell: r.get(6)?,
+                    at: r.get(7)?,
+                    reply_to: reply.as_ref().and(from),
+                    reply,
+                    told: 0,
+                    made: 0,
+                    dropped: 0,
+                    collected: 0,
+                    observations: Vec::new(),
+                    actions: Vec::new(),
+                    messages: Vec::new(),
+                    ask: r.get(10)?,
+                    why: None,
+                },
+                r.get(11)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let picks = db::cells_sql("architect", &["pick", "anything"]);
+    let path = db::cells_sql("architect", &PATH);
+    let mut out = Vec::new();
+    for (mut h, closing) in rows {
+        // Its path began after the round that took it: a pick, or a look at a queue that held it alone.
+        let taken: Option<i64> = conn.query_row(
+            &format!(
+                "SELECT max(n) FROM rounds WHERE work = ?1 AND n <= ?2 AND cell IN {picks}
+                   AND ?3 IN (json_extract(output, '$.outcome.pick.matter'), json_extract(output, '$.outcome.queue.matter'))"
+            ),
+            params![h.work, h.round, h.matter],
+            |r| r.get(0),
+        )?;
+        let from = taken.unwrap_or(h.round - 1);
+        let mut st = conn.prepare(&format!(
+            "SELECT json_extract(output, '$.outcome.effects') FROM rounds
+             WHERE work = ?1 AND n > ?2 AND n <= ?3 AND transition IS NOT NULL AND cell IN {path} ORDER BY n"
+        ))?;
+        let effects: Vec<Option<String>> = st
+            .query_map(params![h.work, from, h.round], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for e in effects.into_iter().filter_map(json) {
+            for c in e["observation_changes"].as_array().into_iter().flatten() {
+                h.observations.push(c["kind"].as_str().unwrap_or_default().to_string());
+            }
+            for a in e["actions"].as_array().into_iter().flatten() {
+                h.actions.push(HandledAction {
+                    kind: a["kind"].as_str().unwrap_or_default().to_string(),
+                    item: a["item"].as_i64(),
                 });
             }
-            continue;
+            for m in e["messages"].as_array().into_iter().flatten() {
+                h.messages.push(m["project"].as_str().unwrap_or_default().to_string());
+            }
         }
-        if is(&JUDGMENTS) {
-            out.push(LogEntry::Judgment {
-                work,
-                round,
-                cell,
-                at,
-                value: returned(output, None),
-            });
+        h.told = conn.query_row(
+            "SELECT count(*) FROM owner_messages WHERE work = ?1 AND round > ?2 AND round <= ?3",
+            params![h.work, from, h.round],
+            |r| r.get(0),
+        )?;
+        let mut st =
+            conn.prepare("SELECT state, count(*) FROM architect_item_changes WHERE matter = ?1 GROUP BY state")?;
+        let states: Vec<(String, i64)> = st
+            .query_map([h.matter], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (state, n) in states {
+            match state.as_str() {
+                "made" => h.made = n,
+                "dropped" => h.dropped = n,
+                "collected" => h.collected = n,
+                _ => {}
+            }
         }
+        let nothing = h.reply.is_none()
+            && h.told == 0
+            && h.made + h.dropped + h.collected == 0
+            && h.observations.is_empty()
+            && h.actions.is_empty()
+            && h.messages.is_empty()
+            && h.ask.is_none();
+        if nothing {
+            h.why = first_why(&returned(closing, None));
+        }
+        out.push(h);
     }
-    out.extend(open);
-    let key = |e: &LogEntry| match e {
-        LogEntry::Judgment { work, round, .. } | LogEntry::Matter { work, round, .. } => (*work, *round),
-    };
-    out.sort_by_key(|e| std::cmp::Reverse(key(e)));
     Ok(out)
 }
 
@@ -3188,44 +3210,13 @@ mod tests {
         );
         assert_eq!(a.asks.iter().map(|x| x.id).collect::<Vec<_>>(), [1, 2]);
 
-        let LogEntry::Matter {
-            work,
-            round,
-            matter,
-            matter_kind,
-            rounds,
-            closed,
-            ..
-        } = &a.log.iter().find(|e| matches!(e, LogEntry::Matter { .. })).unwrap()
-        else {
-            panic!("no matter in the log: {:?}", a.log);
-        };
+        // The matter handled, by the round that closed it, with the item change it collected, which the batch made.
+        let h = a.handled.iter().find(|h| h.matter == 1).unwrap();
         assert_eq!(
-            (*work, *round, *matter, matter_kind.as_str(), *closed),
-            (2, 6, 1, "engineer_question", Some(9))
+            (h.kind.as_str(), h.work, h.round, h.made, h.dropped),
+            ("engineer_question", 2, 9, 1, 0)
         );
-        let cells: Vec<&str> = rounds.iter().map(|r| r.cell.as_str()).collect();
-        assert_eq!(cells, ["crux", "ways"]);
-        assert_eq!(rounds[0].value["crux"]["question"], "q");
-        let judged: Vec<(i64, i64, &str)> = a
-            .log
-            .iter()
-            .filter_map(|e| match e {
-                LogEntry::Judgment { work, round, cell, .. } => Some((*work, *round, cell.as_str())),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            judged,
-            [
-                (3, 3, "policy_right"),
-                (2, 13, "wrap_up"),
-                (2, 11, "rethink"),
-                (2, 5, "fit"),
-                (2, 4, "policy_right"),
-                (2, 3, "state")
-            ]
-        );
+        assert!(h.why.is_none(), "{h:?}");
         assert_eq!(a.changes.len(), 1);
         assert_eq!(a.changes[0].change["kind"], "hold");
 
