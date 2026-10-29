@@ -824,7 +824,7 @@
    "given": {}
   },
   {
-   "row": "ask_architect",
+   "row": "to_architect",
    "json": {
     "outcome": {
      "ask": {
@@ -865,7 +865,7 @@
     }
    },
    "given": {
-    "cancelled": "no"
+    "held": "answered"
    }
   }
  ],
@@ -877,7 +877,9 @@
      "text": "reply.text"
     }
    },
-   "given": {}
+   "given": {
+    "interjection": "no"
+   }
   }
  ],
  "X1": [
