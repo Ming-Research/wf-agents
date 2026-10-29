@@ -182,7 +182,14 @@ describe("the architect's page", () => {
   });
 
   it('has an address that names the project, the wake, the tab, the round and the cell', () => {
-    const architect = { page: 'architect' as const, project: null, wake: null, tab: 'asks' as const, round: null, cell: null };
+    const architect = {
+      page: 'architect' as const,
+      project: null,
+      wake: null,
+      tab: 'conversation' as const,
+      round: null,
+      cell: null,
+    };
     const routes: Route[] = [
       architect,
       { ...architect, tab: 'queue' },
@@ -198,7 +205,9 @@ describe("the architect's page", () => {
     expect(href({ ...architect, wake: 12, round: 3 })).toBe('/architect?wake=12&round=R12-3');
     expect(href(architect)).toBe('/architect');
     expect(href({ ...architect, project: 'p', wake: 12 })).toBe('/architect?project=p&wake=12');
-    // A round of another wake, or one with no wake named, opens none; a tab the page does not know is the asks.
+    // A round of another wake, or one with no wake named, opens none; a tab the page does not know, such as the asks it
+    // had before, is the conversation.
+    expect(parse('/architect', '?tab=asks')).toEqual(architect);
     expect(parse('/architect', '?wake=12&round=R11-3&tab=x')).toEqual({ ...architect, wake: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);
   });
@@ -257,8 +266,8 @@ describe("the architect's page", () => {
     const ask = (kind: string): OwnerAsk => ({ id: 1, round: 2, work: 3, item: null, body: { from: 'architect', kind }, answer: null, kinds: [] });
     expect(askTab(ask('study'))).toBe('policy');
     expect(askTab(ask('policy_approval'))).toBe('policy');
-    expect(askTab(ask('ask'))).toBe('asks');
-    expect(askTab(ask('open'))).toBe('asks');
+    expect(askTab(ask('ask'))).toBe('conversation');
+    expect(askTab(ask('open'))).toBe('conversation');
   });
 
   it("says why the owner's words still wait for the architect", () => {

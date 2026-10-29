@@ -9,8 +9,8 @@
 // place of its list, with a way back to it. The panel's tabs, on one line: the owner's conversation with the
 // architect, first, with how many of its messages are unread and whether something in it waits for the owner (the same
 // conversation the messages view shows: what waits pinned on top, the owner's words and what the architect told the
-// owner and asked, in time order, the newest at the bottom; whether the owner's words still wait for the architect,
-// and why; and a box that says more); its asks of the owner, those waiting first with their forms; its queue, the
+// owner and asked, in time order, the newest at the bottom, its asks of the owner pinned with their forms; whether the
+// owner's words still wait for the architect, and why; and a box that says more), the tab it opens on; its queue, the
 // matters in it, then those an ask holds, then, folded, those it handled with what became of each; the item changes
 // its batches made; the project's observations; the policy in force and the one being set, with the asks that read
 // and approve it; where things stand as it understands them; and the rounds of the wake shown. Each part names the cell
@@ -291,7 +291,6 @@ const WAITS: Record<string, Key> = {
 /// The name of each tab of the architect's panel.
 const TAB_NAMES: Record<ArchitectTab, Key> = {
   conversation: 'talk_title',
-  asks: 'arch_tab_asks',
   queue: 'arch_tab_queue',
   changes: 'arch_tab_changes',
   observations: 'arch_tab_observations',
@@ -605,11 +604,11 @@ function Observations({ a }: { a: ArchitectRead }) {
   );
 }
 
-/// The architect's asks of the owner: those waiting first, with their forms, each under the cell that put it; those
-/// answered folded under them. The Asks tab holds those its matters' paths put, the Policy tab the study and the
-/// approval of a new policy.
-function Asks({ asks, onRound, none = true }: { asks: OwnerAsk[]; onRound: OpenRound; none?: boolean }) {
-  if (asks.length === 0) return none ? <p className="muted">{t('arch_asks_none')}</p> : null;
+/// The asks of the owner the cells that set a policy put (the study to read, the policy to approve): those waiting
+/// first, with their forms, each under the cell that put it; those answered folded under them. Every other ask of the
+/// architect's is pinned in the conversation, with its form.
+function PolicyAsks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
+  if (asks.length === 0) return null;
   const waiting = asks.filter((x) => x.answer === null);
   const answered = asks.filter((x) => x.answer !== null).reverse();
   const one = (x: OwnerAsk) => (
@@ -625,7 +624,7 @@ function Asks({ asks, onRound, none = true }: { asks: OwnerAsk[]; onRound: OpenR
   );
   return (
     <>
-      {waiting.length === 0 ? (none ? <p className="muted">{t('arch_asks_none_waiting')}</p> : null) : waiting.map(one)}
+      {waiting.map(one)}
       {answered.length > 0 ? (
         <details className="boxed work-old">
           <summary>{t('work_answered_asks', { n: answered.length })}</summary>
@@ -644,7 +643,7 @@ function Policy({ a, asks, onRound }: { a: ArchitectRead; asks: OwnerAsk[]; onRo
   const p = a.policy;
   return (
     <>
-      <Asks asks={asks} onRound={onRound} none={false} />
+      <PolicyAsks asks={asks} onRound={onRound} />
       {s !== null ? (
         <section className="arch-part arch-setting">
           <div className="decision-label">{t('policy_being_set')}</div>
@@ -723,15 +722,13 @@ function Panel({ route, a, d, g, go, onRound }: {
   const onAsk = (id: number) => {
     const ask = a.asks.find((x) => x.id === id);
     want.current = `ask-${id}`;
-    go({ tab: ask !== undefined ? askTab(ask) : 'asks' });
+    go({ tab: ask !== undefined ? askTab(ask) : 'conversation' });
   };
   const onMatter = (id: number) => {
     want.current = `matter-${id}`;
     go({ tab: 'queue' });
   };
   const policyAsks = a.asks.filter((x) => askTab(x) === 'policy');
-  const otherAsks = a.asks.filter((x) => askTab(x) === 'asks');
-  const waiting = otherAsks.filter((x) => x.answer === null).length;
   const policyWaiting = policyAsks.filter((x) => x.answer === null).length;
   // The conversation's tab says how many of its messages are unread and how many things in it wait for the owner, as
   // the list of conversations has them.
@@ -749,13 +746,6 @@ function Panel({ route, a, d, g, go, onRound }: {
       n: talk !== null && talk.unread > 0 ? talk.unread : null,
       chip: talk !== null && talk.waiting > 0 ? t('conv_waits_chip', { n: talk.waiting }) : null,
       hint: t('conv_waits_n', { n: talk?.waiting ?? 0 }),
-    },
-    {
-      tab: 'asks',
-      label: t('arch_tab_asks'),
-      n: otherAsks.length,
-      chip: waiting > 0 ? t('open_asks_chip', { n: waiting }) : null,
-      hint: t('open_asks_n', { n: waiting }),
     },
     { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
     { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null, hint: '' },
@@ -805,7 +795,6 @@ function Panel({ route, a, d, g, go, onRound }: {
       </div>
       <div className="drawer-body" role="tabpanel" ref={body}>
         {route.tab === 'conversation' ? <ConversationView conversation={key} note={why} /> : null}
-        {route.tab === 'asks' ? <Asks asks={otherAsks} onRound={onRound} /> : null}
         {route.tab === 'queue' ? (
           <Queue queue={a.queue} handled={a.handled} onAsk={onAsk} onRound={onRound} onTab={(tab) => go({ tab })} />
         ) : null}
@@ -906,7 +895,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   }, [ready]);
   const onAsk = (ask: number) => {
     const asked = a.asks.find((x) => x.id === ask);
-    go({ tab: asked !== undefined ? askTab(asked) : 'asks' });
+    go({ tab: asked !== undefined ? askTab(asked) : 'conversation' });
     window.setTimeout(() => bringIntoView(`ask-${ask}`), 0);
   };
   return (

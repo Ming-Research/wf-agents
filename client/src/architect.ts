@@ -123,10 +123,11 @@ export function outcomes(h: Handled): Outcome[] {
 }
 
 /// The tab of the architect's panel an ask of the owner is in, by the stage that put it: the policy's for the study of a
-/// new policy and its approval, which the cells that set a policy put; the asks' for every other.
-export function askTab(a: OwnerAsk): 'policy' | 'asks' {
+/// new policy and its approval, which the cells that set a policy put; the conversation's, where it is pinned with its
+/// form, for every other.
+export function askTab(a: OwnerAsk): 'policy' | 'conversation' {
   const kind = isObj(a.body) ? str(a.body.kind) : '';
-  return kind === 'study' || kind === 'policy_approval' ? 'policy' : 'asks';
+  return kind === 'study' || kind === 'policy_approval' ? 'policy' : 'conversation';
 }
 
 /// The observations the owner looks for: with the tag chosen, if one is, and the words searched for, if any, in what
