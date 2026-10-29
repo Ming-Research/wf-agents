@@ -578,3 +578,33 @@ case!(an_input_missing_behind_an_engine_step, "missing", |v| {
     drop_source(v, "fix", json!(["table_review", "previous[not_fixed]"]));
     drop_source(v, "fix", json!(["table_review", "previous[insist]"]));
 });
+
+// Every cell a text names is a cell of its graph: a rename or a removal that leaves a text naming the cell as it was is
+// refused, saying where the text is and what it names.
+case!(
+    a_text_that_names_a_cell_its_graph_has_not,
+    "engineer: flows.engineer.limits.counters.fixes.desc names cell `repair`, which its graph has not",
+    |v| {
+        graph(v)["limits"]["counters"][3]["desc"] = json!("The times cell `repair` returned from a fix");
+    }
+);
+case!(
+    a_text_that_names_a_cell_of_the_other_graph,
+    "architect: flows.architect.nodes.correct.prompt[0] names cell `way_on`, which its graph has not",
+    |v| {
+        let correct = v["flows"][1]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|n| n["id"] == "correct")
+            .unwrap();
+        correct["prompt"][0] = json!("Coming from cell `way_on`, correct the text.");
+    }
+);
+case!(
+    a_text_every_graph_shares_that_names_a_cell_no_graph_has,
+    "engine.steps.merge names cell `merging`, which no graph has",
+    |v| {
+        v["engine"]["steps"]["merge"] = json!("Puts the PR in the merge queue, as cell `merging` says.");
+    }
+);

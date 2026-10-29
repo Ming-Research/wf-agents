@@ -11,7 +11,8 @@
 //!   cell that waits for an answer gets it, and every loop of states passes a row that counts or waits;
 //! - every return each cell's output allows, in every state: exactly one row holds, and nothing in it is dropped;
 //! - every row from one block into another goes to one of that block's entries;
-//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is.
+//! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is;
+//! - every cell a text of the flow names, as cell `name`, is a cell of its graph ([`cells_named`]).
 //!
 //! What an agent's session already holds is not worked out here: the engine decides it as it runs, from what each
 //! session was given and handed back.
@@ -26,6 +27,7 @@ mod graph;
 mod reads;
 mod returns;
 mod run;
+mod texts;
 mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +38,7 @@ pub use compiled::{
     Stats, ToolUse, found_at, valid, without_null_options,
 };
 pub use run::Position;
+pub use texts::cells_named;
 
 use check::Analysis;
 use format::{Do, Source, Src};
@@ -136,6 +139,8 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
         stats.push(st);
     }
     let settings = names(&source, &built, cx, &mut problems);
+    let raw: serde_json::Value = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
+    problems.extend(texts::unknown_cells(&raw));
     if !problems.is_empty() {
         return Err(Error { problems });
     }

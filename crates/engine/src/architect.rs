@@ -1644,19 +1644,21 @@ fn names_date(text: &str) -> bool {
     })
 }
 
-/// The cells of the flow a text names: a cell's name after the word cell, as `cell pick`; a name alone is a word.
+/// The cells of the flow a text names: as the flow's own texts name one ([`flow::cells_named`]), or by its name after
+/// the word cell, as `cell pick`; a name alone is a word.
 fn names_cell(e: &Engine, text: &str) -> Option<String> {
     let f = e.flows.get(&e.flow_now)?;
+    let named = flow::cells_named(text);
     let words: Vec<&str> = text
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .filter(|w| !w.is_empty())
         .collect();
     for g in &f.graphs {
         for c in &g.cells {
-            let named = words
+            let after = words
                 .windows(2)
                 .any(|w| w[0].eq_ignore_ascii_case("cell") && w[1] == c.id);
-            if named {
+            if after || named.contains(&c.id.as_str()) {
                 return Some(c.id.clone());
             }
         }
