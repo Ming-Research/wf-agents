@@ -223,7 +223,7 @@ fn common_inputs<'g>(cells: &[&'g CompiledCell]) -> Vec<(&'g str, &'g str)> {
         .filter(|c| c.kind == "agent")
         .flat_map(|c| &c.inputs)
     {
-        if let Some(n) = x.name.as_deref()
+        if let Some(n) = x.name.as_deref().filter(|_| x.common)
             && !out.iter().any(|(m, _)| *m == n)
         {
             out.push((n, x.what.as_str()));
@@ -439,7 +439,7 @@ pub fn cell_inputs(cell: &CompiledCell) -> String {
         .iter()
         .filter(|x| !x.from.iter().all(|s| *s == crate::format::Src::Itself))
         .enumerate()
-        .map(|(i, x)| match &x.name {
+        .map(|(i, x)| match x.name.as_deref().filter(|_| x.common) {
             Some(name) => format!("{}. {name}, which format:common describes", i + 1),
             None => format!("{}. {}", i + 1, x.what),
         })

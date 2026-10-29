@@ -2087,14 +2087,24 @@ shown?: Array<string>,
 /**
  * Places of the return a role reads outside this flow, through the database.
  */
-read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
+read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, 
+/**
+ * Each field of the return by its path (`understanding.grounds[verified].claim`), with the title the owner's
+ * page heads it with. No agent is sent these.
+ */
+titles?: { [key in string]: string }, };
 
 export type CompiledInput = { id?: string | null, 
 /**
- * For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
- * the forms every return shares say what it is.
+ * What the input is called, as the owner's page heads it; none in a flow version stored before every input had
+ * a name, where only an input every agent's cell has had one.
  */
 name?: string | null, 
+/**
+ * An input every agent's cell has: the agent knows it by its name. A cell's list of what its inputs are names
+ * it only; the forms every return shares say what it is.
+ */
+common?: boolean, 
 /**
  * For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
  */

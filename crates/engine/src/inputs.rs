@@ -760,6 +760,7 @@ mod tests {
             input: CompiledInput {
                 id: None,
                 name: None,
+                common: false,
                 numbered: Some("F".into()),
                 what: "The table to answer".into(),
                 from: Vec::new(),

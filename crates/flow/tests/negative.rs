@@ -498,11 +498,23 @@ case!(a_shown_place_the_return_does_not_have, "nope", |v| {
 case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
     obj(&mut graph(v)["agentCommon"]["inputs"][0]).remove("name");
 });
+// The owner's page heads every input with its name and every field of a return with its title.
+case!(an_input_with_no_name, "every input goes by a name: S0", |v| {
+    obj(&mut node(v, "S0")["inputs"][0]).remove("name");
+});
 case!(
-    a_cell_own_input_with_a_name,
-    "only an input every agent's cell has",
+    a_return_field_with_no_title,
+    "a return field with no title: R1 understanding.grounds[verified].where",
     |v| {
-        node(v, "I1")["inputs"][0]["name"] = json!("Design");
+        let grounds = &mut node(v, "R1")["out"][0]["fields"][4];
+        obj(&mut grounds["item"]["branches"][0]["fields"][1]).remove("title");
+    }
+);
+case!(
+    a_field_every_agent_return_has_with_no_title,
+    "a return field with no title: R1 progress",
+    |v| {
+        obj(&mut v["shapes"]["progress_form"]).remove("title");
     }
 );
 case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {

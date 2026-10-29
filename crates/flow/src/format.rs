@@ -151,6 +151,9 @@ pub struct RawField {
     pub shape: Option<String>,
     /// The field's name; none for the item of a list.
     pub name: Option<String>,
+    /// What the field is, in a few words for the owner: the owner's page heads the field with it. Every field with a
+    /// name has one. No agent is sent it: an agent reads the description.
+    pub title: Option<String>,
     #[serde(rename = "type")]
     pub kind: Option<Kind>,
     /// What the agent is told the field is.
@@ -630,8 +633,14 @@ pub struct Gate {
     pub prompt: String,
     /// What the answer is, with `{problem}`.
     pub answer: String,
+    /// The answer's title, which the owner's page heads it with.
+    #[serde(rename = "answerTitle")]
+    pub answer_title: String,
     /// What the answer's why is.
     pub why: String,
+    /// The title of the answer's why.
+    #[serde(rename = "whyTitle")]
+    pub why_title: String,
     /// For a gate whose question may not fit the work: it answers its outcome that goes on, or not applicable.
     pub na: GateNa,
 }
@@ -861,8 +870,10 @@ pub struct Check {
 pub struct Input {
     /// The name the cell's rows, actions and checks read the input by, as `@<id>`.
     pub id: Option<String>,
-    /// For an input every agent's cell has: what it is called. Each cell's list of what its inputs are names it only,
-    /// and the forms every return shares say once what it is.
+    /// What the input is called, in a few words for the owner: the owner's page heads the input with it. Every input
+    /// has one. An input every agent's cell has is also named so to the agent: each cell's list of what its inputs
+    /// are names it only, and the forms every return shares say once what it is. No agent is sent the name of any
+    /// other input.
     pub name: Option<String>,
     /// For an input that is a table the cell answers row by row: the prefix its rows are numbered with. The engine
     /// gives the input as one table, each finding, column, test, conflict, check and entry its sources hold a row,

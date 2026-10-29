@@ -286,6 +286,102 @@ fn the_compiled_flow_reads_back_with_a_stable_digest() {
     assert_eq!(c.digest().len(), 64);
 }
 
+// The owner's page heads each field of a return with its title and each input with its name, and no agent is sent
+// either, so that agents' prompts and their cache stay as they were: the flow with every title, and the name of every
+// input but those every agent's cell has, written otherwise compiles to the same flow but for the titles and those
+// names, and so gives every agent the same return schemas, formats, lists of inputs and prompts. The names of the
+// inputs every agent's cell has are the agents' too, and stay.
+#[test]
+fn no_agent_is_sent_a_title_or_the_name_of_an_input_only_the_owner_reads() {
+    fn retitle(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                let field = o.contains_key("name") && (o.contains_key("type") || o.contains_key("$ref"));
+                let keys = ["answerTitle", "whyTitle"].into_iter().chain(field.then_some("title"));
+                for k in keys {
+                    if let Some(Value::String(t)) = o.get_mut(k) {
+                        t.push_str(", written otherwise");
+                    }
+                }
+                o.values_mut().for_each(retitle);
+            }
+            Value::Array(xs) => xs.iter_mut().for_each(retitle),
+            _ => {}
+        }
+    }
+    // The compiled flow without what only the owner's page reads.
+    fn agents_part(c: &flow::Compiled) -> Value {
+        let mut v = serde_json::to_value(c).unwrap();
+        for g in v["graphs"].as_array_mut().unwrap() {
+            for cell in g["cells"].as_array_mut().unwrap() {
+                cell.as_object_mut().unwrap().remove("titles");
+                for x in cell["inputs"].as_array_mut().unwrap() {
+                    if x.get("common") != Some(&Value::Bool(true)) {
+                        x.as_object_mut().unwrap().remove("name");
+                    }
+                }
+            }
+        }
+        v
+    }
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    retitle(&mut v);
+    for g in v["flows"].as_array_mut().unwrap() {
+        for n in g["nodes"].as_array_mut().unwrap() {
+            for x in n.get_mut("inputs").and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(Value::String(name)) = x.get_mut("name") {
+                    name.push_str(", written otherwise");
+                }
+            }
+        }
+    }
+    let other = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
+    let c = compiled();
+    assert!(
+        agents_part(&c) == agents_part(&other),
+        "a title or an input's name reached what agents are sent"
+    );
+    for (g, h) in c.graphs.iter().zip(&other.graphs) {
+        assert_eq!(
+            flow::formats::common_format(g, &[]),
+            flow::formats::common_format(h, &[])
+        );
+        for (x, y) in g.cells.iter().zip(&h.cells) {
+            assert_eq!(x.schema, y.schema, "{} {}", g.name, x.id);
+            assert_eq!(x.prompt, y.prompt, "{} {}", g.name, x.id);
+            assert_eq!(
+                flow::formats::cell_format(g, x, &[]),
+                flow::formats::cell_format(h, y, &[])
+            );
+            assert_eq!(
+                flow::formats::cell_inputs(x),
+                flow::formats::cell_inputs(y),
+                "{} {}",
+                g.name,
+                x.id
+            );
+            assert!(x.titles.keys().eq(y.titles.keys()), "{} {}", g.name, x.id);
+            assert!(
+                x.titles.values().zip(y.titles.values()).all(|(a, b)| a != b),
+                "{} {}",
+                g.name,
+                x.id
+            );
+        }
+    }
+    // Every field with a name has a title: those of R1's own answer, in the places the page finds them.
+    let r1 = c.graph("engineer").unwrap().cell("R1").unwrap();
+    assert_eq!(
+        r1.titles["understanding.vs_item"],
+        "Where this differs from the item as written"
+    );
+    assert_eq!(
+        r1.titles["understanding.grounds[inferred].confirm"],
+        "How it will be confirmed"
+    );
+    assert_eq!(r1.titles["progress"], "Progress note");
+}
+
 // Every sample return fits its cell's schema and takes the row it was written for.
 #[test]
 fn every_sample_takes_its_row() {

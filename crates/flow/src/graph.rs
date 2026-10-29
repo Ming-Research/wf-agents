@@ -60,6 +60,8 @@ pub(crate) const POINTERS: [&str; 3] = ["@stopped", "@caller", "@from"];
 pub(crate) struct In {
     pub id: Option<String>,
     pub name: Option<String>,
+    /// An input every agent's cell has, which the agent knows by its name.
+    pub common: bool,
     pub numbered: Option<String>,
     pub what: String,
     pub from: Vec<Src>,
@@ -231,10 +233,11 @@ impl Cell {
     }
 }
 
-fn input(x: &Input) -> In {
+fn input(x: &Input, common: bool) -> In {
     In {
         id: x.id.clone(),
         name: x.name.clone(),
+        common,
         numbered: x.numbered.clone(),
         what: x.what.clone(),
         from: x.from.clone(),
@@ -613,9 +616,10 @@ impl<'s> Graph<'s> {
             let row_names: BTreeSet<&String> = raw_rows.iter().map(|r| &r.0.name).collect();
             ensure!(row_names.len() == raw_rows.len(), "two rows with one name: {nid}");
             for x in &n.inputs {
+                // The owner's page heads every input with its name.
                 ensure!(
-                    x.name.is_none(),
-                    "only an input every agent's cell has goes by a name: {nid} {}",
+                    x.name.as_ref().is_some_and(|s| !s.trim().is_empty()),
+                    "every input goes by a name: {nid} {}",
                     x.what
                 );
                 let table = x
@@ -632,10 +636,10 @@ impl<'s> Graph<'s> {
                 n.inputs.iter().filter(|x| x.numbered.is_some()).count() <= 1,
                 "a cell with two numbered tables: {nid}"
             );
-            let mut ins: Vec<In> = n.inputs.iter().map(input).collect();
+            let mut ins: Vec<In> = n.inputs.iter().map(|x| input(x, false)).collect();
             if agent {
                 let with = |x: &&Input| x.with.as_ref().is_none_or(|w| !gone.contains(w));
-                ins.extend(common.inputs.iter().filter(with).map(input));
+                ins.extend(common.inputs.iter().filter(with).map(|x| input(x, true)));
             }
             let tools = n.tools.clone().unwrap_or_default();
             ensure!(tools.iter().all(|t| uses.contains(t.as_str())), "no such tool: {nid}");
@@ -1483,6 +1487,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
     // The answer is the outcome that goes on, or, for a gate that may not apply, not applicable; each with why.
     let why = |desc: &str| RawField {
         name: Some("why".into()),
+        title: Some(g.why_title.clone()),
         kind: Some(Kind::Text),
         desc: Some(desc.to_string()),
         ..RawField::default()
@@ -1501,6 +1506,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
     }
     let answer = RawField {
         name: Some("answer".into()),
+        title: Some(g.answer_title.clone()),
         kind: Some(Kind::Union),
         desc: Some(fill(g.answer.as_str())),
         by: Some("verdict".into()),

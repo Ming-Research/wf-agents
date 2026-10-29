@@ -496,7 +496,7 @@ impl Context<'_> {
             }
             if !addrs.is_empty() {
                 work_from.push(format!("{number}. {}", addrs.join(", ")));
-            } else if x.input.name.is_none() {
+            } else if !x.input.common {
                 work_from.push(format!("{number}. none"));
             }
         }
