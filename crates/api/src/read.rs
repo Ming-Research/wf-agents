@@ -2430,7 +2430,7 @@ mod tests {
             )?;
             tx.execute(
                 "INSERT INTO pings (session, waited, usage, started_at, ended_at) VALUES (1,
-                   '{\"cell\":\"1\",\"on\":\"pause\",\"what\":\"to look\"}',
+                   '{\"cell\":\"research\",\"on\":\"pause\",\"what\":\"to look\"}',
                    '{\"cost_usd\":0.25,\"usage\":{\"cache_read_input_tokens\":9000,\"cache_creation_input_tokens\":20}}',
                    41, 42)",
                 [],
