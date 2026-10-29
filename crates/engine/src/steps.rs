@@ -233,13 +233,14 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ),
     )
     .map_err(|x| format!("{}: {x}", given_again.display()))?;
-    // After each tool use the command line's hook has this program hand in the interjections waiting for the line.
+    // After each tool use the command line's hook has this program hand in the interjections waiting for the line, to a
+    // cell that takes them.
     let deliver = std::env::current_exe().ok().map(|exe| {
         let n = number.n.to_string();
         let work = w.id.to_string();
         let data = e.data.display().to_string();
         let exe = exe.display().to_string();
-        let words = [
+        let mut words = vec![
             exe.as_str(),
             "deliver",
             "--data",
@@ -248,9 +249,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             work.as_str(),
             "--round",
             n.as_str(),
-            "--line",
-            line_of_cell.as_str(),
         ];
+        if crate::takes_interjections(cell) {
+            words.extend(["--line", line_of_cell.as_str()]);
+        }
         words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
     });
     let req = Request {
@@ -677,11 +679,16 @@ fn compose(
     let registry = message::registry(&known);
     let gathered = inputs::gather(e, w, g, cell, item)?;
     let given = values::given(e, w, g, cell, item, &gathered)?;
+    // The interjections waiting for the cell's line, when the cell takes them.
     let speaks_to = crate::line_of(g, cell);
-    let mut interjections: Vec<Value> = inputs::db_rows(e, w, item, "waiting_interjections", Some("work"))?
-        .into_iter()
-        .filter(|r| r["line"] == speaks_to.as_str())
-        .collect();
+    let mut interjections: Vec<Value> = if crate::takes_interjections(cell) {
+        inputs::db_rows(e, w, item, "waiting_interjections", Some("work"))?
+            .into_iter()
+            .filter(|r| r["line"] == speaks_to.as_str())
+            .collect()
+    } else {
+        Vec::new()
+    };
     let columns = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
     let number = work::next_round(e.db.conn(), w.id)?;

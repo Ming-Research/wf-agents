@@ -904,6 +904,19 @@
         ]
       ]
     },
+    "owner_words_state": {
+      "type": "enum",
+      "values": [
+        [
+          "yes",
+          "The owner said something to the setting of the policy that is not answered yet"
+        ],
+        [
+          "no",
+          "Nothing the owner said to the setting of the policy waits for an answer"
+        ]
+      ]
+    },
     "interject_answer": {
       "type": "obj",
       "fields": [
@@ -3007,7 +3020,7 @@
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
-      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again.",
+      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again. In the setting of a policy, what the owner says while reading goes to the cell that answers it, and the work comes back to the same ask, still open.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
       "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
@@ -3034,7 +3047,7 @@
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "Queues each side report for the architect once, due at once, which wakes the architect when no wake runs; one marked urgent that comes while a wake runs is also given to that wake at the top of its next round.",
-      "deliver_answers": "Sends each answer back to the side that interjected: to the owner's interface, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, and those a redirect carries.",
+      "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
       "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It wakes no architect; a wake takes such a matter only when it came before the wake started.",
       "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause.",
@@ -3166,6 +3179,7 @@
       "tree": "Whether the change to review touches design tree nodes.",
       "gates": "Whether the items depended on are merged and every decision of the design card is gone through.",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
+      "owner_words": "Whether words the owner said to the setting of the policy wait for an answer.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "came_by": "How the work came to choose the way on.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
@@ -3390,7 +3404,7 @@
         "inputs": [
           "group_talk"
         ],
-        "owner": "says something to a work, or rules on a design card"
+        "owner": "says something to a work or to the architect, or rules on a design card"
       },
       "owner_notices": {
         "title": "Notices to the owner",
@@ -3442,7 +3456,7 @@
       "owner_messages": {
         "title": "Messages to the owner",
         "layer": "round",
-        "desc": "What an agent told the owner, which needs no answer",
+        "desc": "What an agent told the owner, which needs no answer, and its answers to what the owner said",
         "relations": [
           "owner_messages"
         ]
@@ -3527,7 +3541,7 @@
         "architect_queue"
       ],
       "deliver_answers": [
-        "owner_notices",
+        "owner_messages",
         "architect_queue"
       ],
       "tell_owner": [
@@ -3725,6 +3739,12 @@
       },
       "interjection": {
         "says": "an interjection for the engineer not handed in yet",
+        "stores": [
+          "interjections"
+        ]
+      },
+      "owner_words": {
+        "says": "the owner's words to the policy setting, not answered yet",
         "stores": [
           "interjections"
         ]
@@ -11675,6 +11695,15 @@
           ]
         },
         {
+          "name": "answers",
+          "nodes": [
+            "X4"
+          ],
+          "entries": [
+            "X4"
+          ]
+        },
+        {
           "name": "end",
           "nodes": [
             "E2"
@@ -11875,6 +11904,10 @@
           {
             "name": "batches",
             "desc": "The batches that ended without thinking again"
+          },
+          {
+            "name": "interjections",
+            "desc": "The times a cell answered the owner's words in the answers form"
           }
         ]
       },
@@ -11965,6 +11998,13 @@
             {
               "field": "pause",
               "say": "`pause`"
+            },
+            {
+              "field": "answers",
+              "say": "`answers`",
+              "lines": [
+                "architect"
+              ]
             }
           ],
           "every": [
@@ -12029,6 +12069,17 @@
               ]
             ],
             "to": "X3"
+          },
+          {
+            "name": "answers",
+            "if": [
+              [
+                "has",
+                "answers"
+              ]
+            ],
+            "to": "X4",
+            "counts": "interjections"
           }
         ],
         "inputs": [
@@ -12070,6 +12121,18 @@
             ],
             "maybe": true,
             "with": "search"
+          },
+          {
+            "name": "The owner's words",
+            "what": "What the owner said to you while you work, each by its number: during a round, any that come are given to you each time you finish using a tool; those that came before it are at the top of its input",
+            "from": [
+              {
+                "db": "waiting_interjections",
+                "by": "work"
+              }
+            ],
+            "maybe": true,
+            "with": "answers"
           }
         ],
         "out": [
@@ -12086,10 +12149,20 @@
             "$ref": "pause_form"
           },
           {
+            "name": "answers",
+            "title": "Answers to the owner",
+            "type": "list",
+            "min": 1,
+            "desc": "Hand this in after the owner said something that needs your answer, a question or a remark: answer all of it at once, and the engine sends it to the owner and comes back to the same session for you to go on with this cell's work. What you only need to know needs no answer. Hand in none of the conclusions this cell asks for",
+            "item": {
+              "$ref": "interject_answer"
+            }
+          },
+          {
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. Words the owner said to you during the round: what you made of them and what you did. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -12112,10 +12185,16 @@
             "do": "queue_flow_feedback"
           }
         ],
-        "checks": [],
+        "checks": [
+          {
+            "at": "answers.to",
+            "check": "answers_match_speakers"
+          }
+        ],
         "shown": [
           "progress",
-          "tell_owner"
+          "tell_owner",
+          "answers"
         ],
         "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original.",
         "needs": {
@@ -15699,8 +15778,61 @@
               "note": "The cell that paused carries on in the same session."
             }
           ]
+        },
+        {
+          "id": "X4",
+          "kind": "engine",
+          "title": "Hand the answers to who interjected",
+          "inputs": [
+            {
+              "id": "answers",
+              "name": "Answers handed in",
+              "what": "The answers the cell handed in, each with whom it answers",
+              "from": [
+                [
+                  "@caller",
+                  "answers"
+                ]
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "delivered",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                {
+                  "at": "@answers",
+                  "do": "deliver_answers"
+                }
+              ],
+              "note": "The cell that answered carries on in the same session."
+            }
+          ]
         }
       ],
+      "interject": {
+        "name": "interjection",
+        "desc": "What the owner says to the architect while it works, which the engine sends into its session",
+        "text": [
+          "Who may interject is listed in the table above: for now the owner alone.",
+          "Delivery: while a round of the architect's line runs, the session manager gives it the owner's words each time it finishes using a tool; those not given by the end of the round go at the top of the line's next round. A cell off the line, such as the review of a batch or the search of observations, is given none.",
+          "A round given the owner's words answers what needs an answer in the answers form, all at once: the engine sends the answers to the owner's one-to-one with the architect (cell `X4`), and the cell goes on in the same session. What it only needs to know needs no answer.",
+          "While nothing of the architect runs, the owner's words go to its queue instead."
+        ],
+        "from": [
+          {
+            "name": "owner",
+            "desc": "The owner: may say anything, such as a question or a remark"
+          }
+        ]
+      },
       "rounds": {
         "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
         "sentBack": {
@@ -15802,7 +15934,8 @@
             "P9",
             "P10",
             "P11",
-            "P12"
+            "P12",
+            "P13"
           ],
           "entries": [
             "P2"
@@ -15828,6 +15961,15 @@
           ],
           "entries": [
             "X3"
+          ]
+        },
+        {
+          "name": "answers",
+          "nodes": [
+            "X4"
+          ],
+          "entries": [
+            "X4"
           ]
         },
         {
@@ -15862,7 +16004,7 @@
         "list": [
           {
             "name": "policy",
-            "desc": "Setting the policy: studying the direction, the owner reading it, writing the text, new sessions reading it, the owner's approval",
+            "desc": "Setting the policy: studying the direction, the owner reading it, writing the text, new sessions reading it, the owner's approval, and answering the owner's words meanwhile",
             "nodes": [
               "P2",
               "P3",
@@ -15874,7 +16016,8 @@
               "P9",
               "P10",
               "P11",
-              "P12"
+              "P12",
+              "P13"
             ]
           },
           {
@@ -15912,7 +16055,7 @@
       },
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the task. The counters are in the task's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
-        "waits": "The rows that wait for the owner to read a study or to approve a policy count nothing: how many rounds the discussion takes is the owner's to decide.",
+        "waits": "The rows that wait for the owner to read a study or to approve a policy count nothing, and so does answering the owner's words meanwhile at cell `P13`: how many rounds the discussion takes is the owner's to decide.",
         "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
@@ -15943,6 +16086,10 @@
           {
             "name": "policies_set",
             "desc": "The times a new policy was set and a new architect started"
+          },
+          {
+            "name": "interjections",
+            "desc": "The times a cell answered the owner's words in the answers form"
           }
         ]
       },
@@ -16022,6 +16169,13 @@
             {
               "field": "pause",
               "say": "`pause`"
+            },
+            {
+              "field": "answers",
+              "say": "`answers`",
+              "lines": [
+                "policy"
+              ]
             }
           ],
           "every": [
@@ -16068,6 +16222,17 @@
               ]
             ],
             "to": "X3"
+          },
+          {
+            "name": "answers",
+            "if": [
+              [
+                "has",
+                "answers"
+              ]
+            ],
+            "to": "X4",
+            "counts": "interjections"
           }
         ],
         "inputs": [
@@ -16098,6 +16263,18 @@
             ],
             "maybe": true,
             "with": "ask"
+          },
+          {
+            "name": "The owner's words",
+            "what": "What the owner said to you while you work, each by its number: during a round, any that come are given to you each time you finish using a tool; those that came before it are at the top of its input",
+            "from": [
+              {
+                "db": "waiting_interjections",
+                "by": "work"
+              }
+            ],
+            "maybe": true,
+            "with": "answers"
           }
         ],
         "out": [
@@ -16111,10 +16288,20 @@
             "$ref": "pause_form"
           },
           {
+            "name": "answers",
+            "title": "Answers to the owner",
+            "type": "list",
+            "min": 1,
+            "desc": "Hand this in after the owner said something that needs your answer, a question or a remark: answer all of it at once, and the engine sends it to the owner and comes back to the same session for you to go on with this cell's work. What you only need to know needs no answer. Hand in none of the conclusions this cell asks for",
+            "item": {
+              "$ref": "interject_answer"
+            }
+          },
+          {
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. Words the owner said to you during the round: what you made of them and what you did. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -16137,10 +16324,16 @@
             "do": "queue_flow_feedback"
           }
         ],
-        "checks": [],
+        "checks": [
+          {
+            "at": "answers.to",
+            "check": "answers_match_speakers"
+          }
+        ],
         "shown": [
           "progress",
-          "tell_owner"
+          "tell_owner",
+          "answers"
         ],
         "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original.",
         "needs": {
@@ -16331,7 +16524,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -16355,7 +16548,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -16379,7 +16572,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -16398,26 +16591,23 @@
               "if": [
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "yes"
                   ]
                 ]
               ],
-              "to": "P2",
-              "do": [
-                "withdraw_blocker"
-              ],
+              "to": "P13",
               "interject": true,
               "waits": true,
-              "note": "What the owner said to the task instead of answering: the study goes on with it, as with study on."
+              "note": "What the owner said while reading, before ruling: cell `P13` answers it, and the work comes back here with the ask still open."
             }
           ],
           "shown": [
             "ruling"
           ],
           "inenums": {
-            "interjection": "interjection_state"
+            "owner_words": "owner_words_state"
           }
         },
         {
@@ -17600,7 +17790,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -17624,7 +17814,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -17649,7 +17839,7 @@
                 ],
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -17666,26 +17856,23 @@
               "if": [
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "yes"
                   ]
                 ]
               ],
-              "to": "P8",
-              "do": [
-                "withdraw_blocker"
-              ],
+              "to": "P13",
               "interject": true,
               "waits": true,
-              "note": "What the owner said to the task instead of answering: the text is corrected by it, as with fix text."
+              "note": "What the owner said while reading, before ruling: cell `P13` answers it, and the work comes back here with the ask still open."
             }
           ],
           "shown": [
             "ruling"
           ],
           "inenums": {
-            "interjection": "interjection_state"
+            "owner_words": "owner_words_state"
           }
         },
         {
@@ -17723,6 +17910,101 @@
               ],
               "note": "The approved version is the policy in force from now on; the old one is kept to look at, and given to no agent. The architect's session ends: its next round starts a new one, which understands the project and thinks what to do next under the new policy."
             }
+          ]
+        },
+        {
+          "id": "P13",
+          "kind": "agent",
+          "title": "Answer the owner",
+          "effort": "high",
+          "line": "policy",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "without": [
+            "ask",
+            "answers"
+          ],
+          "inputs": [
+            {
+              "name": "The owner's words",
+              "what": "What the owner said, each by its number",
+              "from": [
+                {
+                  "db": "waiting_interjections",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "name": "Study",
+              "what": "Your latest study; none before the first",
+              "from": [
+                [
+                  "P2",
+                  "study"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Text and probes",
+              "what": "The policy's text and probes as they stand; none before the text is written",
+              "from": [
+                {
+                  "engine": "draft_text"
+                },
+                {
+                  "engine": "draft_probes"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Readings and judgments",
+              "what": "Every reading of this version of the text, with your judgment of each; none before the first",
+              "from": [
+                {
+                  "db": "policy_readings",
+                  "by": "work"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "The owner is reading what you handed in, the study at cell `P3` or the policy's text at cell `P11` (the cell you came from), and said something before ruling. Answer only that, all of it at once: a question with its answer, a remark with what you make of it. Change nothing: no new study, no rewrite; what is to change comes with the owner's ruling, which may follow more words."
+          ],
+          "out": [
+            {
+              "name": "answer",
+              "title": "Answer to the owner",
+              "type": "text",
+              "desc": "Your answer to all the owner said"
+            }
+          ],
+          "cases": [
+            {
+              "name": "answered",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                {
+                  "at": "answer",
+                  "do": "deliver_answers"
+                }
+              ],
+              "note": "The answer goes to the owner's one-to-one with the architect, and the work goes back to the cell it came from, where the ask still waits for the owner's ruling."
+            }
+          ],
+          "shown": [
+            "answer"
           ]
         },
         {
@@ -17764,7 +18046,7 @@
               "if": [
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "no"
                   ]
@@ -17782,7 +18064,7 @@
               "if": [
                 [
                   "inp",
-                  "interjection",
+                  "owner_words",
                   [
                     "yes"
                   ]
@@ -17800,7 +18082,7 @@
             "reply"
           ],
           "inenums": {
-            "interjection": "interjection_state"
+            "owner_words": "owner_words_state"
           }
         },
         {
@@ -17897,6 +18179,43 @@
           ]
         },
         {
+          "id": "X4",
+          "kind": "engine",
+          "title": "Hand the answers to who interjected",
+          "inputs": [
+            {
+              "id": "answers",
+              "name": "Answers handed in",
+              "what": "The answers the cell handed in, each with whom it answers",
+              "from": [
+                [
+                  "@caller",
+                  "answers"
+                ]
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "delivered",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                {
+                  "at": "@answers",
+                  "do": "deliver_answers"
+                }
+              ],
+              "note": "The cell that answered carries on in the same session."
+            }
+          ]
+        },
+        {
           "id": "E1",
           "kind": "engine",
           "title": "The setting ends",
@@ -17909,6 +18228,22 @@
           ]
         }
       ],
+      "interject": {
+        "name": "interjection",
+        "desc": "What the owner says to the setting of the policy, which the engine sends into the architect's session",
+        "text": [
+          "Who may interject is listed in the table above: for now the owner alone.",
+          "Delivery: while a round of the policy's line runs, the session manager gives it the owner's words each time it finishes using a tool; those not given by the end of the round go at the top of the line's next round. A new architect reading the policy, on no line, is given none.",
+          "A round given the owner's words answers what needs an answer in the answers form, all at once: the engine sends the answers to the owner's one-to-one with the architect (cell `X4`), and the cell goes on in the same session.",
+          "While the owner reads the study (cell `P3`) or the text to approve (cell `P11`), the owner's words go to cell `P13`, in the same session, which answers them and changes nothing; the work comes back to the cell it left with the ask still open, so the owner can say more and then rule. While the owner answers an ask (cell `A3`), they go to the cell that asked, and the ask needs no answer."
+        ],
+        "from": [
+          {
+            "name": "owner",
+            "desc": "The owner: may say anything, such as a question or a remark"
+          }
+        ]
+      },
       "rounds": {
         "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
         "sentBack": {
@@ -17991,7 +18326,7 @@
         ]
       },
       "blockers": {
-        "desc": "The setting of a policy stops only for the owner: at cell `P3`, while the owner reads the study, at `P11`, while the owner reads the text to approve, and at `A3`, while the owner answers what a cell asked. Every move of its blocker is a row, and each cell where it waits has a row for the owner's interjection. Its end withdraws its open blocker.",
+        "desc": "The setting of a policy stops only for the owner: at cell `P3`, while the owner reads the study, at `P11`, while the owner reads the text to approve, and at `A3`, while the owner answers what a cell asked. Every move of its blocker is a row, and each cell where it waits has a row for the owner's interjection: at `P3` and `P11` it goes to cell `P13`, which answers it and comes back, the blocker still open; at `A3` it withdraws the blocker. Its end withdraws its open blocker.",
         "cells": [
           {
             "cell": "A3",

@@ -1,6 +1,7 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
-// page draws it, what of it streams, what the box at the bottom says things to, what a stage card's facts are, what is
+// page draws it, what of it streams, what the box at the bottom says things to and does with them (in the one-to-one
+// with an architect, interjecting into what of it runs or adding to its queue), what a stage card's facts are, what is
 // new for the owner to be told of, and where a fault of wf-agents can go and went.
 
 import type {
@@ -10,8 +11,10 @@ import type {
   Forwarded,
   Forwarding,
   StageCard,
+  Wake,
   WorkSummary,
 } from './api';
+import { overWake } from './architect';
 import { words } from './labelled';
 import { t } from './messages';
 
@@ -60,6 +63,10 @@ export type Voice = 'owner' | 'agent' | 'system' | 'card' | 'fault' | 'none';
 /// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
 const MEMBERS = ['engineer', 'architect'];
 
+/// The member a line speaks as: the architect for the line that sets its policy, since to the owner the architect is
+/// one; any other line as itself.
+export const member = (line: string): string => (line === 'policy' ? 'architect' : line);
+
 export function voiceOf(e: ConversationEntry, held: ReadonlySet<number>): Voice {
   switch (e.source) {
     case 'stage':
@@ -75,7 +82,7 @@ export function voiceOf(e: ConversationEntry, held: ReadonlySet<number>): Voice 
       return 'agent';
     default:
       if (e.sender === 'owner') return 'owner';
-      return MEMBERS.includes(e.sender) ? 'agent' : 'system';
+      return MEMBERS.includes(member(e.sender)) ? 'agent' : 'system';
   }
 }
 
@@ -92,18 +99,29 @@ export function party(e: ConversationEntry, side: string): string {
   if (side === 'wf-agents') return t('conv_wf_agents');
   if (side === 'architects') return t('conv_every_architect');
   if (side === 'both') return t('conv_both');
-  return words(side);
+  return words(member(side));
 }
 
-/// To whom an entry is said, as a group says it at the head of a message: @ and the member, or both.
-export function mention(e: ConversationEntry): string {
+/// To whom an entry is said, as a group says it at the head of a message: @ and the member, or both; in the one-to-one
+/// with an architect, which of its works the owner's words were said to: its work in hand, its policy setting, or both.
+export function mention(e: ConversationEntry, kind: Conversation['kind'] = 'work'): string {
   if (e.source === 'between') return `@${t('conv_architect_of', { project: e.recipient })}`;
-  if (e.recipient === 'both') return `@${t('conv_engineer')} @${t('conv_architect_short')}`;
+  if (e.recipient === 'both') {
+    return kind === 'architect'
+      ? `@${t('conv_architect_short')} @${t('conv_policy_setting')}`
+      : `@${t('conv_engineer')} @${t('conv_architect_short')}`;
+  }
   if (e.recipient === 'owner') return `@${t('conv_you')}`;
   if (e.recipient === 'architects') return `@${t('conv_every_architect')}`;
   if (e.recipient === 'architect') return `@${t('conv_architect_short')}`;
+  if (e.recipient === 'policy') return `@${t('conv_policy_setting')}`;
   return `@${words(e.recipient)}`;
 }
+
+/// Whether a message shows to whom it is said at its head: every one in a group; in the one-to-one with an architect,
+/// the owner's words said to a work of the architect's while it runs.
+export const mentions = (e: ConversationEntry, kind: Conversation['kind']): boolean =>
+  kind === 'work' || kind === 'projects' || e.source === 'between' || (kind === 'architect' && e.source === 'interjection');
 
 /// Whether an entry is what an engineer put to the architect (a question, a failure, a report), which the owner may
 /// answer in the group while the architect holds it.
@@ -173,6 +191,52 @@ export function closedWhy(c: Conversation, w: WorkSummary | null): string | null
   if (c.over || (w !== null && (w.state === 'done' || w.state === 'ended'))) return t('conv_closed_over');
   if (w !== null && w.at === 'E1') return t('conv_closed_end');
   return null;
+}
+
+/// One of an architect's works the owner's words can be put to now, as the box of its one-to-one names it: its work in
+/// hand (`architect`) or its policy setting (`policy`), whether it waits for the owner, and whether a round of it runs.
+export type LiveWork = { work: number; to: 'architect' | 'policy'; waits: boolean; runs: boolean };
+
+/// The architect's works not over, which take what the owner says to them while they run: its work in hand first, then
+/// its policy setting; none while nothing of it runs or waits for the owner.
+export function liveWorks(wakes: Wake[]): LiveWork[] {
+  const live = wakes
+    .filter((w) => !overWake(w.work))
+    .map((w): LiveWork => {
+      const policy = w.work.graph === 'policy';
+      return {
+        work: w.work.id,
+        to: policy ? 'policy' : 'architect',
+        waits: policy && w.work.waits?.kind === 'answer',
+        runs: w.work.state === 'running',
+      };
+    });
+  return [...live.filter((l) => l.to === 'architect'), ...live.filter((l) => l.to === 'policy')];
+}
+
+/// What the box of the one-to-one with an architect does with the owner's words: interjects into what of it runs or
+/// waits for the owner, which answers in the conversation and goes on, or adds them to its queue, a matter it takes up
+/// in its turn; while nothing of it runs or waits, only the queue.
+export type BoxMode = 'interject' | 'queue';
+
+export const boxModes = (live: LiveWork[]): BoxMode[] => (live.length > 0 ? ['interject', 'queue'] : ['queue']);
+
+/// Whom Interject is for until the owner ticks otherwise: the policy setting while it waits for the owner, else what
+/// runs a round now, else the first that is live.
+export function interjectFirst(live: LiveWork[]): number[] {
+  const waiting = live.filter((l) => l.waits);
+  if (waiting.length > 0) return waiting.map((l) => l.work);
+  const running = live.filter((l) => l.runs);
+  if (running.length > 0) return running.map((l) => l.work);
+  return live.slice(0, 1).map((l) => l.work);
+}
+
+/// What the box says before anything is written in the one-to-one with an architect: to tick whom Interject is for,
+/// what becomes of words interjected (said of what waits for the owner, its ask stays open) or added to the queue.
+export function architectBoxHint(mode: BoxMode, live: LiveWork[], to: number[]): string {
+  if (mode === 'queue') return t(live.length > 0 ? 'conv_queue_architect' : 'conv_say_architect');
+  if (to.length === 0) return t('conv_say_nobody');
+  return t(live.some((l) => l.waits && to.includes(l.work)) ? 'conv_interject_waiting' : 'conv_interject_architect');
 }
 
 /// The facts the engine knows of a stretch of a work at a stage, each a few words: the design cards handed in, the

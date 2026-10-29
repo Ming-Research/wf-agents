@@ -1179,6 +1179,16 @@ pub fn line_of(g: &CompiledGraph, cell: &CompiledCell) -> String {
     }
 }
 
+/// Whether an agent's cell takes the interjections said to its line: one of its inputs reads them. A cell that reads
+/// none, as a new architect reading a policy blind, is handed none while it runs.
+pub fn takes_interjections(cell: &CompiledCell) -> bool {
+    cell.inputs.iter().any(|x| {
+        x.from
+            .iter()
+            .any(|s| matches!(s, flow::format::Src::Db { relation, .. } if relation == "waiting_interjections"))
+    })
+}
+
 /// The rows of a cell whose name is given.
 pub fn row<'g>(cell: &'g CompiledCell, name: &str) -> Option<&'g flow::CompiledRow> {
     cell.rows.iter().find(|r| r.name == name)

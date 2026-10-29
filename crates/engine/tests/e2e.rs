@@ -5610,6 +5610,264 @@ fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The open blocker of a work, by its number, and whether it is still open; none when it has none.
+fn open_blocker(e: &Engine, work: i64) -> Option<i64> {
+    e.db.conn()
+        .query_row(
+            "SELECT id FROM blockers WHERE work = ?1 AND ended IS NULL",
+            [work],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+/// The architect's messages to the owner in its one-to-one, oldest first, each with who sent it: its line.
+fn one_to_one_messages(e: &Engine) -> Vec<(String, String)> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare(
+            "SELECT sender, text FROM conversation_entries WHERE conversation = 'architect:p' AND source = 'message'
+                 ORDER BY at, id",
+        )
+        .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// Whether a round of a work, open, waits again for an ask an earlier round put.
+fn waits_again_for(e: &Engine, work: i64, ask: i64) -> bool {
+    let open: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds
+                 WHERE work = ?1 AND ended_at IS NULL AND json_extract(input, '$.ask') = ?2",
+                params![work, ask],
+                |r| r.get(0),
+            )
+            .unwrap();
+    open == 1
+}
+
+/// Steps a work until a test holds, checking after each step that every chain of blockers closes; whether it held.
+fn steps_closed(e: &mut Engine, work: i64, max: usize, done: impl Fn(&mut Engine) -> bool) -> bool {
+    for _ in 0..max {
+        if done(e) {
+            return true;
+        }
+        e.step_work(work).unwrap();
+        let broken = engine::blockers::invariants(e).unwrap();
+        assert!(broken.is_empty(), "{broken:?}\n{:?}", cells_of(e, work));
+    }
+    done(e)
+}
+
+/// The owner's words to the setting of the policy while it waits at an owner's cell: cell `P13` answers them in the
+/// session that wrote what the owner reads, changing nothing, and the answer is the architect's message in the owner's
+/// one-to-one; the work comes back to the owner's cell with the same ask and the same blocker open, so the owner can
+/// say more, and the ruling after it takes the work on as ever. Every chain of blockers closes after each step.
+fn owner_words_while_reading(name: &str, from: &str, ask: fn(&Engine, i64) -> Option<i64>, ruling: &str, then: &str) {
+    let s = setup(name);
+    let mut agents = scripts();
+    agents.insert("P4", writes_a_policy());
+    agents.insert(
+        "P13",
+        Box::new(|_: &Request, n: usize| (Vec::new(), vec![("outcome.answer", json!(format!("Answer {n}.")))])),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let setting = setting_at(&mut e, from);
+    assert!(
+        steps_closed(&mut e, setting, 40, |e| ask(e, setting).is_some()),
+        "{}\n{:?}",
+        said.borrow().join("\n"),
+        cells_of(&e, setting)
+    );
+    let asked = ask(&e, setting).unwrap();
+    let blocker = open_blocker(&e, setting).unwrap();
+    let at = e.work(setting).unwrap().pos.at;
+    let before: Vec<String> = path_of(&e, setting);
+    for (n, words) in ["Why this first?", "And what of the rest?"].into_iter().enumerate() {
+        api::interject_architect(&mut e.db, "p", &[setting], words).unwrap();
+        let answered = move |e: &mut Engine| rows_at(e, setting, "P13").len() == n + 1;
+        assert!(
+            steps_closed(&mut e, setting, 5, answered),
+            "{}\n{:?}",
+            said.borrow().join("\n"),
+            cells_of(&e, setting)
+        );
+        // Back at the owner's cell, waiting for the same ask, the blocker still open.
+        let back = |e: &mut Engine| e.work(setting).unwrap().pos.at == at && waits_again_for(e, setting, asked);
+        assert!(steps_closed(&mut e, setting, 3, back), "{:?}", cells_of(&e, setting));
+        assert_eq!(ask(&e, setting), Some(asked));
+        assert_eq!(open_blocker(&e, setting), Some(blocker));
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, setting, &at), ["interjection", "interjection"], "{log}");
+    // Nothing was studied or written again: only the cell that answers ran.
+    let since: Vec<String> = path_of(&e, setting)[before.len()..].to_vec();
+    assert_eq!(since, ["P13", at.as_str(), "P13", at.as_str()], "{log}");
+    let answers: Vec<(String, String)> = one_to_one_messages(&e)
+        .into_iter()
+        .filter(|m| m.1.starts_with("Answer"))
+        .collect();
+    assert_eq!(
+        answers,
+        [
+            ("policy".to_string(), "Answer 1.".to_string()),
+            ("policy".to_string(), "Answer 2.".to_string())
+        ],
+        "{log}"
+    );
+    // The owner's words were handed to the rounds that answered them, and the message of the second says so.
+    let undelivered: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM interjections WHERE work = ?1 AND delivered_round IS NULL",
+                [setting],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(undelivered, 0, "{log}");
+    let m = message_at(&e, setting, "P13", true);
+    assert!(m.contains("Said to you: ij:"), "{m}");
+    // The ruling after the words takes the work on, resolving the blocker the words left open.
+    let rule = api::Answer {
+        text: "Go on.".into(),
+        why: None,
+        reply: None,
+        choice: Some(ruling.into()),
+        to: None,
+    };
+    api::answer(&mut e.db, asked, &rule).unwrap();
+    let on = |e: &mut Engine| path_of(e, setting).last().map(String::as_str) == Some(then);
+    assert!(steps_closed(&mut e, setting, 3, on), "{:?}", cells_of(&e, setting));
+    assert_eq!(rows_at(&e, setting, &at).last().map(String::as_str), Some(ruling));
+    let ended: String =
+        e.db.conn()
+            .query_row("SELECT ended FROM blockers WHERE id = ?1", [blocker], |r| r.get(0))
+            .unwrap();
+    assert_eq!(ended, "resolved");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The ask of the owner to read the study of a new policy a setting put, not answered yet.
+fn study_asked(e: &Engine, setting: i64) -> Option<i64> {
+    e.db.conn()
+        .query_row(
+            "SELECT id FROM owner_asks WHERE work = ?1 AND answer IS NULL AND json_extract(body, '$.kind') = 'study'",
+            [setting],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+#[test]
+fn the_owner_s_words_at_the_approval_are_answered_and_the_ask_stays_open() {
+    owner_words_while_reading("words-p11", "P4", approval_asked, "approved", "P12");
+}
+
+#[test]
+fn the_owner_s_words_on_the_study_are_answered_and_the_ask_stays_open() {
+    owner_words_while_reading("words-p3", "P2", study_asked, "satisfied", "P4");
+}
+
+// What the owner says to the architect while a cell of its line runs reaches the round after its next tool use; the
+// round answers it in the answers form, the engine hands the answer to the owner's one-to-one as the architect's
+// message (cell `X4`), and the cell goes on in the same session to hand in its own answer.
+#[test]
+fn the_owner_s_words_while_the_architect_works_are_answered_and_it_goes_on() {
+    let s = setup("architect-words");
+    let mut agents = scripts();
+    let data = s.data.clone();
+    agents.insert(
+        "U1",
+        Box::new(move |r: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            // What the hook does after a tool use, while the owner interjects.
+            let mut db = engine::database::open(&data).unwrap();
+            api::interject_architect(&mut db, "p", &[r.work], "What do you look at first?").unwrap();
+            let round: i64 = db
+                .conn()
+                .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [r.work], |x| x.get(0))
+                .unwrap();
+            assert!(r.deliver.as_deref().is_some_and(|d| d.contains("'--line' 'architect'")));
+            sessions::interject::deliver(&mut db, r.work, round, "architect")
+                .unwrap()
+                .unwrap();
+            (
+                vec![("outcome", "answers")],
+                vec![(
+                    "outcome.answers",
+                    json!([{ "to": "owner", "text": "The queue first." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look.");
+    let wake = e.step(None).unwrap().work.unwrap();
+    let understood = |e: &mut Engine| {
+        cells_of(e, wake)
+            .iter()
+            .any(|c| c.0 == "U1" && c.1.as_deref() == Some("understood"))
+    };
+    assert!(steps_until(&mut e, 12, understood), "{}", said.borrow().join("\n"));
+    let log = said.borrow().join("\n");
+    let rows = cells_of(&e, wake);
+    let u = rows.iter().position(|c| c.0 == "U1").expect(&log);
+    let took: Vec<(&str, Option<&str>)> = rows[u..u + 3].iter().map(|c| (c.0.as_str(), c.1.as_deref())).collect();
+    assert_eq!(
+        took,
+        [
+            ("U1", Some("answers")),
+            ("X4", Some("delivered")),
+            ("U1", Some("understood"))
+        ],
+        "{log}"
+    );
+    // The answer is the architect's in the one-to-one, where the owner spoke, and the words were the round's that
+    // answered them.
+    let answers: Vec<String> = one_to_one_messages(&e)
+        .into_iter()
+        .filter(|m| m.1 == "The queue first.")
+        .map(|m| m.0)
+        .collect();
+    assert_eq!(answers, ["architect"], "{log}");
+    let (delivered, answered): (Option<i64>, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT j.delivered_round, (SELECT min(n) FROM rounds WHERE work = j.work AND cell = 'U1')
+                 FROM interjections j WHERE j.work = ?1",
+                [wake],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(delivered, Some(answered), "{log}");
+    // The cell went on in the same session, told its answers went to who interjected.
+    let sessions: Vec<Option<i64>> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT session FROM rounds WHERE work = ?1 AND cell = 'U1' ORDER BY n")
+                .unwrap();
+        st.query_map([wake], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(sessions.len(), 2, "{log}");
+    assert_eq!(sessions[0], sessions[1], "{log}");
+    let m = message_at(&e, wake, "U1", true);
+    assert!(m.contains("went to who interjected: carry on"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A return sent back at a cell on no line, whose every round is a new session, is given the whole message again, and
 // why the return before it was sent back.
 #[test]

@@ -157,8 +157,9 @@ enum Command {
         work: i64,
         #[arg(long)]
         round: i64,
+        /// The round's line; none for a cell that takes no interjections, which is handed none.
         #[arg(long)]
-        line: String,
+        line: Option<String>,
     },
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
@@ -377,7 +378,10 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Init => init(d),
         Command::Deliver { work, round, line } => {
             let mut db = engine::database::open(d)?;
-            let said = sessions::interject::deliver(&mut db, work, round, &line)?;
+            let said = match &line {
+                Some(l) => sessions::interject::deliver(&mut db, work, round, l)?,
+                None => None,
+            };
             // Once the budget of the work's stretch is used up while the round runs, it is asked to pause.
             let open: bool = db
                 .conn()

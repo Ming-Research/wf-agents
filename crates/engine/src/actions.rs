@@ -561,12 +561,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             }
         }
         "deliver_answers" => {
-            // At the cell that hands on the answers of the cell that called it, that cell's; else the return's own:
-            // its answers, or those a redirect carries to the speakers it does not redirect for.
-            let (line, all) = match at_value.as_ref().and_then(Value::as_array) {
-                Some(xs) if at.is_some_and(|p| p.starts_with('@')) => {
+            // At the cell that hands on the answers of the cell that called it, that cell's; a cell's own answer to the
+            // owner's words, its text; else the return's own: its answers, or those a redirect carries to the speakers
+            // it does not redirect for.
+            let handed_on = at.is_some_and(|p| p.starts_with('@'));
+            let (line, all) = match at_value.as_ref() {
+                Some(Value::Array(xs)) if handed_on => {
                     (ctx.caller_line.clone().unwrap_or_else(|| line_of(ctx)), xs.clone())
                 }
+                Some(Value::String(text)) => (line_of(ctx), vec![json!({ "to": "owner", "text": text })]),
                 _ => {
                     let mut all = ctx.unwrapped["answers"].as_array().cloned().unwrap_or_default();
                     all.extend(
@@ -578,15 +581,27 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     (line_of(ctx), all)
                 }
             };
-            // The cell whose answers they are: the one that called, for the cell that hands them on.
-            let cell = match at {
-                Some(p) if p.starts_with('@') => ctx.work.pos.callers.last().cloned(),
-                _ => None,
-            }
-            .unwrap_or_else(|| ctx.cell.id.clone());
+            // The cell whose answers they are, and the round whose return holds them: for the cell that hands them on,
+            // the one that called it, and that cell's round before this one.
+            let (cell, round) = match ctx.work.pos.callers.last() {
+                Some(caller) if handed_on => {
+                    let n: Option<i64> = tx
+                        .query_row(
+                            "SELECT max(n) FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3",
+                            params![ctx.round.work, ctx.round.n, caller],
+                            |r| r.get(0),
+                        )
+                        .map_err(sql)?;
+                    (caller.clone(), n.unwrap_or(ctx.round.n))
+                }
+                _ => (ctx.cell.id.clone(), ctx.round.n),
+            };
             for a in all {
                 let to = a["to"].as_str().unwrap_or("owner");
-                let text = a["text"].as_str().unwrap_or_default();
+                let text = a["text"].as_str().unwrap_or_default().trim();
+                if text.is_empty() {
+                    continue;
+                }
                 // An answer to the architect reaches its queue, as a report it takes in.
                 if to == "architect"
                     && let Some(item) = &ctx.item
@@ -611,11 +626,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     queue_matter(tx, &m).map_err(sql)?;
                     continue;
                 }
-                notify(
-                    tx,
-                    Some(w),
-                    &format!("The {line} of {} answers the {to}: {text}", ctx.about()),
-                )?;
+                // An answer to the owner is the agent's message to the owner, of the round whose return holds it, as
+                // what it tells the owner is; the notifications log says it too.
+                tx.execute(
+                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
+                    params![ctx.round.work, round, text],
+                )
+                .map_err(sql)?;
+                let logged = format!("The {line} of {} answers the {to}: {text}", ctx.about());
+                outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
         }
         "tell_owner" => {
@@ -675,6 +694,7 @@ fn line_of(ctx: &Ctx) -> String {
     match &ctx.cell.line {
         Some(l) => l.clone(),
         None if ctx.work.graph == crate::ARCHITECT => crate::ARCHITECT.to_string(),
+        None if ctx.work.graph == crate::POLICY => crate::POLICY.to_string(),
         None => crate::ENGINEER.to_string(),
     }
 }

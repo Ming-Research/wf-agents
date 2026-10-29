@@ -183,6 +183,15 @@ const messages = {
   conv_say_engineer: 'Say something to the engineer: it reaches its round after its next tool use; the architect is told at its next pick',
   conv_say_architect_work: 'Say something to the architect about this work; the engineer is told at its next round',
   conv_say_architect: 'Say something to the architect',
+  conv_mode: 'What your words do',
+  conv_mode_interject: 'Interject',
+  conv_mode_queue: 'Add to queue',
+  conv_interject_architect:
+    'Say something to the architect while it works: it gets it after its next tool use or at its next round, answers here and goes on',
+  conv_interject_waiting:
+    'Say something about what waits for you: the architect answers here, and the ask stays open for your ruling',
+  conv_queue_architect: "Add something to the architect's queue: it takes it up in its turn",
+  conv_policy_setting: 'policy setting',
   conv_send: 'Send',
   conv_say_both: 'Say something to the engineer and the architect',
   conv_say_nobody: 'Tick whom it is for above',

@@ -44,8 +44,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         return Ok(v);
     }
     // An interjection waiting for the task's main line; a word that needs no answer, as the owner confirming the design
-    // card, is not one that turns the work.
-    if name == "interjection" {
+    // card, is not one that turns the work. The owner's words to the setting of a policy are its line's.
+    if name == "interjection" || name == "owner_words" {
         return Ok(if interjections(e, w)? > 0 { "yes" } else { "no" }.to_string());
     }
     let item = item.ok_or_else(|| {
@@ -197,13 +197,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     }
 }
 
-/// How many words said to a task are waiting for its main line, which turn its way on: the engineer's, or the
-/// architect's setting a policy.
+/// How many words said to a work are waiting for its main line, which turn its way on: the engineer's, the
+/// architect's setting a policy, or the architect's own.
 pub fn interjections(e: &Engine, w: &Work) -> Result<i64, String> {
-    let line = if w.graph == crate::POLICY {
-        crate::POLICY
-    } else {
-        ENGINEER
+    let line = match w.graph.as_str() {
+        crate::POLICY => crate::POLICY,
+        crate::ARCHITECT => crate::ARCHITECT,
+        _ => ENGINEER,
     };
     e.db.conn()
         .query_row(

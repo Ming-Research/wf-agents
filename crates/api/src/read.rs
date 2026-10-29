@@ -2230,7 +2230,7 @@ fn latest_of(conn: &Connection, project: &str, cell: &str) -> Result<Option<Said
             &format!(
                 "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
                  WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
                  ORDER BY r.work DESC, r.n DESC LIMIT 1",
                 db::cells_sql("architect", &[cell])
             ),

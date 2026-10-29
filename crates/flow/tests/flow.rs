@@ -31,23 +31,76 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 
 // The architect's graph compiles with no finding, as the design the owner approved: its wake (`W0`, `W1`, `U1`, `P1`,
 // `N1`), the queue (`Q0`) and each matter's path, the review of a batch of item changes (`B1`, `B2`, `B3`, `B4`), the
-// wrap-up (`E1`, `E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer (`X2`) and
-// the wait for the owner's Start after a pause (`X3`): as many cells, rows and states.
+// wrap-up (`E1`, `E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer (`X2`), the
+// wait for the owner's Start after a pause (`X3`) and the answers to what the owner says while it works (`X4`): as many
+// cells, rows and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (28, 98, 147));
+    assert_eq!((s.cells, s.rows, s.states), (29, 116, 181));
 }
 
 // The setting of a policy compiles with no finding, as a task of its own: the study of a new policy (`P2` to `P12`),
-// the owner's ask (`A3`), the tools (`X1`), the wait for the owner's Start after a pause (`X3`) and its end (`E1`): as
+// the answer to what the owner says while reading (`P13`), the owner's ask (`A3`), the tools (`X1`), the wait for the
+// owner's Start after a pause (`X3`), the answers to what the owner says while it works (`X4`) and its end (`E1`): as
 // many cells, rows and states.
 #[test]
 fn the_policy_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "policy").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (15, 43, 54));
+    assert_eq!((s.cells, s.rows, s.states), (17, 52, 76));
+}
+
+// What the owner says while reading the study or the policy to approve takes the setting to the cell that answers it,
+// which the owner's cell waits for, and back; a row there that ends the blocker on the way is refused, since the work
+// comes back to wait on it.
+#[test]
+fn the_owner_s_words_while_reading_go_to_the_answer_and_back() {
+    let c = compiled();
+    let g = c.graph("policy").unwrap();
+    let take = |p: &flow::Position, name: &str| {
+        let row = g.cell(&p.at).unwrap().rows.iter().find(|r| r.name == name).unwrap();
+        g.step(p, row).unwrap()
+    };
+    for at in ["P3", "P11"] {
+        let p = flow::Position {
+            at: at.into(),
+            from: Some("P2".into()),
+            ..g.start_position()
+        };
+        let p = take(&p, "interjection");
+        assert_eq!(
+            (p.at.as_str(), p.callers.as_slice()),
+            ("P13", [at.to_string()].as_slice())
+        );
+        let p = take(&p, "answered");
+        assert_eq!(
+            (p.at.as_str(), p.from.as_deref(), p.callers.len()),
+            (at, Some("P13"), 0)
+        );
+    }
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let p11 = v["flows"][2]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "P11")
+        .unwrap();
+    let row = p11["cases"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|r| r["name"] == "interjection")
+        .unwrap();
+    row["do"] = serde_json::json!(["withdraw_blocker"]);
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(
+        e.contains(
+            "a row out of P11 to a cell that answers it and brings the work back ends the blocker: interjection"
+        ),
+        "{e}"
+    );
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

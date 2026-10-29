@@ -275,6 +275,9 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         .filter(|(raw, _)| t.key(raw) == key)
         .map(|(_, e)| e)
         .collect();
+    if key.starts_with("architect:") {
+        said_at_once(&mut entries);
+    }
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
     // Each ask in full, with its documents: the study of a new policy, the policy to approve with the corrections of
@@ -380,6 +383,28 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
             None
         },
     })
+}
+
+/// What the owner said at once to the architect's work in hand and to its policy setting, an interjection into each,
+/// as one entry said to both, shown once: the first, not taken up while either is not, and never received when either
+/// was not.
+fn said_at_once(entries: &mut Vec<ConversationEntry>) {
+    let mut kept: Vec<ConversationEntry> = Vec::with_capacity(entries.len());
+    for e in entries.drain(..) {
+        let owner_said = |x: &ConversationEntry| x.source == "interjection" && x.sender == "owner";
+        if owner_said(&e)
+            && let Some(first) = kept
+                .iter_mut()
+                .find(|k| owner_said(k) && k.at == e.at && k.text == e.text && k.recipient != e.recipient)
+        {
+            first.recipient = "both".into();
+            first.pending |= e.pending;
+            first.undelivered |= e.undelivered;
+            continue;
+        }
+        kept.push(e);
+    }
+    *entries = kept;
 }
 
 /// An entry with nothing in it, for the engine's cards to fill.

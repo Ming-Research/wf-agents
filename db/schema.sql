@@ -1140,20 +1140,21 @@ CREATE VIEW architect_notes AS
 CREATE VIEW architect_state AS
   -- Each project's state of things as its architect last wrote it: what the project is now, as its latest
   -- understanding wrote it (cell `U1`), with what its wrap-ups learned and every note written since; a round that asked
-  -- for tools or paused wrote none of them. Read by: cells `U1` and `E1`; the owner's interface.
+  -- for tools, paused or answered the owner's words wrote none of them. Read by: cells `U1` and `E1`; the owner's
+  -- interface.
   SELECT project, work, round, state, learned, notes FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
       (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
        WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN ('E1', 'wrap_up')
          AND x.transition IS NOT NULL
-         AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+         AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
          AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))) AS learned,
       (SELECT json_group_array(json_object('item', n.item, 'text', n.text)) FROM architect_notes n
        WHERE n.project = w.project AND (n.work > r.work OR (n.work = r.work AND n.round > r.n))) AS notes,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
     WHERE w.graph = 'architect' AND r.cell IN ('U1', 'state', 'understand.state') AND r.transition IS NOT NULL
-      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner'))
+      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers'))
   WHERE k = 1;
 
 CREATE VIEW architect_log AS
@@ -1169,7 +1170,7 @@ CREATE VIEW architect_log AS
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
     WHERE w.graph IN ('architect', 'policy') AND r.transition IS NOT NULL
-      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
       AND r.cell IN ('P1', 'U2', 'policy_right', 'understand.policy', 'N1', 'U3', 'fit', 'understand.fit', 'H1', 'T1',
         'set_straight', 'handle.set_straight', 'H3', 'ways', 'handle.ways', 'H5', 'I2', 'take_in', 'handle.take_in',
         'H6', 'K1', 'card_sound', 'handle.card_sound', 'H7', 'F1', 'have_fixed', 'handle.have_fixed', 'H8', 'O1',
@@ -1227,7 +1228,8 @@ CREATE VIEW policy_draft AS
   -- it stands, and the probes with the answers the architect holds right. A correction hands in only what it changes,
   -- its edits and the probes it adds or changes beside those it keeps, and the text and the probes are then as the
   -- engine last put them together (`P5`), as the text is after a minor fix a reading found, which leaves the version
-  -- as it was; a correction of a flow version before that held the whole text, or the whole probes. Read by:
+  -- as it was; a correction of a flow version before that held the whole text, or the whole probes. A round of those
+  -- cells that asked for tools, asked the owner, paused or answered the owner's words wrote no version. Read by:
   -- policy_text, policy_probes_asked and policy_trials; the cells on the architect's line take it from the returns that
   -- wrote it or put it together.
   SELECT t.work, t.n AS round,
@@ -1247,10 +1249,11 @@ CREATE VIEW policy_draft AS
       json_extract(t.output, '$.outcome.probes'), json_extract(t.output, '$.outcome.revision.probes')) AS probes
   FROM rounds t JOIN works w ON w.id = t.work
   WHERE w.graph IN ('architect', 'policy') AND t.cell IN ('P4', 'write', 'policy.write', 'P8', 'correct', 'policy.correct')
-    AND t.transition IS NOT NULL
+    AND t.transition IS NOT NULL AND t.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
     AND t.n = (SELECT max(x.n) FROM rounds x
                WHERE x.work = t.work AND x.cell IN ('P4', 'write', 'policy.write', 'P8', 'correct', 'policy.correct')
-                 AND x.transition IS NOT NULL);
+                 AND x.transition IS NOT NULL
+                 AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers'));
 
 CREATE VIEW policy_text AS
   -- The text of each wake's version of the policy being set, without its probes. Read by: cell `P5`; the
@@ -1321,8 +1324,10 @@ CREATE VIEW conversation_entries AS
   -- notices about it); the owner's one-to-one with each project's architect (the owner's words to it, what it tells and
   -- asks the owner about no work, in its wakes and in the settings of its policy); one for the architects of projects
   -- the configuration connects (what they say to each other, and the owner's words to them); and one of wf-agents
-  -- itself (its faults, and what the engine tells the owner about no work). A work's helpers (its advisor, review and
-  -- adversarial testing) are in no group: what they and the engineer say to each other is in the work's rounds.
+  -- itself (its faults, and what the engine tells the owner about no work). The owner's words said to the architect's
+  -- work in hand or to its policy setting while it runs, and its answers to them, are in the one-to-one, whatever
+  -- matter it handles. A work's helpers (its advisor, review and adversarial testing) are in no group: what they and
+  -- the engineer say to each other is in the work's rounds.
   -- Hidden from agents.
   -- Read by: the owner's interface, which lists the conversations, counts what waits and what is unread in each, and
   -- shows each.
@@ -1331,13 +1336,15 @@ CREATE VIEW conversation_entries AS
   -- what the entry is (message, notice, ask, interjection, words, question, report, reply, card, ruling or between) and
   -- id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never an entry of
   -- its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of the
-  -- owner's words in a work's group the engineer, the architect or both; for between, the projects. matter: the
-  -- architect's matter the entry is, or holds the owner's words of. waiting: it waits for the owner (an ask that stands
-  -- for an open blocker the owner holds, or an architect's ask that holds a matter, not answered; a design card not
-  -- ruled while its work goes on; a fault not read). pending: the owner's words not taken up yet. undelivered: the
-  -- owner's words to the engineer that its work ended without taking in. answerable: an engineer's question the
-  -- architect holds now, which the owner may answer in the group instead.
+  -- owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
+  -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
+  -- matter the entry is, or holds the owner's words of. waiting: it waits for the owner (an ask that stands for an open
+  -- blocker the owner holds, or an architect's ask that holds a matter, not answered; a design card not ruled while its
+  -- work goes on; a fault not read). pending: the owner's words not taken up yet. undelivered: the owner's words to an
+  -- agent that its work ended without taking in. answerable: an engineer's question the architect holds now, which the
+  -- owner may answer in the group instead.
   SELECT CASE WHEN w.graph = 'engineer' THEN 'work:' || w.id
+              WHEN r.transition = 'answers' THEN 'architect:' || w.project
               ELSE coalesce((SELECT 'work:' || x.work FROM architect_matters x JOIN works y ON y.id = x.work
                              WHERE y.graph = 'engineer' AND x.id = (
                                SELECT coalesce(json_extract(p.output, '$.outcome.pick.matter'),
@@ -1390,11 +1397,11 @@ CREATE VIEW conversation_entries AS
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
     j.work, j.delivered_round, NULL, NULL, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL
-        AND w.at NOT IN ('E1', '20', 'end'))
+        AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end'))
       OR EXISTS (SELECT 1 FROM architect_matters x
                  WHERE x.id = j.matter AND x.handled_round IS NULL AND x.withdrawn IS NULL)),
     j.speaker = 'owner' AND j.informs = 0 AND j.delivered_round IS NULL
-      AND (w.ended IS NOT NULL OR w.at IN ('E1', '20', 'end')),
+      AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end')),
     0, NULL
   FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
   WHERE j.text NOT LIKE 'Ruling on design card %'

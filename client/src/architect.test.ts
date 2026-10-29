@@ -24,6 +24,7 @@ import {
   rulingAnswer,
   shownWake,
 } from './architect';
+import { architectBoxHint, boxModes, interjectFirst, liveWorks } from './conversation';
 import { inGraph, subjectKey } from './flow/context';
 import { graphOfCell, withGraph } from './flow/FlowScreen';
 import { besides, BESIDE_GRAPHS, GRAPH_TITLE } from './graph/flowLayout';
@@ -144,6 +145,44 @@ describe('a matter in words', () => {
       ],
     };
     expect(cardWords(card('ruled', [confirmed, against]))).toBe('Design card 7: architect disagreed with decision 2: too wide.');
+  });
+});
+
+describe("the box of the one-to-one with an architect", () => {
+  // Its work in hand runs a round; its policy setting waits for the owner's ruling, or studies.
+  const handling = wake(10, { state: 'running', at: 'H3' }, 1);
+  const ruling = wake(11, { graph: 'policy', state: 'asking', at: 'P11', waits: { kind: 'answer', ask: 4 } });
+  const studying = wake(11, { graph: 'policy', state: 'ready', at: 'P2' });
+
+  it('only adds to the queue while nothing of the architect runs or waits for the owner', () => {
+    const live = liveWorks([wake(9), wake(7)]);
+    expect(live).toEqual([]);
+    expect(boxModes(live)).toEqual(['queue']);
+    expect(interjectFirst(live)).toEqual([]);
+    expect(architectBoxHint('queue', live, [])).toBe('Say something to the architect');
+  });
+
+  it('interjects, at first, into the one work that runs, with no one to tick, or adds to the queue', () => {
+    const live = liveWorks([handling, wake(9)]);
+    expect(live).toEqual([{ work: 10, to: 'architect', waits: false, runs: true }]);
+    expect(boxModes(live)).toEqual(['interject', 'queue']);
+    expect(interjectFirst(live)).toEqual([10]);
+    expect(architectBoxHint('interject', live, [10])).toContain('answers here and goes on');
+    expect(architectBoxHint('queue', live, [10])).toBe("Add something to the architect's queue: it takes it up in its turn");
+  });
+
+  it('names whom Interject is for when two works are live: the policy setting while it waits for the owner, else what runs', () => {
+    const live = liveWorks([ruling, handling, wake(9)]);
+    expect(live.map((l) => [l.work, l.to, l.waits])).toEqual([
+      [10, 'architect', false],
+      [11, 'policy', true],
+    ]);
+    expect(interjectFirst(live)).toEqual([11]);
+    expect(architectBoxHint('interject', live, [11])).toContain('the ask stays open for your ruling');
+    expect(architectBoxHint('interject', live, [10])).toContain('answers here and goes on');
+    expect(architectBoxHint('interject', live, [])).toBe('Tick whom it is for above');
+    expect(interjectFirst(liveWorks([studying, handling]))).toEqual([10]);
+    expect(interjectFirst(liveWorks([studying]))).toEqual([11]);
   });
 });
 

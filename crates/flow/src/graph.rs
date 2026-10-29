@@ -1273,12 +1273,14 @@ impl<'s> Graph<'s> {
 
 /// The cells a stopped task stands at while its blocker is held, and the rows that move the blocker: every move of a
 /// blocker is a row. A row into a holder's cell from any other cell raises it, unless the cell raises it with its own
-/// row that waits; a row out of a holder's cell to any other cell resolves or withdraws it, and a cell that raises it
-/// with its row that waits resolves it by one row at least and withdraws it by each row its holder fails it by.
+/// row that waits; a row out of a holder's cell to any other cell resolves or withdraws it, but for one to a cell that
+/// answers it and brings the work back, which keeps it; and a cell that raises it with its row that waits resolves it
+/// by one row at least and withdraws it by each row its holder fails it by.
 ///
 /// A cell where a task waits on its holder (one not an agent's) has a row that resolves the blocker, one for each way
-/// its holder fails it, and one that takes the owner's interjection; a row that passes the work on to another holder
-/// hands the blocker on. Gives the cells where a blocker is held.
+/// its holder fails it, and one that takes the owner's interjection, which withdraws the blocker or keeps it while a
+/// cell answers the owner and brings the work back; a row that passes the work on to another holder hands the blocker
+/// on. Gives the cells where a blocker is held.
 fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result<BTreeSet<usize>, String> {
     use crate::format::{HAND_OVER, HOLDERS, RAISE_BLOCKER, RESOLVE_BLOCKER, WITHDRAW_BLOCKER};
     let Some(b) = &flow.blockers else {
@@ -1311,6 +1313,8 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
         );
     }
     let target = |r: &Row| at.get(&r.to).copied();
+    // A cell that answers whoever called it, which brings the work back to it.
+    let answers = |t: usize| cells[t].rows.iter().any(|x| x.to == "@caller" || x.to == "@asker");
     for (i, c) in cells.iter().enumerate() {
         let here = holding.get(&i);
         for r in &c.rows {
@@ -1339,7 +1343,18 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
                 );
                 continue;
             }
-            // Out of a holder's cell to any cell where none is held: the row resolves the blocker or withdraws it.
+            // Out of a holder's cell to a cell that answers it, where none is held, as the one that answers what the
+            // owner says while reading: the work comes back, and the blocker stays open.
+            if into.is_none() && to.is_some_and(answers) && !r.common {
+                ensure!(
+                    !does(r, RESOLVE_BLOCKER) && !does(r, WITHDRAW_BLOCKER),
+                    "a row out of {} to a cell that answers it and brings the work back ends the blocker: {}",
+                    c.id,
+                    r.name
+                );
+                continue;
+            }
+            // Out of a holder's cell to any other where none is held: the row resolves the blocker or withdraws it.
             let stays = r.waits && to == Some(i) || into.is_some();
             if stays || r.common {
                 continue;
@@ -1365,11 +1380,13 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
                 "no row of {} resolves the blocker the task waits on there",
                 h.cell
             );
+            let keeps = |r: &Row| target(r).is_some_and(|t| !holding.contains_key(&t) && answers(t));
             ensure!(
                 c.rows
                     .iter()
-                    .any(|r| r.name == "interjection" && r.interject && does(r, WITHDRAW_BLOCKER)),
-                "{} has no row that takes the owner's interjection, withdrawing the blocker the task waits on",
+                    .any(|r| r.name == "interjection" && r.interject && (does(r, WITHDRAW_BLOCKER) || keeps(r))),
+                "{} has no row that takes the owner's interjection, withdrawing the blocker the task waits on or keeping \
+                 it while a cell that answers the owner brings the work back",
                 h.cell
             );
         }

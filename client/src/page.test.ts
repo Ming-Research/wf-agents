@@ -74,6 +74,7 @@ import {
   latestAt,
   listParts,
   mention,
+  mentions,
   newlyWaiting,
   party,
   pendingWords,
@@ -1681,6 +1682,16 @@ describe("the owner's conversations", () => {
     expect(mention(entry('question', { recipient: 'architect' }))).toBe('@architect');
     expect(mention(entry('interjection', { sender: 'owner', recipient: 'both' }))).toBe('@engineer @architect');
     expect(mention(entry('message'))).toBe('@you');
+    // In the one-to-one with an architect, the owner's interjection says which of its works it was said to.
+    const said = (recipient: string) => entry('interjection', { sender: 'owner', recipient });
+    expect(mention(said('architect'), 'architect')).toBe('@architect');
+    expect(mention(said('policy'), 'architect')).toBe('@policy setting');
+    expect(mention(said('both'), 'architect')).toBe('@architect @policy setting');
+    expect(mentions(said('policy'), 'architect')).toBe(true);
+    expect(mentions(entry('words', { sender: 'owner', recipient: 'architect' }), 'architect')).toBe(false);
+    expect(mentions(entry('message'), 'work')).toBe(true);
+    // What the policy setting says is the architect's.
+    expect(party(entry('message', { sender: 'policy' }), 'policy')).toBe('architect');
   });
 
   it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a stage card's design cards in it", () => {
@@ -1697,6 +1708,7 @@ describe("the owner's conversations", () => {
         entry('message', { id: 8, sender: 'review' }),
         entry('ask', { id: 9 }),
         entry('reply', { id: 2, matter: 2, sender: 'owner', recipient: 'engineer' }),
+        entry('message', { id: 10, sender: 'policy' }),
       ],
       asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null }],
       design_cards: [],
@@ -1715,6 +1727,7 @@ describe("the owner's conversations", () => {
       'system',
       'agent',
       'owner',
+      'agent',
     ]);
     // An ask streams where it was asked; the owner's reply to the engineer's question shows in the question's bubble.
     expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual([
@@ -1727,6 +1740,7 @@ describe("the owner's conversations", () => {
       'interjection-7',
       'message-8',
       'ask-9',
+      'message-10',
     ]);
     expect(latestAt(d)).toBe(3);
     expect(pendingWords([entry('words', { sender: 'owner', pending: true })]).length).toBe(1);

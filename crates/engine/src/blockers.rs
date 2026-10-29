@@ -324,11 +324,13 @@ pub fn unmerged(conn: &Connection, item: i64) -> Result<Vec<(i64, String)>, Stri
 
 /// Where a stopped task stands: the cell of its blocker's holder, the first of the cells it is in (those that wait
 /// for an answer, then the one it is at) that holds a blocker, with the cell that raised it there: the cell before it,
-/// or for a cell where the work waits, itself. None for a task that does not stand on a blocker.
-pub fn standing(g: &CompiledGraph, pos: &Position, last: Option<(&str, &str)>) -> Option<(String, String)> {
+/// or for a cell where the work waits, itself. None for a task that does not stand on a blocker. `took` is each row
+/// the task's rounds took, oldest first, by the cell of the round.
+pub fn standing(g: &CompiledGraph, pos: &Position, took: &[(&str, &str)]) -> Option<(String, String)> {
     let seq: Vec<&String> = pos.callers.iter().chain(std::iter::once(&pos.at)).collect();
     let i = seq.iter().position(|c| g.holder_cell(c).is_some())?;
     let h = g.holder_cell(seq[i])?;
+    let last = took.last().copied();
     // A cell that raises the blocker with its own row that waits holds it once it took that row.
     if h.waits {
         let cell = g.cell(&h.cell)?;
@@ -339,7 +341,9 @@ pub fn standing(g: &CompiledGraph, pos: &Position, last: Option<(&str, &str)>) -
         return Some((h.cell.clone(), h.cell.clone()));
     }
     // A wait for items is raised where the work waits; a question at the cell that asked: the one it was called from,
-    // or for a holder's cell no cell calls, as the owner's reading of a policy's study, the cell that brought it there.
+    // or for a holder's cell no cell calls, as the owner's reading of a policy's study, the cell that brought it there,
+    // past the round trips it made since to the cells that answer it, as the one that answers what the owner says
+    // while reading.
     let asks = h
         .holders
         .iter()
@@ -349,7 +353,13 @@ pub fn standing(g: &CompiledGraph, pos: &Position, last: Option<(&str, &str)>) -
     } else if i > 0 {
         seq[i - 1].clone()
     } else {
-        pos.from.clone().unwrap_or_else(|| seq[i].clone())
+        took.iter()
+            .rev()
+            .map(|(c, _)| *c)
+            .find(|c| *c != h.cell && !g.is_called(c))
+            .map(str::to_string)
+            .or_else(|| pos.from.clone())
+            .unwrap_or_else(|| seq[i].clone())
     };
     Some((h.cell.clone(), raised))
 }
@@ -395,14 +405,12 @@ pub fn invariants(e: &mut Engine) -> Result<Vec<String>, String> {
             continue;
         }
         let g = e.graph_of(&w)?;
-        let last = crate::work::rounds(e.db.conn(), id)?
-            .into_iter()
-            .rev()
-            .find(|r| r.transition.is_some());
-        let last = last
-            .as_ref()
-            .and_then(|r| Some((r.cell.as_deref()?, r.transition.as_deref()?)));
-        let stands = standing(&g, &w.pos, last);
+        let rounds = crate::work::rounds(e.db.conn(), id)?;
+        let took: Vec<(&str, &str)> = rounds
+            .iter()
+            .filter_map(|r| Some((r.cell.as_deref()?, r.transition.as_deref()?)))
+            .collect();
+        let stands = standing(&g, &w.pos, &took);
         let done = e.done(&w)?;
         match (stands, open.first()) {
             (Some((cell, _)), None) if !done => {

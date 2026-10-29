@@ -16,7 +16,9 @@
 // box give way to the owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere
 // else. While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design
 // card a work waits on to be ruled is pinned at the top. The one box at the bottom only says something, in a work's
-// group to the engineer, the architect or both. Opening a conversation reads it up to its latest entry.
+// group to the engineer, the architect or both, and in the one-to-one, while something of the architect runs or waits
+// for the owner, either interjects into it, which the architect answers there as it goes on, or adds to its queue.
+// Opening a conversation reads it up to its latest entry.
 
 import {
   ArrowDownIcon,
@@ -38,12 +40,14 @@ import {
   FormControl,
   NavList,
   PageLayout,
+  SegmentedControl,
   Textarea,
   Timeline,
 } from '@primer/react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
+  Architect,
   Conversation,
   ConversationDetail,
   ConversationEntry,
@@ -56,17 +60,25 @@ import type {
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
 import {
+  architectBoxHint,
   awayOf,
+  boxModes,
+  type BoxMode,
   closedWhy,
   conversationTitle,
   type ForwardChoice,
   forwardMenu,
   forwardParts,
   heldCards,
+  interjectFirst,
   isQuestion,
   latestAt,
   listParts,
+  liveWorks,
+  type LiveWork,
+  member,
   mention,
+  mentions,
   ownerReplies,
   party,
   pendingWords,
@@ -398,12 +410,13 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 
 /// One message of the owner's or an agent's: who it is from, to whom (in a group, at its head), when, its round, and
 /// what it says; the owner's on the right in the look of what is sent to an agent, an agent's beside its avatar in the
-/// look of what an agent handed back, in its colour. The owner's words not taken up yet, and those never taken in,
-/// say so on themselves. Each answer to a bubble is in that bubble: an ask holds what answers it while it waits, then
-/// the owner's answer; a question the architect holds, the box that answers it, then the owner's answer (`reply`).
-function Message({ e, group, reply }: { e: ConversationEntry; group: boolean; reply: ConversationEntry | null }) {
+/// look of what an agent handed back, in its colour; what the architect's policy setting says, as the architect's. The
+/// owner's words not taken up yet, and those never taken in, say so on themselves. Each answer to a bubble is in that
+/// bubble: an ask holds what answers it while it waits, then the owner's answer; a question the architect holds, the
+/// box that answers it, then the owner's answer (`reply`).
+function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; reply: ConversationEntry | null }) {
   const own = e.sender === 'owner';
-  const from = e.source === 'between' ? `architect:${e.sender}` : e.sender;
+  const from = e.source === 'between' ? `architect:${e.sender}` : member(e.sender);
   const round = e.work !== null && e.round !== null && e.source !== 'between';
   const ask = e.source === 'ask' ? e.ask_detail : null;
   const question = e.answerable && e.work !== null && e.matter !== null ? { work: e.work, matter: e.matter } : null;
@@ -415,7 +428,7 @@ function Message({ e, group, reply }: { e: ConversationEntry; group: boolean; re
       <div className={own ? 'talk-bubble talk-bubble-owner' : `talk-bubble talk-bubble-${from.startsWith('architect') ? 'architect' : 'engineer'}`}>
         <div className="talk-bubble-head">
           {own ? null : <span className="talk-who">{party(e, e.sender)}</span>}
-          {group || e.source === 'between' ? <span className="talk-mention">{mention(e)}</span> : null}
+          {to !== null ? <span className="talk-mention">{to}</span> : null}
           <span className="talk-when">{time(e.at)}</span>
           {round ? (
             <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })} muted>
@@ -566,7 +579,7 @@ function Entry({ e, c, w, held, current, replies, forwarding }: {
   if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
   const reply = e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null;
-  return <Message e={e} group={c.kind === 'work' || c.kind === 'projects'} reply={reply} />;
+  return <Message e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} reply={reply} />;
 }
 
 /// What waits for the owner pinned at the top of the conversation: the design card whose ruling a work waits for
@@ -583,21 +596,39 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
+/// What the box of the one-to-one with an architect does: what of the architect runs or waits for the owner, whether
+/// the words interject into it (at first) or go to its queue, and whom Interject is for: those the owner ticked, or
+/// until then the policy setting while it waits for the owner, else what runs. In any other conversation, nothing runs
+/// and the words go where they go.
+function useArchitectBox(c: Conversation) {
+  const r = useResource<Architect>('architect', c.kind === 'architect' ? forProject('/api/v1/architect', c.project) : null);
+  const live: LiveWork[] = c.kind === 'architect' && r.data !== undefined && r.data.project === c.project ? liveWorks(r.data.wakes) : [];
+  const modes = boxModes(live);
+  const [chosen, setMode] = useState<BoxMode>('interject');
+  const mode = modes.includes(chosen) ? chosen : modes[0];
+  const [ticked, setTicked] = useState<number[] | null>(null);
+  const to = (ticked ?? interjectFirst(live)).filter((x) => live.some((l) => l.work === x));
+  const tick = (work: number, on: boolean) => setTicked(on ? [...to.filter((x) => x !== work), work] : to.filter((x) => x !== work));
+  return { live, modes, mode, setMode, to, tick };
+}
+
 /// The one box at the bottom of a conversation: it says something, in a work's group to the engineer, the architect or
-/// both; in a group of projects to one architect or every one; in the one-to-one to the architect. It never answers a
-/// bubble: an ask, and a question the architect holds, are answered in their bubbles. Closed, it says why: a work at
-/// its end no longer changes its way on.
+/// both; in a group of projects to one architect or every one; in the one-to-one to the architect, interjecting into
+/// what of it runs or waits for the owner, or adding to its queue. It never answers a bubble: an ask, and a question the
+/// architect holds, are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
 function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
   const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
+  const box = useArchitectBox(c);
+  const interjects = c.kind === 'architect' && box.mode === 'interject';
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closed = closedWhy(c, w);
   if (choices.length === 0) return null;
-  const ready = closed === null && text.trim() !== '' && sendTo.length > 0;
+  const ready = closed === null && text.trim() !== '' && sendTo.length > 0 && (!interjects || box.to.length > 0);
   const done = () => {
     setBusy(false);
     setText('');
@@ -619,6 +650,8 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
       sent = Promise.all(
         sendTo.map((x) => postJson('/api/v1/projects/say', x === 'all' ? { key: c.key, text: words } : { key: c.key, text: words, to: x })),
       ).then(() => undefined);
+    } else if (interjects) {
+      sent = postJson(forProject('/api/v1/architect/interject', c.project), { text: words, works: box.to });
     } else {
       sent = postJson(forProject('/api/v1/architect/say', c.project), { text: words });
     }
@@ -639,6 +672,17 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
           ))}
         </div>
       ) : null}
+      {closed === null && interjects && box.live.length > 1 ? (
+        <div className="talk-say-to" role="group" aria-label={t('conv_to')}>
+          <span className="talk-say-to-label">{t('conv_to')}</span>
+          {box.live.map((l) => (
+            <FormControl key={l.work} layout="horizontal">
+              <Checkbox checked={box.to.includes(l.work)} onChange={(e) => box.tick(l.work, e.target.checked)} />
+              <FormControl.Label>{`@${t(l.to === 'policy' ? 'conv_policy_setting' : 'conv_architect_short')}`}</FormControl.Label>
+            </FormControl>
+          ))}
+        </div>
+      ) : null}
       <div className="talk-say-row">
         <Textarea
           block
@@ -651,7 +695,9 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
               ? closed
               : c.kind === 'work'
                 ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : sendTo.length === 0 ? 'conv_say_nobody' : 'conv_say_both')
-                : t('conv_say_architect')
+                : c.kind === 'architect'
+                  ? architectBoxHint(box.mode, box.live, box.to)
+                  : t('conv_say_architect')
           }
           title={t('send_keys_hint')}
           onChange={(e) => setText(e.target.value)}
@@ -662,6 +708,17 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
             }
           }}
         />
+        {closed === null && box.modes.length > 1 ? (
+          <span className="talk-say-mode">
+            <SegmentedControl aria-label={t('conv_mode')} size="small" onChange={(i) => box.setMode(box.modes[i])}>
+              {box.modes.map((m) => (
+                <SegmentedControl.Button key={m} selected={m === box.mode}>
+                  {t(m === 'interject' ? 'conv_mode_interject' : 'conv_mode_queue')}
+                </SegmentedControl.Button>
+              ))}
+            </SegmentedControl>
+          </span>
+        ) : null}
         <Button variant="primary" onClick={send} disabled={!ready || busy}>
           {t('conv_send')}
         </Button>
@@ -693,8 +750,9 @@ function AwayLine({ away, list }: { away: Array<[number, 'above' | 'below']>; li
 }
 
 /// The stream of a conversation, oldest first, scrolled to its newest: the engine's cards and lines in the page's own
-/// voice, the members' messages beside them, an ask where it was asked; under it, while the owner's words wait to be
-/// taken up in the one-to-one, that they do; over it, while an ask that waits is out of view, the line that says so.
+/// voice, the members' messages beside them, an ask where it was asked; under it, while the owner's words added to the
+/// queue wait to be taken up in the one-to-one, that they do; over it, while an ask that waits is out of view, the line
+/// that says so.
 export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w: WorkSummary | null }) {
   const held = useMemo(() => heldCards(d), [d]);
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
@@ -744,7 +802,8 @@ export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w:
     if (last !== undefined && last.cards === cards) last.entries.push(e);
     else runs.push({ cards, entries: [e] });
   }
-  const pending = c.kind === 'architect' && pendingWords(d.entries).length > 0;
+  // Words added to the queue wait their turn; those interjected say on themselves that they are not taken up yet.
+  const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words');
   return (
     <>
       <AwayLine away={away} list={list} />

@@ -205,8 +205,12 @@ const ROWS: usize = 200;
 const BATCH: i64 = 20;
 
 /// The rows a round of the architect's cells takes when it hands in no answer of its own, as the views say it: it
-/// asked for tools or a search, paused, or asked the owner.
-const NO_ANSWER: &str = "('tools', 'search', 'pause', 'ask_owner')";
+/// asked for tools or a search, paused, asked the owner, or answered what the owner said.
+const NO_ANSWER: &str = "('tools', 'search', 'pause', 'ask_owner', 'answers')";
+
+/// The engine's value that says the owner's words to the setting of a policy wait for an answer, at the cells where it
+/// waits for the owner, by its name, and by the name a flow version before it had its own gave it.
+const OWNER_WORDS: [&str; 2] = ["owner_words", "interjection"];
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -1044,17 +1048,44 @@ pub fn back_to_understanding(
 
 // Asks of the owner.
 
-/// The ask of the owner a round put, and its answer once the owner gave it.
+/// The ask of the owner a round waits for, and its answer once the owner gave it: the one the round put, or the one an
+/// earlier round of its cell put that the round's input names, when the work came back to the cell with that ask still
+/// open, from the cell that answered what the owner said while reading.
 pub fn owner_ask_of(e: &Engine, round: RoundId) -> Result<Option<(i64, Option<Value>)>, String> {
     e.db.conn()
         .query_row(
-            "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2 ORDER BY id LIMIT 1",
+            "SELECT a.id, a.answer FROM owner_asks a JOIN rounds r ON r.work = a.work
+             WHERE r.work = ?1 AND r.n = ?2 AND (a.round = r.n OR a.id = json_extract(r.input, '$.ask'))
+             ORDER BY a.id LIMIT 1",
             [round.work, round.n],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
         )
         .optional()
         .map(|o| o.map(|(id, a)| (id, json_col(a))))
         .map_err(sql)
+}
+
+/// The ask the task's open blocker, held by the owner, stands for, when a round of this cell put it: the work came back
+/// to the cell with the ask still open.
+fn still_open(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<i64>, String> {
+    let Some(b) = crate::blockers::open(e.db.conn(), w.id)? else {
+        return Ok(None);
+    };
+    let Some(ask) = b.ask.filter(|_| b.holder == "owner") else {
+        return Ok(None);
+    };
+    let at: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT r.cell FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round
+                 WHERE a.id = ?1 AND a.work = ?2",
+                params![ask, w.id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?
+            .flatten();
+    Ok(at.filter(|c| *c == cell.id).map(|_| ask))
 }
 
 /// What a step that is not an agent's round records of its inputs: the value of each, by its sources.
@@ -1126,7 +1157,9 @@ fn answered_as(cell: &CompiledCell, answer: &Value) -> Value {
 /// The owner's cells of the architect's graph (asking, reading a study, approving a policy): what the architect asks,
 /// or puts before the owner to read or approve, becomes an ask of the owner. An ask from a cell on a matter's path
 /// holds only that matter: the ask records the cell that asked, the round ends at once, and the wake goes on without
-/// it; the matter is back in the queue once the owner answers. Any other waits for the answer, holding no slot.
+/// it; the matter is back in the queue once the owner answers. Any other waits for the answer, holding no slot; what
+/// the owner says meanwhile to the setting of a policy takes it to the cell that answers it, and it comes back to wait
+/// for the same ask.
 pub fn ask_owner(
     e: &mut Engine,
     w: &Work,
@@ -1140,10 +1173,12 @@ pub fn ask_owner(
         };
         let gathered = inputs::gather(e, w, g, cell, None)?;
         let mut given = values::given(e, w, g, cell, None, &gathered)?;
+        // The value that says the owner's words wait, by the name the flow version gives it.
+        let words = OWNER_WORDS.into_iter().find(|k| given.contains_key(*k));
         let Some(answer) = answer else {
-            // What the owner said to the setting of a policy instead of answering takes it on by its row for that, and
-            // the ask needs no answer.
-            if given.get("interjection").and_then(Value::as_str) == Some("yes")
+            // What the owner said to the setting of a policy instead of answering takes it on by its row for that: to
+            // the cell that answers it, the ask still open, or to the cell that asked, the ask needing no answer.
+            if words.is_some_and(|k| given.get(k).and_then(Value::as_str) == Some("yes"))
                 && let Some(row) = crate::row(cell, "interjection").cloned()
             {
                 return finish(
@@ -1163,15 +1198,26 @@ pub fn ask_owner(
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
         };
         // The owner's answer came: what was said to the task meanwhile reaches it at its next round.
-        if given.contains_key("interjection") {
-            given.insert("interjection".into(), json!("no"));
+        if let Some(k) = words {
+            given.insert(k.into(), json!("no"));
         }
         let output = answered_as(cell, &answer);
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
-    let project = project_of(w)?.to_string();
     let gathered = inputs::gather(e, w, g, cell, None)?;
+    // Back from the cell that answered what the owner said while reading: the ask an earlier round of this cell put
+    // still stands for the task's blocker, and this round waits for it, putting none.
+    if let Some(ask) = still_open(e, w, cell)? {
+        let input = json!({ "inputs": recorded(&gathered), "ask": ask });
+        let commit = e.config.commit.clone();
+        e.db.write(Actor::Engine, |tx| {
+            work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
+        return Ok(Advance::Waits(format!("ask {ask} waits for the owner")));
+    }
+    let project = project_of(w)?.to_string();
     // A wake of the architect never waits for the owner: its ask holds only the matter of the path that asked. The
     // setting of a policy is a task, which stops on the ask, its blocker held by the owner.
     let holds = if w.graph == ARCHITECT {
