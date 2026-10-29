@@ -3209,7 +3209,7 @@ mod tests {
     }
 
     // An ask the owner answered is one entry of its conversation, the ask, which holds the answer: the answer is no
-    // entry of its own beside it. The ask waits no longer, and nothing the owner did is unread.
+    // entry of its own beside it. The ask waits no longer, and, answered where it was asked, it is not unread.
     #[test]
     fn an_answered_ask_is_one_entry_holding_its_answer() {
         let mut s = architect_setup("answered");
@@ -3223,8 +3223,8 @@ mod tests {
             let p = all.iter().find(|c| c.key == "architect:p").unwrap();
             (p.waiting, p.unread)
         };
-        let (waiting, unread) = counts(&s);
         let given = json!({ "by": "owner", "at": 500, "choice": "satisfied", "text": "Good." }).to_string();
+        assert_eq!(counts(&s), (2, 0));
         s.db.write(Actor::Owner, |tx| {
             tx.execute("UPDATE owner_asks SET answer = ?1 WHERE id = 1", [&given])?;
             Ok(())
@@ -3243,7 +3243,7 @@ mod tests {
         let answer = e.ask_detail.as_ref().and_then(|a| a.answer.clone());
         assert_eq!(answer.map(|a| a["choice"].clone()), Some(json!("satisfied")));
         assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
-        assert_eq!(counts(&s), (waiting - 1, unread));
+        assert_eq!(counts(&s), (1, 0));
     }
 
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card
