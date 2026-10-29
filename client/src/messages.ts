@@ -260,7 +260,7 @@ const messages = {
   helpers_tab: 'Helpers',
   helpers_none: 'No helper of this work has run yet.',
   helpers_thread: 'The {line} and the engineer',
-  send_keys_hint: 'Ctrl or Cmd with Enter sends it too.',
+  send_keys_hint: 'Enter sends; Shift with Enter starts a new line.',
   message_misses:
     '{n} misses with this cause on this line so far, the latest {at}: {written} tokens written to the cache again, about {cost} more than reading them.',
   engine_offline: 'Offline',

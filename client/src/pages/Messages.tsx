@@ -428,7 +428,9 @@ function Composer({ c, w, answering }: { c: Conversation; w: WorkSummary | null;
           title={t('send_keys_hint')}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            // Enter sends and Shift with Enter starts a new line; an Enter that ends a word typed through an input method
+            // (Chinese, for one) only ends the word.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
               e.preventDefault();
               send();
             }
