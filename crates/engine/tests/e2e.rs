@@ -1574,7 +1574,7 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
             .query_row("SELECT text FROM engine_notices WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert!(
-        told.ends_with("is paused: cell research: the return does not fit"),
+        told.ends_with("is paused: cell research.problem: the return does not fit"),
         "{told}"
     );
     // An earlier engine paused without closing the round; the owner lets the work go on.
@@ -1811,7 +1811,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let log = said.borrow().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
-        why.starts_with("3 returns of cell research in a row were sent back"),
+        why.starts_with("3 returns of cell research.problem in a row were sent back"),
         "{why}"
     );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
@@ -2222,7 +2222,7 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
         .db
         .conn()
         .query_row(
-            "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell stands: the message%'",
+            "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell research.stands: the message%'",
             [work],
             |r| r.get(0),
         )
@@ -4330,8 +4330,8 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "test.fix").map(|r| &r.2).collect();
     for end in [
         item_address.as_str(),
-        "·choose·acceptance",
-        "·choose·design",
+        "·design.choose·acceptance",
+        "·design.choose·design",
         "·implement·conditions",
     ] {
         assert_eq!(
@@ -5107,7 +5107,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
         judged[1]
     );
     assert_eq!(
-        given_ending(&judged[1], "·assemble·draft.policy"),
+        given_ending(&judged[1], "·policy.assemble·draft.policy"),
         Some(true),
         "{}",
         judged[1]

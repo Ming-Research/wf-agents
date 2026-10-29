@@ -237,7 +237,7 @@ mod tests {
         );
         assert!(
             text.contains(
-                "R7-5 of work 7 (a wake of the architect) in project p, at cell rethink on the architect line"
+                "R7-5 of work 7 (a wake of the architect) in project p, at cell batch.rethink on the architect line"
             ) && text.contains("14 minutes after")
                 && text.contains(
                     "wrote 412,345 tokens to the cache again of the 418,000 the session held, which cost about $1.23"
