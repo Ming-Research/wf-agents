@@ -61,6 +61,10 @@ pub const ENGINEER: &str = "engineer";
 /// The graph the architect's wakes run, on no item, and the line its session goes on in.
 pub const ARCHITECT: &str = "architect";
 
+/// The graph the setting of a project's policy runs, a task of its own beside the project's wakes, and the line its
+/// session goes on in.
+pub const POLICY: &str = "policy";
+
 /// The line of the search of observations, which runs at the observer's level.
 pub const OBSERVER: &str = "observer";
 
@@ -231,7 +235,7 @@ impl Engine {
             (self.say)(&format!("work {id} stopped: {why}"));
             // A wake stopped leaves no hold of its own behind: setting its project straight and a policy being set
             // are the wake's; the next wake asks its questions afresh.
-            if w.graph == ARCHITECT {
+            if w.graph == ARCHITECT || w.graph == POLICY {
                 let project = w.project.clone();
                 self.db
                     .write(Actor::Engine, |tx| {
@@ -1185,6 +1189,7 @@ pub fn line_of(g: &CompiledGraph, cell: &CompiledCell) -> String {
     match &cell.line {
         Some(l) => l.clone(),
         None if g.name == ARCHITECT => ARCHITECT.to_string(),
+        None if g.name == POLICY => POLICY.to_string(),
         None => ENGINEER.to_string(),
     }
 }

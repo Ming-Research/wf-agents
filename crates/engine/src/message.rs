@@ -447,7 +447,7 @@ impl Context<'_> {
         // directory of its own, with its project's checkout to read.
         let line = crate::line_of(g, c);
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
-        let workspace = if g.name == ARCHITECT {
+        let workspace = if g.name == ARCHITECT || g.name == crate::POLICY {
             Some(m.give("work:architect".into(), Value::String(architect_workspace(e, named))))
         } else {
             workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))

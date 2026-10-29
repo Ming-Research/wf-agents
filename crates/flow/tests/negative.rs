@@ -605,7 +605,7 @@ case!(
     a_cell_given_the_draft_without_what_a_policy_governs,
     "cell `P6` is given P5·draft.policy without the rule policy_scope that goes with it",
     |v| {
-        let read = v["flows"][1]["nodes"]
+        let read = v["flows"][2]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
@@ -626,9 +626,9 @@ case!(
 );
 case!(
     a_text_that_names_a_cell_of_the_other_graph,
-    "architect: flows.architect.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
+    "policy: flows.policy.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
     |v| {
-        let correct = v["flows"][1]["nodes"]
+        let correct = v["flows"][2]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()

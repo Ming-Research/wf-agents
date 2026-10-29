@@ -3533,11 +3533,13 @@ fn the_search_of_observations_hands_back_candidates() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the architect judges the policy may no longer govern, it is set again before anything else: new works of the
-// project are held while a study is made for the owner; the owner says the policy stays, the hold is let go, and the
-// wake goes on to judge what runs.
+// When the architect judges the policy may no longer govern, a new one is set as a task of its own beside the wake:
+// new works of the project are held, and the wake goes on with its queue under the policy in force while the setting
+// studies a new one and stops for the owner to read it, its blocker raised at the study and held by the owner. The
+// owner says the policy stays: the setting ends, the hold is let go, and the architect thinks what to do next with the
+// study and the owner's words, which settles the matter the setting queued.
 #[test]
-fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
+fn a_policy_set_again_is_studied_beside_the_wake_and_the_owner_says_it_stays() {
     let s = setup("policy-stays");
     let mut agents = scripts();
     agents.insert(
@@ -3556,19 +3558,22 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     let asked = |e: &mut Engine| -> Option<i64> {
         e.db.conn()
             .query_row(
-                "SELECT id FROM owner_asks WHERE work = ?1 AND json_extract(body, '$.kind') = 'study'",
-                [wake],
+                "SELECT a.id FROM owner_asks a JOIN works w ON w.id = a.work
+                 WHERE w.graph = 'policy' AND json_extract(a.body, '$.kind') = 'study'",
+                [],
                 |r| r.get(0),
             )
             .ok()
     };
     assert!(
-        steps_until(&mut e, 20, |e| asked(e).is_some()),
+        steps_until(&mut e, 40, |e| asked(e).is_some()),
         "{}",
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, wake), ["W0", "W1", "U1", "P1", "P2", "P3"], "{log}");
+    let setting = settings(&e)[0];
+    assert_eq!(path_of(&e, setting), ["P2", "P3"], "{log}");
+    assert_eq!(path_of(&e, wake)[..5], ["W0", "W1", "U1", "P1", "Q0"], "{log}");
     let holds = |e: &Engine| -> Vec<(String, String)> {
         let mut st =
             e.db.conn()
@@ -3580,6 +3585,15 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
             .collect()
     };
     assert_eq!(holds(&e), [("p".to_string(), "policy".to_string())]);
+    let blocker: (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT cell, holder FROM blockers WHERE work = ?1 AND ended IS NULL",
+                [setting],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(blocker, ("P2".to_string(), "owner".to_string()), "{log}");
     let stays = api::Answer {
         text: "Keep it.".into(),
         why: None,
@@ -3589,28 +3603,53 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     };
     let ask = asked(&mut e).unwrap();
     api::answer(&mut e.db, ask, &stays).unwrap();
-    assert!(
-        steps_until(&mut e, 30, |e| wake_done(e, wake)),
-        "{}",
-        said.borrow().join("\n")
-    );
+    let thought = |e: &mut Engine| -> bool {
+        let settled: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM architect_matters WHERE kind = 'policy' AND handled_round IS NOT NULL",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        settled > 0
+    };
+    assert!(steps_until(&mut e, 60, thought), "{}", said.borrow().join("\n"));
     let log = said.borrow().join("\n");
-    let rows = cells_of(&e, wake);
+    let rows = cells_of(&e, setting);
     let at = rows.iter().position(|c| c.0 == "P3" && c.1.is_some()).expect(&log);
     assert_eq!(rows[at].1.as_deref(), Some("policy_stays"), "{log}");
-    assert_eq!(rows[at + 1].0, "N1", "{log}");
+    assert_eq!(rows[at + 1].0, "E1", "{log}");
     assert_eq!(holds(&e), Vec::<(String, String)>::new(), "{log}");
+    let resolved: String =
+        e.db.conn()
+            .query_row("SELECT ended FROM blockers WHERE work = ?1", [setting], |r| r.get(0))
+            .unwrap();
+    assert_eq!(resolved, "resolved", "{log}");
+    // The architect thought what to do next with the study and the owner's words.
+    let next: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.graph = 'architect' AND r.cell = 'N1' AND r.transition IS NOT NULL AND r.work >= ?1",
+                [wake],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(next > 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A new policy that takes effect goes straight on to what to do next under it, in a new session of the architect's line
-// given the state of things the wake wrote and the new policy, and not back through understanding the project.
+// A new policy that takes effect ends its setting, lets new works of the project start again, and ends the session the
+// architect's wakes go on in: the next wake starts a new session, which understands the project after a new policy,
+// judges the policy, now the new one, and thinks what to do next under it, which settles the matter the setting queued.
 #[test]
-fn a_new_policy_goes_straight_on_to_what_to_do_next_in_a_new_session() {
+fn a_new_policy_ends_the_setting_and_the_architect_thinks_anew_under_it() {
     let s = setup("policy-next");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    let wake = wake_at(&mut e, "P12");
+    let earlier = wake_at(&mut e, "E2");
+    let setting = setting_at(&mut e, "P12");
     let line = json!({ "line": "The parser", "where": "w", "stuck": "no", "recent": "r", "grounds": "g" });
     let state = json!({ "outcome": { "state": [line], "changed": "c", "unclear": [] }, "progress": "Seen." });
     let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
@@ -3618,20 +3657,56 @@ fn a_new_policy_goes_straight_on_to_what_to_do_next_in_a_new_session() {
     let written = json!({ "outcome": { "policy": policy, "probes": [] }, "progress": "Written." });
     let approved = json!({ "ruling": { "choice": "approved", "text": "Yes." } });
     e.db.write(Actor::Engine, |tx| {
-        record_round(tx, wake, 1, "U1", &state, "understood")?;
-        record_round(tx, wake, 2, "P4", &written, "written")?;
-        record_round(tx, wake, 3, "P11", &approved, "approved")
+        record_round(tx, earlier, 1, "U1", &state, "understood")?;
+        tx.execute("UPDATE works SET ended = 'over before' WHERE id = ?1", [earlier])?;
+        record_round(tx, setting, 1, "P4", &written, "written")?;
+        record_round(tx, setting, 2, "P11", &approved, "approved")?;
+        tx.execute(
+            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)",
+            [],
+        )?;
+        Ok(())
     })
     .unwrap();
-    let next = |e: &mut Engine| cells_of(e, wake).iter().any(|c| c.0 == "N1" && c.1.is_some());
-    assert!(steps_until(&mut e, 6, next), "{}", said.borrow().join("\n"));
+    let settled = |e: &mut Engine| -> bool {
+        let n: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM architect_matters WHERE kind = 'policy' AND handled_round IS NOT NULL",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        n > 0
+    };
+    assert!(steps_until(&mut e, 60, settled), "{}", said.borrow().join("\n"));
     let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, wake)[3..5], ["P12", "N1"], "{log}");
-    let lines = line_sessions(&e, wake, "architect");
-    assert_eq!(lines.last().map(|l| l.2.as_str()), Some("N1"), "{lines:?}\n{log}");
-    let m = message_at(&e, wake, "N1", false);
-    let given = given_value(&m, "·U1·state").expect(&m);
-    assert_eq!(given[0]["line"], "The parser", "{m}");
+    assert_eq!(path_of(&e, setting)[2..], ["P12", "E1"], "{log}");
+    let policies: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM policy_current WHERE project = 'p'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(policies, 1, "{log}");
+    let held: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM dispatch_holds", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held, 0, "{log}");
+    let wake: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT max(id) FROM works WHERE graph = 'architect' AND id > ?1",
+                [setting],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let path = path_of(&e, wake);
+    let u = path.iter().position(|c| c == "U1").expect(&log);
+    assert_eq!(path[u..u + 3], ["U1", "P1", "N1"], "{log}");
+    let m = message_at(&e, wake, "U1", false);
+    assert!(m.contains("A new policy took effect"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -4981,7 +5056,7 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
         let wake =
             e.db.write(Actor::Engine, |tx| {
                 tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'P10', 'p')",
+                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'policy', 'P10', 'p')",
                     [v],
                 )?;
                 Ok(tx.last_insert_rowid())
@@ -5285,7 +5360,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let wake =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', 'P4', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'policy', 'P4', 'p')",
                 [v],
             )?;
             Ok(tx.last_insert_rowid())
@@ -5404,7 +5479,7 @@ fn a_minor_fix_a_reading_finds_is_put_in_without_a_new_reading() {
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let wake = wake_at(&mut e, "P4");
+    let wake = setting_at(&mut e, "P4");
     for _ in 0..20 {
         if e.work(wake).unwrap().pos.at == "P11" {
             break;
@@ -5478,7 +5553,7 @@ fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let wake = wake_at(&mut e, "P4");
+    let wake = setting_at(&mut e, "P4");
     for _ in 0..40 {
         if approval_asked(&e, wake).is_some() {
             break;
@@ -5553,7 +5628,7 @@ fn a_new_session_after_a_return_sent_back_is_told_why() {
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let wake = wake_at(&mut e, "P4");
+    let wake = setting_at(&mut e, "P4");
     for _ in 0..10 {
         if rows_at(&e, wake, "P6").len() == 1 {
             break;
@@ -5577,7 +5652,7 @@ fn the_study_of_a_new_policy_is_given_the_design_goal() {
     let s = setup("study-goal");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let wake = wake_at(&mut e, "P2");
+    let wake = wake_at(&mut e, "Q0");
     let state = json!({ "outcome": { "state": [{ "line": "l", "where": "w", "stuck": "no", "recent": "r",
                                                  "grounds": "g" }], "changed": "c", "unclear": [] },
                         "progress": "Understood.", "tell_owner": [] });
@@ -5589,7 +5664,8 @@ fn the_study_of_a_new_policy_is_given_the_design_goal() {
         record_round(tx, wake, 2, "P1", &again, "set_again")
     })
     .unwrap();
-    let m = engine::next_message(&mut e, wake).unwrap().text;
+    let setting = setting_at(&mut e, "P2");
+    let m = engine::next_message(&mut e, setting).unwrap().text;
     let goal = work_from(&m).into_iter().nth(2).unwrap_or_default();
     assert!(goal.starts_with("3. ") && !goal.ends_with("none"), "{goal}\n{m}");
     assert!(m.contains("simple"), "{m}");
@@ -5626,6 +5702,33 @@ fn wake_at(e: &mut Engine, cell: &str) -> i64 {
     .unwrap()
 }
 
+/// A setting of project p's policy at a cell, with no round yet: a task of its own beside the project's wakes.
+fn setting_at(e: &mut Engine, cell: &str) -> i64 {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'policy', ?2, 'p')",
+            params![v, cell],
+        )?;
+        Ok(tx.last_insert_rowid())
+    })
+    .unwrap()
+}
+
+/// The settings of project p's policy, in the order they started.
+fn settings(e: &Engine) -> Vec<i64> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT id FROM works WHERE graph = 'policy' ORDER BY id",
+        &[],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .filter_map(|r| r["id"].as_i64())
+    .collect()
+}
+
 /// The line of the next message of a work that lists its input by number.
 fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
     let m = engine::next_message(e, work).unwrap().text;
@@ -5635,32 +5738,32 @@ fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
         .unwrap_or_else(|| panic!("{m}"))
 }
 
-// `N1` is given the study of a new policy and the owner's answer to it only when the owner's latest answer
-// to a study in the wake said the policy in force stays, not when the owner was satisfied with the study.
+// `N1` is given the study of a new policy and the owner's answer to it only when the owner's latest answer to a study,
+// in the setting of the policy that ended last, said the policy in force stays, not when the owner was satisfied.
 #[test]
 fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays() {
     let s = setup("stays");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let wake = wake_at(&mut e, "N1");
+    let setting = setting_at(&mut e, "P4");
     let study =
         json!({ "outcome": { "study": { "intent": "Faster parsing." } }, "progress": "Studied.", "tell_owner": [] });
     let ruling = |choice: &str| json!({ "ruling": { "choice": choice, "text": "Seen." } });
     e.db.write(Actor::Engine, |tx| {
-        record_round(tx, wake, 1, "P2", &study, "studied")?;
-        record_round(tx, wake, 2, "P3", &ruling("satisfied"), "satisfied")
+        record_round(tx, setting, 1, "P2", &study, "studied")?;
+        record_round(tx, setting, 2, "P3", &ruling("satisfied"), "satisfied")
     })
     .unwrap();
     assert_eq!(next_listed(&mut e, wake, 9), "9. none");
     e.db.write(Actor::Engine, |tx| {
-        record_round(tx, wake, 3, "P3", &ruling("policy_stays"), "policy_stays")
+        record_round(tx, setting, 3, "P3", &ruling("policy_stays"), "policy_stays")
     })
     .unwrap();
     let stays = next_listed(&mut e, wake, 9);
-    assert!(
-        stays.contains("·P2·study") && stays.contains(&format!("R{wake}-3·P3·ruling")),
-        "{stays}"
-    );
+    assert!(stays.contains("policy_stays") && !stays.ends_with("none"), "{stays}");
+    let m = engine::next_message(&mut e, wake).unwrap().text;
+    assert!(m.contains("Faster parsing."), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

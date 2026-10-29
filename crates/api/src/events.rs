@@ -22,9 +22,11 @@ fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
 
 /// Whether a work is a wake of the architect, whose tab shows it.
 fn wake(conn: &Connection, work: i64) -> bool {
-    conn.query_row("SELECT graph = 'architect' FROM works WHERE id = ?1", [work], |r| {
-        r.get(0)
-    })
+    conn.query_row(
+        "SELECT graph IN ('architect', 'policy') FROM works WHERE id = ?1",
+        [work],
+        |r| r.get(0),
+    )
     .unwrap_or(false)
 }
 

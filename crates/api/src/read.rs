@@ -488,7 +488,7 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
 
 /// Every work but the architect's wakes, which its tab shows, oldest first.
 pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
-    work_summaries(conn, flows, "WHERE w.graph <> 'architect'")
+    work_summaries(conn, flows, "WHERE w.graph NOT IN ('architect', 'policy')")
 }
 
 /// The works a filter on `works w` selects, as summaries, oldest first.
@@ -721,7 +721,7 @@ fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> 
 }
 
 const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at,
-       CASE WHEN w.graph = 'architect' THEN w.project END
+       CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
 FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
 LEFT JOIN sessions s ON s.id = r.session LEFT JOIN items i ON i.id = w.item";
 
@@ -749,7 +749,7 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
 }
 
 const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body,
-       CASE WHEN w.graph = 'architect' THEN w.project END
+       CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
 FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
 LEFT JOIN owner_asks a ON a.id = n.ask";
 
@@ -1658,9 +1658,10 @@ pub fn architect(
     projects: Vec<String>,
     tags: Vec<Tag>,
 ) -> Result<Architect> {
-    // The project's wakes, by their numbers: the filter takes numbers only.
+    // The project's wakes, and the settings of its policy beside them, by their numbers: the filter takes numbers only.
     let mine: Vec<i64> = {
-        let mut st = conn.prepare("SELECT id FROM works WHERE graph = 'architect' AND project = ?1 ORDER BY id")?;
+        let mut st =
+            conn.prepare("SELECT id FROM works WHERE graph IN ('architect', 'policy') AND project = ?1 ORDER BY id")?;
         st.query_map([project], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?
     };
@@ -1672,10 +1673,22 @@ pub fn architect(
         "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
     )?;
     let mut woke = woke_for(conn, project)?;
-    // A new policy is being set while the latest wake, not over, is at the stage the study of one is in, past the check
-    // of the policy in force that opens that stage.
-    let setting = match wakes.first() {
-        Some((_, s)) if !over(s) && s.stage.is_some() && !db::is_cell("architect", "P1", &s.at) => {
+    // The settings of the project's policy, each a task of its own beside the wakes, and the one that runs.
+    let settings: Vec<(i64, bool)> = {
+        let mut st = conn.prepare(
+            "SELECT w.id, w.ended IS NULL AND NOT EXISTS (
+               SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell = 'E1' AND r.ended_at IS NOT NULL)
+             FROM works w WHERE w.graph = 'policy' AND w.project = ?1 ORDER BY w.id",
+        )?;
+        st.query_map([project], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let running = settings.iter().rev().find(|x| x.1).map(|x| x.0);
+    // A new policy is being set while a setting of it runs; before the setting was a task of its own, while the latest
+    // wake, not over, was at the stage the study of one is in, past the check of the policy in force that opens it.
+    let setting = match (running, wakes.first()) {
+        (Some(p), _) => Some(setting(conn, p)?),
+        (None, Some((_, s))) if !over(s) && s.stage.is_some() && !db::is_cell("architect", "P1", &s.at) => {
             let study = flows.graph(conn, s.flow_version, &s.graph).and_then(|g| {
                 g.cells
                     .iter()
@@ -1688,7 +1701,7 @@ pub fn architect(
                 None
             }
         }
-        _ => None,
+        (None, _) => None,
     };
     let mut out_wakes = Vec::new();
     for (_, s) in wakes {
@@ -1700,7 +1713,7 @@ pub fn architect(
             work: s,
         });
     }
-    let mut asks = asks(conn, "WHERE w.graph = 'architect'", &[])?;
+    let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));
     Ok(Architect {
         project: project.to_string(),
@@ -2986,9 +2999,10 @@ mod tests {
                 "P1",
                 "{}".into(),
                 Some(out(
-                    json!({ "against": [], "verdict": { "verdict": "holds", "why": "w" } }),
+                    json!({ "against": [{ "article": "Article 2", "status": "broken", "where": "w",
+                    "grounds": "e" }], "verdict": { "verdict": "set_again", "reasons": [] } }),
                 )),
-                Some("holds"),
+                Some("set_again"),
             ),
             (
                 "N1",
@@ -3038,30 +3052,17 @@ mod tests {
             ),
             ("E2", "{}".into(), Some("{}".into()), None),
         ];
-        let setting = [
-            ("W0", none.to_string(), Some("{}".to_string()), Some("woke")),
-            ("W1", "{}".into(), Some("{}".into()), Some("understood")),
-            (
-                "P1",
-                "{}".into(),
-                Some(out(
-                    json!({ "against": [{ "article": "Article 2", "status": "broken", "where": "w",
-                    "grounds": "e" }], "verdict": { "verdict": "set_again", "reasons": [] } }),
-                )),
-                Some("set_again"),
-            ),
-            (
-                "P2",
-                "{}".into(),
-                Some(out(json!({ "study": { "intent": "i" } }))),
-                Some("studied"),
-            ),
-        ];
+        let setting = [(
+            "P2",
+            none.to_string(),
+            Some(out(json!({ "study": { "intent": "i" } }))),
+            Some("studied"),
+        )];
         s.db.write(Actor::Engine, |tx| {
             let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
             run(
                 "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'E2', 'p'),
-                 (NULL, 1, 'architect', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
+                 (NULL, 1, 'policy', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
                 &[],
             )?;
             for (work, rounds) in [(2_i64, &wake[..]), (3, &setting[..])] {
@@ -3076,13 +3077,13 @@ mod tests {
                 }
             }
             run(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 5, 'P3', '{}', 'c', 400)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 2, 'P3', '{}', 'c', 400)",
                 &[],
             )?;
             let study = json!({ "from": "architect", "project": "p", "kind": "study", "work": 3, "cell": "P3",
                 "study": { "intent": "i" }, "choices": [["satisfied", "s"]] })
             .to_string();
-            run("INSERT INTO owner_asks (work, round, body) VALUES (3, 5, ?1)", &[&study])?;
+            run("INSERT INTO owner_asks (work, round, body) VALUES (3, 2, ?1)", &[&study])?;
             let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "A3",
                 "asked": [], "holds": [3] })
             .to_string();
@@ -3233,8 +3234,8 @@ mod tests {
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!(ws.iter().map(|w| w.id).collect::<Vec<_>>(), [1]);
         let d = work(s.db.conn(), &cache, 3).unwrap();
-        assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 5, 1));
-        let r = round(s.db.conn(), &cache, &s.data, 3, 4).unwrap();
+        assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 2, 1));
+        let r = round(s.db.conn(), &cache, &s.data, 3, 1).unwrap();
         assert!(r.limits.is_empty());
     }
 
@@ -3311,7 +3312,7 @@ mod tests {
         assert_eq!(setting.work, 3);
         assert_eq!(
             setting.study.map(|x| (x.round, x.value)),
-            Some((4, json!({ "intent": "i" })))
+            Some((1, json!({ "intent": "i" })))
         );
         assert_eq!(setting.draft, None);
 
@@ -3320,7 +3321,7 @@ mod tests {
         assert_eq!(u.state.as_ref().unwrap().value["changed"], "c");
         assert_eq!(u.versions.len(), 1);
         // The check of the policy in force, in the policy's part.
-        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((3, 3)));
+        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 4)));
         assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
         // The plan of what to do next, by its cell and round; it found everything fits and nothing missing, so it
         // queued no matter.

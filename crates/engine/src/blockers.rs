@@ -338,17 +338,20 @@ pub fn standing(g: &CompiledGraph, pos: &Position, last: Option<(&str, &str)>) -
         }
         return Some((h.cell.clone(), h.cell.clone()));
     }
-    let raised = if i == 0
-        || !h
-            .holders
-            .iter()
-            .any(|x| x == "advisor" || x == "architect" || x == "owner")
-    {
-        seq[i]
+    // A wait for items is raised where the work waits; a question at the cell that asked: the one it was called from,
+    // or for a holder's cell no cell calls, as the owner's reading of a policy's study, the cell that brought it there.
+    let asks = h
+        .holders
+        .iter()
+        .any(|x| x == "advisor" || x == "architect" || x == "owner");
+    let raised = if !asks {
+        seq[i].clone()
+    } else if i > 0 {
+        seq[i - 1].clone()
     } else {
-        seq[i - 1]
+        pos.from.clone().unwrap_or_else(|| seq[i].clone())
     };
-    Some((h.cell.clone(), raised.clone()))
+    Some((h.cell.clone(), raised))
 }
 
 /// What breaks the invariants that make every chain of blockers close, one line for each, across every project:
@@ -737,9 +740,10 @@ fn holder_now(
 
 /// What a work is, for a blocker's sentence.
 fn about(ctx: &crate::actions::Ctx) -> String {
-    match &ctx.item {
-        Some(i) => format!("Work {} on item {} ({})", ctx.work.id, i.id, i.title),
-        None => format!("Work {}", ctx.work.id),
+    match (&ctx.item, &ctx.work.project) {
+        (Some(i), _) => format!("Work {} on item {} ({})", ctx.work.id, i.id, i.title),
+        (None, Some(p)) => format!("The setting of the policy of {p} (work {})", ctx.work.id),
+        (None, None) => format!("Work {}", ctx.work.id),
     }
 }
 

@@ -103,14 +103,23 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
             source.format
         )));
     }
-    // A rule every graph shares names lines, each a line of some graph.
+    // A rule every graph shares names lines, each a line of some graph, or is named by cells of more than one graph.
     let all_lines: BTreeSet<&str> = source
         .flows
         .iter()
         .flat_map(|f| f.sessions.lines.iter().map(|l| l.name.as_str()))
         .collect();
     for r in &source.rules {
-        let ok = !r.lines.is_empty() && r.lines.iter().all(|l| all_lines.contains(l.as_str()));
+        let naming = source
+            .flows
+            .iter()
+            .filter(|f| f.nodes.iter().any(|n| n.rules.iter().flatten().any(|x| *x == r.name)))
+            .count();
+        let ok = if r.lines.is_empty() {
+            naming > 1
+        } else {
+            r.lines.iter().all(|l| all_lines.contains(l.as_str()))
+        };
         if !ok {
             return Err(fail(format!(
                 "a rule every graph shares, given to no such line: {} {:?}",

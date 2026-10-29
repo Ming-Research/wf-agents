@@ -312,10 +312,12 @@ impl<'s> Graph<'s> {
             "two lines with one name"
         );
         // The rules every graph shares come first, for the lines of this graph they name; then the graph's own.
+        // A rule every graph shares that names no line of this graph is in it too when one of its cells names it.
+        let named: BTreeSet<&String> = flow.nodes.iter().flat_map(|n| n.rules.iter().flatten()).collect();
         let rules: Vec<Rule> = source
             .rules
             .iter()
-            .filter(|r| r.lines.iter().any(|l| lines.contains(l)))
+            .filter(|r| r.lines.iter().any(|l| lines.contains(l)) || named.contains(&r.name))
             .map(|r| {
                 let mut r = r.clone();
                 r.lines.retain(|l| lines.contains(l));
@@ -694,7 +696,10 @@ impl<'s> Graph<'s> {
                 // Or, from a cell that answers the cell that asked, back to it: through choosing the way on for an
                 // agent of its line.
                 ensure!(
-                    !interject || flow.asking.receive.as_ref() == Some(&to) || to == "@asker",
+                    !interject
+                        || flow.asking.receive.is_none()
+                        || flow.asking.receive.as_ref() == Some(&to)
+                        || to == "@asker",
                     "a row that takes an interjection goes to the cell that receives it: {nid} {} {to}",
                     r.name
                 );
@@ -963,6 +968,32 @@ impl<'s> Graph<'s> {
         }
 
         let holders = blockers(flow, &cells, &at)?;
+        // A holder's own graph never stops: no row waits but for the owner's Start after a pause, and an ask of the
+        // owner goes on without the answer.
+        if let Some(h) = &flow.holds {
+            ensure!(
+                crate::format::HOLDERS.contains(&h.as_str()),
+                "a graph holds for no such holder: {h}"
+            );
+            for c in &cells {
+                for r in &c.rows {
+                    let start = c.step.as_deref() == Some(WAIT_FOR_START);
+                    ensure!(
+                        !r.waits || start,
+                        "the {h}'s own graph stops: {} {} waits, and the {h} holds blockers",
+                        c.id,
+                        r.name
+                    );
+                    ensure!(
+                        c.kind != CellKind::Owner || r.drops,
+                        "the {h}'s own graph stops: {} {} goes on only with the owner's answer, and the {h} holds \
+                         blockers",
+                        c.id,
+                        r.name
+                    );
+                }
+            }
+        }
 
         // The blocks: every cell in exactly one; the asking part is one, its entries the cells that are asked.
         let mut block = vec![usize::MAX; cells.len()];
@@ -1357,6 +1388,10 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
     }
     Ok(holding.keys().copied().collect())
 }
+
+/// The step of the cell that waits for the owner's Start after a pause, which is the owner's control over running and
+/// no stop on a blocker.
+const WAIT_FOR_START: &str = "wait_for_start";
 
 /// Whether a field holds, at any depth, a union whose branches are `what`.
 fn asks_for(shapes: &Shapes, x: &RawField, what: &str) -> Result<bool, String> {

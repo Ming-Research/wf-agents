@@ -254,6 +254,10 @@ pub struct Flow {
     pub rounds: Option<Rounds>,
     /// What a stopped task of this graph waits on: the cells it stands at while each holder holds its blocker.
     pub blockers: Option<Blockers>,
+    /// The holder whose own work this graph is, as the architect's wakes are the architect's: a holder never stops
+    /// while it holds a blocker, so no row of this graph waits but for the owner's Start after a pause, and an ask of
+    /// the owner holds only what it is about, going on without the answer.
+    pub holds: Option<String>,
 }
 
 /// What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by

@@ -2725,7 +2725,8 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
-      "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
+      "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over.",
+      "end_policy": "Ends the setting of a policy: its open blocker is withdrawn, and its sessions end."
     },
     "actions": {
       "lock_acceptance": "Writes the design's acceptance conditions onto the item and locks them; if they are the same as those already locked, nothing changes.",
@@ -2759,7 +2760,7 @@
       "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again.",
       "apply_batch": "Makes every item change of the batch, as the architect, in one transaction, logs each with its reason, sends the replies that waited on them, and ends the review's session.",
       "apply_reviewed": "Makes the item changes the review found sound, drops the others and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
-      "new_architect_session": "Ends the project's architect's session: the next round, what to do next under the new policy, starts a new one, given the state of things the wake wrote and the new policy.",
+      "new_architect_session": "Ends the project's architect's session: its next round starts a new one, which understands the project and thinks what to do next under the new policy.",
       "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
       "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, unless one waits already, new starts of the project are held, or the last was handled within the wait the configuration sets (`agents.slots_free_wait`).",
@@ -2777,7 +2778,10 @@
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to the owner, who is put an ask; to an architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
-      "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer."
+      "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer.",
+      "start_policy": "Starts the setting of a new policy for the project as a task of its own, a work of the graph policy, unless one runs already; the wake goes on.",
+      "queue_policy_set": "Queues for the project's architect a matter of the kind policy: the setting ended, a new policy took effect or the owner said the policy in force stays; it wakes the architect, whose path for it is what to do next.",
+      "close_settled_policies": "Closes the matters of the kind policy that the question what to do next answered since they came, saying why."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2861,7 +2865,8 @@
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
-      "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel."
+      "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
+      "set_again": "Why the policy is set again: what the wake that started the setting found of the policy in force against the constitution, article by article, and each reason it may no longer govern (`P1`)"
     },
     "values": {
       "deliver": "Whether the item delivers a change or a report.",
@@ -2880,7 +2885,6 @@
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer.",
       "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
-      "asker": "Whether the cell that asks the owner is on a matter's path, so that the ask holds only that matter.",
       "question": "The kind of question an engineer asks, as its matter says.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, or flow feedback.",
       "start": "What holds an item back from starting, if anything.",
@@ -3379,6 +3383,19 @@
       ],
       "wait_on_blocker": [
         "blockers"
+      ],
+      "start_policy": [
+        "place"
+      ],
+      "queue_policy_set": [
+        "architect_queue"
+      ],
+      "close_settled_policies": [
+        "architect_queue"
+      ],
+      "end_policy": [
+        "sessions",
+        "blockers"
       ]
     },
     "reads": {
@@ -3477,12 +3494,6 @@
           "batch"
         ]
       },
-      "asker": {
-        "says": "the cell that asked: on a matter's path or not",
-        "stores": [
-          "place"
-        ]
-      },
       "question": {
         "says": "the kind of the engineer's question picked",
         "stores": [
@@ -3573,6 +3584,51 @@
         "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
         "Subagents only do chores within this round, such as reading documents or searching code: at most `agents.subagents.most` of them, each on a model no larger than your own. They never stand in for an engineer, a reviewer or another cell's agent.",
         "Read only what the question needs: find the place first (grep, `git diff --stat`), then read that range, not the whole file or diff. Do not reread what this session already read, unless it changed or the session was compacted since."
+      ]
+    },
+    {
+      "name": "architect",
+      "desc": "How the architect judges, acts and writes, whatever question it is at",
+      "text": [
+        "Judging: you are this project's architect, and judge its matters by its constitution and by the policy in force for it. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner: for the policy where you judge whether it is right, for the constitution with the kind constitution_and_policy.",
+        "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
+        "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from wake to wake, and what you read without need crowds out what later rounds need. What you remember from an earlier wake is how things stood then: before you act on it, check it against what has changed since.",
+        "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, notes, observations). The owner reads your log afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
+        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
+        "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
+        "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
+        "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
+        "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
+        "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
+        "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
+        "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the wake you are in, or keep a note of it: nothing wakes you for a note, so what you must come back to is in your notes, not in your memory.",
+        "Never: you push, merge and change no code, configuration, flow or rule, and the database changes only by your effects, as the engine carries them out. Do not reach an item change by another way before it is made: no interjection or reply has an engineer act as if it were made, and a pause holds a work only until the change is made; it does not stand in for a cancellation.",
+        "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",
+        "Your state of things: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand. Write it to stand on its own and keep it current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it, or in your notes, what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
+        "The owner's lasting instructions: an instruction of the owner meant to last, if it decides what comes first, belongs to the policy: have the policy thought again, and keep no note of your own in its place. If it is about how you work, keep it in your notes about the whole, with the owner's words and since when, and follow it until the owner withdraws it.",
+        "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner at an earlier wake and has not changed since, do not tell again.",
+        "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in tell_owner where it is and what it cost, and if you cannot go on, ask the owner. Changing the flow, the rules or the engine is the owner's to decide; you may propose an item for it.",
+        "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say so in what you learned, and tell the owner."
+      ],
+      "lines": [
+        "architect",
+        "policy"
+      ]
+    },
+    {
+      "name": "policy_scope",
+      "desc": "What a policy governs, and what it never governs",
+      "text": [
+        "A policy governs which way the project's own work goes in the near-to-middle term, and the principles for judging what matters and what comes first.",
+        "It never governs the constitution, the owner's rulings on design cards, the decisions recorded in the design tree, the flow definition or the rules: only the owner changes these, and work that would change them is proposed to the owner. Nor does it govern any other project."
+      ],
+      "givenWith": [
+        "policy",
+        "policy_stays",
+        "draft_text",
+        "policy_text",
+        "policy_trials",
+        "P5·draft.policy"
       ]
     }
   ],
@@ -11023,25 +11079,6 @@
           ]
         },
         {
-          "name": "policy",
-          "nodes": [
-            "P2",
-            "P3",
-            "P4",
-            "P5",
-            "P6",
-            "P7",
-            "P8",
-            "P9",
-            "P10",
-            "P11",
-            "P12"
-          ],
-          "entries": [
-            "P2"
-          ]
-        },
-        {
           "name": "wrap_up",
           "nodes": [
             "E1"
@@ -11101,12 +11138,7 @@
               "to": "W1",
               "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model changed): it holds no state of things, so the wake goes back to understanding the project first, and the matter picked goes back to the queue. Not after a new policy took effect, whose new session goes straight on to what to do next.",
               "not": [
-                "U1",
-                "P2",
-                "P4",
-                "P7",
-                "P8",
-                "P10"
+                "U1"
               ]
             }
           },
@@ -11120,42 +11152,13 @@
           }
         ],
         "rules": [
-          "A wake goes on in the session the project's last wake left. A new session starts at the project's first wake, when a new policy takes effect (at what to do next, given the state of things the wake wrote and the new policy), when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
+          "A wake goes on in the session the project's last wake left. A new session starts at the project's first wake, when a new policy takes effect, when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
-          "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
           "When the architect hands in pause, the wake waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
         ]
       },
       "rules": [
-        {
-          "name": "architect",
-          "desc": "How the architect judges, acts and writes, whatever question it is at",
-          "text": [
-            "Judging: you are this project's architect, and judge its matters by its constitution and by the policy in force for it. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner: for the policy where you judge whether it is right, for the constitution with the kind constitution_and_policy.",
-            "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
-            "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from wake to wake, and what you read without need crowds out what later rounds need. What you remember from an earlier wake is how things stood then: before you act on it, check it against what has changed since.",
-            "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, notes, observations). The owner reads your log afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
-            "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
-            "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
-            "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
-            "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
-            "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
-            "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
-            "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
-            "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the wake you are in, or keep a note of it: nothing wakes you for a note, so what you must come back to is in your notes, not in your memory.",
-            "Never: you push, merge and change no code, configuration, flow or rule, and the database changes only by your effects, as the engine carries them out. Do not reach an item change by another way before it is made: no interjection or reply has an engineer act as if it were made, and a pause holds a work only until the change is made; it does not stand in for a cancellation.",
-            "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",
-            "Your state of things: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand. Write it to stand on its own and keep it current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it, or in your notes, what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
-            "The owner's lasting instructions: an instruction of the owner meant to last, if it decides what comes first, belongs to the policy: have the policy thought again, and keep no note of your own in its place. If it is about how you work, keep it in your notes about the whole, with the owner's words and since when, and follow it until the owner withdraws it.",
-            "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner at an earlier wake and has not changed since, do not tell again.",
-            "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in tell_owner where it is and what it cost, and if you cannot go on, ask the owner. Changing the flow, the rules or the engine is the owner's to decide; you may propose an item for it.",
-            "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say so in what you learned, and tell the owner."
-          ],
-          "lines": [
-            "architect"
-          ]
-        },
         {
           "name": "item_writing",
           "desc": "How items and changes to them are written",
@@ -11168,22 +11171,6 @@
           "lines": [
             "architect",
             "architect_review"
-          ]
-        },
-        {
-          "name": "policy_scope",
-          "desc": "What a policy governs, and what it never governs",
-          "text": [
-            "A policy governs which way the project's own work goes in the near-to-middle term, and the principles for judging what matters and what comes first.",
-            "It never governs the constitution, the owner's rulings on design cards, the decisions recorded in the design tree, the flow definition or the rules: only the owner changes these, and work that would change them is proposed to the owner. Nor does it govern any other project."
-          ],
-          "givenWith": [
-            "policy",
-            "policy_stays",
-            "draft_text",
-            "policy_text",
-            "policy_trials",
-            "P5·draft.policy"
           ]
         }
       ],
@@ -11211,20 +11198,9 @@
           },
           {
             "name": "policy",
-            "desc": "Whether the policy in force still holds; when it must be set again, every other matter of the project waits: studying the direction, waiting for the owner to read it, writing the text, new sessions reading it, waiting for the owner's approval",
+            "desc": "Whether the policy in force still holds; when it must be set again, the setting starts as a task of its own, and the wake goes on under the policy in force",
             "nodes": [
-              "P1",
-              "P2",
-              "P3",
-              "P4",
-              "P5",
-              "P6",
-              "P7",
-              "P8",
-              "P9",
-              "P10",
-              "P11",
-              "P12"
+              "P1"
             ]
           },
           {
@@ -11308,7 +11284,7 @@
       },
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the wake. The counters are in the wake's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
-        "waits": "Matters that come while the architect is awake wait in its queue, for the next pick; how long each waited is visible on the owner's interface. The rows that wait for the owner to read a study or to approve a policy count nothing: how many rounds the discussion takes is the owner's to decide.",
+        "waits": "Matters that come while the architect is awake wait in its queue, for the next pick; how long each waited is visible on the owner's interface.",
         "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
@@ -11343,22 +11319,6 @@
           {
             "name": "batches",
             "desc": "The batches that ended without thinking again"
-          },
-          {
-            "name": "text_revisions",
-            "desc": "The times the text was corrected and read again: after a reading that answered a probe wrongly, the check that it would need setting again at once, or the owner's word to fix it; once it was corrected three times since it was written, a reading that leaves gaps goes on with them to the owner instead"
-          },
-          {
-            "name": "minor_fixes",
-            "desc": "The times a reading answered every probe rightly and found wording to fix, which the engine put into the text without a new reading"
-          },
-          {
-            "name": "trial_reads",
-            "desc": "The times a new session passed and another new session had to read it"
-          },
-          {
-            "name": "policies_set",
-            "desc": "The times a new policy was set and a new architect started"
           }
         ]
       },
@@ -11534,12 +11494,8 @@
           },
           {
             "name": "Owner's answer",
-            "what": "The owner's answer to what you asked: at once for a question the wake waits for, or when the matter you asked about comes back to you; none when you did not ask",
+            "what": "The owner's answer to what you asked, when the matter you asked about comes back to you with it; none when you did not ask",
             "from": [
-              [
-                "@from",
-                "reply"
-              ],
               {
                 "engine": "owner_answer"
               }
@@ -11976,7 +11932,7 @@
           "prompt": [
             "This round answers one thing only: does the policy in force still hold, and is its direction still right. The policy is the owner's: you act by it and do not change it, but you must see when it no longer holds. You judge its direction only here; what to do under it is the next question.",
             "Signs it does not hold: a signal it names passed its line; a conflict with the constitution, checked article by article, looking also for steps each reasonable alone that together break an article, such as a specification that grows one rule at a time; a fact it rests on, overturned by what the project is now; a new situation it does not cover; a policy that oversteps what a policy governs; no policy yet.",
-            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, or set_again with each reason: every other matter of this project then waits and no new work of it starts, until a new policy is studied, written and approved, or the owner says the policy stays. You cannot ask here: in doubt, set_again, and the owner decides at once whether it stays."
+            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, or set_again with each reason: the setting of a new policy then starts beside this wake, which goes on with its queue under the policy in force, and no new work of the project starts until a new policy is studied, written and approved, or the owner says the policy stays. You cannot ask here: in doubt, set_again, and the owner decides at once whether it stays."
           ],
           "out": [
             {
@@ -12102,10 +12058,12 @@
                   ]
                 ]
               ],
-              "to": "P2",
+              "to": "Q0",
               "do": [
-                "hold_for_policy"
-              ]
+                "hold_for_policy",
+                "start_policy"
+              ],
+              "note": "The setting of a new policy starts as a task of its own beside the wake, which goes on with its queue under the policy in force; no new work of the project starts until it ends."
             }
           ],
           "without": [
@@ -12188,7 +12146,7 @@
               ]
             },
             {
-              "what": "What the project is now, as you wrote it in this wake: each line of work, what changed and what is unclear",
+              "what": "What the project is now, as you wrote it in this wake: each line of work, what changed and what is unclear; none when this wake took a matter of a policy set without understanding the project again: your session holds it",
               "from": [
                 [
                   "U1",
@@ -12202,19 +12160,21 @@
                   "U1",
                   "unclear"
                 ]
-              ]
+              ],
+              "maybe": true
             },
             {
-              "what": "What you found of the policy against the constitution, article by article, when you checked it in this wake",
+              "what": "What you found of the policy against the constitution, article by article, when you checked it in this wake; none when this wake took a matter of a policy set without understanding the project again: your session holds it",
               "from": [
                 [
                   "P1",
                   "against"
                 ]
-              ]
+              ],
+              "maybe": true
             },
             {
-              "what": "When the owner said the policy stays after reading a study of a new one: the study, and what the owner said; none otherwise",
+              "what": "When the owner said the policy in force stays after reading a study of a new one, in the setting that ended last: the study, and what the owner said; none otherwise",
               "from": [
                 {
                   "engine": "policy_stays"
@@ -12544,7 +12504,8 @@
             "progress"
           ],
           "do": [
-            "close_settled_cards"
+            "close_settled_cards",
+            "close_settled_policies"
           ]
         },
         {
@@ -12781,6 +12742,20 @@
               ],
               "to": "H10",
               "main": true
+            },
+            {
+              "name": "to_next",
+              "if": [
+                [
+                  "inp",
+                  "route",
+                  [
+                    "N1"
+                  ]
+                ]
+              ],
+              "to": "N1",
+              "counts": "handled"
             }
           ],
           "inenums": {
@@ -12824,6 +12799,10 @@
               [
                 "H10",
                 "Slots free with fewer of the project's items ready than slots, or one back with the owner's answer"
+              ],
+              [
+                "N1",
+                "The setting of a policy ended: a new policy took effect, or the owner said the policy in force stays"
               ]
             ]
           }
@@ -14747,7 +14726,7 @@
               "what": "What is asked: the ask the architect handed in, with its choice when it has one",
               "from": [
                 [
-                  "@caller",
+                  "@from",
                   "ask"
                 ]
               ]
@@ -14772,48 +14751,18 @@
               "name": "held",
               "if": [
                 [
-                  "inp",
-                  "asker",
-                  [
-                    "path"
-                  ]
+                  "all"
                 ]
               ],
               "to": "B1",
               "drops": true,
-              "note": "The ask holds only the matter of the path that asked: the wake goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
-            },
-            {
-              "name": "answered",
-              "if": [
-                [
-                  "inp",
-                  "asker",
-                  [
-                    "waits"
-                  ]
-                ]
-              ],
-              "to": "@asker",
               "main": true,
-              "note": "Any other cell waits for the answer, and goes on with it."
+              "note": "The ask holds only the matter of the path that asked: the wake goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
             }
           ],
           "shown": [
             "reply"
-          ],
-          "inenums": {
-            "asker": [
-              [
-                "path",
-                "A cell on a matter's path asked: the ask holds only that matter"
-              ],
-              [
-                "waits",
-                "Any other cell asked: the wake waits for the answer"
-              ]
-            ]
-          }
+          ]
         },
         {
           "id": "X1",
@@ -14982,26 +14931,473 @@
               "note": "The cell that paused carries on in the same session."
             }
           ]
+        }
+      ],
+      "rounds": {
+        "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
+        "sentBack": {
+          "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
+          "pauseAfter": 3,
+          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
+        "failed": {
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
+          "kinds": [
+            {
+              "name": "usage_limit",
+              "when": "The account's usage limit is reached; the command line says when it resets",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the time the command line gives, tells the owner once, then carries on each work from the cell it recorded. One cause stops every work alike, so no work is retried or paused for it on its own."
+            },
+            {
+              "name": "offline",
+              "when": "The network cannot be reached",
+              "handle": "wait",
+              "desc": "The engine starts no new round for any work until the network is back, looking every half minute, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+            },
+            {
+              "name": "transient",
+              "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
+              "handle": "retry",
+              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+            },
+            {
+              "name": "cannot_run",
+              "when": "The login has expired, or the command line cannot be found",
+              "handle": "wait",
+              "desc": "Only the owner can log in again or install the command line, and one cause stops every work alike: the engine starts no new round for any work, tells the owner once, lets one round try every half minute, and once one runs carries on each work from the cell it recorded. The owner logs in or installs, and writes nothing."
+            },
+            {
+              "name": "prompt_too_long",
+              "when": "The prompt is too long for the model",
+              "handle": "pause",
+              "desc": "Running again cannot help: it is a defect of the engine's to fix. The engine pauses the work and tells the owner; once the owner lets the work go on, the same cell runs again."
+            },
+            {
+              "name": "unparsed",
+              "when": "The command line gave up on the agent's return after its attempts at it: the JSON the agent wrote could not be parsed",
+              "handle": "repair",
+              "desc": "Not a passing failure: the round never runs again from its start. The engine repairs the return within the round. First itself, when the text only lacks brackets that close it at its end: it adds exactly those. Then, for any other fault of the JSON's syntax, by the installation's lowest level, once, in a new session with no tools, which may change only the syntax: its repair is taken only when it parses, passes the cell's checks and keeps every other character of the text as it was, and never of a text cut off, one shorter than the command line reported it or that does not end in a closing brace. Then by the agent itself: its session is resumed and told that its JSON could not be parsed and that a quote or a newline inside a text must be escaped, and it hands its return in again. What is repaired or handed in again is taken as any return, and sent back when it does not fit. When none gives a return, the engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again."
+            }
+          ]
+        },
+        "record": [
+          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
+          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes."
+        ],
+        "environment": [
+          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
+          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole."
+        ],
+        "engine": [
+          {
+            "name": "cut_off",
+            "when": "The engine stopped, or the work was paused, while the round ran",
+            "desc": "The round is closed as cut off, and the same cell runs again in the same session, told to look at the worktree as it is and go on."
+          },
+          {
+            "name": "cannot_step",
+            "when": "A step cannot be taken: the configuration is wrong, or the item is above the highest level",
+            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again.",
+            "pauses": true
+          },
+          {
+            "name": "repeats",
+            "when": "The message would give its session whole what the session already holds",
+            "desc": "It is not sent: a fault of the engine's. The engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again.",
+            "pauses": true
+          },
+          {
+            "name": "work_ended",
+            "when": "The work ended while its round ran, as when its item was cancelled",
+            "desc": "What the round hands in is not taken; what it cost is kept on it."
+          }
+        ]
+      },
+      "holds": "architect"
+    },
+    {
+      "name": "policy",
+      "start": "P2",
+      "end": "E1",
+      "blocks": [
+        {
+          "name": "policy",
+          "nodes": [
+            "P2",
+            "P3",
+            "P4",
+            "P5",
+            "P6",
+            "P7",
+            "P8",
+            "P9",
+            "P10",
+            "P11",
+            "P12"
+          ],
+          "entries": [
+            "P2"
+          ]
+        },
+        {
+          "name": "asking",
+          "asking": true
+        },
+        {
+          "name": "tools",
+          "nodes": [
+            "X1"
+          ],
+          "entries": [
+            "X1"
+          ]
+        },
+        {
+          "name": "pause",
+          "nodes": [
+            "X3"
+          ],
+          "entries": [
+            "X3"
+          ]
+        },
+        {
+          "name": "end",
+          "nodes": [
+            "E1"
+          ],
+          "entries": [
+            "E1"
+          ]
+        }
+      ],
+      "sessions": {
+        "lines": [
+          {
+            "name": "policy",
+            "desc": "The architect setting the project's policy, in a session of its own beside the project's wakes: from the study to the approval"
+          }
+        ],
+        "rules": [
+          "The setting of a policy is a task of its own: a work of this graph for one project, which the understanding of a wake starts when the policy in force may no longer hold (`P1` `set_again`), at most one for a project at a time. Its rounds go on in a session of their own, so that the wake goes on with its queue under the policy in force meanwhile; no new work of the project starts while it runs.",
+          "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
+          "When the task ends, the architect's queue gets a matter that says so: a new policy that took effect ends the architect's session, whose next round understands the project afresh and thinks what to do next under it; the policy in force staying goes to what to do next in the session as it is."
+        ]
+      },
+      "rules": [],
+      "stages": {
+        "rules": [
+          "The owner's interface shows the setting of a project's policy beside its architect: which question it is at, and what it waits for.",
+          "While asking the owner, running tools or pausing, the stage is that of the cell the task stopped at."
+        ],
+        "list": [
+          {
+            "name": "policy",
+            "desc": "Setting the policy: studying the direction, the owner reading it, writing the text, new sessions reading it, the owner's approval",
+            "nodes": [
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9",
+              "P10",
+              "P11",
+              "P12"
+            ]
+          },
+          {
+            "name": "end",
+            "desc": "The policy took effect, or the owner said the policy in force stays",
+            "nodes": [
+              "E1"
+            ]
+          }
+        ]
+      },
+      "asking": {
+        "nodes": [
+          "A3"
+        ],
+        "roles": [
+          {
+            "name": "owner",
+            "desc": "What only the owner can decide or do: the constitution and the policy, and the kinds of the owner_only group",
+            "node": "A3",
+            "row": "ask_owner",
+            "fields": [
+              {
+                "$ref": "choice",
+                "optional": true,
+                "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials). Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+              }
+            ],
+            "do": [
+              "raise_blocker"
+            ]
+          }
+        ],
+        "counts": "asks"
+      },
+      "limits": {
+        "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the task. The counters are in the task's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
+        "waits": "The rows that wait for the owner to read a study or to approve a policy count nothing: how many rounds the discussion takes is the owner's to decide.",
+        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
+        "counters": [
+          {
+            "name": "asks",
+            "desc": "The times the architect setting the policy asked the owner"
+          },
+          {
+            "name": "tool_requests",
+            "desc": "The times the architect asked the engine to run tools, each return once"
+          },
+          {
+            "name": "total_time",
+            "desc": "The time the architect spends setting the policy, its rounds, plus the time of the tools it has the engine run, in minutes, measured and counted by no row; waiting for the owner is not counted. Once a stretch's budget, its limit, is used up, the engine asks it to pause, and the pause waits at cell `X3` for the owner's Start",
+            "time": true
+          },
+          {
+            "name": "text_revisions",
+            "desc": "The times the text was corrected and read again: after a reading that answered a probe wrongly, the check that it would need setting again at once, or the owner's word to fix it; once it was corrected three times since it was written, a reading that leaves gaps goes on with them to the owner instead"
+          },
+          {
+            "name": "minor_fixes",
+            "desc": "The times a reading answered every probe rightly and found wording to fix, which the engine put into the text without a new reading"
+          },
+          {
+            "name": "trial_reads",
+            "desc": "The times a new session passed and another new session had to read it"
+          },
+          {
+            "name": "policies_set",
+            "desc": "The times a new policy was set and a new architect started"
+          }
+        ]
+      },
+      "askKinds": [
+        {
+          "group": "owner_only",
+          "only": "owner",
+          "kinds": [
+            [
+              "constitution_and_policy",
+              "The constitution must change, or the policy must be set again: write it as a choice, with options and a recommendation"
+            ],
+            [
+              "big_direction",
+              "A large direction across projects must change, such as how standards are set"
+            ],
+            [
+              "irreversible_action",
+              "The next step cannot be undone"
+            ],
+            [
+              "publish_or_send",
+              "Something must be published, posted or sent outside"
+            ],
+            [
+              "change_live_data",
+              "Live data must change"
+            ],
+            [
+              "other_machine",
+              "Another of the owner's machines is needed (CI does not count)"
+            ],
+            [
+              "permission",
+              "The owner must grant a permission or approve"
+            ],
+            [
+              "return_format_unfit",
+              "A field of what this cell asks you to return cannot be filled in the situation at hand, or would mean nothing if filled. When you meet this you must ask; never force a value, invent one or fill in something empty to get past it. In what, say which field, what the situation is, and why it does not fit"
+            ]
+          ]
+        },
+        {
+          "group": "unclear",
+          "kinds": [
+            [
+              "other",
+              "None of the kinds above, and only the owner can answer it. Say it clearly in what"
+            ]
+          ]
+        }
+      ],
+      "agentCommon": {
+        "returns": {
+          "forms": [
+            {
+              "own": true,
+              "say": "this cell's own answer"
+            },
+            {
+              "field": "ask",
+              "say": "`ask`",
+              "lines": [
+                "policy"
+              ]
+            },
+            {
+              "field": "tools",
+              "say": "`tools`, without `progress`",
+              "without": [
+                "progress"
+              ],
+              "lines": [
+                "policy"
+              ]
+            },
+            {
+              "field": "pause",
+              "say": "`pause`"
+            }
+          ],
+          "every": [
+            "tell_owner",
+            "progress",
+            "flow_feedback"
+          ],
+          "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
+          "in": {
+            "name": "outcome",
+            "desc": "What this round comes to: exactly one"
+          },
+          "join": ", ",
+          "name": "`{name}`",
+          "write": [
+            "Only your return is read: nothing you write outside it reaches anyone. To ask, hand in ask; to tell the owner what needs no answer, use tell_owner.",
+            "A field the owner reads (its description says so) is written so: explain a new term or label in half a sentence where it first appears; write the phenomenon, not internal nouns.",
+            "No internal names the owner does not know: no number of an internal function, file, branch, commit, version, CI run or specification clause, except as a link where the owner must act; a PR is followed by a few words saying what it is, with its link; only a PR description may give paths. Names a programmer writes (language constructs, library functions and types) are written in code font as they are, an external product's version when it matters, and quoted error messages verbatim, numbers included.",
+            "Say whether each claim was measured, read from source or deduced; put what is unconfirmed next to the claim, with how it will be confirmed. Every number carries its comparison: a percentage says faster or slower than what, a cited threshold gives its value.",
+            "An option the owner chose is written as its content, not only by its name. The design and the acceptance say the same thing, and their numbers agree. Each field reads on its own: full names, every PR linked, the background a reader needs.",
+            "Say each thing once, in the field it belongs to, and not in prose what a code comment says. Be concise without losing what matters: the most important first; never cut what the owner needs to understand and decide.",
+            "Code examples: only the lines the point needs; explain a name used but not defined in a comment. One comment per line, on its own line above the line it explains, about 80 characters at most; at the line that goes wrong, say what should hold, what happens and why. Before and after are two blocks, each with comments. Follow the language's syntax and format, saying so when a form cannot compile before the implementation. A tool's error text comes from the repository or a real run in CI, never from memory; otherwise describe it in words. The fence names the language; output, logs and errors take no label and no comments."
+          ]
+        },
+        "rows": [
+          {
+            "name": "tools",
+            "if": [
+              [
+                "has",
+                "tools"
+              ]
+            ],
+            "to": "X1",
+            "counts": "tool_requests",
+            "main": true
+          },
+          {
+            "name": "pause",
+            "if": [
+              [
+                "has",
+                "pause"
+              ]
+            ],
+            "to": "X3"
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Tool results",
+            "what": "The results of the tools you asked for, and those that failed",
+            "from": [
+              [
+                "@from",
+                "results"
+              ],
+              [
+                "@from",
+                "failed"
+              ]
+            ],
+            "maybe": true,
+            "with": "tools"
+          },
+          {
+            "name": "Owner's answer",
+            "what": "The owner's answer to what you asked; none when you did not ask",
+            "from": [
+              [
+                "@from",
+                "reply"
+              ]
+            ],
+            "maybe": true,
+            "with": "ask"
+          }
+        ],
+        "out": [
+          {
+            "$ref": "ask_form"
+          },
+          {
+            "$ref": "tools_form"
+          },
+          {
+            "$ref": "pause_form"
+          },
+          {
+            "name": "tell_owner",
+            "type": "list",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. Words the owner said to you during the round: what you made of them and what you did. An empty list if none",
+            "item": {
+              "type": "text",
+              "desc": "One message"
+            }
+          },
+          {
+            "$ref": "flow_feedback"
+          },
+          {
+            "$ref": "progress_form"
+          }
+        ],
+        "always": [
+          {
+            "at": "tell_owner",
+            "do": "tell_owner"
+          },
+          {
+            "at": "flow_feedback",
+            "do": "queue_flow_feedback"
+          }
+        ],
+        "checks": [],
+        "shown": [
+          "progress",
+          "tell_owner"
+        ],
+        "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original.",
+        "needs": {
+          "flow_feedback": "flow_feedback"
+        }
+      },
+      "nodes": [
         {
           "id": "P2",
           "kind": "agent",
           "title": "Study the new policy",
           "effort": "xhigh",
-          "line": "architect",
+          "line": "policy",
           "tools": [
             "gh",
             "query"
           ],
           "inputs": [
             {
-              "what": "Why it is set again: each reason the policy may no longer govern, with what was seen",
+              "what": "Why it is set again: each reason the policy may no longer govern, with what was seen, as the wake that set it again judged it; none when no wake set it again",
               "from": [
-                [
-                  "P1",
-                  "verdict[set_again]"
-                ]
-              ]
+                {
+                  "engine": "set_again"
+                }
+              ],
+              "maybe": true
             },
             {
               "what": "The project's constitution: its lasting values, from which every decision in it comes; none when the project has none",
@@ -15031,20 +15427,12 @@
               "maybe": true
             },
             {
-              "what": "What the project is now, as you wrote it in this wake: each line of work, what changed and what is unclear",
+              "what": "What the project is now: the state of things as its architect last wrote it, with what its wrap-ups learned and noted since",
               "from": [
-                [
-                  "U1",
-                  "state"
-                ],
-                [
-                  "U1",
-                  "changed"
-                ],
-                [
-                  "U1",
-                  "unclear"
-                ]
+                {
+                  "db": "architect_state",
+                  "by": "project"
+                }
               ]
             },
             {
@@ -15069,7 +15457,7 @@
             }
           ],
           "prompt": [
-            "This round studies the direction of a new policy: every other matter of this project waits until the policy is set. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
+            "This round studies the direction of a new policy: this is a task of its own, beside the project's wakes, which go on under the policy in force while it is set; no new work of the project starts until it is. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
             "First find out which direction the owner wants and what for, starting from the owner's own words in the project's design goal and from the constitution; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. Answer: how the things concerned stand now, with numbers where there are numbers; what a new direction touches, and how; at least three directions to choose from, each with where it takes the project and what follows from it, never an order of work; which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
             "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions.",
             "Questions for the owner go in the study's questions, which the owner answers as it reads the study; hand in ask only for what the study cannot go on without."
@@ -15088,14 +15476,14 @@
                 ]
               ],
               "to": "P3",
-              "main": true
+              "main": true,
+              "do": [
+                "raise_blocker"
+              ]
             }
           ],
           "shown": [
             "study"
-          ],
-          "without": [
-            "search"
           ],
           "rules": [
             "policy_scope"
@@ -15160,10 +15548,20 @@
                   [
                     "satisfied"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "P4",
-              "main": true
+              "main": true,
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "study_on",
@@ -15174,10 +15572,20 @@
                   [
                     "study_on"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "P2",
-              "waits": true
+              "waits": true,
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "policy_stays",
@@ -15188,24 +15596,56 @@
                   [
                     "policy_stays"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
-              "to": "N1",
+              "to": "E1",
               "do": [
-                "release_policy_hold"
-              ]
+                "resolve_blocker",
+                "release_policy_hold",
+                "queue_policy_set"
+              ],
+              "note": "The policy in force stays: the task ends, and the architect is given the study and the owner's words when it next thinks what to do next."
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "P2",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "interject": true,
+              "waits": true,
+              "note": "What the owner said to the task instead of answering: the study goes on with it, as with study on."
             }
           ],
           "shown": [
             "ruling"
-          ]
+          ],
+          "inenums": {
+            "interjection": "interjection_state"
+          }
         },
         {
           "id": "P4",
           "kind": "agent",
           "title": "Write the policy and its probes",
           "effort": "xhigh",
-          "line": "architect",
+          "line": "policy",
           "tools": [
             "gh",
             "query"
@@ -15273,9 +15713,6 @@
               "at": "probes",
               "check": "probes_cover_principles"
             }
-          ],
-          "without": [
-            "search"
           ],
           "rules": [
             "policy_scope"
@@ -15492,7 +15929,7 @@
           "kind": "agent",
           "title": "Whether the reading passes",
           "effort": "high",
-          "line": "architect",
+          "line": "policy",
           "tools": [
             "gh",
             "query"
@@ -15752,9 +16189,6 @@
           "shown": [
             "verdict"
           ],
-          "without": [
-            "search"
-          ],
           "rules": [
             "policy_scope"
           ],
@@ -15786,7 +16220,7 @@
           "kind": "agent",
           "title": "Correct the text",
           "effort": "high",
-          "line": "architect",
+          "line": "policy",
           "tools": [
             "gh",
             "query"
@@ -16024,9 +16458,6 @@
           "shown": [
             "revision.why"
           ],
-          "without": [
-            "search"
-          ],
           "rules": [
             "policy_scope"
           ]
@@ -16107,7 +16538,7 @@
           "kind": "agent",
           "title": "Whether the draft holds now",
           "effort": "high",
-          "line": "architect",
+          "line": "policy",
           "tools": [
             "gh",
             "query"
@@ -16122,17 +16553,17 @@
               ]
             },
             {
-              "what": "What you found against the constitution, and what the project is now",
+              "what": "What the wake that set it again found of the policy in force against the constitution, article by article, with its reasons; and what the project is now, as its architect last wrote it; none when no wake set it again",
               "from": [
-                [
-                  "P1",
-                  "against"
-                ],
-                [
-                  "U1",
-                  "state"
-                ]
-              ]
+                {
+                  "engine": "set_again"
+                },
+                {
+                  "db": "architect_state",
+                  "by": "project"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16205,7 +16636,10 @@
                 ]
               ],
               "to": "P11",
-              "main": true
+              "main": true,
+              "do": [
+                "raise_blocker"
+              ]
             },
             {
               "name": "needs_setting_again",
@@ -16223,9 +16657,6 @@
           ],
           "shown": [
             "report"
-          ],
-          "without": [
-            "search"
           ],
           "rules": [
             "policy_scope"
@@ -16309,10 +16740,20 @@
                   [
                     "approved"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "P12",
-              "main": true
+              "main": true,
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "fix_text",
@@ -16323,11 +16764,21 @@
                   [
                     "fix_text"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "P8",
               "waits": true,
-              "note": "A fault of the text only: the architect corrects it, and new architects read it again, without a new study."
+              "note": "A fault of the text only: the architect corrects it, and new architects read it again, without a new study.",
+              "do": [
+                "resolve_blocker"
+              ]
             },
             {
               "name": "not_good_enough",
@@ -16338,15 +16789,47 @@
                   [
                     "not_good_enough"
                   ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "P2",
-              "waits": true
+              "waits": true,
+              "do": [
+                "resolve_blocker"
+              ]
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "P8",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "interject": true,
+              "waits": true,
+              "note": "What the owner said to the task instead of answering: the text is corrected by it, as with fix text."
             }
           ],
           "shown": [
             "ruling"
-          ]
+          ],
+          "inenums": {
+            "interjection": "interjection_state"
+          }
         },
         {
           "id": "P12",
@@ -16372,15 +16855,192 @@
                   "all"
                 ]
               ],
-              "to": "N1",
+              "to": "E1",
               "counts": "policies_set",
               "main": true,
               "do": [
                 "new_architect_session",
-                "release_policy_hold"
+                "release_policy_hold",
+                "queue_policy_set"
               ],
-              "note": "The approved version is the policy in force from now on; the old one is kept to look at, and given to no agent."
+              "note": "The approved version is the policy in force from now on; the old one is kept to look at, and given to no agent. The architect's session ends: its next round starts a new one, which understands the project and thinks what to do next under the new policy."
             }
+          ]
+        },
+        {
+          "id": "A3",
+          "kind": "owner",
+          "title": "Owner answers",
+          "step": "ask_owner",
+          "inputs": [
+            {
+              "what": "What is asked: the ask the architect handed in, with its choice when it has one",
+              "from": [
+                [
+                  "@caller",
+                  "ask"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "reply",
+              "type": "obj",
+              "desc": "The owner's answer or ruling",
+              "fields": [
+                {
+                  "name": "text",
+                  "type": "text",
+                  "desc": "The answer, or which option of the choice was chosen"
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "answered",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "resolve_blocker"
+              ],
+              "main": true,
+              "note": "The cell that asked goes on with the answer."
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "interject": true,
+              "note": "What the owner said to the task instead of answering: the cell that asked goes on with it, and the ask needs no answer."
+            }
+          ],
+          "shown": [
+            "reply"
+          ],
+          "inenums": {
+            "interjection": "interjection_state"
+          }
+        },
+        {
+          "id": "X1",
+          "kind": "tool",
+          "title": "Run tools",
+          "step": "run_tools",
+          "inputs": [
+            {
+              "what": "The tools to run: the list the calling cell handed in",
+              "from": [
+                [
+                  "@caller",
+                  "tools"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "results",
+              "type": "list",
+              "desc": "The results of the tools that ran, one per row",
+              "item": {
+                "type": "union",
+                "by": "tool",
+                "branches": "toolResults"
+              }
+            },
+            {
+              "name": "failed",
+              "type": "list",
+              "desc": "The tools that failed, one per row; an empty list if all ran",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "tool",
+                    "type": "text",
+                    "desc": "Which tool"
+                  },
+                  {
+                    "$ref": "failure_kind"
+                  },
+                  {
+                    "$ref": "failure_what"
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "ran",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true
+            }
+          ],
+          "always": [
+            {
+              "at": "results",
+              "do": "record_tool_runs"
+            }
+          ]
+        },
+        {
+          "id": "X3",
+          "kind": "engine",
+          "title": "Wait for the owner's Start",
+          "step": "wait_for_start",
+          "inputs": [],
+          "cases": [
+            {
+              "name": "started",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "waits": true,
+              "main": true,
+              "note": "The cell that paused carries on in the same session."
+            }
+          ]
+        },
+        {
+          "id": "E1",
+          "kind": "engine",
+          "title": "The setting ends",
+          "step": "end_policy",
+          "inputs": [],
+          "out": [],
+          "do": [
+            "withdraw_blockers",
+            "end_sessions"
           ]
         }
       ],
@@ -16462,6 +17122,29 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          }
+        ]
+      },
+      "blockers": {
+        "desc": "The setting of a policy stops only for the owner: at cell `P3`, while the owner reads the study, at `P11`, while the owner reads the text to approve, and at `A3`, while the owner answers what a cell asked. Every move of its blocker is a row, and each cell where it waits has a row for the owner's interjection. Its end withdraws its open blocker.",
+        "cells": [
+          {
+            "cell": "A3",
+            "holders": [
+              "owner"
+            ]
+          },
+          {
+            "cell": "P3",
+            "holders": [
+              "owner"
+            ]
+          },
+          {
+            "cell": "P11",
+            "holders": [
+              "owner"
+            ]
           }
         ]
       }

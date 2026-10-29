@@ -230,16 +230,6 @@ pub fn gather(
                 }
                 continue;
             }
-            // The study of a new policy and the owner's answer to it, when that answer said the policy stays.
-            if matches!(s, Src::Engine(n) if n == crate::architect::STAYS) {
-                if crate::architect::policy_stays(e, w, g)? {
-                    for (c, path) in crate::architect::STAYS_PLACES {
-                        let place = Src::Place(c.to_string(), path.to_string());
-                        parts.extend(source(e, w, g, cell, item, &place)?);
-                    }
-                }
-                continue;
-            }
             parts.extend(source(e, w, g, cell, item, s)?);
         }
         let value = match parts.as_slice() {

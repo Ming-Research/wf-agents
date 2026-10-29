@@ -106,6 +106,9 @@ pub fn end(
         replace_design_cards(tx, work)?;
         close_asks(tx, work, why)?;
     }
+    if graph == crate::POLICY {
+        end_sessions(tx, work)?;
+    }
     if !engineer || done_before {
         return Ok(());
     }

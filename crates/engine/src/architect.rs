@@ -32,8 +32,8 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
-/// [`STAYS`], and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 21] = [
+/// and those of the policy being set, which [`draft_places`] names the places of.
+pub const INPUTS: [&str; 23] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -52,6 +52,8 @@ pub const INPUTS: [&str; 21] = [
     "item_log",
     "similar_items",
     "owner_answer",
+    "policy_stays",
+    "set_again",
     "cross_project",
     "batch_changes",
     "changes_touch",
@@ -66,19 +68,53 @@ pub const BEFORE: &str = "before";
 /// learned and noted since read from `architect_state`; otherwise that view whole.
 pub const STATE: &str = "state_of_things";
 
-/// The input that gives the study of a new policy and the owner's answer to it, as places of the returns of
-/// `P2` and `P3`, when the owner's latest answer to a study in the wake said the policy in
-/// force stays; none otherwise.
-pub const STAYS: &str = "policy_stays";
+/// The study of a new policy and what the owner said of it, when the setting of the project's policy that ended last
+/// ended with the owner saying the policy in force stays (`P3` `policy_stays`); none otherwise.
+fn policy_stays(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let rows = query_json(
+        e.db.conn(),
+        "SELECT r.work, json_extract(r.output, '$.ruling') AS ruling,
+                (SELECT json_extract(x.output, '$.outcome.study') FROM rounds x
+                 WHERE x.work = r.work AND x.cell = 'P2' AND x.transition IS NOT NULL ORDER BY x.n DESC LIMIT 1)
+                  AS study
+         FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.graph = 'policy' AND w.project = ?1 AND r.cell = 'P3' AND r.transition IS NOT NULL
+           AND r.transition <> 'interjection'
+         ORDER BY r.work DESC, r.n DESC LIMIT 1",
+        &[&project],
+        1,
+    )?;
+    Ok(rows
+        .into_iter()
+        .next()
+        .filter(|r| r["ruling"]["choice"] == "policy_stays")
+        .map(|r| json!({ "study": r["study"], "owner": r["ruling"] })))
+}
 
-/// The places of the returns [`STAYS`] gives.
-pub const STAYS_PLACES: [(&str, &str); 2] = [("P2", "study"), ("P3", "ruling")];
-
-/// Whether the owner's latest answer in the wake to a study of a new policy (`P3`) said the policy in
-/// force stays.
-pub fn policy_stays(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    let latest = inputs::returns_holding(e, w, g, "P3", "ruling")?.into_iter().next();
-    Ok(latest.is_some_and(|(_, r)| r["ruling"]["choice"] == "policy_stays"))
+/// Why the policy is set again, for the setting of it: what the wake that started it found of the policy in force
+/// against the constitution, article by article, and each reason it may no longer govern, as its latest round of
+/// `P1` that set it again handed them in, before the setting started.
+fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+    let started: i64 = count(
+        e.db.conn(),
+        "SELECT coalesce(min(started_at), 9223372036854775807) FROM rounds WHERE work = ?1",
+        &[&w.id],
+    )?;
+    let rows = query_json(
+        e.db.conn(),
+        &format!(
+            "SELECT json_extract(r.output, '$.outcome.against') AS against,
+                    json_extract(r.output, '$.outcome.verdict') AS verdict
+             FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition = 'set_again'
+               AND r.ended_at <= ?2
+             ORDER BY r.ended_at DESC LIMIT 1",
+            db::cells_sql(ARCHITECT, &[POLICY_CHECK])
+        ),
+        &[&project, &started],
+        1,
+    )?;
+    Ok(rows.into_iter().next())
 }
 
 /// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the wake's
@@ -114,7 +150,7 @@ const CORRECTIONS: i64 = 3;
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
-pub const KINDS: [(&str, &str, &str); 8] = [
+pub const KINDS: [(&str, &str, &str); 9] = [
     ("set_straight", "H1", "H1"),
     ("engineer_question", "H2", "H3"),
     ("report", "H4", "H5"),
@@ -123,6 +159,7 @@ pub const KINDS: [(&str, &str, &str); 8] = [
     ("owner_words", "H8", "H8"),
     ("other_architect", "H9", "H9"),
     ("slots_free", "H10", "H10"),
+    ("policy", "N1", "N1"),
 ];
 
 /// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is an
@@ -646,17 +683,60 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
+/// The matters of a policy set that the question what to do next (`N1`) answered since they came, in any wake of the
+/// project, closed by the round that looks at the queue, saying why: a new policy that took effect is thought through
+/// by the understanding of the new session it ends the old one for.
+fn close_settled_policies(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<String>, String> {
+    let conn = e.db.conn();
+    let rows = query_json(
+        conn,
+        &format!(
+            "SELECT q.matter FROM architect_queue q JOIN architect_matters m ON m.id = q.matter
+             WHERE q.project = ?1 AND q.kind = 'policy' AND EXISTS (
+               SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
+               WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+                 AND r.transition NOT IN {NO_ANSWER} AND r.started_at > m.at)
+             ORDER BY q.matter",
+            db::cells_sql(ARCHITECT, &[NEXT])
+        ),
+        &[&project],
+        ROWS,
+    )?;
+    let matters: Vec<i64> = rows.iter().filter_map(|r| r["matter"].as_i64()).collect();
+    if matters.is_empty() {
+        return Ok(Vec::new());
+    }
+    let round = count(conn, "SELECT max(n) FROM rounds WHERE work = ?1", &[&w.id])?;
+    e.db.write(Actor::Engine, |tx| {
+        for m in &matters {
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3 WHERE id = ?1 AND handled_round IS NULL",
+                params![m, w.id, round],
+            )?;
+        }
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(matters
+        .iter()
+        .map(|m| format!("matter {m}, a policy set that what to do next was thought through since"))
+        .collect())
+}
+
 /// Cell `Q0`: what can be picked from the project's queue now; a lone matter is picked here, without a
 /// round. A design card matter whose card needs no look any longer is closed first (the cell's `close_settled_cards`,
 /// which a flow version before the cell named what it does did too), as the round's progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
-    let closed = if closes {
+    let mut closed = if closes {
         close_settled_cards(e, w, project)?
     } else {
         Vec::new()
     };
+    if cell.actions.iter().any(|a| a == "close_settled_policies") {
+        closed.extend(close_settled_policies(e, w, project)?);
+    }
     let conn = e.db.conn();
     let can = pickable(conn, project, w.id)?;
     let handled = handled_in_batch(conn, w.id)?;
@@ -671,16 +751,6 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
         out["progress"] = json!(format!("Closed without a look: {}.", closed.join("; ")));
     }
     Ok(out)
-}
-
-/// The cells on a matter's path: those the router sends a matter to, which an ask of the owner holds only the matter
-/// of.
-fn path_cells(g: &CompiledGraph) -> Vec<String> {
-    g.cells
-        .iter()
-        .find(|c| c.inenums.contains_key("route"))
-        .map(|c| c.rows.iter().map(|r| r.to.clone()).collect())
-        .unwrap_or_default()
 }
 
 /// Whether the ask of the owner that held a matter has its answer.
@@ -839,8 +909,15 @@ fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     }
     let policy = count(
         conn,
-        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'P12' AND transition IS NOT NULL",
-        &[&w.id],
+        &format!(
+            "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'policy' AND x.project = ?1 AND r.cell = 'P12' AND r.transition IS NOT NULL
+               AND r.ended_at > (SELECT coalesce(max(u.ended_at), 0) FROM rounds u JOIN works y ON y.id = u.work
+                                 WHERE y.graph = 'architect' AND y.project = ?1 AND u.cell IN {}
+                                   AND u.transition IS NOT NULL AND u.transition NOT IN {NO_ANSWER})",
+            db::cells_sql(ARCHITECT, &[UNDERSTAND])
+        ),
+        &[&project],
     )?;
     Ok(if policy > 0 { "new_policy" } else { "new" }.into())
 }
@@ -878,11 +955,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             "new_reader"
         }
         .into(),
-        "asker" => {
-            let path = path_cells(g);
-            let on_path = w.pos.callers.last().is_some_and(|c| path.contains(c));
-            if on_path { "path" } else { "waits" }.into()
-        }
         "question" => {
             let d = picked_detail(conn, w.id)?.unwrap_or_default();
             if QUESTION_KINDS.contains(&d.as_str()) {
@@ -1064,19 +1136,43 @@ pub fn ask_owner(
         let Some((id, answer)) = owner_ask_of(e, r.id)? else {
             return Err(format!("{} asks, but put no ask to the owner", r.id));
         };
+        let gathered = inputs::gather(e, w, g, cell, None)?;
+        let mut given = values::given(e, w, g, cell, None, &gathered)?;
         let Some(answer) = answer else {
+            // What the owner said to the setting of a policy instead of answering takes it on by its row for that, and
+            // the ask needs no answer.
+            if given.get("interjection").and_then(Value::as_str) == Some("yes")
+                && let Some(row) = crate::row(cell, "interjection").cloned()
+            {
+                return finish(
+                    e,
+                    w,
+                    g,
+                    cell,
+                    r.id,
+                    json!({}),
+                    &row,
+                    Ended::default(),
+                    &[],
+                    None,
+                    &given,
+                );
+            }
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
         };
+        // The owner's answer came: what was said to the task meanwhile reaches it at its next round.
+        if given.contains_key("interjection") {
+            given.insert("interjection".into(), json!("no"));
+        }
         let output = answered_as(cell, &answer);
-        let gathered = inputs::gather(e, w, g, cell, None)?;
-        let given = values::given(e, w, g, cell, None, &gathered)?;
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
     let project = project_of(w)?.to_string();
     let gathered = inputs::gather(e, w, g, cell, None)?;
-    let given = values::given(e, w, g, cell, None, &gathered)?;
-    let holds = if given.get("asker").and_then(Value::as_str) == Some("path") {
+    // A wake of the architect never waits for the owner: its ask holds only the matter of the path that asked. The
+    // setting of a policy is a task, which stops on the ask, its blocker held by the owner.
+    let holds = if w.graph == ARCHITECT {
         picked(e.db.conn(), w.id)?
     } else {
         None
@@ -1109,7 +1205,7 @@ pub fn ask_owner(
         }
         format!("The architect of {project} asks you{about}")
     };
-    let caller = w.pos.callers.last().cloned();
+    let caller = w.pos.callers.last().or(w.pos.stopped.as_ref()).cloned();
     let input = json!({ "inputs": recorded(&gathered) });
     let commit = e.config.commit.clone();
     let (round, id) =
@@ -1121,6 +1217,12 @@ pub fn ask_owner(
             )?;
             let id = tx.last_insert_rowid();
             actions::notify_ask(tx, w.id, id, &format!("{notice} (ask {id})")).map_err(db::Error::Abort)?;
+            // The ask stands for the task's blocker before the owner.
+            if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
+                && b.holder == "owner"
+            {
+                crate::blockers::set_ask(tx, b.id, id).map_err(db::Error::Abort)?;
+            }
             // The matter the ask holds waits for the answer out of the queue, and goes back to the cell that asked.
             if let (Some(m), Some(c)) = (holds, &caller) {
                 tx.execute(
@@ -1134,6 +1236,7 @@ pub fn ask_owner(
     let Some(m) = holds else {
         return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
     };
+    let given = values::given(e, w, g, cell, None, &gathered)?;
     let text = format!(
         "The ask is with the owner as ask {id}. Matter {m} waits for the answer out of the queue, and comes back to the \
          cell that asked with it; the wake goes on with the other matters."
@@ -1938,7 +2041,57 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             batch_over(tx, w, &project)?;
         }
         "apply_reviewed" => give_up(ctx, tx)?,
-        "new_architect_session" => sessions::choose::end_line(tx, w, ARCHITECT)?,
+        "new_architect_session" => {
+            if ctx.work.graph == crate::POLICY {
+                // The setting ends the session the project's wakes go on in: the next round of a wake starts anew.
+                tx.execute(
+                    "UPDATE sessions SET ended = ?2 WHERE line = 'architect' AND ended IS NULL
+                       AND work IN (SELECT id FROM works WHERE graph = 'architect' AND project = ?1)",
+                    params![wake_of(ctx)?.1, db::now()],
+                )
+                .map_err(sql)?;
+            } else {
+                sessions::choose::end_line(tx, w, ARCHITECT)?;
+            }
+        }
+        "start_policy" => {
+            let (_, project) = wake_of(ctx)?;
+            let running = count(
+                tx,
+                "SELECT count(*) FROM works WHERE graph = 'policy' AND project = ?1 AND ended IS NULL
+                   AND id NOT IN (SELECT work FROM rounds r WHERE r.cell = 'E1' AND r.ended_at IS NOT NULL)",
+                &[&project],
+            )?;
+            if running == 0 {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'policy', 'P2', ?2)",
+                    params![ctx.work.flow_version, project],
+                )
+                .map_err(sql)?;
+            }
+        }
+        "queue_policy_set" => {
+            let (_, project) = wake_of(ctx)?;
+            let stays = ctx.cell.id == "P3";
+            let (detail, what) = if stays {
+                (
+                    "stays",
+                    "The owner read the study of a new policy and said the policy in force stays",
+                )
+            } else {
+                ("took_effect", "A new policy took effect, as the owner approved it")
+            };
+            let m = Matter {
+                project,
+                kind: "policy".into(),
+                detail: Some(detail.into()),
+                what: what.into(),
+                body: json!({ "setting": w, "how": detail }),
+                item: None,
+                raised: Some((ctx.round.work, ctx.round.n)),
+            };
+            queue_matter(tx, &m).map_err(sql)?;
+        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -2771,6 +2924,8 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "item_log" => item_log(e, w),
         "similar_items" => similar_items(e, w, g).map(Some),
         "owner_answer" => owner_answer(e, w),
+        "policy_stays" => policy_stays(e, project),
+        "set_again" => set_again(e, w, project),
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),

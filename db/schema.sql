@@ -239,8 +239,8 @@ CREATE TABLE flow_versions (
 ) STRICT;
 
 CREATE TABLE works (
-  -- One run of a graph of the flow: an engineer's work on an item, or one wake of a project's architect. It holds the
-  -- current
+  -- One run of a graph of the flow: an engineer's work on an item, one wake of a project's architect, or the setting
+  -- of a project's policy, a task of its own beside the wakes. It holds the current
   -- state the engine needs to take the next step, written in the same transaction as the round that changed it; the
   -- history is in rounds. Which cell brought the work to its cell, whether it is done, what it waits for and when it
   -- started and ended are derived from its rounds. At most one work per item runs at a time.
@@ -250,7 +250,7 @@ CREATE TABLE works (
   item INTEGER REFERENCES items(id),
   flow_version INTEGER NOT NULL REFERENCES flow_versions(id),
   -- Which graph of that version it runs. Read by: the engine.
-  graph TEXT NOT NULL CHECK (graph IN ('engineer', 'architect')),
+  graph TEXT NOT NULL CHECK (graph IN ('engineer', 'architect', 'policy')),
   -- The cell the work is at. Read by: the engine; views of status and slots.
   at TEXT NOT NULL,
   -- The cell the work left to ask or to be answered; the answer resumes it there. NULL when nothing is pending.
@@ -283,10 +283,11 @@ CREATE TABLE works (
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
   -- Read by: the engine, when the owner lets works go on; the owner's interface.
   paused_by TEXT CHECK (paused_by IN ('owner', 'engine')),
-  -- For a wake of the architect, the project whose architect it is; NULL for an engineer's work, whose project is its
-  -- item's. Read by: the engine, which runs one wake of each project's architect at a time and reads the project's
-  -- views for it; the architect's views; the owner's interface.
-  project TEXT CHECK (project IS NULL OR graph = 'architect')
+  -- For a wake of the architect, or the setting of a policy, the project whose architect it is; NULL for an
+  -- engineer's work, whose project is its item's. Read by: the engine, which runs one wake of each project's architect
+  -- at a time, and one setting of its policy, and reads the project's views for them; the architect's views; the
+  -- owner's interface.
+  project TEXT CHECK (project IS NULL OR graph IN ('architect', 'policy'))
 ) STRICT;
 
 CREATE TABLE sessions (
@@ -613,8 +614,8 @@ CREATE TABLE architect_matters (
 
 CREATE TABLE blockers (
   -- What a stopped task waits on, one row for each stop: an engineer's question, an engine tool's failure, an ask of the
-  -- owner, a wait for items to deliver, or a wait for the owner's ruling on a design card. A task is an engineer's work;
-  -- a wake of the architect is never one. A blocker belongs to the task and the cell that raised it, and has exactly one
+  -- owner, a wait for items to deliver, or a wait for the owner's ruling on a design card. A task is an engineer's work
+  -- or the setting of a policy; a wake of the architect is never one. A blocker belongs to the task and the cell that raised it, and has exactly one
   -- holder at a time, who must act: the work's advisor, a project's architect, the owner, or the items it waits for,
   -- whose merge resolves it. A task stops on one blocker at a time, and stands at its holder's cell while it waits;
   -- every move of a blocker is a row of the task's graph, which the engine records here.
@@ -1119,7 +1120,7 @@ CREATE VIEW architect_log AS
         json_extract(r.output, '$.ruling.choice') || ': ' || json_extract(r.output, '$.ruling.text')) AS said,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.transition IS NOT NULL
+    WHERE w.graph IN ('architect', 'policy') AND r.transition IS NOT NULL
       AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
       AND r.cell IN ('P1', 'U2', 'policy_right', 'understand.policy', 'N1', 'U3', 'fit', 'understand.fit', 'H1', 'T1',
         'set_straight', 'handle.set_straight', 'H3', 'ways', 'handle.ways', 'H5', 'I2', 'take_in', 'handle.take_in',
@@ -1152,8 +1153,8 @@ CREATE VIEW wake_handled AS
 
 CREATE VIEW policy_current AS
   -- Each project's policy in force: the text written, or put together from a correction, last before the owner's latest
-  -- approval in a wake of the project's architect, with the round of that approval; none before the first policy takes
-  -- effect. A correction hands in only what it changes, and the engine puts the text together (`P5`); a
+  -- approval in a setting of the project's policy (in a wake of its architect, before the setting was a task of its
+  -- own), with the round of that approval; none before the first policy takes effect. A correction hands in only what it changes, and the engine puts the text together (`P5`); a
   -- correction of a flow version before that held the whole text. Older versions stay readable in the rounds and are
   -- given to no agent. Read by: the engine, for the architect's cells; the owner's interface.
   SELECT project, work, round, policy FROM (
@@ -1169,12 +1170,12 @@ CREATE VIEW policy_current AS
        ORDER BY t.n DESC LIMIT 1) AS policy,
       row_number() OVER (PARTITION BY w.project ORDER BY a.work DESC, a.n DESC) AS k
     FROM rounds a JOIN works w ON w.id = a.work
-    WHERE w.graph = 'architect' AND a.cell IN ('P12', 'takes_effect', 'policy.takes_effect')
+    WHERE w.graph IN ('architect', 'policy') AND a.cell IN ('P12', 'takes_effect', 'policy.takes_effect')
       AND a.transition IS NOT NULL)
   WHERE k = 1;
 
 CREATE VIEW policy_draft AS
-  -- Each wake's version of the policy being set: the round of the latest writing or correcting in the wake, the text as
+  -- Each setting's version of the policy being set: the round of the latest writing or correcting in it, the text as
   -- it stands, and the probes with the answers the architect holds right. A correction hands in only what it changes,
   -- its edits and the probes it adds or changes beside those it keeps, and the text and the probes are then as the
   -- engine last put them together (`P5`), as the text is after a minor fix a reading found, which leaves the version
@@ -1197,7 +1198,7 @@ CREATE VIEW policy_draft AS
        ORDER BY x.n DESC LIMIT 1),
       json_extract(t.output, '$.outcome.probes'), json_extract(t.output, '$.outcome.revision.probes')) AS probes
   FROM rounds t JOIN works w ON w.id = t.work
-  WHERE w.graph = 'architect' AND t.cell IN ('P4', 'write', 'policy.write', 'P8', 'correct', 'policy.correct')
+  WHERE w.graph IN ('architect', 'policy') AND t.cell IN ('P4', 'write', 'policy.write', 'P8', 'correct', 'policy.correct')
     AND t.transition IS NOT NULL
     AND t.n = (SELECT max(x.n) FROM rounds x
                WHERE x.work = t.work AND x.cell IN ('P4', 'write', 'policy.write', 'P8', 'correct', 'policy.correct')
@@ -1268,8 +1269,8 @@ CREATE VIEW conversation_entries AS
   -- Every entry of the owner's conversations, gathered from the tables that hold them: one conversation for each
   -- engineer's work (what its agents tell and ask the owner, the owner's answers and interjections, its asks of the
   -- architect and the advisor with their replies, and the engine's notices about it), one for each project's architect
-  -- (the owner's words, what it tells and asks the owner, and the design cards of the project's works for the owner to
-  -- rule on), one for each pair of projects' architects (their messages), and one of wf-agents itself (its faults, and
+  -- (the owner's words, what it tells and asks the owner, in its wakes and in the settings of its policy, and the
+  -- design cards of the project's works for the owner to rule on), one for each pair of projects' architects (their messages), and one of wf-agents itself (its faults, and
   -- what the engine tells the owner about no work).
   -- Hidden from agents.
   -- Read by: the owner's interface, which lists the conversations and shows each.
@@ -1279,25 +1280,25 @@ CREATE VIEW conversation_entries AS
   -- recipient are a line, the owner, the engine or wf-agents; for between, the projects. waiting: it waits for the owner
   -- (an ask not answered, a design card not ruled, a fault not read). pending: the owner's words not taken up yet.
   -- agents: it passes between agents.
-  SELECT CASE WHEN w.graph = 'architect' THEN 'architect:' || w.project ELSE 'work:' || w.id END AS conversation,
+  SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END AS conversation,
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
-    coalesce(s.line, CASE WHEN w.graph = 'architect' THEN 'architect' ELSE 'engineer' END) AS sender,
+    coalesce(s.line, CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE 'engineer' END) AS sender,
     'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
     NULL AS ask, NULL AS design_card, m.read_at AS read_at, 0 AS waiting, 0 AS pending, 0 AS agents, NULL AS fault
   FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
   LEFT JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
   UNION ALL
   SELECT CASE WHEN n.fault IS NOT NULL OR w.id IS NULL THEN 'wf-agents'
-              WHEN w.graph = 'architect' THEN 'architect:' || w.project ELSE 'work:' || w.id END,
+              WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     CASE WHEN n.fault IS NULL THEN coalesce(w.project, i.project) END, 'notice', n.id,
     CASE WHEN n.fault IS NULL THEN 'engine' ELSE 'wf-agents' END, 'owner', n.text, n.at, n.work, NULL, n.ask, NULL,
     n.read_at, n.fault IS NOT NULL AND n.read_at IS NULL, 0, 0, n.fault
   FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
   WHERE n.ask IS NULL OR n.fault IS NOT NULL
   UNION ALL
-  SELECT CASE WHEN w.graph = 'architect' THEN 'architect:' || w.project ELSE 'work:' || w.id END,
+  SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'ask', a.id,
-    CASE WHEN w.graph = 'architect' THEN 'architect'
+    CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect'
          ELSE coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session
                         WHERE x.work = a.work AND x.n < a.round ORDER BY x.n DESC LIMIT 1), 'engineer') END,
     'owner',
@@ -1309,9 +1310,9 @@ CREATE VIEW conversation_entries AS
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
   UNION ALL
-  SELECT CASE WHEN w.graph = 'architect' THEN 'architect:' || w.project ELSE 'work:' || w.id END,
+  SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'answer', a.id, 'owner',
-    CASE WHEN w.graph = 'architect' THEN 'architect'
+    CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect'
          ELSE coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session
                         WHERE x.work = a.work AND x.n < a.round ORDER BY x.n DESC LIMIT 1), 'engineer') END,
     coalesce(nullif(json_extract(a.answer, '$.text'), ''), json_extract(a.answer, '$.choice'), ''),
@@ -1320,7 +1321,7 @@ CREATE VIEW conversation_entries AS
   LEFT JOIN items i ON i.id = w.item
   WHERE a.answer IS NOT NULL AND coalesce(json_extract(a.answer, '$.by'), 'owner') <> 'engine'
   UNION ALL
-  SELECT CASE WHEN w.graph = 'architect' THEN 'architect:' || w.project ELSE 'work:' || w.id END,
+  SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker, j.line, j.text,
     coalesce((SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),

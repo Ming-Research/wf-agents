@@ -43,6 +43,11 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     if let Some(v) = crate::architect::value(e, w, g, name)? {
         return Ok(v);
     }
+    // An interjection waiting for the task's main line; a word that needs no answer, as the owner confirming the design
+    // card, is not one that turns the work.
+    if name == "interjection" {
+        return Ok(if interjections(e, w)? > 0 { "yes" } else { "no" }.to_string());
+    }
     let item = item.ok_or_else(|| {
         format!(
             "the engine's value {name} is about an item, and work {} is on none",
@@ -94,21 +99,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             Some(_) => "ruling",
         }),
         "held" => crate::blockers::held(e, w),
-        // An interjection waiting for the engineer; a word that needs no answer, as the owner confirming the design card,
-        // is not one that turns the work.
-        "interjection" => {
-            let waiting: i64 = e
-                .db
-                .conn()
-                .query_row(
-                    "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
-                       AND informs = 0",
-                    [w.id],
-                    |r| r.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            s(if waiting > 0 { "yes" } else { "no" })
-        }
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
@@ -205,6 +195,23 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         }
         other => Err(format!("no such engine value: {other}")),
     }
+}
+
+/// How many words said to a task are waiting for its main line, which turn its way on: the engineer's, or the
+/// architect's setting a policy.
+pub fn interjections(e: &Engine, w: &Work) -> Result<i64, String> {
+    let line = if w.graph == crate::POLICY {
+        crate::POLICY
+    } else {
+        ENGINEER
+    };
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM interjections WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL AND informs = 0",
+            db::rusqlite::params![w.id, line],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
 }
 
 /// The reply the work brought back to choose the way on: the last return of the cell that brought it, when that is
