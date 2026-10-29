@@ -751,14 +751,7 @@ function Panel({ route, a, d, g, go, onRound }: {
     return waits !== null ? t(WAITS[waits]) : null;
   };
   const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; chip: string | null; hint: string }> = [
-    {
-      tab: 'conversation',
-      label: t('talk_title'),
-      n: talk !== null && talk.unread > 0 ? talk.unread : null,
-      chip: talk !== null && talk.waiting > 0 ? t('conv_waits_chip', { n: talk.waiting }) : null,
-      hint: t('conv_waits_n', { n: talk?.waiting ?? 0 }),
-    },
-    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
+    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
     { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null, hint: '' },
     {
       tab: 'observations',
@@ -767,7 +760,7 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: null,
       hint: '',
     },
-    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
+    { tab: 'next', label: t('arch_tab_next'), n: null, chip: null, hint: '' },
     {
       tab: 'policy',
       label: t('arch_tab_policy'),
@@ -775,8 +768,15 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: policyWaiting > 0 ? t('open_asks_chip', { n: policyWaiting }) : null,
       hint: t('open_asks_n', { n: policyWaiting }),
     },
-    { tab: 'next', label: t('arch_tab_next'), n: null, chip: null, hint: '' },
-    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
+    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
+    {
+      tab: 'conversation',
+      label: t('talk_title'),
+      n: talk !== null && talk.unread > 0 ? talk.unread : null,
+      chip: talk !== null && talk.waiting > 0 ? t('conv_waits_chip', { n: talk.waiting }) : null,
+      hint: t('conv_waits_n', { n: talk?.waiting ?? 0 }),
+    },
+    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
   ];
   return (
     <div className="drawer">

@@ -25,14 +25,14 @@ export type WorkRoute = {
 /// batches made, the project's observations, the policy, where things stand as it understands them, or the rounds of
 /// the wake shown.
 export const ARCHITECT_TABS = [
-  'conversation',
-  'queue',
+  'rounds',
   'changes',
   'observations',
-  'understanding',
-  'policy',
   'next',
-  'rounds',
+  'policy',
+  'understanding',
+  'conversation',
+  'queue',
 ] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
 
@@ -118,7 +118,7 @@ export function parse(pathname: string, search: string): Route {
   }
   if (first === 'architect' && parts.length === 1) {
     const wake = num(q.get('wake'));
-    const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'conversation';
+    const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'rounds';
     return {
       page: 'architect',
       project: q.get('project'),
@@ -177,7 +177,7 @@ export function href(r: Route): string {
       return `/architect${query([
         ['project', r.project],
         ['wake', r.wake],
-        ['tab', r.tab === 'conversation' ? null : r.tab],
+        ['tab', r.tab === 'rounds' ? null : r.tab],
         ['round', r.wake !== null && r.round !== null ? roundName(r.wake, r.round) : null],
         ['cell', r.cell],
       ])}`;
@@ -211,7 +211,7 @@ export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'
 
 /// The address of an architect's page: the wake running or the latest, on its asks, or what `more` names.
 export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}): string {
-  return href({ page: 'architect', project: null, wake: null, tab: 'conversation', round: null, cell: null, ...more });
+  return href({ page: 'architect', project: null, wake: null, tab: 'rounds', round: null, cell: null, ...more });
 }
 
 /// A path of the interface about a project's architect: for the project named, or with none, the configuration's one
