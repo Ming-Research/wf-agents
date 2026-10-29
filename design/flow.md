@@ -32,5 +32,7 @@ Decision: The total time is measured, not counted: the time of a work's agents' 
 
 Decision: When the owner's ruling disagrees with a decision of the design card and the owner's approach changes the acceptance, the design that follows the ruling (`D2`) writes the new acceptance without asking the advisor, and the engine locks it after design as any design's, instead of the ruling stating the acceptance, because acceptance conditions are written in the engineer's form (numbers, tests or measurements, criteria), which the owner's ruling on approaches does not and should not ask of the owner.
 
+Decision: A row of an engine step that takes an interjection, as `T7`'s, sets aside what the step handed in (the checks it chose), which the step works out again if the way on comes back to it, and the compiler counts it as dropping nothing, instead of an action on the row that does nothing but read what is set aside (`set_aside_checks`), because an action that does nothing is behaviour the flow names and the engine does not have.
+
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.

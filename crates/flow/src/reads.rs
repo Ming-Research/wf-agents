@@ -15,7 +15,7 @@ use crate::bits::Bits;
 use crate::check::Analysis;
 use crate::field::{Place, PlaceKind, by_id, head};
 use crate::format::Src;
-use crate::graph::{Graph, POINTERS, Target};
+use crate::graph::{CellKind, Graph, POINTERS, Target};
 use crate::walk::State;
 
 /// A place of a cell's output: the cell, and the place's number among its places.
@@ -203,9 +203,11 @@ impl Analysis<'_, '_> {
             for s in (0..n).filter(|s| here(*s)) {
                 for &(r, s2, t) in &self.steps[s] {
                     // A row that waits where the cell is, as a work behind another in the merge queue does, is taken
-                    // before the cell's step hands anything in: it drops nothing.
+                    // before the cell's step hands anything in; and an engine step's row that takes an interjection
+                    // sets aside what the step handed in, which it works out again if the way on comes back to it:
+                    // neither drops anything.
                     let row = &c.rows[r];
-                    if row.waits && row.target == Target::Cell(ci) {
+                    if (row.waits && row.target == Target::Cell(ci)) || (row.interject && c.kind != CellKind::Agent) {
                         continue;
                     }
                     let mut held = Bits::new(nk);
