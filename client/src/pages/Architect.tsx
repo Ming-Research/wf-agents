@@ -30,6 +30,7 @@ import type {
   Matter,
   Observation,
   OwnerAsk,
+  RoundSummary,
   Wake,
   WorkDetail,
   WorkSummary,
@@ -82,13 +83,16 @@ import {
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
-import { Timeline, workMarks } from './Work';
+import { Timeline, useHalo, workMarks } from './Work';
 
 /// The graph the architect's wakes run, as the flow names it.
 const GRAPH = 'architect';
 
 /// What the bare graph marks: nothing.
 const BARE = { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() };
+
+/// No rounds, for the halo while no wake is shown.
+const NO_ROUNDS: RoundSummary[] = [];
 
 /// The time now, ticking every second while `ticking`.
 function useNow(ticking: boolean): number {
@@ -845,6 +849,8 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
   const g = compiled.graphs.find((x) => x.name === GRAPH);
   const v = view.graphs.find((x) => x.name === GRAPH);
   const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
+  const c = d !== null ? course(d.work, status) : null;
+  const halo = useHalo(d?.work ?? null, d?.rounds ?? NO_ROUNDS, c);
   if (!g || !v) return <p className="muted page">{t('arch_no_graph')}</p>;
   const id = wake?.work.id ?? null;
   const roundCell = route.round !== null && d !== null ? (d.rounds.find((x) => x.n === route.round)?.cell ?? null) : null;
@@ -856,7 +862,7 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       compiled={compiled}
       graphs={graphs}
       legend={d !== null ? 'work' : 'flow'}
-      marks={[d !== null ? workMarks(g, v, d.work, d.rounds, course(d.work, status)) : BARE]}
+      marks={[d !== null && c !== null ? workMarks(g, v, d.work, d.rounds, c, status, halo) : BARE]}
       cell={route.cell}
       onCell={(cell) => go({ cell, round: null })}
       start={roundCell ?? d?.work.at ?? null}

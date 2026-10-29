@@ -1438,13 +1438,14 @@ svg.fc {
   }
 }
 
-/* The cell a work held back stands at: two bars, as a pause is drawn. */
-.fc-held > rect:first-of-type {
+/* Beside the cell a work waits at: why, in a few words, still. */
+.fc-wait rect {
   fill: var(--warn);
 }
 
-.fc-held .fc-held-bar {
+.fc-wait text {
   fill: #fff;
+  font-size: 12px;
 }
 
 .fc-unvisited {

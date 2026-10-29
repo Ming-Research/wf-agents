@@ -537,20 +537,23 @@ export function related(edges: ChartEdge[], id: string | null): Set<string> {
   return lit;
 }
 
-/// What a work did at a cell, and at the cell it is at, whether a round runs there now and why the work is held back
-/// there.
+/// Why a work waits at the cell it is at while no round of it runs there: in a few words for the tag beside the cell,
+/// and in full on hovering.
+export type Wait = { tag: string; why: string };
+
+/// What a work did at a cell, and at the cell it is at, whether a round runs there now and, while none does, why the
+/// work waits there.
 export type Overlay = {
   rounds: number;
   sentBack: number;
   failed: number;
   running: boolean;
   current: boolean;
-  held: string | null;
+  waits: Wait | null;
 };
 
-/// How the work goes on now at the cell it is at: whether the engine runs a round of it, and why it is held back, if
-/// it is.
-export type Now = { running: boolean; held: string | null };
+/// How the work goes on now at the cell it is at: whether the engine runs a round of it, and why it waits, if it does.
+export type Now = { running: boolean; waits: Wait | null };
 
 /// What the work's rounds did at each cell; `at` is the cell the work is at, where it goes on as `now` says. A round
 /// still open is running only while the engine runs it, or a tool of it is under way.
@@ -559,7 +562,7 @@ export function overlays(rounds: RoundSummary[], at: string | null, now: Now): M
   const get = (cell: string) => {
     let o = out.get(cell);
     if (!o) {
-      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false, held: null };
+      o = { rounds: 0, sentBack: 0, failed: 0, running: false, current: false, waits: null };
       out.set(cell, o);
     }
     return o;
@@ -575,9 +578,47 @@ export function overlays(rounds: RoundSummary[], at: string | null, now: Now): M
     const o = get(at);
     o.current = true;
     o.running = now.running;
-    o.held = now.held;
+    o.waits = now.running ? null : now.waits;
   }
   return out;
+}
+
+/// A round the halo goes round on a work's chart: its number, its cell, and when the page first saw it, in
+/// milliseconds.
+export type Flash = { n: number; cell: string; seen: number };
+
+/// How long the halo stays on the cell of a round the page saw come in, counted from when it saw it; and the least it
+/// stays on each of several that came in together.
+export const HALO_HOLD = 1500;
+export const HALO_STEP = 500;
+
+/// Where the halo goes round at `now`, and when that next changes (none when it does not). The rounds the page saw come
+/// in (`flashes`, oldest first) each take it in order, for at least HALO_STEP and the last until HALO_HOLD after it was
+/// seen, so that a round over before the page could show it running is seen; the newest round while a round of the
+/// work runs (`runs`) keeps it as long as it runs; after the last round that ended, it lands on the cell the work is
+/// at, `at`, for the rest of the hold. Otherwise it is on `at` while a round runs there, and nowhere while none does.
+export function haloAt(
+  flashes: Flash[],
+  now: number,
+  where: { at: string | null; runs: boolean; newest: number | null },
+): { cell: string | null; next: number | null } {
+  const { at, runs, newest } = where;
+  const steps: Array<{ cell: string; from: number; to: number }> = [];
+  let prev = -Infinity;
+  flashes.forEach((f, i) => {
+    const from = Math.max(f.seen, prev + HALO_STEP);
+    prev = from;
+    const running = runs && f.n === newest;
+    const lands = i === flashes.length - 1 && !running && at !== null && at !== f.cell;
+    const to = running ? Infinity : lands ? from + HALO_STEP : Math.max(from + HALO_STEP, f.seen + HALO_HOLD);
+    steps.push({ cell: f.cell, from, to });
+    if (lands && at !== null) steps.push({ cell: at, from: to, to: Math.max(to + HALO_STEP, f.seen + HALO_HOLD) });
+  });
+  // Each round gives the halo up when the next takes it.
+  for (let i = 0; i + 1 < steps.length; i++) steps[i].to = Math.min(steps[i].to, steps[i + 1].from);
+  const on = steps.find((s) => s.from <= now && now < s.to);
+  const next = Math.min(...steps.flatMap((s) => [s.from, s.to]).filter((x) => x > now));
+  return { cell: on !== undefined ? on.cell : runs ? at : null, next: Number.isFinite(next) ? next : null };
 }
 
 /// The arrows of the chart that draw the row each round took, by the round's place among the work's rounds: every

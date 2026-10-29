@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Status, Waits, WorkSummary } from './api';
 import { controls, type Course, course, heldWords } from './components';
+import type { Wait } from './graph/flowModel';
 import { postJson } from './http';
 import { reread } from './live';
 import { forProject } from './route';
@@ -250,4 +251,32 @@ export function Controls({ a, w, status, onStep }: {
 /// architect, held by every work paused, or started by the owner and waiting for a free slot.
 export function held(c: Course, w: WorkSummary): string | null {
   return c.held !== null ? heldWords(c, w.paused) : null;
+}
+
+/// Why a work waits at the cell it is at while no round of it runs, for the tag beside that cell on its chart, in a
+/// few words and in full: stopped by the engine or the architect, which the owner looks at first; what it waits for,
+/// after which it goes on by itself; a free slot for the Start the owner gave; or, held back by the owner's pause or
+/// every work's, Step while Step can run a round of it now, and else paused. None for a work that runs, goes on by
+/// itself or is over.
+export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait | null {
+  if (c.over || c.running !== null) return null;
+  const why = held(c, w) ?? '';
+  if (c.held === 'engine') return { tag: t('wait_engine'), why };
+  if (c.held === 'architect') return { tag: t('wait_architect_stop'), why };
+  if (c.waits !== null) {
+    const kind = c.waits.kind;
+    const tag =
+      kind === 'answer' || kind === 'ruling'
+        ? t('wait_you')
+        : kind === 'architect'
+          ? t('wait_architect')
+          : kind === 'items'
+            ? t('wait_items')
+            : t('wait_row');
+    return { tag, why: waitsWords(c.waits) };
+  }
+  if (c.releasing) return { tag: t('wait_slot'), why };
+  if (c.held === null) return null;
+  const can = controls(c, status);
+  return { tag: t(can.step && can.canStep ? 'wait_step' : 'wait_paused'), why };
 }

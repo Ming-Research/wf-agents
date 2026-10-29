@@ -19,7 +19,7 @@ import type {
   WorkSummary,
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
-import { held, runningWords, stepWhyNot } from './course';
+import { held, runningWords, stepWhyNot, waitOf } from './course';
 import {
   cellTab,
   cellTabs,
@@ -40,6 +40,9 @@ import { moveWords } from './graph/FlowChart';
 import {
   ASKING,
   chart,
+  HALO_HOLD,
+  HALO_STEP,
+  haloAt,
   letterOf,
   MAIN,
   mainPath,
@@ -183,8 +186,15 @@ describe('how a work goes on', () => {
     expect(controls(both, status({}))).toEqual({ pause: false, start: true, step: false, canStep: true });
     expect(stepWhyNot(both, controls(both, status({})))).toBe('waiting for your answer to ask 6');
     expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('stopped (you paused it)');
+    expect(waitOf(both, work({}), status({}))?.tag).toBe('waiting for you');
     // Every work paused: stopped by the global pause, said so; Start and Step offered, and no Pause beside Start.
     const all = course(work({}), status({ paused: true }));
+    // Beside its cell: waiting for Step while Step can run a round of it, paused while another step is under way.
+    expect(waitOf(all, work({}), status({ paused: true }))).toEqual({
+      tag: 'waiting for Step',
+      why: 'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
+    });
+    expect(waitOf(all, work({}), status({ paused: true, stepping: 3 }))?.tag).toBe('paused');
     expect([all.held, heldName(all).name]).toEqual(['all', 'stopped (global pause)']);
     expect(controls(all, status({ paused: true }))).toEqual({ pause: false, start: true, step: true, canStep: true });
     expect(stepWhyNot(all, controls(all, status({ paused: true })))).toBe(null);
@@ -227,6 +237,13 @@ describe('how a work goes on', () => {
     // Going on by itself, its round running: Pause only; once paused, it pauses after the round, Step greyed till then.
     const on = course(work({}), status({ running: 5 }));
     expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);
+    expect(waitOf(on, work({}), status({ running: 5 }))).toBeNull();
+    // Going on by itself between two rounds, or waiting for other items or the architect, says so or nothing.
+    expect(waitOf(course(work({}), status({})), work({}), status({}))).toBeNull();
+    const items = course(work({ waits: { kind: 'items', items: [3] } }), status({}));
+    expect(waitOf(items, work({}), status({}))?.tag).toBe('waiting for other items');
+    const reply = course(work({ waits: { kind: 'architect', matter: 2 } }), status({}));
+    expect(waitOf(reply, work({}), status({}))?.tag).toBe('waiting for the architect');
     const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5 }));
     expect(pausing.running).toBe('pausing');
     expect(stepWhyNot(pausing, controls(pausing, status({ running: 5 })))).toBe('pausing after this round');
@@ -234,6 +251,8 @@ describe('how a work goes on', () => {
     // Stopped by the engine on an older flow version: Start and Step, which wait for the round under way.
     const stopped = course(work({ paused: 'cell implement: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
+    const why = waitOf(stopped, work({ paused: 'cell implement: no', paused_by: 'engine' }), status({}));
+    expect(why).toEqual({ tag: 'stopped by the engine', why: 'stopped (by the engine): cell implement: no' });
     expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, start: true, step: true, canStep: false });
     expect(stepWhyNot(stopped, controls(stopped, status({ stepping: 3 })))).toBe(
       'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
@@ -680,19 +699,14 @@ describe('the chart of a flow', () => {
       round(6, 'b', 'failed', null),
       round(7, 'b', 'running', null),
     ];
-    const o = overlays(rounds, 'b', { running: true, held: null });
-    expect(o.get('a')).toEqual({ rounds: 3, sentBack: 1, failed: 0, running: false, current: false, held: null });
-    expect(o.get('b')).toEqual({ rounds: 2, sentBack: 0, failed: 1, running: true, current: true, held: null });
-    // A round left open while the engine runs nothing of the work does not run; a work held back says why at its cell.
-    const held = overlays(rounds, 'b', { running: false, held: 'paused by you' });
-    expect(held.get('b')).toEqual({
-      rounds: 2,
-      sentBack: 0,
-      failed: 1,
-      running: false,
-      current: true,
-      held: 'paused by you',
-    });
+    const step = { tag: 'waiting for Step', why: 'stopped (you paused it)' };
+    const o = overlays(rounds, 'b', { running: true, waits: step });
+    expect(o.get('a')).toEqual({ rounds: 3, sentBack: 1, failed: 0, running: false, current: false, waits: null });
+    // While a round runs at the cell, the work does not wait there.
+    expect(o.get('b')).toEqual({ rounds: 2, sentBack: 0, failed: 1, running: true, current: true, waits: null });
+    // A round left open while the engine runs nothing of the work does not run; a work waiting says why at its cell.
+    const held = overlays(rounds, 'b', { running: false, waits: step });
+    expect(held.get('b')).toEqual({ rounds: 2, sentBack: 0, failed: 1, running: false, current: true, waits: step });
     const w = taken(c, graph, rounds);
     expect(w.get('c:s->c:a')).toBe(1);
     expect(w.get('c:a->a:b:lock+post')).toBe(1);
@@ -703,6 +717,34 @@ describe('the chart of a flow', () => {
     expect(roundArrows(c, graph, rounds, 2)).toEqual(new Set(['c:s->c:a']));
     expect(roundArrows(c, graph, rounds, 6)).toEqual(new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']));
     expect(roundArrows(c, graph, rounds, 7)).toEqual(new Set());
+  });
+});
+
+describe("the halo on a work's chart", () => {
+  const flash = (n: number, cell: string, seen: number) => ({ n, cell, seen });
+  it('stays on a round too short to be seen running, then on the cell the work waits at', () => {
+    // A tool's round, over in milliseconds, the work then waiting at a for Step.
+    const at = (now: number) => haloAt([flash(3, 't', 1000)], now, { at: 'a', runs: false, newest: 3 });
+    expect(at(1000)).toEqual({ cell: 't', next: 1000 + HALO_STEP });
+    expect(at(1000 + HALO_STEP)).toEqual({ cell: 'a', next: 1000 + HALO_HOLD });
+    expect(at(1000 + HALO_HOLD)).toEqual({ cell: null, next: null });
+  });
+
+  it('goes through rounds that came in together in order, and stays on the one that runs', () => {
+    const both = [flash(3, 't', 1000), flash(4, 'a', 1000)];
+    const at = (now: number) => haloAt(both, now, { at: 'a', runs: true, newest: 4 });
+    expect(at(1000)).toEqual({ cell: 't', next: 1000 + HALO_STEP });
+    expect(at(1000 + HALO_STEP)).toEqual({ cell: 'a', next: null });
+    expect(at(60_000).cell).toBe('a');
+    // A newer round still running takes it from an older one's hold once that has had its least.
+    const later = [flash(3, 't', 1000), flash(4, 'a', 1200)];
+    expect(haloAt(later, 1300, { at: 'a', runs: true, newest: 4 }).cell).toBe('t');
+    expect(haloAt(later, 1000 + HALO_STEP, { at: 'a', runs: true, newest: 4 }).cell).toBe('a');
+  });
+
+  it('is on the cell a round runs at, and nowhere while none does, when no round came in', () => {
+    expect(haloAt([], 0, { at: 'a', runs: true, newest: 7 })).toEqual({ cell: 'a', next: null });
+    expect(haloAt([], 0, { at: 'a', runs: false, newest: 7 })).toEqual({ cell: null, next: null });
   });
 });
 

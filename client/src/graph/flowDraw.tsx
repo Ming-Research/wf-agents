@@ -10,7 +10,7 @@ import { type ReactNode, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, EngineNames } from '../api';
 import { t } from '../text';
-import { actionWords, type Chart, type ChartEdge, type ChartNode, type Overlay, related } from './flowModel';
+import { actionWords, type Chart, type ChartEdge, type ChartNode, type Overlay, related, type Wait } from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
@@ -193,6 +193,8 @@ export type Marks = {
   changed: Set<string>;
   /// On a work's page, with a round chosen: the arrows it came in by and left by.
   lit?: Set<string>;
+  /// On a work's page: the cell the halo goes round, where a round runs or has just run (`haloAt`).
+  halo?: string | null;
 };
 
 function CellShape({ n, cell, box, lines, note, marks }: {
@@ -242,7 +244,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
   return (
     <g className={cls} data-node={n.id}>
       <title>{marks.overlays && !o ? `${name}: ${t('chart_unvisited')}` : name}</title>
-      {o?.current && o.running ? <Halo box={box} round={round} /> : null}
+      {marks.halo === cell.id ? <Halo box={box} round={round} /> : null}
       {o?.current ? (
         <rect
           className={o.running ? 'fc-ring fc-ring-running' : 'fc-ring'}
@@ -282,7 +284,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
           {mark}
         </text>
       ) : null}
-      {o?.current && o.held !== null ? <HeldMark x={box.x - RING - 4} y={box.y - 10} why={o.held} /> : null}
+      {o?.current && o.waits !== null ? <WaitTag right={box.x - RING - 3} y={box.y - 10} wait={o.waits} /> : null}
       {badges}
     </g>
   );
@@ -334,15 +336,17 @@ export function Halo({ box, round, small = false }: { box: Box; round: boolean; 
   );
 }
 
-/// The mark of a work held back at the cell it is at, the next to run and where it goes on: two bars, as a pause is
-/// drawn, saying why on hovering.
-export function HeldMark({ x, y, why }: { x: number; y: number; why: string }) {
+/// The tag beside the cell a work is at while no round of it runs there, its right edge at `right`: why it waits, in a
+/// few words, still, and in full on hovering.
+export function WaitTag({ right, y, wait }: { right: number; y: number; wait: Wait }) {
+  const width = Math.ceil(measure(wait.tag, SMALL)) + 12;
   return (
-    <g className="fc-held">
-      <title>{why}</title>
-      <rect x={x} y={y} width={18} height={18} rx={9} />
-      <rect className="fc-held-bar" x={x + 5.5} y={y + 5} width={2.5} height={8} rx={0.5} />
-      <rect className="fc-held-bar" x={x + 10} y={y + 5} width={2.5} height={8} rx={0.5} />
+    <g className="fc-wait">
+      <title>{wait.why}</title>
+      <rect x={right - width} y={y} width={width} height={18} rx={9} />
+      <text x={right - width / 2} y={y + 13} textAnchor="middle">
+        {wait.tag}
+      </text>
     </g>
   );
 }

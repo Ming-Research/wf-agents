@@ -12,7 +12,7 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useR
 
 import type { CompiledGraph, EngineNames, GraphView } from '../api';
 import { t } from '../text';
-import { FlowSvg, Halo, HeldMark, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import { FlowSvg, Halo, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
 import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
 import { layStores, linkPath, LinksSvg, storeLinks, StoresSvg, storeSize } from './stores';
@@ -153,9 +153,11 @@ function Legend({ charts, stores, legend }: {
             </li>
             <li>
               <Swatch>
-                <HeldMark x={8} y={0} why={t('legend_held')} />
+                <g className="fc-wait">
+                  <rect x="3" y="2" width="28" height="14" rx="7" />
+                </g>
               </Swatch>
-              {t('legend_held')}
+              {t('legend_waits')}
             </li>
             <li>
               <BadgeSwatch k="fc-b-rounds" text="3" />

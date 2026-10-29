@@ -1,12 +1,12 @@
 // A work's page, under its line above the chart, which holds its facts and the owner's controls: the state machine of
 // the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
 // on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
-// it took standing out, the cell a round runs at in a moving halo and the cell a work held back stands at marked. The
-// column holds on top the work's panel in tabs: its rounds, under how it goes on, the Step that runs one being the
-// icon in the line above with what it will do on hovering; its design cards, the one waiting for the owner's ruling
-// first with its controls; its conversation, the same the messages view shows: its asks waiting for the owner's answer
-// pinned with their forms, then what its agents, the owner, the architect and the engine said about it. A round or a
-// cell opened shows in the column's lower part, its cell brought into view.
+// it took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits at why,
+// in a few words. The column holds on top the work's panel in tabs: its rounds, under how it goes on, the Step that
+// runs one being the icon in the line above with what it will do on hovering; its design cards, the one waiting for
+// the owner's ruling first with its controls; its conversation, the same the messages view shows: its asks waiting for
+// the owner's answer pinned with their forms, then what its agents, the owner, the architect and the engine said about
+// it. A round or a cell opened shows in the column's lower part, its cell brought into view.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -17,14 +17,15 @@ import type {
   FlowView,
   GraphView,
   RoundSummary,
+  Status,
   WorkDetail,
   WorkSummary,
 } from '../api';
 import { type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
-import { held, runningWords, takeoverWords, waitsWords } from '../course';
+import { held, runningWords, takeoverWords, waitOf, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName } from '../format';
-import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
+import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
 import { ItemRef, RoundLink } from '../parts';
@@ -338,20 +339,28 @@ function WorkPanel({ d, g, r, go }: {
   );
 }
 
-/// What a work's chart marks: what it did at each cell (the cell it is at, whether a round runs there and why it is
-/// held back), how many times it took each arrow, and the arrows the round chosen came in by and left by.
+/// Whether a round of a work runs now: the engine takes its step, or, at a tool cell, its tool is under way.
+function runsNow(w: WorkSummary, c: Course): boolean {
+  return c.running !== null || w.running?.tool === true;
+}
+
+/// What a work's chart marks: what it did at each cell (the cell it is at, whether a round runs there and why the work
+/// waits there while none does), the cell the halo goes round, how many times it took each arrow, and the arrows the
+/// round chosen came in by and left by.
 export function workMarks(
   g: CompiledGraph,
   v: GraphView,
   w: WorkSummary,
   rounds: RoundSummary[],
   c: Course,
+  status: Status | null,
+  halo: string | null,
   round: number | null = null,
 ) {
   const model = chart(g, v);
   return {
-    // A tool cell runs while its tool is under way, as well as while the engine takes its step.
-    overlays: overlays(rounds, w.at, { running: c.running !== null || w.running?.tool === true, held: held(c, w) }),
+    overlays: overlays(rounds, w.at, { running: runsNow(w, c), waits: waitOf(c, w, status) }),
+    halo,
     taken: taken(model, g, rounds),
     lit: round !== null ? roundArrows(model, g, rounds, round) : undefined,
     added: new Set<string>(),
@@ -359,21 +368,62 @@ export function workMarks(
   };
 }
 
+/// The rounds kept for the halo to go round, the newest: more than ever come in between two reads.
+const FLASHES_KEPT = 32;
+
+/// The cell the halo goes round on a work's chart (`haloAt`): each round new since the page last read the work's
+/// rounds counts as just run, so that a round of a tool or an engine step, over in milliseconds, is seen; the rounds
+/// there at the first read do not.
+export function useHalo(w: WorkSummary | null, rounds: RoundSummary[], c: Course | null): string | null {
+  const [flashes, setFlashes] = useState<Flash[]>([]);
+  const known = useRef<{ work: number; rounds: Set<number> } | null>(null);
+  const [, setTick] = useState(0);
+  const id = w?.id ?? null;
+  useEffect(() => {
+    if (id === null) return;
+    const k = known.current;
+    if (k === null || k.work !== id) {
+      known.current = { work: id, rounds: new Set(rounds.map((r) => r.n)) };
+      setFlashes([]);
+      return;
+    }
+    const seen = Date.now();
+    const fresh = rounds.filter((r) => !k.rounds.has(r.n)).sort((a, b) => a.n - b.n);
+    for (const r of fresh) k.rounds.add(r.n);
+    const more = fresh.flatMap((r) => (r.cell !== null ? [{ n: r.n, cell: r.cell, seen }] : []));
+    if (more.length > 0) setFlashes((f) => [...f, ...more].slice(-FLASHES_KEPT));
+  }, [id, rounds]);
+  const newest = rounds.reduce<number | null>((m, r) => (m === null || r.n > m ? r.n : m), null);
+  const { cell, next } = haloAt(flashes, Date.now(), {
+    at: w?.at ?? null,
+    runs: w !== null && c !== null && runsNow(w, c),
+    newest,
+  });
+  // Moves on when the halo is due to.
+  useEffect(() => {
+    if (next === null) return;
+    const timer = setTimeout(() => setTick((x) => x + 1), Math.max(0, next - Date.now()) + 20);
+    return () => clearTimeout(timer);
+  }, [next]);
+  return cell;
+}
+
 function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
   const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
   const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
+  const c = course(d.work, status);
+  const halo = useHalo(d.work, d.rounds, c);
   if (!g || !v) return <p className="muted page">{t('none')}</p>;
   const roundCell = r.round !== null ? (d.rounds.find((x) => x.n === r.round)?.cell ?? null) : null;
   const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
-  const c = course(d.work, status);
   return (
     <FlowScreen
       compiled={compiled}
       graphs={graphs}
       legend="work"
-      marks={[workMarks(g, v, d.work, d.rounds, c, r.round)]}
+      marks={[workMarks(g, v, d.work, d.rounds, c, status, halo, r.round)]}
       cell={r.cell}
       onCell={(c) => go({ round: null, cell: c })}
       start={roundCell ?? d.work.at}
