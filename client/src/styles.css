@@ -3727,6 +3727,30 @@ details.dc[open] > summary::before,
   font-size: 11.5px;
 }
 
+.us-k,
+.us-v,
+.us-s {
+  display: block;
+}
+
+/* A tile whose number leads to the list it counts, and one of nothing, which leads nowhere. */
+.us-tile-link {
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.us-tile-link:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.us-tile-none .us-v {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .us-v {
   font-size: 19px;
   font-weight: 600;

@@ -6,69 +6,20 @@
 // in HTML so that they keep their size as the charts shrink with the panel; colours come from the page's tokens, in
 // light and dark alike.
 
-import { type MouseEvent, type ReactNode, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { CompiledGraph, WorkDetail } from '../api';
+import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
 import { tokens } from '../round';
 import { t } from '../text';
 import { type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
 import { modelName } from './RoundView';
 
-const pct = (x: number, total: number) => (total > 0 ? (100 * x) / total : 0);
-const share = (x: number, total: number) => `${Math.round(pct(x, total))}%`;
-
 /// A time of day, hours and minutes.
 function clock(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-/// One part of a stacked bar: its share, its colour and what it says on hovering.
-type Part = { value: number; colour: string; tip: string; label: string };
-
-/// A stacked bar across the width, in HTML so that it keeps its height, with its legend under it.
-function Stack({ parts }: { parts: Part[] }) {
-  const total = parts.reduce((a, p) => a + p.value, 0);
-  return (
-    <>
-      <div className="us-stack">
-        {parts
-          .filter((p) => p.value > 0)
-          .map((p, i) => (
-            <span key={i} style={{ width: `${pct(p.value, total)}%`, background: p.colour }} data-tip={p.tip} />
-          ))}
-      </div>
-      <div className="us-legend">
-        {parts.map((p, i) => (
-          <span key={i}>
-            <i style={{ background: p.colour }} />
-            {p.label}
-          </span>
-        ))}
-      </div>
-    </>
-  );
-}
-
-/// Bars one under another, each its label, its bar and its value, the longest the full width.
-function Bars({ items, colour }: { items: Array<{ label: string; value: number; text: string; tip: string }>; colour: string }) {
-  const max = Math.max(...items.map((x) => x.value), 0);
-  return (
-    <div className="us-bars">
-      {items.map((x, i) => (
-        <div key={i} className="us-bar">
-          <span className="us-bar-label" title={x.label}>
-            {x.label}
-          </span>
-          <span className="us-bar-track">
-            <span className="us-bar-fill" style={{ width: `${Math.max(pct(x.value, max), 0.6)}%`, background: colour }} data-tip={x.tip} />
-            <span className="us-bar-value">{x.text}</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /// The work's wall time, from its first round's start to its last round's end, a block for each round of a model or
@@ -255,16 +206,6 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
   );
 }
 
-function Tile({ k, v, s }: { k: string; v: string; s: string }) {
-  return (
-    <div className="us-tile">
-      <div className="us-k">{k}</div>
-      <div className="us-v">{v}</div>
-      <div className="us-s">{s}</div>
-    </div>
-  );
-}
-
 function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
     <section className="us-sec">
@@ -277,17 +218,12 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 
 /// The usage of a work, from its rounds.
 export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
-  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const tip = useTip();
   const cells = new Map(g.cells.map((c) => [c.id, { kind: c.kind, title: c.title }]));
   const u = usageOf(d.rounds, cells, Date.now(), d.sessions, d.pings);
   const work = d.work.id;
   const lines = [...new Set(u.sessions.map((s) => s.line))];
   const colour = (line: string) => LINE_COLOURS[Math.max(lines.indexOf(line), 0) % LINE_COLOURS.length];
-  const move = (e: MouseEvent<HTMLDivElement>) => {
-    const at = (e.target as Element).closest('[data-tip]');
-    const text = at?.getAttribute('data-tip') ?? null;
-    setTip(text !== null ? { text, x: e.clientX, y: e.clientY } : null);
-  };
   const tk = u.tokens;
   const readAll = tk.read + tk.written + tk.input;
   const k = u.kinds;
@@ -296,7 +232,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
   const rest = u.cells.slice(8);
   if (d.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
   return (
-    <div className="us" onMouseMove={move} onMouseLeave={() => setTip(null)}>
+    <div className="us" onMouseMove={tip.move} onMouseLeave={tip.leave}>
       <div className="us-tiles">
         <Tile
           k={t('us_cost')}
@@ -503,11 +439,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           />
         </Section>
       ) : null}
-      {tip !== null ? (
-        <div className="us-tip" style={{ left: Math.min(tip.x + 12, window.innerWidth - 440), top: tip.y + 14 }}>
-          {tip.text}
-        </div>
-      ) : null}
+      {tip.shown}
     </div>
   );
 }
