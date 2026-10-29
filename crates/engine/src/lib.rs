@@ -203,7 +203,7 @@ impl Engine {
     /// Takes over works on an older flow version, which the engine does when each next goes on, instead of taking its
     /// step: each stops, saying why, as every work ends ([`ending::end`]: the round it was in is cut off, its design
     /// cards are replaced, its asks of the owner need no answer, its questions to the architect are withdrawn and its
-    /// sessions end), and its item gets a new work on this version, whose cell `S0` takes over the stopped work's
+    /// sessions end), and its item gets a new work on this version, whose cell `S1` takes over the stopped work's
     /// branch, worktree and pull request and whose cell `R1` is told what exists, the questions withdrawn
     /// included. Until then the owner still rules on its design cards and answers its asks, and the new work is given
     /// them. A new work is paused as the owner had paused the old one, so that a work the owner steps stays in the
@@ -590,7 +590,7 @@ impl Engine {
     }
 
     /// Starts a work on the item, paused by the owner for the reason given, if one is. The work starts where the cell
-    /// an item waits at to start (`U0`) leads once nothing holds it back: no work stands at that cell, since no work
+    /// an item waits at to start (`S0`) leads once nothing holds it back: no work stands at that cell, since no work
     /// exists while the item waits there.
     fn start_work(&mut self, item: i64, paused: Option<&str>) -> Result<i64, String> {
         let v = self.flow_now;
@@ -659,7 +659,7 @@ impl Engine {
         }))
     }
 
-    /// What holds an item back from starting, by the name of the row of the cell an item waits at to start (`U0`)
+    /// What holds an item back from starting, by the name of the row of the cell an item waits at to start (`S0`)
     /// that says it, `ready` when nothing does: held by the owner or the architect; an item it depends on by a blocking
     /// dependency not merged; its project's new starts held; a change the architect's open batch collected naming it
     /// (`changing`); no slot free (`free`).
@@ -706,7 +706,7 @@ impl Engine {
         })
     }
 
-    /// The next item to start a work on, of the items waiting to start that cell `U0`'s rows let start (those
+    /// The next item to start a work on, of the items waiting to start that cell `S0`'s rows let start (those
     /// [`Engine::waits_to_start`] finds nothing holding back): the first the owner queued, or else the first of the
     /// next project in turn after the project of the work started last, so that projects with items ready take the
     /// slots in turn, each in its architect's order. An item held or blocked is not among those waiting (the view

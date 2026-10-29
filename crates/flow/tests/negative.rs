@@ -108,13 +108,13 @@ case!(
     }
 );
 case!(no_such_view, "no table or view nope", |v| {
-    node(v, "S0")["inputs"][0]["from"][0]["db"] = json!("nope");
+    node(v, "S1")["inputs"][0]["from"][0]["db"] = json!("nope");
 });
 case!(
     a_view_read_by_a_column_it_lacks,
     "ready_items has no column work",
     |v| {
-        node(v, "S0")["inputs"][0]["from"][0]["by"] = json!("work");
+        node(v, "S1")["inputs"][0]["from"][0]["by"] = json!("work");
     }
 );
 case!(a_tool_cell_with_no_step, "names its step", |v| {
@@ -445,7 +445,7 @@ case!(the_design_never_asked_about_other_projects, "unreached D7", |v| {
 // Every loop counts.
 case!(a_loop_with_no_counter, "no counter", |v| {
     obj(row(v, "T6", "done")).remove("counts");
-    rows(v, "S0")[0]["counts"] = json!("fixes");
+    rows(v, "S1")[0]["counts"] = json!("fixes");
 });
 // A pause counts nothing: the owner's Start it waits for closes its loop.
 case!(a_pause_with_no_counter, "no counter", |v| {

@@ -1042,7 +1042,7 @@ fn wait_by(
     )
 }
 
-/// Cell `S0`: the session manager sets up where the work runs, on a machine with a free slot, and the id the
+/// Cell `S1`: the session manager sets up where the work runs, on a machine with a free slot, and the id the
 /// engineer's session will have.
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     // An item above the highest level an item may be at is refused: the work pauses, saying why.

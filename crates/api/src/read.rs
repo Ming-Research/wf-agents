@@ -3021,8 +3021,8 @@ mod tests {
             (
                 "B4",
                 "{}".into(),
-                Some(out(json!({ "rethink": { "verdict": "no", "why": "w" } }))),
-                Some("no"),
+                Some(out(json!({ "rethink": { "verdict": "go_on", "why": "w" } }))),
+                Some("go_on"),
             ),
             (
                 "Q0",

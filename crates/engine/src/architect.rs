@@ -233,18 +233,30 @@ pub fn running(e: &mut Engine, project: &str) -> Result<Option<i64>, String> {
     Ok((!e.done(&w)?).then_some(id))
 }
 
-/// Whether a project's queue has a matter that wakes its architect: any but flow feedback, which a wake takes when
-/// something else woke it.
+/// Whether a project's queue has a matter that wakes its architect: any but flow feedback, its own or forwarded by
+/// another project's architect, which a wake takes when something else woke it.
 pub fn queue_has(e: &Engine, project: &str) -> Result<bool, String> {
     Ok(count(
         e.db.conn(),
-        "SELECT count(*) FROM architect_queue WHERE project = ?1 AND NOT (kind = 'report' AND detail IS ?2)",
+        &format!(
+            "SELECT count(*) FROM architect_queue
+             WHERE project = ?1 AND NOT (kind IN {FEEDBACK_KINDS} AND detail IS ?2)"
+        ),
         &[&project, &FLOW_FEEDBACK],
     )? > 0)
 }
 
-/// The detail of a matter of the kind report that holds flow feedback: what agents said was wrong with their cells.
+/// The detail of a matter that holds flow feedback, what agents said was wrong with their cells: of the kind report for
+/// a project's own, of the kind other_architect for what another project's architect forwarded.
 pub const FLOW_FEEDBACK: &str = "flow_feedback";
+
+/// The kinds of matter that may hold flow feedback, as an SQL list.
+const FEEDBACK_KINDS: &str = "('report', 'other_architect')";
+
+/// Whether a matter of the queue holds flow feedback, which waits for a wake something else started.
+fn is_flow_feedback(kind: &Value, detail: &Value) -> bool {
+    (kind == "report" || kind == "other_architect") && detail == FLOW_FEEDBACK
+}
 
 /// Whether flow feedback says there is nothing: empty, or none.
 pub fn says_none(feedback: &str) -> bool {
@@ -358,7 +370,7 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<i64, String>
     .map_err(sql)
 }
 
-/// The action of the cell an item waits at to start (`U0`), `queue_slots_free`, which the engine takes for every
+/// The action of the cell an item waits at to start (`S0`), `queue_slots_free`, which the engine takes for every
 /// project as it looks for an item to start, since no work stands at that cell: for each project with fewer items ready
 /// to start than slots free and no hold on its new starts, a matter of slots free, when none waits in its queue and
 /// the last was handled longer ago than the configuration's wait (`agents.slots_free_wait`) or never; the wait keeps
@@ -543,16 +555,19 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
     )? > 0)
 }
 
-/// The matters of a project's queue that the wake `wake` can pick now, oldest first: every one, flow feedback only when
-/// it came before the wake started, which waits for the next wake otherwise; but while new starts are held to set the
-/// project straight and some matter sets it straight or has an agent stopped waiting, only those.
+/// The matters of a project's queue that the wake `wake` can pick now, oldest first: every one, flow feedback, its own
+/// or forwarded, only when it came before the wake started, which waits for the next wake otherwise; but while new
+/// starts are held to set the project straight and some matter sets it straight or has an agent stopped waiting, only
+/// those.
 fn pickable(conn: &Connection, project: &str, wake: i64) -> Result<Vec<Value>, String> {
     let rows = query_json(
         conn,
-        "SELECT * FROM architect_queue q WHERE q.project = ?1
-           AND NOT (q.kind = 'report' AND q.detail IS ?3
-             AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
-         ORDER BY q.matter",
+        &format!(
+            "SELECT * FROM architect_queue q WHERE q.project = ?1
+               AND NOT (q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3
+                 AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
+             ORDER BY q.matter"
+        ),
         &[&project, &wake, &FLOW_FEEDBACK],
         100_000,
     )?;
@@ -797,7 +812,12 @@ fn picked_detail(conn: &Connection, work: i64) -> Result<Option<String>, String>
 pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Option<String>, String> {
     let conn = e.db.conn();
     Ok(Some(match name {
-        "understood" => if understood(e, w, g)? { "yes" } else { "no" }.into(),
+        "understanding" => if understood(e, w, g)? {
+            "understood"
+        } else {
+            "not_understood"
+        }
+        .into(),
         "entry" => entry(e, w, g)?,
         "route" => route(e, w)?,
         "next_in_batch" => next_in_batch(e, w)?.into(),
@@ -1392,6 +1412,18 @@ fn observe(tx: &Transaction<'_>, project: &str, matter: i64, o: &Value) -> Resul
     Ok(())
 }
 
+/// Whether the matter a wake handles holds flow feedback, so that what its path sends on is flow feedback forwarded.
+fn forwards_feedback(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
+    let (kind, detail): (String, Option<String>) = tx
+        .query_row(
+            "SELECT kind, detail FROM architect_matters WHERE id = ?1",
+            [matter],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(sql)?;
+    Ok(is_flow_feedback(&json!(kind), &json!(detail)))
+}
+
 /// Queues a message for another project's architect.
 fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str, body: Value) -> Result<i64, String> {
     let m = Matter {
@@ -1423,9 +1455,15 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
     for a in items(effects.get("actions")) {
         act_now(tx, &project, &a)?;
     }
+    // What a matter of flow feedback has sent on is flow feedback forwarded: it waits for a wake, as the project's own.
+    let detail = if forwards_feedback(tx, matter)? {
+        FLOW_FEEDBACK
+    } else {
+        "message"
+    };
     for m in items(effects.get("messages")) {
         let body = json!({ "from": project, "text": m["text"], "matter": matter, "work": w });
-        message(tx, &project, text(&m["project"]), text(&m["text"]), "message", body)?;
+        message(tx, &project, text(&m["project"]), text(&m["text"]), detail, body)?;
     }
     Ok(())
 }
@@ -2338,9 +2376,9 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                    AND transition IS NOT NULL AND json_extract(output, '$.outcome.take.way') = 'rethink'",
                 &[&c.w.id, &from],
             )?;
-            let yes = v.is_some_and(|r| r["verdict"] == "yes");
-            if asked > 0 && !yes {
-                return Err("the owner asked in this batch to rethink the policy: the answer is yes".into());
+            let again = v.is_some_and(|r| r["verdict"] == "think_again");
+            if asked > 0 && !again {
+                return Err("the owner asked in this batch to rethink the policy: the answer is think_again".into());
             }
             Ok(())
         }
@@ -3152,8 +3190,7 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let mut matters = Map::new();
     for r in rows {
         // Flow feedback that came after the wake started waits for the next wake.
-        let later = r["kind"] == "report"
-            && r["detail"] == FLOW_FEEDBACK
+        let later = is_flow_feedback(&r["kind"], &r["detail"])
             && started.is_some_and(|s| r["at"].as_i64().is_some_and(|at| at >= s));
         let id = r["matter"].as_i64().unwrap_or_default();
         let mut m = json!({

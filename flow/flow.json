@@ -2685,10 +2685,10 @@
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
-      "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside.",
+      "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text together, for a new architect to read, and records it: as the architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -2718,7 +2718,7 @@
       "hold_for_policy": "Holds the project's architect's side while the policy is set: the matters queued wait, no new work of the project starts, and engineers that ask the architect wait.",
       "release_policy_hold": "Lets the project's architect's side go on: the matters queued are handled again, and new works start.",
       "close_matter": "Marks the matter picked as handled by this round.",
-      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions, messages to other architects and notes are made at once, and each is logged.",
+      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions, messages to other architects and notes are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which wakes no architect: the architect it goes to takes it at a wake that started after it came.",
       "reply_to_engineer": "Gives the reply to the engineer waiting at its question: at once, or, when the round's item changes are what it says, once the review lets them be made, with the numbers of the items they make.",
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
       "interject_card": "Says to the engineer of the work whose design card is unsound what is wrong with it.",
@@ -2785,7 +2785,7 @@
       "review_covers_changes": "There is exactly one row for each change of the batch, by its number.",
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
-      "rethink_when_asked": "When the owner asked in this batch to rethink the policy, the answer is yes.",
+      "rethink_when_asked": "When the owner asked in this batch to rethink the policy, the answer is think_again.",
       "probes_cover_principles": "Every probe names principles the text has, and every principle has a probe."
     },
     "inputs": {
@@ -2835,7 +2835,7 @@
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "waited": "Whether every item waited for is merged.",
       "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with a decision of the design card.",
-      "understood": "Whether the session the wake goes on in answered the understanding question since it started or was last compacted.",
+      "understanding": "Whether the session the wake goes on in answered the understanding question since it started or was last compacted.",
       "entry": "How the work came to the understanding question: the project's first wake, a new policy, another new session, a compacted one, or a rethink after a batch.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer.",
       "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
@@ -3373,7 +3373,7 @@
           "design_cards"
         ]
       },
-      "understood": {
+      "understanding": {
         "says": "whether the session answered the understanding question",
         "stores": [
           "sessions"
@@ -3485,17 +3485,17 @@
   "flows": [
     {
       "name": "engineer",
-      "start": "U0",
+      "start": "S0",
       "end": "E1",
       "blocks": [
         {
           "name": "start",
           "nodes": [
-            "U0",
-            "S0"
+            "S0",
+            "S1"
           ],
           "entries": [
-            "U0"
+            "S0"
           ]
         },
         {
@@ -3710,21 +3710,15 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for the owner to confirm the design card\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While asking someone (the advisor, the architect or the owner), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "unready is where an item waits before a work starts on it: it has no work yet, and the rows of cell `U0` say what holds it back. A work can be cancelled, or taken over by a work on a newer flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
+          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
         ],
         "list": [
           {
-            "name": "unready",
-            "desc": "The item waits to start: held back, or waiting for a slot; it has no work yet",
-            "nodes": [
-              "U0"
-            ]
-          },
-          {
             "name": "start",
-            "desc": "The work starts: the engine gives it a machine and a session",
+            "desc": "The item waits to start, held back or waiting for a slot, with no work yet; then the work starts: the engine gives it a machine and a session",
             "nodes": [
-              "S0"
+              "S0",
+              "S1"
             ]
           },
           {
@@ -4367,7 +4361,7 @@
       },
       "nodes": [
         {
-          "id": "U0",
+          "id": "S0",
           "kind": "engine",
           "title": "Waits to start",
           "step": "wait_to_start",
@@ -4422,7 +4416,7 @@
                   ]
                 ]
               ],
-              "to": "U0",
+              "to": "S0",
               "waits": true,
               "note": "Until the owner or the architect lets it go."
             },
@@ -4437,7 +4431,7 @@
                   ]
                 ]
               ],
-              "to": "U0",
+              "to": "S0",
               "waits": true,
               "note": "Until each such item merges; an item cancelled holds back nothing."
             },
@@ -4452,7 +4446,7 @@
                   ]
                 ]
               ],
-              "to": "U0",
+              "to": "S0",
               "waits": true,
               "note": "Until the architect releases the hold."
             },
@@ -4467,7 +4461,7 @@
                   ]
                 ]
               ],
-              "to": "U0",
+              "to": "S0",
               "waits": true,
               "note": "Until the review of the batch makes or drops the change."
             },
@@ -4482,7 +4476,7 @@
                   ]
                 ]
               ],
-              "to": "U0",
+              "to": "S0",
               "waits": true,
               "note": "Until a work ends, waits or pauses, which frees its slot."
             },
@@ -4497,7 +4491,7 @@
                   ]
                 ]
               ],
-              "to": "S0",
+              "to": "S1",
               "main": true
             }
           ],
@@ -4531,7 +4525,7 @@
           }
         },
         {
-          "id": "S0",
+          "id": "S1",
           "kind": "engine",
           "title": "Start",
           "step": "start_work",
@@ -10011,7 +10005,7 @@
         {
           "id": "A3",
           "kind": "owner",
-          "title": "Owner",
+          "title": "Owner answers",
           "step": "ask_owner",
           "inputs": [
             {
@@ -10907,7 +10901,7 @@
         {
           "id": "W1",
           "kind": "engine",
-          "title": "Understood in this session?",
+          "title": "The session's understanding",
           "inputs": [],
           "out": [],
           "cases": [
@@ -10916,9 +10910,9 @@
               "if": [
                 [
                   "inp",
-                  "understood",
+                  "understanding",
                   [
-                    "yes"
+                    "understood"
                   ]
                 ]
               ],
@@ -10931,9 +10925,9 @@
               "if": [
                 [
                   "inp",
-                  "understood",
+                  "understanding",
                   [
-                    "no"
+                    "not_understood"
                   ]
                 ]
               ],
@@ -10942,13 +10936,13 @@
             }
           ],
           "inenums": {
-            "understood": [
+            "understanding": [
               [
-                "yes",
+                "understood",
                 "The session the wake goes on in answered the understanding question since it started or was last compacted"
               ],
               [
-                "no",
+                "not_understood",
                 "A new session, or one compacted since it last answered the understanding question"
               ]
             ]
@@ -11020,7 +11014,7 @@
               "from": [
                 [
                   "B4",
-                  "rethink[yes]"
+                  "rethink[think_again]"
                 ]
               ],
               "maybe": true
@@ -11165,7 +11159,7 @@
         {
           "id": "P1",
           "kind": "agent",
-          "title": "Does the policy still hold?",
+          "title": "Whether the policy still holds",
           "effort": "high",
           "line": "architect",
           "tools": [
@@ -11222,7 +11216,7 @@
               "from": [
                 [
                   "B4",
-                  "rethink[yes]"
+                  "rethink[think_again]"
                 ]
               ],
               "maybe": true
@@ -11684,7 +11678,7 @@
         {
           "id": "Q0",
           "kind": "engine",
-          "title": "Anything to pick?",
+          "title": "What can be picked",
           "step": "look_at_queue",
           "inputs": [
             {
@@ -12083,7 +12077,7 @@
               ],
               [
                 "H9",
-                "Another project's architect's message, or one back with the owner's answer"
+                "Another project's architect's message, flow feedback it forwarded included, or one back with the owner's answer"
               ],
               [
                 "H10",
@@ -12826,7 +12820,7 @@
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
               ],
               "flow_feedback": [
-                "It is flow feedback, by cell. Take in as a report what belongs to this project: its items, rules or configuration. What belongs to wf-agents (the flow's cells, inputs, fields and texts) take in too when this project is wf-agents; otherwise forward it in messages to the architect of the project the matter names as wf-agents, or record it as an observation when it names none."
+                "It is flow feedback, by cell. Take in as a report what belongs to this project: its items, rules or configuration. What belongs to wf-agents (the flow's cells, inputs, fields and texts) take in too when this project is wf-agents; otherwise forward it in messages to the architect of the project the matter names as wf-agents, which takes it at its next wake, or record it as an observation when it names none."
               ]
             }
           },
@@ -12869,7 +12863,7 @@
         {
           "id": "H6",
           "kind": "agent",
-          "title": "Card sound?",
+          "title": "Whether the card is sound",
           "effort": "high",
           "line": "architect",
           "tools": [
@@ -13448,7 +13442,7 @@
         {
           "id": "B1",
           "kind": "engine",
-          "title": "Batch done?",
+          "title": "Where the batch stands",
           "inputs": [],
           "out": [],
           "cases": [
@@ -13826,7 +13820,7 @@
         {
           "id": "B4",
           "kind": "agent",
-          "title": "Rethink state and policy?",
+          "title": "Whether to rethink state and policy",
           "effort": "medium",
           "line": "architect",
           "inputs": [
@@ -13840,7 +13834,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only, quickly: given what this batch changed, should the state of things and the policy be thought again now? Yes when the batch changed what the project is or where it heads: a line of work stopped or started, the order changed much, a fact turned out otherwise, a hold to set things straight was released; and always when the owner asked to rethink. Otherwise no, and the next matters are taken."
+            "This round answers one thing only, quickly: given what this batch changed, should the state of things and the policy be thought again now? Think again when the batch changed what the project is or where it heads: a line of work stopped or started, the order changed much, a fact turned out otherwise, a hold to set things straight was released; and always when the owner asked to rethink. Otherwise go on, and the next matters are taken."
           ],
           "out": [
             {
@@ -13850,7 +13844,7 @@
               "desc": "Whether to think again",
               "branches": [
                 {
-                  "value": "no",
+                  "value": "go_on",
                   "desc": "Go on with the next matters",
                   "fields": [
                     {
@@ -13861,7 +13855,7 @@
                   ]
                 },
                 {
-                  "value": "yes",
+                  "value": "think_again",
                   "desc": "Think the state of things and the policy again",
                   "fields": [
                     {
@@ -13876,13 +13870,13 @@
           ],
           "cases": [
             {
-              "name": "yes",
+              "name": "think_again",
               "if": [
                 [
                   "is",
                   "rethink.verdict",
                   [
-                    "yes"
+                    "think_again"
                   ]
                 ]
               ],
@@ -13890,13 +13884,13 @@
               "counts": "rethinks"
             },
             {
-              "name": "no",
+              "name": "go_on",
               "if": [
                 [
                   "is",
                   "rethink.verdict",
                   [
-                    "no"
+                    "go_on"
                   ]
                 ]
               ],

@@ -602,7 +602,7 @@ fn an_item_goes_from_the_queue_to_main() {
     })
     .collect();
     for c in [
-        "S0:started",
+        "S1:started",
         "I1:tools",
         "X1:ran",
         "T2:review_first",
@@ -1148,9 +1148,9 @@ fn a_single_step_runs_exactly_one_round() {
     let (work, at, _) = state(&e, item).unwrap_or_else(|| panic!("no work started:\n{log}"));
     assert_eq!(first.work, Some(work), "{log}");
     assert_eq!(first.started_item, Some(item));
-    assert_eq!(first.cell.as_deref(), Some("S0"));
+    assert_eq!(first.cell.as_deref(), Some("S1"));
     assert_eq!(rounds(&e), 1, "{log}");
-    assert_ne!(at, "S0", "{log}");
+    assert_ne!(at, "S1", "{log}");
     let mut last = first.work;
     for n in 2..=4 {
         let next = e.step(last).unwrap();
@@ -1185,7 +1185,7 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let log = said.borrow().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert!(at != "S0" && at != "R1", "{log}");
+    assert!(at != "S1" && at != "R1", "{log}");
     let (cell, text, read): (String, String, Option<i64>) = e
         .db
         .conn()
@@ -2546,7 +2546,7 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
                 .unwrap();
         st.query_map([new], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
-    assert_eq!(cells, ["S0"]);
+    assert_eq!(cells, ["S1"]);
     assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
     assert_eq!(e.step(Some(new)).unwrap().work, None);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -3557,6 +3557,101 @@ fn flow_feedback_waits_for_the_architect_by_cell_and_wakes_it_not() {
     assert_eq!(by_cell["R1"][0]["said"], "The problem and the why say the same.");
     assert_eq!(by_cell["R1"][0]["item"], item);
     assert_eq!(by_cell["R2"][0]["said"], "No outcome fits a report.");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Flow feedback one project's architect forwards to another's is marked as flow feedback: it waits in the other's queue
+// and wakes no architect, as the project's own does.
+#[test]
+fn flow_feedback_forwarded_to_another_architect_wakes_it_not() {
+    let s = setup("forwarded-feedback");
+    let q = s.root.join("q-checkout");
+    git(
+        &s.root,
+        &["clone", "-q", &s.origin.to_string_lossy(), &q.to_string_lossy()],
+    );
+    let p_file = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let checkout = s.root.join("checkout");
+    write(
+        &s.data,
+        "projects/q.toml",
+        &p_file
+            .replace("o/p", "o/q")
+            .replace(&checkout.display().to_string(), &q.display().to_string()),
+    );
+    git(&s.data, &["add", "-A"]);
+    git(&s.data, &["commit", "-q", "-m", "a second project"]);
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "H5",
+        Box::new(|r: &Request, _: usize| {
+            if project_of(r) != "p" {
+                return (Vec::new(), Vec::new());
+            }
+            let message = json!({ "project": "q", "text": "Cell R1's problem and why say the same." });
+            (
+                vec![("outcome.take.way", "forwarded")],
+                vec![("outcome.effects", json!({ "messages": [message] }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let feedback =
+        json!({ "feedback": { "engineer": { "R1": [{ "said": "The problem and the why say the same." }] } } });
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('q', 'architect', 1)",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO architect_matters (project, kind, detail, what, body, at)
+             VALUES ('p', 'report', 'flow_feedback', 'Flow feedback of 1 round, at cell R1 (engineer)', ?1, 1)",
+            [feedback.to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Look at the flow feedback too.");
+    let p_done = |e: &mut Engine| match wakes(e).first().copied() {
+        Some(w) => wake_done(e, w),
+        None => false,
+    };
+    assert!(steps_until(&mut e, 80, p_done), "{}", said.borrow().join("\n"));
+    for _ in 0..5 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let woke: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT project FROM works WHERE graph = 'architect' AND ended IS NOT 'over before the test'
+                     ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(woke, ["p"], "{log}");
+    let (detail, from): (String, String) = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT detail, body ->> 'from' FROM architect_matters WHERE kind = 'other_architect' AND project = 'q'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((detail.as_str(), from.as_str()), ("flow_feedback", "p"), "{log}");
+    let waiting: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM architect_queue WHERE project = 'q'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(waiting, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

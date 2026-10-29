@@ -351,9 +351,9 @@ fn a_work_moves_by_its_rows() {
         g.step(p, row).unwrap()
     };
     let p = g.start_position();
-    assert_eq!(p.at, "U0");
-    let p = take(&p, "ready");
     assert_eq!(p.at, "S0");
+    let p = take(&p, "ready");
+    assert_eq!(p.at, "S1");
     let p = take(&p, "started");
     assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R1", "research"));
     let p = take(&p, "tools");

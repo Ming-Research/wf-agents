@@ -2,7 +2,7 @@ Decision: An agent's round records the message it was sent, word for word; each 
 
 Decision: A round's record keeps each large text once, in `contents`, by the SHA-256 of the text: a conditional input given in the message, the cell's task, the structured-output schema of the command line; the record refers to each by its hash, and the message and the call are put back exactly, word for word, wherever they are read (the page, the owner's history), instead of each round holding every text it was given in full, because the shared formats, the rules, a cell's task and the schema are the same in round after round and session after session, and stored again each time they made most of the database.
 
-Decision: The round of cell `S0` records no input, because starting a work only takes the queue's next item and decides nothing; the engine's other steps record the values of their inputs by their sources, without the flow's descriptions.
+Decision: The round of cell `S1` records no input, because starting a work only takes the queue's next item and decides nothing; the engine's other steps record the values of their inputs by their sources, without the flow's descriptions.
 
 Decision: Rounds recorded before this record keep their prompt and inputs as they were, and every reader (the engine, the interface's reads, the page) reads both, instead of rewriting old rounds, because a round is written once and never changed. A round recorded before its call named its level is read as at the one level the configuration at the round's commit maps its model and effort to, and as at no level when no one level does.
 

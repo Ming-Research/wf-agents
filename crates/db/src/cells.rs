@@ -2,13 +2,15 @@
 //! the work ran on. Cells had numbers (the engineer's graph) and codes (the architect's) first, then names, then names
 //! with their stage, and now codes by stage, as `T6`: the stage's letter and the cell's order in it. A reader of the
 //! works and rounds of every version names a cell by every id it has had, but for an id that is now another cell's
-//! code: the architect's first codes P1 to P11, N1, Q1, Q2 and X1 were other cells, and a round of those versions at
-//! one of them reads as the cell with that code now, so that no round of this version reads as another cell.
+//! code: the architect's first codes P1 to P11, N1, Q1, Q2 and X1 were other cells, and so was the engineer's S0, its
+//! start before the cell an item waits at to start took that code; a round of those versions at one of them reads as
+//! the cell with that code now, so that no round of this version reads as another cell.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 69] = [
-    ("engineer", "S0", &["0", "start"]),
+const BEFORE: [(&str, &str, &[&str]); 70] = [
+    ("engineer", "S0", &["U0"]),
+    ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "R1", &["1", "research", "research.problem"]),
     ("engineer", "R2", &["1a", "stands", "research.stands"]),
     ("engineer", "D1", &["2", "compare", "design.compare"]),
@@ -161,5 +163,11 @@ mod tests {
         assert!(is_cell("architect", "P12", "takes_effect") && !is_cell("architect", "P12", "P10"));
         assert!(is_cell("architect", "H2", "handle.crux") && !is_cell("architect", "H2", "Q1"));
         assert!(is_cell("architect", "W0", "wake.start") && is_cell("architect", "B1", "handle.batch_done"));
+        // The start is S1 now, and S0 the cell an item waits at to start, which was U0: a round of an earlier version
+        // at the start named S0 reads as the cell coded S0 now.
+        assert_eq!(code_of("engineer", "start"), Some("S1"));
+        assert_eq!(code_of("engineer", "U0"), Some("S0"));
+        assert_eq!(code_of("engineer", "S0"), Some("S0"));
+        assert_eq!(cells_sql("engineer", &["S1"]), "('S1', '0', 'start')");
     }
 }

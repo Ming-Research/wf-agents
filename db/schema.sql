@@ -50,7 +50,7 @@ CREATE TABLE items (
   -- What the work hands in: a change to merge, or a report. Read by: cells `R1` and `T4`;
   -- the engine, which runs reports without full CI on the draft.
   deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
-  -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S0`.
+  -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
   level TEXT NOT NULL,
   -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design
   -- passes its checks. Every later design must hand in exactly this list; only the advisor can change it.
@@ -69,7 +69,7 @@ CREATE TABLE items (
   -- the owner's interface.
   imported_from TEXT,
   -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL when
-  -- there were none. Read by: cell `S0`, which takes them over when the item had no work here before; cell
+  -- there were none. Read by: cell `S1`, which takes them over when the item had no work here before; cell
   -- `R1`; the owner's interface.
   imported_branch TEXT,
   imported_pr INTEGER,
@@ -552,7 +552,8 @@ CREATE TABLE architect_matters (
   -- owner's words, a message from another project's architect, slots free with nothing of the project ready, or a
   -- place its understanding found to set straight. The project's queue is its matters not handled; its architect
   -- picks among them by the constitution and the policy, not by the order they came. A matter in the queue wakes the
-  -- project's architect.
+  -- project's architect, but for flow feedback, the project's own or forwarded by another project's architect, which
+  -- waits for a wake something else started and is picked only when it came before that wake started.
   -- Read by: the engine, which wakes the architect, picks a lone matter, routes each to its path, hands it its material
   -- and takes its replies back; the architect's cells through architect_queue and wake_handled; the owner's interface.
   id INTEGER PRIMARY KEY,
@@ -562,9 +563,12 @@ CREATE TABLE architect_matters (
   -- owner_words, other_architect or slots_free. A matter handled before these kinds keeps the kind it had then.
   kind TEXT NOT NULL,
   -- What more its kind says: an engineer's question's own kind (split, duplicate, ...); a report's (a side report's
-  -- kind, or followup for a report's what to do next); a failure's (tool_failed, environment_changed); the owner's
-  -- words' (said, answer, release, approved_changes); a message's (message, reply); the kind of a place to set
-  -- straight. NULL when there is nothing more. Read by: the engine, for the matter's material; the owner's interface.
+  -- kind, followup for a report's what to do next, answer for an engineer's answer to what the architect said to its
+  -- work, or flow_feedback for what agents said was wrong with their cells); a failure's (tool_failed,
+  -- environment_changed); the owner's words' (said, answer, release, approved_changes); a message's (message, reply,
+  -- or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to set straight.
+  -- NULL when there is nothing more. Read by: the engine, for the matter's material and whether it wakes the
+  -- architect; the owner's interface.
   detail TEXT,
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,

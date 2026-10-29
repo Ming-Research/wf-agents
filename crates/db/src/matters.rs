@@ -29,7 +29,7 @@ pub struct Matter {
 }
 
 /// Queues a matter for a project's architect, and gives its id. A matter in the queue wakes the project's architect
-/// when no wake of it runs.
+/// when no wake of it runs, but for flow feedback, which waits for a wake something else started.
 pub fn queue_matter(tx: &Transaction<'_>, m: &Matter) -> Result<i64> {
     tx.execute(
         "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at)
