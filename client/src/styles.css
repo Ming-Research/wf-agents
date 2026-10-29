@@ -1190,12 +1190,6 @@ svg.fc {
   stroke-width: 1.5;
 }
 
-/* The bar keeps the engine at its right end. */
-
-.bar-gap {
-  flex: 1;
-}
-
 /* Which flow is shown and what it is compared with, over the chart's top left corner. */
 
 .flow-tools {
