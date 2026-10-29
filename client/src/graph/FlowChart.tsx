@@ -76,7 +76,8 @@ function BadgeSwatch({ k, text }: { k: string; text: string }) {
 }
 
 /// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the rules and the
-/// interjection, the circles, and the marks of a work or of a comparison; then how the chart moves.
+/// interjection, the circles, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or
+/// of a comparison; then how the chart moves.
 function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChartProps['legend'] }) {
   const cells = graphs.flatMap((g) => g.cells);
   const styles: string[] = [];
@@ -162,6 +163,35 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
                 </g>
               </Swatch>
               {t('legend_unvisited')}
+            </li>
+            <li>
+              <Swatch>
+                <rect className="fc-spent-read" x="2" y="5" width="9" height="8" />
+                <rect className="fc-spent-new" x="11" y="5" width="6" height="8" />
+                <rect className="fc-spent-output" x="17" y="5" width="4" height="8" />
+                <text className="fc-spent-steps" x="24" y="13">
+                  5
+                </text>
+              </Swatch>
+              {t('legend_spent')}
+            </li>
+            <li>
+              <Swatch>
+                <rect className="fc-spent-read" x="8" y="5" width="18" height="8" />
+              </Swatch>
+              {t('spent_key_read')}
+            </li>
+            <li>
+              <Swatch>
+                <rect className="fc-spent-new" x="8" y="5" width="18" height="8" />
+              </Swatch>
+              {t('spent_key_new')}
+            </li>
+            <li>
+              <Swatch>
+                <rect className="fc-spent-output" x="8" y="5" width="18" height="8" />
+              </Swatch>
+              {t('spent_key_output')}
             </li>
           </>
         ) : null}

@@ -71,30 +71,10 @@ function SpentBar({ r }: { r: RoundSummary }) {
   );
 }
 
-/// The key of the small bars beside an agent round's cost: what each colour is and what the number beside the bar is.
-function SpentKey() {
-  return (
-    <p className="spent-key">
-      <span>
-        <i className="spent-dot spent-read" />
-        {t('spent_key_read')}
-      </span>
-      <span>
-        <i className="spent-dot spent-new" />
-        {t('spent_key_new')}
-      </span>
-      <span>
-        <i className="spent-dot spent-output" />
-        {t('spent_key_output')}
-      </span>
-      <span>{t('spent_key_steps')}</span>
-    </p>
-  );
-}
-
 /// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
-/// course: sent back, failed, cut off, running), what an agent's round cost, where its cost went and how long it took.
-/// The round chosen, however it was chosen, is scrolled into view.
+/// course: sent back, failed, cut off, running), whole and wrapped rather than cut, what an agent's round cost, where
+/// its cost went (its key is in the chart's "?") and how long it took. The round chosen, however it was chosen, is
+/// scrolled into view.
 export function Timeline(props: {
   work: number;
   rounds: RoundSummary[];
@@ -112,43 +92,40 @@ export function Timeline(props: {
   if (props.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
   const newest = [...props.rounds].reverse();
   return (
-    <>
-      {props.rounds.some((r) => r.tokens !== null) ? <SpentKey /> : null}
-      <table className="list timeline">
-        <tbody ref={body}>
-          {newest.map((r) => {
-            const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
-            return (
-              <tr
-                key={r.n}
-                className={`clickable${r.n === props.selected ? ' selected' : ''}`}
-                onClick={() => props.onRound(r)}
-              >
-                <td className="muted nowrap">{roundName(props.work, r.n)}</td>
-                <td className="nowrap">
-                  <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
-                </td>
-                <td className="clip" title={what}>
-                  {r.outcome === 'running' && props.stale ? (
-                    <span className="badge" title={t('round_left_open_hint')}>
-                      {t('round_left_open')}
-                    </span>
-                  ) : r.outcome !== 'took' ? (
-                    <OutcomeBadge outcome={r.outcome} />
-                  ) : null}{' '}
-                  <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
-                </td>
-                <td className="num muted nowrap">
-                  <SpentBar r={r} />
-                  {r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}
-                </td>
-                <td className="num muted">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </>
+    <table className="list timeline">
+      <tbody ref={body}>
+        {newest.map((r) => {
+          const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : (r.transition ?? r.why ?? '');
+          return (
+            <tr
+              key={r.n}
+              className={`clickable${r.n === props.selected ? ' selected' : ''}`}
+              onClick={() => props.onRound(r)}
+            >
+              <td className="muted nowrap">{roundName(props.work, r.n)}</td>
+              <td className="nowrap">
+                <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
+              </td>
+              <td className="timeline-what">
+                {r.outcome === 'running' && props.stale ? (
+                  <span className="badge" title={t('round_left_open_hint')}>
+                    {t('round_left_open')}
+                  </span>
+                ) : r.outcome !== 'took' ? (
+                  <OutcomeBadge outcome={r.outcome} />
+                ) : null}{' '}
+                <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
+              </td>
+              <td className="num muted nowrap">
+                <SpentBar r={r} />
+                {r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}
+              </td>
+              <td className="num muted nowrap">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

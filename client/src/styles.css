@@ -1839,14 +1839,15 @@ details.work-old > summary {
   box-shadow: none;
 }
 
-/* The rounds fill the window's width, whatever it is dragged to: what a round did takes the room left. */
+/* The rounds fill the window's width, whatever it is dragged to: what a round did takes the room left, wrapped rather
+   than cut, so that the whole row it took shows. */
 .drawer table.timeline {
   width: 100%;
 }
 
-.drawer td.clip {
-  max-width: 0;
+.timeline td.timeline-what {
   width: 100%;
+  overflow-wrap: anywhere;
 }
 
 table.list.mini td {
@@ -2928,7 +2929,7 @@ p.rp-note {
 
 /* Where an agent's round spent its cost, beside its cost in the rounds list: the shares read again from the cache,
    newly cached and output as a small bar, and its steps; the same three colours wherever the page shows these shares,
-   so that the key above the rounds holds everywhere. */
+   so that their key in the chart's "?" holds everywhere. */
 .spent {
   display: inline-flex;
   gap: 4px;
@@ -2967,13 +2968,22 @@ p.rp-note {
   vertical-align: -1px;
 }
 
-.spent-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-  margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 11.5px;
+/* The same bar in the chart's "?", as its key. */
+.fc-spent-read {
+  fill: var(--share-read);
+}
+
+.fc-spent-new {
+  fill: var(--share-new);
+}
+
+.fc-spent-output {
+  fill: var(--share-output);
+}
+
+.fc .fc-spent-steps {
+  fill: var(--muted);
+  font-size: 10px;
 }
 
 .spent-steps {
