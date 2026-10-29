@@ -48,6 +48,11 @@ export type ArchitectRoute = {
   cell: string | null;
 };
 
+/// The period the System view counts what the system did over: the week under way, the last four weeks with it, or all
+/// time.
+export const PERIODS = ['week', '4w', 'all'] as const;
+export type Period = (typeof PERIODS)[number];
+
 export type Route =
   | { page: 'works' }
   | WorkRoute
@@ -59,7 +64,11 @@ export type Route =
       /// The conversation open, by its key; with none, the first in the list.
       open: string | null;
     }
-  | { page: 'spend' }
+  | {
+      page: 'system';
+      /// The period the view counts over.
+      period: Period;
+    }
   | { page: 'settings' }
   | {
       page: 'flow';
@@ -121,7 +130,10 @@ export function parse(pathname: string, search: string): Route {
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'messages' && parts.length === 1) return { page: 'messages', open: q.get('c') };
-  if (first === 'spend' && parts.length === 1) return { page: 'spend' };
+  // The System view was the Spend view, whose address still leads to it.
+  if ((first === 'system' || first === 'spend') && parts.length === 1) {
+    return { page: 'system', period: PERIODS.find((p) => p === q.get('period')) ?? 'week' };
+  }
   if (first === 'settings' && parts.length === 1) return { page: 'settings' };
   if (first === 'items' && parts.length === 2) {
     const id = num(second);
@@ -175,8 +187,8 @@ export function href(r: Route): string {
       return `/items/${r.id}`;
     case 'messages':
       return `/messages${query([['c', r.open]])}`;
-    case 'spend':
-      return '/spend';
+    case 'system':
+      return `/system${query([['period', r.period === 'week' ? null : r.period]])}`;
     case 'settings':
       return '/settings';
     case 'flow':

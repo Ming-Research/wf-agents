@@ -18,7 +18,7 @@ pub use rusqlite;
 mod cells;
 mod matters;
 
-pub use cells::{cells_sql, is_cell};
+pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{Matter, lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect};
 
 /// The database's definition, as `db/schema.sql` writes it.

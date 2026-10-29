@@ -14,6 +14,12 @@ export function time(ms: number | null | undefined): string {
   return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 }
 
+/// A day as month-day, in the browser's time zone.
+export function day(ms: number): string {
+  const d = new Date(ms);
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
 /// A duration in its two largest units: 2h 05m, 3m 07s, 41s.
 export function duration(ms: number | null | undefined): string {
   if (ms == null || ms < 0) return '';

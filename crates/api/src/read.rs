@@ -20,8 +20,8 @@ use crate::{
     ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, Misses, NamedText, NextPlan,
     Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
     Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession,
-    WorkState, WorkSummary,
+    Said, Session, Shown, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
+    WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +77,7 @@ impl Flows {
     }
 }
 
-fn json(s: Option<String>) -> Option<Value> {
+pub(crate) fn json(s: Option<String>) -> Option<Value> {
     s.and_then(|t| serde_json::from_str(&t).ok())
 }
 
@@ -93,7 +93,7 @@ fn text(r: &Row<'_>, i: usize) -> rusqlite::Result<Option<String>> {
 
 /// How a round ended, from what it took or why it was rejected. A failed run is recorded under `failed` with its
 /// kind, or, in a round recorded before the kinds were, under `error`.
-fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended: bool) -> RoundOutcome {
+pub(crate) fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended: bool) -> RoundOutcome {
     match (transition, rejected) {
         (Some(_), _) => RoundOutcome::Took,
         (None, Some(r)) if r.get("interrupted").is_some() => RoundOutcome::Interrupted,
@@ -488,7 +488,12 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
 
 /// Every work but the architect's wakes, which its tab shows, oldest first.
 pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
-    Ok(summaries(conn, flows, "WHERE w.graph <> 'architect'", &[])?
+    work_summaries(conn, flows, "WHERE w.graph <> 'architect'")
+}
+
+/// The works a filter on `works w` selects, as summaries, oldest first.
+pub(crate) fn work_summaries(conn: &Connection, flows: &Flows, filter: &str) -> Result<Vec<WorkSummary>> {
+    Ok(summaries(conn, flows, filter, &[])?
         .into_iter()
         .map(|(_, s)| s)
         .collect())
@@ -834,33 +839,6 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         sessions: work_sessions(conn, id)?,
         pings: pings(conn, id)?,
     })
-}
-
-/// What the agents spent, by day, model and line, across every work, oldest day first: each agent's round and each
-/// keep-warm ping, by the model it ran on and the line of its session.
-pub fn spend(conn: &Connection) -> Result<Vec<Spend>> {
-    let mut st = conn.prepare(
-        "SELECT day, model, line, sum(rounds), sum(pings), sum(cost) FROM (
-           SELECT date(r.started_at / 1000, 'unixepoch') AS day, coalesce(r.model, '') AS model, s.line AS line,
-                  1 AS rounds, 0 AS pings, coalesce(json_extract(r.usage, '$.cost_usd'), 0) AS cost
-           FROM rounds r JOIN sessions s ON s.id = r.session
-           UNION ALL
-           SELECT date(p.started_at / 1000, 'unixepoch'), coalesce(p.model, ''), s.line, 0, 1,
-                  coalesce(json_extract(p.usage, '$.cost_usd'), 0)
-           FROM pings p JOIN sessions s ON s.id = p.session)
-         GROUP BY day, model, line ORDER BY day, model, line",
-    )?;
-    let rows = st.query_map([], |r| {
-        Ok(Spend {
-            day: r.get(0)?,
-            model: r.get(1)?,
-            line: r.get(2)?,
-            rounds: r.get(3)?,
-            pings: r.get(4)?,
-            cost_usd: r.get(5)?,
-        })
-    })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// The sessions a work's lines ran in, oldest first.
@@ -1743,7 +1721,7 @@ pub fn architect(
     })
 }
 
-fn over(w: &WorkSummary) -> bool {
+pub(crate) fn over(w: &WorkSummary) -> bool {
     matches!(w.state, WorkState::Done | WorkState::Ended)
 }
 
@@ -2543,18 +2521,6 @@ mod tests {
             ("engineer", "R1", "pause", "to look")
         );
         assert_eq!((p.cost_usd, p.read, p.written), (Some(0.25), 9000, 20));
-        // What the agents spent, by day, model and line, counts the rounds and the pings of every work; a round or a ping
-        // that recorded no model is apart.
-        let spent = spend(s.db.conn()).unwrap();
-        let row = |model: &str, rounds: i64, pings: i64, cost_usd: f64| Spend {
-            day: "1970-01-01".into(),
-            model: model.into(),
-            line: "engineer".into(),
-            rounds,
-            pings,
-            cost_usd,
-        };
-        assert_eq!(spent, [row("", 1, 1, 0.25), row("m", 1, 0, 0.5)]);
         // What its agents and the engine told the owner of it, oldest first; a notice of no work is not its.
         let told: Vec<(bool, &str)> = d.messages.iter().map(|m| (m.engine, m.text.as_str())).collect();
         assert_eq!(told, [(false, "told"), (true, "Work 1 waits.")]);

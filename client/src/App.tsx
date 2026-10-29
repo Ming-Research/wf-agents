@@ -8,15 +8,19 @@ import { Flow } from './pages/Flow';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
 import { Settings } from './pages/Settings';
-import { Spend } from './pages/Spend';
+import { System } from './pages/System';
 import { Works } from './pages/Works';
-import { Link, useRoute } from './route';
+import { href, Link, navigate, useRoute } from './route';
 import { t } from './text';
 import { TopBar } from './TopBar';
 
 export function App() {
   const route = useRoute();
   useEffect(() => connect(), []);
+  // The Spend view's old address goes on to the System view that took its place.
+  useEffect(() => {
+    if (route.page === 'system' && location.pathname === '/spend') navigate(href(route), true);
+  }, [route]);
   const work = route.page === 'work' ? route : null;
   const screen = ['flow', 'work', 'works', 'architect', 'items', 'item', 'messages'].includes(route.page);
   return (
@@ -33,7 +37,7 @@ export function App() {
         ) : null}
         {route.page === 'architect' ? <Architect route={route} /> : null}
         {route.page === 'messages' ? <Messages open={route.open} /> : null}
-        {route.page === 'spend' ? <Spend /> : null}
+        {route.page === 'system' ? <System period={route.period} /> : null}
         {route.page === 'settings' ? <Settings /> : null}
         {route.page === 'flow' ? <Flow route={route} /> : null}
         {route.page === 'missing' ? (

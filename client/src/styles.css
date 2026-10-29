@@ -3996,6 +3996,103 @@ details.dc[open] > summary::before,
   pointer-events: none;
 }
 
+/* Columns over time, one to a period, stacked from their parts and drawn to one scale: nothing at the base line, the
+   highest column at the top, which the label at the top left names. */
+.cols {
+  margin: 12px 0 4px;
+}
+
+.cols-plot {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 136px;
+  padding-top: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cols-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cols-col {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+
+.cols-bar {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 3px 3px 0 0;
+}
+
+.cols-bar > span {
+  display: block;
+  width: 100%;
+}
+
+.cols-x {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cols-x > span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* The System view: its five parts, each saying on its title what it is for; the period the parts after Now count
+   over; their tiles and tables. */
+.sys-for {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.sys-period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  margin: 16px 0 0;
+}
+
+.sys-period .sys-period-on {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sys .us-tiles {
+  margin: 4px 0 10px;
+}
+
+.sys-table {
+  margin: 4px 0 8px;
+}
+
+.sys-table th {
+  text-align: left;
+}
+
+.sys-table th.num {
+  text-align: right;
+}
+
 .ask-tried {
   margin-top: 4px;
 }

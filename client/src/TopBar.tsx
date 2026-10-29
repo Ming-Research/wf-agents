@@ -188,8 +188,8 @@ export function TopBar({ route }: { route: Route }) {
       <Link to="/flow" className={on(['flow'])}>
         {t('nav_flow')}
       </Link>
-      <Link to="/spend" className={on(['spend'])}>
-        {t('nav_spend')}
+      <Link to="/system" className={on(['system'])}>
+        {t('nav_system')}
       </Link>
       <Link to="/settings" className={on(['settings'])}>
         {t('nav_settings')}

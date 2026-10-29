@@ -1213,18 +1213,233 @@ pub struct StateVersion {
     pub state: Value,
 }
 
-/// What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings
-/// of their sessions, by the model each ran on and the line of its session.
+/// How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what
+/// the System view shows.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Spend {
-    /// The day, in UTC, as YYYY-MM-DD.
-    pub day: String,
-    pub model: String,
+pub struct System {
+    /// When the period starts, on a Monday at midnight in the owner's time zone; none for all time.
+    pub from: Option<i64>,
+    /// When it was read, which ends the period.
+    pub at: i64,
+    pub now: SystemNow,
+    /// The period's weeks, oldest first.
+    pub weeks: Vec<Week>,
+    pub output: SystemOutput,
+    pub spend: SystemSpend,
+    pub waste: SystemWaste,
+    /// What went wrong in the period, the latest first.
+    pub anomalies: Vec<Anomaly>,
+}
+
+/// What may need the owner now besides the works: each project's architect, and what waits for the owner.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SystemNow {
+    pub architects: Vec<ArchitectNow>,
+    /// The asks of the owner not answered, the design cards not ruled on and the faults of wf-agents not read.
+    pub asks: Waiting,
+    pub design_cards: Waiting,
+    pub faults: Waiting,
+}
+
+/// A project's architect now.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ArchitectNow {
+    pub project: String,
+    /// Its wake not over, by its work, while it is awake; none while it sleeps.
+    pub wake: Option<i64>,
+    /// Whether that wake is paused.
+    pub paused: bool,
+    /// The matters in its queue, and when the oldest of them came.
+    pub queue: i64,
+    pub oldest: Option<i64>,
+}
+
+/// Things that wait for the owner: how many, and when the oldest of them came.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Waiting {
+    pub n: i64,
+    pub oldest: Option<i64>,
+}
+
+/// One week of the period.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Week {
+    /// When it starts: Monday at midnight in the owner's time zone.
+    pub start: i64,
+    /// The items merged, made and cancelled in it.
+    pub merged: i64,
+    pub made: i64,
+    pub cancelled: i64,
+    /// The pull requests open at its end, or now for the week under way.
+    pub open_prs: i64,
+    /// What the engineers' works and the architects' wakes spent in it, their keep-warm pings included, in US dollars.
+    pub engineers_usd: f64,
+    pub architects_usd: f64,
+}
+
+/// What got done in the period.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SystemOutput {
+    /// The items merged in the period, the latest first.
+    pub merged: Vec<Merged>,
+    /// The items made, and those cancelled, in the period, the latest first.
+    pub made: Vec<ItemAt>,
+    pub cancelled: Vec<ItemAt>,
+    /// The pull requests open now, the oldest first.
+    pub open_prs: Vec<OpenPr>,
+}
+
+/// An item merged, by the work that merged it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Merged {
+    pub item: i64,
+    pub title: String,
+    pub work: i64,
+    /// When the work's first round started, and when it merged.
+    pub started_at: i64,
+    pub merged_at: i64,
+    /// What the work cost, its keep-warm pings included, in US dollars.
+    pub cost_usd: f64,
+}
+
+/// An item made or cancelled, and when; for one cancelled, why.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ItemAt {
+    pub item: i64,
+    pub title: String,
+    pub at: i64,
+    pub why: Option<String>,
+}
+
+/// A pull request open now, by the work it is of.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct OpenPr {
+    pub pr: i64,
+    pub project: Option<String>,
+    pub work: i64,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    /// When a work first recorded it.
+    pub since: i64,
+}
+
+/// Where the money went in the period.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SystemSpend {
+    /// What the rounds and the keep-warm pings cost, by the line of their session and the model they ran on.
+    pub by_line_model: Vec<LineSpend>,
+    /// What each item's works cost, the costliest first.
+    pub by_item: Vec<ItemSpend>,
+    /// The ten cells whose rounds cost most, the costliest first.
+    pub cells: Vec<CellSpend>,
+}
+
+/// What the rounds and the keep-warm pings of one line on one model cost.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct LineSpend {
     pub line: String,
+    pub model: String,
     pub rounds: i64,
     pub pings: i64,
     /// What they cost, as the command lines reported it, in US dollars.
     pub cost_usd: f64,
+}
+
+/// What an item's works cost, and how many works and rounds they took.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ItemSpend {
+    pub item: i64,
+    pub title: String,
+    pub works: i64,
+    pub rounds: i64,
+    pub cost_usd: f64,
+}
+
+/// What a cell's rounds cost: the cell by its code now, with its title.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CellSpend {
+    pub graph: String,
+    pub cell: String,
+    pub title: Option<String>,
+    pub rounds: i64,
+    pub cost_usd: f64,
+}
+
+/// Where the period spent for nothing, and how well the prompt cache did.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SystemWaste {
+    /// The input tokens of the agents' rounds: read from the prompt cache, written to it, and given without it.
+    pub read: i64,
+    pub written: i64,
+    pub input: i64,
+    /// The rounds that missed their session's prompt cache, the tokens they wrote to it again, and what that cost
+    /// beyond reading them, in US dollars.
+    pub misses: i64,
+    pub missed: i64,
+    pub miss_usd: f64,
+    /// The rounds whose return was sent back, and those whose run failed or was cut off, by work, the costliest first.
+    pub sent_back: Vec<WorkCount>,
+    pub failed: Vec<WorkCount>,
+    /// How long no agent's round could start, a failed run's cause stopping every work: by that cause, and in all.
+    pub halts: Vec<HaltTime>,
+    pub halted_ms: i64,
+    /// The keep-warm pings, by work, the costliest first.
+    pub pings: Vec<WorkCount>,
+}
+
+/// How many rounds or pings of one work, and what they cost.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkCount {
+    pub work: i64,
+    pub graph: String,
+    /// Its item and the item's title, and its project.
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    pub project: Option<String>,
+    pub n: i64,
+    pub cost_usd: f64,
+}
+
+/// How long one cause of failed runs stopped every work.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct HaltTime {
+    /// The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
+    pub kind: String,
+    pub ms: i64,
+    /// The failed runs that found it.
+    pub runs: i64,
+}
+
+/// Something that went wrong, in a work.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Anomaly {
+    pub work: i64,
+    pub graph: String,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    pub project: Option<String>,
+    /// The round it came of, by its number in the work; none when the engine stopped the work, which no round records.
+    pub round: Option<i64>,
+    pub at: i64,
+    pub what: AnomalyKind,
+}
+
+/// What went wrong, each kind of its own. The findings of the review after each wake, once that review exists, come as
+/// one more kind.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AnomalyKind {
+    /// A row counting a flow anomaly: the way on an engineer chose did not fit the situation.
+    FlowAnomaly { row: String },
+    /// A counter of the work went past the limit its project's configuration sets.
+    Counter { counter: String, limit: i64 },
+    /// The engine stopped the work, saying why.
+    Stopped { why: String },
+    /// A tool failed after the engine's retries, at the cell that ran it, and the architect was asked.
+    ToolFailed { cell: String },
+    /// Main went red after the work merged: how, as the watch of main tells it (`environment_changed`,
+    /// `broken_by_merge` or `known_red`), and the checks red.
+    MainRed { how: String, checks: Vec<String> },
 }
 
 /// Why a request failed.

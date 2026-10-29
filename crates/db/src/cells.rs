@@ -108,6 +108,20 @@ pub fn is_cell(graph: &str, code: &str, id: &str) -> bool {
     id == code || before(graph, code).contains(&id)
 }
 
+/// The code of the cell of `graph` that a work or a round of any flow version names `id`: `id` itself when it is a code
+/// now, else the code of the cell it was an id of; none for an id no version gave a cell of the graph.
+pub fn code_of(graph: &str, id: &str) -> Option<&'static str> {
+    BEFORE
+        .iter()
+        .find(|(g, c, _)| *g == graph && *c == id)
+        .or_else(|| {
+            BEFORE
+                .iter()
+                .find(|(g, _, ids)| *g == graph && ids.contains(&id) && !is_code(graph, id))
+        })
+        .map(|x| x.1)
+}
+
 /// The cells of `graph` coded `codes`, as an SQL list of every id works and rounds of any flow version give them:
 /// `('M2', '9', 'merge_queue', 'merge.queue')`.
 pub fn cells_sql(graph: &str, codes: &[&str]) -> String {
@@ -138,6 +152,11 @@ mod tests {
         );
         assert!(is_cell("engineer", "A3", "16") && is_cell("engineer", "A3", "to_owner"));
         assert!(!is_cell("architect", "A3", "16") && is_cell("architect", "A3", "ASK"));
+        assert_eq!(code_of("engineer", "implement"), Some("I1"));
+        assert_eq!(code_of("engineer", "I1"), Some("I1"));
+        assert_eq!(code_of("architect", "T1"), Some("H1"));
+        assert_eq!(code_of("architect", "P1"), Some("P1"));
+        assert_eq!(code_of("engineer", "nowhere"), None);
         assert!(is_cell("architect", "A3", "ask.owner") && !is_cell("architect", "A3", "owner"));
         assert!(is_cell("architect", "P12", "takes_effect") && !is_cell("architect", "P12", "P10"));
         assert!(is_cell("architect", "H2", "handle.crux") && !is_cell("architect", "H2", "Q1"));

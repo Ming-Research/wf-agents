@@ -140,7 +140,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect", get(architect))
         .route("/api/v1/conversations", get(conversations))
         .route("/api/v1/conversation", get(conversation))
-        .route("/api/v1/spend", get(spend))
+        .route("/api/v1/system", get(system))
         .route("/api/v1/settings", get(settings).post(save_settings))
         .route("/api/v1/items/{id}/level", post(set_level))
         .route("/api/v1/messages/read", post(mark_read))
@@ -565,9 +565,40 @@ async fn set_level(
     decide(&app, move |db| api::set_level(db, &data, id, &l.level)).await
 }
 
-/// What the agents spent, by day, model and line, across every work.
-async fn spend(State(app): State<App>) -> Result<Json<Vec<api::Spend>>, Fail> {
-    read(&app, |c, _| api::spend(c)).await.map(Json)
+/// The period the System view counts over, and the owner's time zone its weeks start in.
+#[derive(Deserialize)]
+struct Period {
+    /// How many weeks, the week under way the last; none for all time.
+    weeks: Option<i64>,
+    /// Minutes east of UTC.
+    #[serde(default)]
+    tz: i64,
+}
+
+/// How the whole system stands now, and what it did over the period asked for: the architects of the projects the
+/// committed configuration names, and the anomalies its counters' limits find.
+async fn system(State(app): State<App>, Query(p): Query<Period>) -> Result<Json<api::System>, Fail> {
+    read(&app, move |conn, a| {
+        let c = config::committed(&a.data)
+            .map_err(|e| api::Error::Failed(e.to_string()))?
+            .config;
+        let projects: Vec<String> = c.projects.keys().cloned().collect();
+        let limits: BTreeMap<String, BTreeMap<String, u64>> = c
+            .projects
+            .into_iter()
+            .map(|(name, project)| (name, project.limits))
+            .collect();
+        let ask = api::SystemAsk {
+            weeks: p.weeks,
+            tz: p.tz.clamp(-14 * 60, 14 * 60),
+            projects: &projects,
+            limits: &limits,
+            now: db::now(),
+        };
+        api::system(conn, &a.flows, &ask)
+    })
+    .await
+    .map(Json)
 }
 
 /// Answers an ask of the owner, as the owner, as the command line does; the engine is woken to go on.

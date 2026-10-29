@@ -43,26 +43,27 @@ function bump(...keys: string[]) {
   set({ versions });
 }
 
-/// The things an event names, as the keys views read them by.
+/// The things an event names, as the keys views read them by. The System view sums up the works, the items, the
+/// architects and what waits for the owner, so every event about one of them names it.
 export function named(e: Event): string[] {
   switch (e.kind) {
     case 'work':
-      return ['works', `work:${e.work}`, 'items', 'item:*'];
+      return ['works', `work:${e.work}`, 'items', 'item:*', 'system'];
     case 'round':
-      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*', 'messages'];
+      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*', 'messages', 'system'];
     case 'design_card':
     case 'ask':
       return e.work === null
-        ? ['works', 'work:*', 'item:*', 'messages']
-        : ['works', `work:${e.work}`, 'item:*', 'messages'];
+        ? ['works', 'work:*', 'item:*', 'messages', 'system']
+        : ['works', `work:${e.work}`, 'item:*', 'messages', 'system'];
     case 'owner_message':
-      return e.work === null ? ['messages', 'work:*'] : ['messages', `work:${e.work}`];
+      return e.work === null ? ['messages', 'work:*', 'system'] : ['messages', `work:${e.work}`, 'system'];
     case 'item':
-      return e.item === null ? ['items', 'item:*', 'works'] : ['items', `item:${e.item}`, 'works'];
+      return e.item === null ? ['items', 'item:*', 'works', 'system'] : ['items', `item:${e.item}`, 'works', 'system'];
     case 'flow':
       return ['flows'];
     case 'architect':
-      return ['architect', 'messages'];
+      return ['architect', 'messages', 'system'];
     default:
       return [];
   }

@@ -1,7 +1,7 @@
 // The marks the page shows numbers with, one look wherever they are: a tile (what it counts, the number, a line under
-// it), bars one under another, and a stacked bar, each drawn to scale. Every mark says what it is on hovering, through
-// the tip of the view that holds it; labels are HTML, so that they keep their size as the marks shrink with the view;
-// colours come from the page's tokens, in light and dark alike.
+// it), bars one under another, a stacked bar, and columns over time, each drawn to scale. Every mark says what it is on
+// hovering, through the tip of the view that holds it; labels are HTML, so that they keep their size as the marks
+// shrink with the view; colours come from the page's tokens, in light and dark alike.
 
 import { type MouseEvent, useState } from 'react';
 
@@ -135,6 +135,42 @@ export function Bars({ items, colour }: {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/// Columns over time, oldest at the left, each stacked from its parts, all to one scale from nothing at the base to
+/// the highest column at the top, which the axis names (`top`); each part says what it is on hovering, and the legend
+/// names the parts (`legend`).
+export function Columns({ columns, legend, top }: {
+  columns: Array<{ label: string; parts: Part[] }>;
+  legend: Array<{ colour: string; label: string }>;
+  top: (max: number) => string;
+}) {
+  const totals = columns.map((c) => c.parts.reduce((a, p) => a + p.value, 0));
+  const max = Math.max(...totals, 0);
+  return (
+    <div className="cols">
+      <div className="cols-plot">
+        <span className="cols-top">{top(max)}</span>
+        {columns.map((c, i) => (
+          <div key={i} className="cols-col">
+            <div className="cols-bar" style={{ height: `${pct(totals[i], max)}%` }}>
+              {c.parts
+                .filter((p) => p.value > 0)
+                .map((p, j) => (
+                  <span key={j} style={{ height: `${pct(p.value, totals[i])}%`, background: p.colour }} data-tip={p.tip} />
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="cols-x">
+        {columns.map((c, i) => (
+          <span key={i}>{c.label}</span>
+        ))}
+      </div>
+      <Legend parts={legend} />
     </div>
   );
 }

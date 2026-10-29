@@ -260,7 +260,7 @@ describe("the architect's page", () => {
   });
 
   it('is read again when what it shows changed', () => {
-    expect(named({ kind: 'architect' })).toEqual(['architect', 'messages']);
+    expect(named({ kind: 'architect' })).toEqual(['architect', 'messages', 'system']);
   });
 
   it('says what became of a matter handled, one line for each kind of outcome, or why nothing did', () => {

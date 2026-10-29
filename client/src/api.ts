@@ -1287,18 +1287,221 @@ matters: Array<number>, };
 export type StateVersion = { work: number, round: number, cell: string, at: number | null, state: JsonValue, };
 
 /**
- * What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings
- * of their sessions, by the model each ran on and the line of its session.
+ * How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what
+ * the System view shows.
  */
-export type Spend = { 
+export type System = {
 /**
- * The day, in UTC, as YYYY-MM-DD.
+ * When the period starts, on a Monday at midnight in the owner's time zone; none for all time.
  */
-day: string, model: string, line: string, rounds: number, pings: number, 
+from: number | null,
+/**
+ * When it was read, which ends the period.
+ */
+at: number, now: SystemNow,
+/**
+ * The period's weeks, oldest first.
+ */
+weeks: Array<Week>, output: SystemOutput, spend: SystemSpend, waste: SystemWaste,
+/**
+ * What went wrong in the period, the latest first.
+ */
+anomalies: Array<Anomaly>, };
+
+/**
+ * What may need the owner now besides the works: each project's architect, and what waits for the owner.
+ */
+export type SystemNow = { architects: Array<ArchitectNow>,
+/**
+ * The asks of the owner not answered, the design cards not ruled on and the faults of wf-agents not read.
+ */
+asks: Waiting, design_cards: Waiting, faults: Waiting, };
+
+/**
+ * A project's architect now.
+ */
+export type ArchitectNow = { project: string,
+/**
+ * Its wake not over, by its work, while it is awake; none while it sleeps.
+ */
+wake: number | null,
+/**
+ * Whether that wake is paused.
+ */
+paused: boolean,
+/**
+ * The matters in its queue, and when the oldest of them came.
+ */
+queue: number, oldest: number | null, };
+
+/**
+ * Things that wait for the owner: how many, and when the oldest of them came.
+ */
+export type Waiting = { n: number, oldest: number | null, };
+
+/**
+ * One week of the period.
+ */
+export type Week = {
+/**
+ * When it starts: Monday at midnight in the owner's time zone.
+ */
+start: number,
+/**
+ * The items merged, made and cancelled in it.
+ */
+merged: number, made: number, cancelled: number,
+/**
+ * The pull requests open at its end, or now for the week under way.
+ */
+open_prs: number,
+/**
+ * What the engineers' works and the architects' wakes spent in it, their keep-warm pings included, in US dollars.
+ */
+engineers_usd: number, architects_usd: number, };
+
+/**
+ * What got done in the period.
+ */
+export type SystemOutput = {
+/**
+ * The items merged in the period, the latest first.
+ */
+merged: Array<Merged>,
+/**
+ * The items made, and those cancelled, in the period, the latest first.
+ */
+made: Array<ItemAt>, cancelled: Array<ItemAt>,
+/**
+ * The pull requests open now, the oldest first.
+ */
+open_prs: Array<OpenPr>, };
+
+/**
+ * An item merged, by the work that merged it.
+ */
+export type Merged = { item: number, title: string, work: number,
+/**
+ * When the work's first round started, and when it merged.
+ */
+started_at: number, merged_at: number,
+/**
+ * What the work cost, its keep-warm pings included, in US dollars.
+ */
+cost_usd: number, };
+
+/**
+ * An item made or cancelled, and when; for one cancelled, why.
+ */
+export type ItemAt = { item: number, title: string, at: number, why: string | null, };
+
+/**
+ * A pull request open now, by the work it is of.
+ */
+export type OpenPr = { pr: number, project: string | null, work: number, item: number | null, title: string | null,
+/**
+ * When a work first recorded it.
+ */
+since: number, };
+
+/**
+ * Where the money went in the period.
+ */
+export type SystemSpend = {
+/**
+ * What the rounds and the keep-warm pings cost, by the line of their session and the model they ran on.
+ */
+by_line_model: Array<LineSpend>,
+/**
+ * What each item's works cost, the costliest first.
+ */
+by_item: Array<ItemSpend>,
+/**
+ * The ten cells whose rounds cost most, the costliest first.
+ */
+cells: Array<CellSpend>, };
+
+/**
+ * What the rounds and the keep-warm pings of one line on one model cost.
+ */
+export type LineSpend = { line: string, model: string, rounds: number, pings: number,
 /**
  * What they cost, as the command lines reported it, in US dollars.
  */
 cost_usd: number, };
+
+/**
+ * What an item's works cost, and how many works and rounds they took.
+ */
+export type ItemSpend = { item: number, title: string, works: number, rounds: number, cost_usd: number, };
+
+/**
+ * What a cell's rounds cost: the cell by its code now, with its title.
+ */
+export type CellSpend = { graph: string, cell: string, title: string | null, rounds: number, cost_usd: number, };
+
+/**
+ * Where the period spent for nothing, and how well the prompt cache did.
+ */
+export type SystemWaste = {
+/**
+ * The input tokens of the agents' rounds: read from the prompt cache, written to it, and given without it.
+ */
+read: number, written: number, input: number,
+/**
+ * The rounds that missed their session's prompt cache, the tokens they wrote to it again, and what that cost
+ * beyond reading them, in US dollars.
+ */
+misses: number, missed: number, miss_usd: number,
+/**
+ * The rounds whose return was sent back, and those whose run failed or was cut off, by work, the costliest first.
+ */
+sent_back: Array<WorkCount>, failed: Array<WorkCount>,
+/**
+ * How long no agent's round could start, a failed run's cause stopping every work: by that cause, and in all.
+ */
+halts: Array<HaltTime>, halted_ms: number,
+/**
+ * The keep-warm pings, by work, the costliest first.
+ */
+pings: Array<WorkCount>, };
+
+/**
+ * How many rounds or pings of one work, and what they cost.
+ */
+export type WorkCount = { work: number, graph: string,
+/**
+ * Its item and the item's title, and its project.
+ */
+item: number | null, title: string | null, project: string | null, n: number, cost_usd: number, };
+
+/**
+ * How long one cause of failed runs stopped every work.
+ */
+export type HaltTime = {
+/**
+ * The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
+ */
+kind: string, ms: number,
+/**
+ * The failed runs that found it.
+ */
+runs: number, };
+
+/**
+ * Something that went wrong, in a work.
+ */
+export type Anomaly = { work: number, graph: string, item: number | null, title: string | null, project: string | null,
+/**
+ * The round it came of, by its number in the work; none when the engine stopped the work, which no round records.
+ */
+round: number | null, at: number, what: AnomalyKind, };
+
+/**
+ * What went wrong, each kind of its own. The findings of the review after each wake, once that review exists, come as
+ * one more kind.
+ */
+export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, };
 
 /**
  * Why a request failed.

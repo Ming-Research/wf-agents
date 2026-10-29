@@ -68,6 +68,9 @@ describe('the addresses', () => {
       { page: 'item', id: 5 },
       { page: 'messages', open: null },
       { page: 'messages', open: 'architects:p|q' },
+      { page: 'system', period: 'week' },
+      { page: 'system', period: '4w' },
+      { page: 'system', period: 'all' },
       { ...flow, version: 1, graph: 'architect', cell: 'X1' },
       flow,
       { ...flow, version: 2, from: 1 },
@@ -87,6 +90,11 @@ describe('the addresses', () => {
     // A tab or a choice of rounds the page does not know is the work's rounds, all of them.
     expect(parse('/works/3', '?tab=x&only=y')).toEqual(work);
     expect(href(work)).toBe('/works/3');
+    // The System view counts the week under way unless the address names another period; the Spend view it took the
+    // place of leads to it.
+    expect(href({ page: 'system', period: 'week' })).toBe('/system');
+    expect(parse('/system', '?period=x')).toEqual({ page: 'system', period: 'week' });
+    expect(parse('/spend', '')).toEqual({ page: 'system', period: 'week' });
   });
 });
 
@@ -255,11 +263,12 @@ describe('events', () => {
       'items',
       'item:*',
       'messages',
+      'system',
     ]);
-    expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works']);
+    expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works', 'system']);
     expect(named({ kind: 'ready' })).toEqual([]);
-    expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages']);
-    expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2']);
+    expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages', 'system']);
+    expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2', 'system']);
   });
 });
 
@@ -1162,25 +1171,22 @@ describe("a work's usage", () => {
   });
 });
 
-describe('what the agents spent across every work', () => {
-  it('sums it by line and model and by day, with the advisor apart', () => {
-    const row = (day: string, model: string, line: string, cost_usd: number) => ({ day, model, line, rounds: 1, pings: 0, cost_usd });
+describe('what the agents spent by line and model', () => {
+  it('sums it by line and by model, the costliest of each first', () => {
+    const row = (model: string, line: string, cost_usd: number) => ({ model, line, rounds: 1, pings: 0, cost_usd });
     const s = spendTable([
-      row('2026-10-26', 'claude-opus-5-5', 'engineer', 4),
-      row('2026-10-26', 'claude-fable-5-5', 'advisor', 3),
-      row('2026-10-27', 'claude-opus-5-5', 'review', 2),
-      row('2026-10-27', 'claude-fable-5-5', 'advisor', 0.5),
+      row('claude-opus-5-5', 'engineer', 4),
+      row('claude-fable-5-5', 'advisor', 3),
+      row('claude-opus-5-5', 'review', 2),
+      row('claude-sonnet-5-5', 'advisor', 0.5),
     ]);
-    expect(s.models).toEqual(['claude-opus-5-5', 'claude-fable-5-5']);
+    expect(s.models).toEqual(['claude-opus-5-5', 'claude-fable-5-5', 'claude-sonnet-5-5']);
     expect(s.lines.map((l) => [l.key, l.total])).toEqual([
       ['engineer', 4],
       ['advisor', 3.5],
       ['review', 2],
     ]);
-    expect(s.days.map((d) => [d.key, d.total, d.advisor['claude-fable-5-5']])).toEqual([
-      ['2026-10-27', 2.5, 0.5],
-      ['2026-10-26', 7, 3],
-    ]);
+    expect(s.byModel['claude-opus-5-5']).toBe(6);
     expect(s.total).toBe(9.5);
   });
 });
