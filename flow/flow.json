@@ -18005,6 +18005,9 @@
           ],
           "shown": [
             "answer"
+          ],
+          "rules": [
+            "policy_scope"
           ]
         },
         {
