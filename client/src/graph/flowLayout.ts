@@ -8,7 +8,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
 
-import { type Chart, type ChartEdge, MAIN } from './flowModel';
+import { type Chart, type ChartEdge, cellNode, MAIN } from './flowModel';
 import { attachments, landings, layUnit, type Unit } from './units';
 
 const elk = new ELK();
@@ -78,7 +78,8 @@ export const STRAIGHT = 16;
 
 // Inside a stage box elkjs takes the box's own options, not the chart's: without its spacing, arrows there left a cell
 // and came into one with a piece too short to carry a head; without its node placement, the actions on a line into a
-// cell there were placed toward the cells the line leaves, away from the cell they lead into.
+// cell there were placed toward the cells the line leaves, away from the cell they lead into. Its layers are close
+// together, each cell's node holding the room its circles take.
 const groupOptions: Record<string, string> = {
   'elk.layered.spacing.edgeNodeBetweenLayers': String(STRAIGHT),
   'elk.layered.spacing.nodeNodeBetweenLayers': '12',
@@ -190,6 +191,24 @@ async function layPart(
         ]),
     );
   const ends = (cell: string) => external.filter((e) => e.source === cell || e.target === cell).length;
+  // Inside a stage box elkjs breaks a loop by its own measure, not by the order the flow writes the cells in, which
+  // fails it there. A row back into the actions on a line into a cell of the same box, from a cell the flow writes
+  // after that cell, is given to it already turned round, as outside the boxes, so that the actions stay just above
+  // the cell they lead into and the row comes up into them.
+  const order = new Map(members.map((n, i) => [n.id, i]));
+  const turned = (e: ChartEdge) => {
+    const a = byId.get(e.target);
+    const from = byId.get(e.source);
+    return (
+      a?.kind === 'action' &&
+      from?.kind === 'cell' &&
+      from.group !== null &&
+      from.group === a.group &&
+      (order.get(e.source) ?? 0) > (order.get(cellNode(a.cell)) ?? 0)
+    );
+  };
+  /// A route of the layout as the chart's arrow runs, from its source to its target.
+  const along = (e: ChartEdge, ps: Point[]) => (turned(e) ? [...ps].reverse() : ps);
   // Laid out twice: first with the arrows free to meet each unit anywhere, for which edge of its cell each meets, the
   // top or the bottom as the layout turns the rows of a loop, and in which order; then with each where that order puts
   // it in the cell's lane.
@@ -221,8 +240,8 @@ async function layPart(
         ports !== null && units.has(id) ? `${e.id}|${which}` : id;
       return {
         id: e.id,
-        sources: [end(e.source, 'source')],
-        targets: [end(e.target, 'target')],
+        sources: turned(e) ? [end(e.target, 'target')] : [end(e.source, 'source')],
+        targets: turned(e) ? [end(e.source, 'source')] : [end(e.target, 'target')],
         labels: l ? [{ id: `l:${e.id}`, text: e.label, ...l }] : undefined,
         layoutOptions: byId.get(e.source)?.kind === 'action' ? WAY_IN : undefined,
       };
@@ -235,8 +254,9 @@ async function layPart(
   // there; and where along the cell from its left edge.
   const meets = new Map<string, Array<{ id: string; side: Side; at: number }>>();
   for (const e of external) {
-    const ps = free.routes.get(e.id);
-    if (ps === undefined) continue;
+    const route = free.routes.get(e.id);
+    if (route === undefined) continue;
+    const ps = along(e, route);
     for (const end of ['source', 'target'] as const) {
       const unit = free.boxes.get(e[end]);
       const cell = rough.get(e[end])?.boxes.get(e[end]);
@@ -314,9 +334,12 @@ async function layPart(
       const ce = chartEdges.get(e.id);
       if (!s || !ce) continue;
       const l = e.labels?.[0];
-      const ps = [s.startPoint, ...(s.bendPoints ?? []), s.endPoint].map((p) => ({ x: p.x, y: p.y }));
-      ps[0] = reach(ps[0], e.sources[0], ce.source);
-      ps[ps.length - 1] = reach(ps[ps.length - 1], e.targets[0], ce.target);
+      const ps = along(
+        ce,
+        [s.startPoint, ...(s.bendPoints ?? []), s.endPoint].map((p) => ({ x: p.x, y: p.y })),
+      );
+      ps[0] = reach(ps[0], `${ce.id}|source`, ce.source);
+      ps[ps.length - 1] = reach(ps[ps.length - 1], `${ce.id}|target`, ce.target);
       const route = {
         points: ps,
         label: l ? { x: l.x ?? 0, y: l.y ?? 0, width: l.width ?? 0, height: l.height ?? 0 } : null,
