@@ -915,6 +915,30 @@ impl<'s> Graph<'s> {
         let used: BTreeSet<&str> = cells.iter().flat_map(|c| c.rules.iter().map(String::as_str)).collect();
         let idle: Vec<&&str> = rule_names.difference(&used).collect();
         ensure!(idle.is_empty(), "a rule no cell uses: {idle:?}");
+        // A rule given with an input goes with it: an agent's cell given that input is given the rule.
+        for r in rules.iter().filter(|r| !r.given_with.is_empty()) {
+            for c in cells
+                .iter()
+                .filter(|c| c.kind == CellKind::Agent && !c.rules.contains(&r.name))
+            {
+                let with = c.inputs.iter().flat_map(|x| &x.from).find_map(|s| {
+                    let name = match s {
+                        Src::Engine(n) => n.clone(),
+                        Src::Db { relation, .. } => relation.clone(),
+                        Src::Place(cell, path) => format!("{cell}·{path}"),
+                        _ => return None,
+                    };
+                    r.given_with.contains(&name).then_some(name)
+                });
+                ensure!(
+                    with.is_none(),
+                    "cell `{}` is given {} without the rule {} that goes with it",
+                    c.id,
+                    with.unwrap_or_default(),
+                    r.name
+                );
+            }
+        }
         // A cell at no stage asks, answers or runs tools for another: it goes on only back to a cell the engine
         // keeps track of, or into the asking part.
         for (i, c) in cells.iter().enumerate() {

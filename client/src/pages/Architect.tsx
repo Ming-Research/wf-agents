@@ -69,7 +69,16 @@ import {
 import { t, type Key } from '../text';
 import { Block, By, CellTitles, ItemRef, type OpenRound, Section } from '../parts';
 import { ArchitectAskBlock } from './ArchitectAsk';
-import { ChangeBlock, PolicyText, ProbesView, ReadingView, StudyView, UnderstandingView } from './ArchitectViews';
+import {
+  ChangeBlock,
+  NextView,
+  PolicyCheck,
+  PolicyText,
+  ProbesView,
+  ReadingView,
+  StudyView,
+  UnderstandingView,
+} from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
@@ -300,6 +309,7 @@ const TAB_NAMES: Record<ArchitectTab, Key> = {
   observations: 'arch_tab_observations',
   policy: 'arch_tab_policy',
   understanding: 'arch_tab_understanding',
+  next: 'arch_tab_next',
   rounds: 'rounds',
 };
 
@@ -632,15 +642,17 @@ function PolicyAsks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound })
   );
 }
 
-/// The policy, all that the cells that set a policy produced, each under the cell and round that wrote it: its asks of
-/// the owner (the study to read, the policy to approve) with their forms; the one being set, while a wake sets one (the
-/// latest study, the text with its probes and the readings of it); and the policy in force, with when it took effect.
+/// The policy, all that the cells of the policy's stage produced, each under the cell and round that wrote it: its asks
+/// of the owner (the study to read, the policy to approve) with their forms; the latest check of the policy in force;
+/// the one being set, while a wake sets one (the latest study, the text with its probes and the readings of it); and
+/// the policy in force, with when it took effect.
 function Policy({ a, asks, onRound }: { a: ArchitectRead; asks: OwnerAsk[]; onRound: OpenRound }) {
   const s = a.setting;
   const p = a.policy;
   return (
     <>
       <PolicyAsks asks={asks} onRound={onRound} />
+      {a.check !== null ? <PolicyCheck check={a.check} onRound={onRound} /> : null}
       {s !== null ? (
         <Section title={t('policy_being_set')} open>
           {s.study !== null ? (
@@ -751,6 +763,7 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: null,
       hint: '',
     },
+    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
     {
       tab: 'policy',
       label: t('arch_tab_policy'),
@@ -758,7 +771,7 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: policyWaiting > 0 ? t('open_asks_chip', { n: policyWaiting }) : null,
       hint: t('open_asks_n', { n: policyWaiting }),
     },
-    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
+    { tab: 'next', label: t('arch_tab_next'), n: null, chip: null, hint: '' },
     { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
   ];
   return (
@@ -796,9 +809,8 @@ function Panel({ route, a, d, g, go, onRound }: {
         {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
         {route.tab === 'observations' ? <Observations a={a} /> : null}
         {route.tab === 'policy' ? <Policy a={a} asks={policyAsks} onRound={onRound} /> : null}
-        {route.tab === 'understanding' ? (
-          <UnderstandingView u={a.understanding} onRound={onRound} onMatter={onMatter} />
-        ) : null}
+        {route.tab === 'understanding' ? <UnderstandingView u={a.understanding} onRound={onRound} /> : null}
+        {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
         {route.tab === 'rounds' ? (
           d === null ? (
             <p className="muted">{a.wakes.length === 0 ? t('arch_never_woke') : t('loading')}</p>

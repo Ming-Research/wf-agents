@@ -868,7 +868,10 @@ pub struct Architect {
     pub policy: Option<PolicyInForce>,
     /// The policy a wake is setting now; none while no wake sets one.
     pub setting: Option<PolicySetting>,
+    /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
+    pub check: Option<Said>,
     pub understanding: Understanding,
+    pub next: NextPlan,
     /// The project's observations: the open ones first, then those closed, each newest first.
     pub observations: Vec<Observation>,
     /// The project's tags for observations, each with what it covers.
@@ -1180,18 +1183,22 @@ pub struct Reading {
     pub verdict: Value,
 }
 
-/// Where the project stands, as the stage of the architect's that understands it last wrote it: its latest
-/// understanding (the state of things, the direction, what changed, the mismatches and what is unclear), its latest
-/// check of the policy against the constitution, and its latest check of whether what runs fits.
+/// What the project is now, as the architect last wrote it (cell `U1`): the state of each line of work, what changed
+/// and what it could not settle.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Understanding {
     pub state: Option<Said>,
-    pub against: Option<Said>,
-    pub fit: Option<Said>,
-    /// The matters the places to set straight of that check of what runs became, in their order.
-    pub fit_matters: Vec<i64>,
     /// Every version of the understanding, newest first.
     pub versions: Vec<StateVersion>,
+}
+
+/// What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
+/// most and whether what runs fits; none before the first plan.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NextPlan {
+    pub plan: Option<Said>,
+    /// The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
+    pub matters: Vec<i64>,
 }
 
 /// One version of the understanding: what an understanding round answered, by the wake and its round.

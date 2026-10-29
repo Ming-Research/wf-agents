@@ -17,7 +17,7 @@ use crate::view;
 use crate::{
     Architect, AskKind, Conversation, ConversationDetail, ConversationEntry, DesignCard, DispatchHold, Draft,
     FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
-    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, Misses, NamedText,
+    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, Misses, NamedText, NextPlan,
     Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
     Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
     Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession,
@@ -1712,7 +1712,9 @@ pub fn architect(
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
         setting,
+        check: latest_of(conn, project, "P1")?,
         understanding: understanding(conn, project)?,
+        next: next(conn, project)?,
         observations: observations(conn, project)?,
         tags,
     })
@@ -2249,43 +2251,6 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
             },
         )
         .optional()?;
-    // The latest round of a cell of the stage that understands the project that answered.
-    let latest = |cell: &str| -> Result<Option<Said>> {
-        Ok(conn
-            .query_row(
-                &format!(
-                    "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
-                     WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-                       AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-                     ORDER BY r.work DESC, r.n DESC LIMIT 1",
-                    db::cells_sql("architect", &[cell])
-                ),
-                [project],
-                |r| {
-                    Ok(Said {
-                        work: r.get(0)?,
-                        round: r.get(1)?,
-                        cell: r.get(2)?,
-                        at: r.get(3)?,
-                        value: returned(r.get(4)?, None),
-                    })
-                },
-            )
-            .optional()?)
-    };
-    let against = latest("P1")?;
-    let fit = latest("N1")?;
-    // Each place to set straight of the check of what runs is a matter its round queued, in the same order.
-    let fit_matters: Vec<i64> = match &fit {
-        Some(f) => {
-            let mut st = conn.prepare(
-                "SELECT id FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = 'set_straight' ORDER BY id",
-            )?;
-            st.query_map([f.work, f.round], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?
-        }
-        None => Vec::new(),
-    };
     // Every version, read from the round records alone; a round that asked for tools or paused gave none.
     let mut st = conn.prepare(&format!(
         "SELECT r.work, r.n, r.cell, r.ended_at, json_extract(r.output, '$.outcome')
@@ -2306,13 +2271,49 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(Understanding {
-        state,
-        against,
-        fit,
-        fit_matters,
-        versions,
-    })
+    Ok(Understanding { state, versions })
+}
+
+/// The latest round of a project's architect at a cell that answered, by what it answered.
+fn latest_of(conn: &Connection, project: &str, cell: &str) -> Result<Option<Said>> {
+    Ok(conn
+        .query_row(
+            &format!(
+                "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+                 ORDER BY r.work DESC, r.n DESC LIMIT 1",
+                db::cells_sql("architect", &[cell])
+            ),
+            [project],
+            |r| {
+                Ok(Said {
+                    work: r.get(0)?,
+                    round: r.get(1)?,
+                    cell: r.get(2)?,
+                    at: r.get(3)?,
+                    value: returned(r.get(4)?, None),
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// What to do next under the policy, as a project's architect last planned it, with the matters its rows became: its
+/// round queued one for each thing missing and then one for each place to set straight, in their order.
+fn next(conn: &Connection, project: &str) -> Result<NextPlan> {
+    let plan = latest_of(conn, project, "N1")?;
+    let matters: Vec<i64> = match &plan {
+        Some(f) => {
+            let mut st = conn.prepare(
+                "SELECT id FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = 'set_straight' ORDER BY id",
+            )?;
+            st.query_map([f.work, f.round], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        }
+        None => Vec::new(),
+    };
+    Ok(NextPlan { plan, matters })
 }
 
 /// A file under the data directory's `logs` or `tool-output` directory, as text, cut after `max` bytes.
@@ -2933,8 +2934,7 @@ mod tests {
                 "U1",
                 "{}".into(),
                 Some(out(
-                    json!({ "state": [{ "line": "l", "serves": "s", "approach": "a", "where": "w",
-                    "stuck": "no", "recent": "r", "grounds": "g" }], "direction": "d", "mismatches": [],
+                    json!({ "state": [{ "line": "l", "where": "w", "stuck": "no", "recent": "r", "grounds": "g" }],
                     "unclear": [], "changed": "c" }),
                 )),
                 Some("understood"),
@@ -3275,17 +3275,19 @@ mod tests {
         let u = &a.understanding;
         assert_eq!(u.state.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
         assert_eq!(u.state.as_ref().unwrap().value["changed"], "c");
-        assert_eq!(u.against.as_ref().map(|x| (x.work, x.round)), Some((3, 3)));
-        assert_eq!(u.against.as_ref().unwrap().value["against"][0]["status"], "broken");
-        // The check of what runs, by its cell and round; it found everything fits, so it queued no place to set
-        // straight.
+        assert_eq!(u.versions.len(), 1);
+        // The check of the policy in force, in the policy's part.
+        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((3, 3)));
+        assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
+        // The plan of what to do next, by its cell and round; it found everything fits and nothing missing, so it
+        // queued no matter.
+        let next = &a.next;
         assert_eq!(
-            u.fit.as_ref().map(|x| (x.work, x.round, x.cell.as_str())),
+            next.plan.as_ref().map(|x| (x.work, x.round, x.cell.as_str())),
             Some((2, 5, "N1"))
         );
-        assert_eq!(u.fit.as_ref().unwrap().value["fit"]["verdict"], "fits");
-        assert!(u.fit_matters.is_empty());
-        assert_eq!(u.versions.len(), 1);
+        assert_eq!(next.plan.as_ref().unwrap().value["fit"]["verdict"], "fits");
+        assert!(next.matters.is_empty());
 
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);

@@ -29,8 +29,9 @@ export const ARCHITECT_TABS = [
   'queue',
   'changes',
   'observations',
-  'policy',
   'understanding',
+  'policy',
+  'next',
   'rounds',
 ] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];

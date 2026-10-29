@@ -569,6 +569,35 @@ case!(an_input_missing_behind_an_engine_step, "missing", |v| {
     drop_source(v, "T6", json!(["T4", "previous[insist]"]));
 });
 
+// A rule given with an input goes with it: a cell given the policy, in force or being set, is given what a policy
+// governs, so that a new cell cannot miss it.
+case!(
+    a_cell_given_the_policy_without_what_a_policy_governs,
+    "cell `N1` is given policy without the rule policy_scope that goes with it",
+    |v| {
+        let next = v["flows"][1]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|n| n["id"] == "N1")
+            .unwrap();
+        obj(next).remove("rules");
+    }
+);
+case!(
+    a_cell_given_the_draft_without_what_a_policy_governs,
+    "cell `P6` is given P5·draft.policy without the rule policy_scope that goes with it",
+    |v| {
+        let read = v["flows"][1]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|n| n["id"] == "P6")
+            .unwrap();
+        obj(read).remove("rules");
+    }
+);
+
 // Every cell a text names is a cell of its graph: a rename or a removal that leaves a text naming the cell as it was is
 // refused, saying where the text is and what it names.
 case!(

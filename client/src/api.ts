@@ -996,7 +996,11 @@ policy: PolicyInForce | null,
 /**
  * The policy a wake is setting now; none while no wake sets one.
  */
-setting: PolicySetting | null, understanding: Understanding, 
+setting: PolicySetting | null, 
+/**
+ * Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
+ */
+check: Said | null, understanding: Understanding, next: NextPlan, 
 /**
  * The project's observations: the open ones first, then those closed, each newest first.
  */
@@ -1258,19 +1262,24 @@ export type Reading = { round: number,
 cell: string, reading: JsonValue, verdict: JsonValue, };
 
 /**
- * Where the project stands, as the stage of the architect's that understands it last wrote it: its latest
- * understanding (the state of things, the direction, what changed, the mismatches and what is unclear), its latest
- * check of the policy against the constitution, and its latest check of whether what runs fits.
+ * What the project is now, as the architect last wrote it (cell `U1`): the state of each line of work, what changed
+ * and what it could not settle.
  */
-export type Understanding = { state: Said | null, against: Said | null, fit: Said | null, 
-/**
- * The matters the places to set straight of that check of what runs became, in their order.
- */
-fit_matters: Array<number>, 
+export type Understanding = { state: Said | null, 
 /**
  * Every version of the understanding, newest first.
  */
 versions: Array<StateVersion>, };
+
+/**
+ * What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
+ * most and whether what runs fits; none before the first plan.
+ */
+export type NextPlan = { plan: Said | null, 
+/**
+ * The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
+ */
+matters: Array<number>, };
 
 /**
  * One version of the understanding: what an understanding round answered, by the wake and its round.
@@ -1661,7 +1670,12 @@ export type Rule = { name: string, desc: string, text: Array<string>,
 /**
  * The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
  */
-lines?: Array<string>, };
+lines?: Array<string>, 
+/**
+ * What a cell given any of must be given the rule with, by an engine input's name, a table's or a view's, or a
+ * cell's return place as `cell·place`: the compiler refuses an agent's cell given one of them without the rule.
+ */
+givenWith?: Array<string>, };
 
 export type CompiledInterject = { name: string, desc: string, text: Array<string>, from: Array<Named>, };
 

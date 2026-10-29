@@ -1,12 +1,12 @@
 // What an architect hands back, each drawn by its shape in the flow's formats and in the page's shared parts (blocks
 // under who wrote them, sections that fold): the policy, the study of a new one, its probes and the readings of it by
-// a new architect; an item change its batch made; its understanding of the project with its versions, the check of the
-// policy against the constitution and of whether what runs fits. A value not of the shape expected is shown as
-// labelled text, never as a tree of JSON.
+// a new architect, and the check of the policy in force; an item change its batch made; what the project is now, with
+// its versions; and the plan of what to do next. A value not of the shape expected is shown as labelled text, never as
+// a tree of JSON.
 
 import { type ReactNode, useState } from 'react';
 
-import type { JsonValue, Said, Understanding } from '../api';
+import type { JsonValue, NextPlan, Said, Understanding } from '../api';
 import { againstInOrder, type LineChange, stateChanges } from '../architect';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
@@ -39,20 +39,20 @@ function wroteBy(s: Said, onRound: OpenRound): ReactNode {
   return <By cell={s.cell} at={s.at} work={s.work} round={s.round} onRound={onRound} />;
 }
 
-/// A policy: its goal and why, its points numbered, its stages in order, when to report and what it governs.
+/// A policy: its direction and why, its principles numbered, and the signals that the direction may have to change.
 export function PolicyText({ value }: { value: JsonValue }) {
-  if (!isObj(value) || typeof value.goal !== 'string') return <Labelled value={value} />;
-  const points = objs(value.points);
+  if (!isObj(value) || typeof value.direction !== 'string') return <Labelled value={value} />;
+  const principles = objs(value.principles);
   const signals = objs(value.signals);
   return (
     <div className="shape">
-      <Field label={t('policy_goal')} value={value.goal} />
+      <Field label={t('policy_direction')} value={value.direction} />
       <Field label={t('policy_why')} value={value.why} />
-      {points.length > 0 ? (
+      {principles.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('policy_points')}</span>
+          <span className="decision-label">{t('policy_principles')}</span>
           <ol className="arch-list arch-numbered">
-            {points.map((p, i) => (
+            {principles.map((p, i) => (
               <li key={i} value={typeof p.no === 'number' ? p.no : i + 1}>
                 <Markdown text={str(p.text)} />
               </li>
@@ -60,7 +60,6 @@ export function PolicyText({ value }: { value: JsonValue }) {
           </ol>
         </div>
       ) : null}
-      <Texts label={t('policy_stages')} value={value.stages} ordered />
       {signals.length > 0 ? (
         <div className="field">
           <span className="decision-label">{t('policy_signals')}</span>
@@ -76,13 +75,12 @@ export function PolicyText({ value }: { value: JsonValue }) {
           </ul>
         </div>
       ) : null}
-      <Field label={t('policy_scope')} value={value.scope} />
     </div>
   );
 }
 
-/// The study of a new policy: what the owner wants, how things stand, what it touches, the ways compared and the one
-/// recommended, what its conclusions rest on, and what it asks the owner.
+/// The study of a new policy: the direction the owner wants, how things stand, what it touches, the directions
+/// compared and the one recommended, what its conclusions rest on, and what it asks the owner.
 export function StudyView({ value }: { value: JsonValue }) {
   if (!isObj(value) || typeof value.intent !== 'string') return <Labelled value={value} />;
   const impact = objs(value.impact);
@@ -141,7 +139,8 @@ export function StudyView({ value }: { value: JsonValue }) {
   );
 }
 
-/// The probes of a policy being set: each question, the points it probes and the answer the architect holds right.
+/// The probes of a policy being set: each situation, the principles it probes and the answer the architect holds
+/// right.
 export function ProbesView({ value }: { value: JsonValue }) {
   const probes = objs(value);
   if (probes.length === 0) return null;
@@ -150,8 +149,11 @@ export function ProbesView({ value }: { value: JsonValue }) {
       {probes.map((p, i) => (
         <li key={i}>
           <strong>{str(p.id)}</strong>
-          {Array.isArray(p.points) && p.points.length > 0 ? (
-            <span className="muted"> · {t('probe_points', { points: p.points.map((x) => str(x)).join(', ') })}</span>
+          {Array.isArray(p.principles) && p.principles.length > 0 ? (
+            <span className="muted">
+              {' '}
+              · {t('probe_principles', { principles: p.principles.map((x) => str(x)).join(', ') })}
+            </span>
           ) : null}
           <Markdown text={str(p.ask)} />
           <Field label={t('probe_expect')} value={p.expect} />
@@ -189,7 +191,7 @@ function ReadingVerdict({ value }: { value: JsonValue }) {
 }
 
 /// A new architect's reading of the policy, as a block under who read it (`by`), folded under the verdict on it: its
-/// restatement point by point, what it asked, and its answers to the probes.
+/// restatement of the direction and of each principle, what it asked, and its answers to the probes.
 export function ReadingView({ by, reading, verdict }: { by: ReactNode; reading: JsonValue; verdict: JsonValue }) {
   const r = isObj(reading) ? reading : {};
   const restate = objs(r.restate);
@@ -198,6 +200,7 @@ export function ReadingView({ by, reading, verdict }: { by: ReactNode; reading: 
     <Block head={<strong>{t('reading_head')}</strong>} by={by}>
       <ReadingVerdict value={verdict} />
       <Section title={t('reading_text')}>
+        <Field label={t('policy_direction')} value={r.direction} />
         {restate.length > 0 ? (
           <ol className="arch-list arch-numbered">
             {restate.map((p, i) => (
@@ -348,7 +351,7 @@ function LineBlock({ l, compare }: { l: LineChange; compare: boolean }) {
 /// Every version of the understanding, newest first, one at a time with the newer and older ones a click away: its
 /// wake and round, each line of work as a block; with the switch on, each line marked new, changed or gone since the
 /// version before it (a line written again in other words matched by what it says), the latest shown clean otherwise;
-/// where it heads, open; and folded, what it says changed; each part naming the cell and round that wrote it.
+/// and folded, what it says changed; each part naming the cell and round that wrote it.
 function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
   const [at, setAt] = useState(0);
   const [compare, setCompare] = useState(false);
@@ -385,11 +388,6 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
       {lines.map((l, i) => (
         <LineBlock key={i} l={l} compare={comparing} />
       ))}
-      {isObj(v.state) && str(v.state.direction) !== '' ? (
-        <Section title={t('understanding_direction')} open by={from}>
-          <Markdown text={str(v.state.direction)} />
-        </Section>
-      ) : null}
       {c.changed.after !== '' ? (
         <Section title={t('understanding_changed')} by={from}>
           <Markdown text={c.changed.after} />
@@ -399,7 +397,8 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
   );
 }
 
-/// The kinds of a place to set straight the check of what runs found, in words.
+/// A thing missing or a place to set straight that the plan of what to do next found, as a block: its kind, where, and
+/// the matter it became, which opens in the queue; what is wrong, and each step meant to be taken there.
 function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefined; onMatter: (id: number) => void }) {
   const steps = texts(fix.steps);
   const head = (
@@ -432,56 +431,16 @@ function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefi
   );
 }
 
-/// Where the project stands, as the stage of the architect's that understands it last wrote it, each part naming the
-/// cell and round that wrote it: the state of things with its versions; then, each folded under its title and how many
-/// it holds, where the facts no longer match an earlier judgment and what it could not settle, as blocks; the policy's
-/// check against the constitution, its counts by status in its title, the articles broken and at risk first; and the
-/// check of whether what runs fits, its verdict and why, and each place to set straight with its steps and the matter
-/// it became, which opens in the queue or the log.
-export function UnderstandingView({ u, onRound, onMatter }: {
-  u: Understanding;
-  onRound: OpenRound;
-  onMatter: (id: number) => void;
-}) {
-  if (u.state === null && u.against === null && u.fit === null) return <p className="muted">{t('understanding_none')}</p>;
-  const state = u.state !== null && isObj(u.state.value) ? u.state.value : null;
-  const against = u.against !== null && isObj(u.against.value) ? u.against.value : null;
-  const rows = againstInOrder(against?.against ?? null);
-  const mismatches = objs(state?.mismatches);
+/// What the project is now, as the architect last wrote it, each part naming the cell and round that wrote it: the state
+/// of things with its versions; then, folded under its title and how many it holds, what it could not settle.
+export function UnderstandingView({ u, onRound }: { u: Understanding; onRound: OpenRound }) {
+  if (u.state === null) return <p className="muted">{t('understanding_none')}</p>;
+  const state = isObj(u.state.value) ? u.state.value : null;
   const unclear = objs(state?.unclear);
-  const fromState = u.state !== null ? wroteBy(u.state, onRound) : undefined;
-  const count = (status: string) => rows.filter((r) => str(r.status) === status).length;
-  const counts = (
-    [
-      ['broken', 'against_broken'],
-      ['at_risk', 'against_at_risk'],
-      ['kept', 'against_kept'],
-    ] as const
-  )
-    .filter(([s]) => count(s) > 0)
-    .map(([s, key]) => t(key, { n: count(s) }));
-  const fit = u.fit !== null && isObj(u.fit.value) && isObj(u.fit.value.fit) ? u.fit.value.fit : null;
-  const fixes = objs(fit?.fixes);
-  const verdict = fit !== null ? words(str(fit.verdict)) : '';
   return (
     <>
       {u.versions.length > 0 ? <StateVersions u={u} onRound={onRound} /> : null}
-      <Section title={t('understanding_mismatches')} n={mismatches.length} by={fromState}>
-        {mismatches.map((m, i) => (
-          <Block
-            key={i}
-            head={
-              <strong>
-                <MarkdownInline text={str(m.what)} />
-              </strong>
-            }
-          >
-            <Field label={t('mismatch_fact')} value={m.fact} />
-            <Field label={t('mismatch_involved')} value={m.involved} />
-          </Block>
-        ))}
-      </Section>
-      <Section title={t('understanding_unclear')} n={unclear.length} by={fromState}>
+      <Section title={t('understanding_unclear')} n={unclear.length} by={wroteBy(u.state, onRound)}>
         {unclear.map((x, i) => (
           <Block
             key={i}
@@ -495,37 +454,117 @@ export function UnderstandingView({ u, onRound, onMatter }: {
           </Block>
         ))}
       </Section>
-      {u.against !== null ? (
-        <Section title={[t('understanding_against'), ...counts].join(' · ')} by={wroteBy(u.against, onRound)}>
-          {rows.map((r, i) => (
-            <Block
-              key={i}
-              head={
-                <>
-                  <span className={`badge arch-${str(r.status)}`}>{words(str(r.status))}</span>
-                  <strong>{str(r.article)}</strong>
-                </>
-              }
-            >
-              {str(r.where) !== '' ? (
-                <BlockField label={t('against_where')}>
-                  <MarkdownInline text={str(r.where)} />
-                </BlockField>
-              ) : null}
-              <Markdown text={str(r.grounds)} />
-            </Block>
+    </>
+  );
+}
+
+/// The latest check of whether the policy in force still holds, under the cell and round that made it: its verdict
+/// and why, or each reason it may no longer hold; then the policy against the constitution, its counts by status in
+/// its title, the articles broken and at risk first.
+export function PolicyCheck({ check, onRound }: { check: Said; onRound: OpenRound }) {
+  const value = isObj(check.value) ? check.value : null;
+  const rows = againstInOrder(value?.against ?? null);
+  const verdict = value !== null && isObj(value.verdict) ? value.verdict : null;
+  const reasons = objs(verdict?.reasons);
+  const count = (status: string) => rows.filter((r) => str(r.status) === status).length;
+  const counts = (
+    [
+      ['broken', 'against_broken'],
+      ['at_risk', 'against_at_risk'],
+      ['kept', 'against_kept'],
+    ] as const
+  )
+    .filter(([s]) => count(s) > 0)
+    .map(([s, key]) => t(key, { n: count(s) }));
+  return (
+    <Section
+      title={t('policy_check', { verdict: verdict !== null ? words(str(verdict.verdict)) : '' })}
+      open
+      by={wroteBy(check, onRound)}
+    >
+      {verdict !== null && str(verdict.why) !== '' ? <Markdown text={str(verdict.why)} /> : null}
+      {reasons.map((r, i) => (
+        <Block
+          key={i}
+          head={
+            <>
+              <span className="badge">{words(str(r.kind))}</span>
+              <strong>
+                <MarkdownInline text={str(r.seen)} />
+              </strong>
+            </>
+          }
+        >
+          <Markdown text={str(r.why)} />
+        </Block>
+      ))}
+      <Section title={[t('understanding_against'), ...counts].join(' · ')} n={rows.length}>
+        {rows.map((r, i) => (
+          <Block
+            key={i}
+            head={
+              <>
+                <span className={`badge arch-${str(r.status)}`}>{words(str(r.status))}</span>
+                <strong>{str(r.article)}</strong>
+              </>
+            }
+          >
+            {str(r.where) !== '' ? (
+              <BlockField label={t('against_where')}>
+                <MarkdownInline text={str(r.where)} />
+              </BlockField>
+            ) : null}
+            <Markdown text={str(r.grounds)} />
+          </Block>
+        ))}
+      </Section>
+    </Section>
+  );
+}
+
+/// What to do next under the policy, as the architect last planned it, under the cell and round that planned it: what
+/// matters most, in order; each thing missing; and whether what runs fits, its verdict and why, with each place to set
+/// straight; each thing missing and each place with the matter it became, which opens in the queue.
+export function NextView({ next, onRound, onMatter }: {
+  next: NextPlan;
+  onRound: OpenRound;
+  onMatter: (id: number) => void;
+}) {
+  const plan = next.plan;
+  if (plan === null) return <p className="muted">{t('next_none')}</p>;
+  const value = isObj(plan.value) ? plan.value : null;
+  const first = objs(value?.first);
+  const missing = objs(value?.missing);
+  const fit = value !== null && isObj(value.fit) ? value.fit : null;
+  const fixes = objs(fit?.fixes);
+  return (
+    <>
+      <Section title={t('next_first')} n={first.length} open by={wroteBy(plan, onRound)}>
+        <ol className="arch-list">
+          {first.map((x, i) => (
+            <li key={i}>
+              <strong>
+                <MarkdownInline text={str(x.what)} />
+              </strong>
+              <Markdown text={str(x.why)} />
+            </li>
           ))}
-        </Section>
-      ) : null}
-      {u.fit !== null && fit !== null ? (
+        </ol>
+      </Section>
+      <Section title={t('next_missing')} n={missing.length} open={missing.length > 0}>
+        {missing.map((fix, i) => (
+          <FitPlace key={i} fix={fix} matter={next.matters[i]} onMatter={onMatter} />
+        ))}
+      </Section>
+      {fit !== null ? (
         <Section
-          title={t('understanding_fit', { verdict })}
+          title={t('understanding_fit', { verdict: words(str(fit.verdict)) })}
           n={fixes.length > 0 ? fixes.length : undefined}
-          by={wroteBy(u.fit, onRound)}
+          open
         >
           {str(fit.why) !== '' ? <Markdown text={str(fit.why)} /> : null}
           {fixes.map((fix, i) => (
-            <FitPlace key={i} fix={fix} matter={u.fit_matters[i]} onMatter={onMatter} />
+            <FitPlace key={i} fix={fix} matter={next.matters[missing.length + i]} onMatter={onMatter} />
           ))}
         </Section>
       ) : null}

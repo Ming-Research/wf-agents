@@ -1003,12 +1003,11 @@ CREATE VIEW architect_notes AS
   ORDER BY r.work, r.n;
 
 CREATE VIEW architect_state AS
-  -- Each project's state of things as its architect last wrote it: its latest understanding (cell `U1`),
-  -- with what its wrap-ups learned and every note written since; a round that asked for tools or paused wrote none of
-  -- them. Read by: cells `U1` and `E1`; the owner's interface.
-  SELECT project, work, round, state, direction, learned, notes FROM (
+  -- Each project's state of things as its architect last wrote it: what the project is now, as its latest
+  -- understanding wrote it (cell `U1`), with what its wrap-ups learned and every note written since; a round that asked
+  -- for tools or paused wrote none of them. Read by: cells `U1` and `E1`; the owner's interface.
+  SELECT project, work, round, state, learned, notes FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
-      json_extract(r.output, '$.outcome.direction') AS direction,
       (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
        WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN ('E1', 'wrap_up')
          AND x.transition IS NOT NULL
@@ -1045,9 +1044,12 @@ CREATE VIEW architect_log AS
   WHERE k <= 40;
 
 CREATE VIEW architect_last_fit AS
-  -- Each project's architect's latest answer to whether what runs fits. Read by: cell `N1`.
-  SELECT project, work, round, fit FROM (
-    SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.fit') AS fit,
+  -- Each project's architect's latest plan of what to do next: what was missing, what mattered most, and whether what
+  -- ran fit; a plan of a flow version before what was missing and what mattered most were asked holds only the last.
+  -- Read by: cell `N1`.
+  SELECT project, work, round, missing, first, fit FROM (
+    SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.missing') AS missing,
+      json_extract(r.output, '$.outcome.first') AS first, json_extract(r.output, '$.outcome.fit') AS fit,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
     WHERE w.graph = 'architect' AND r.cell IN ('N1', 'U3', 'fit', 'understand.fit') AND r.transition IS NOT NULL

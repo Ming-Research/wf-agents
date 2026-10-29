@@ -44,7 +44,7 @@ fn sql(e: impl std::fmt::Display) -> String {
 }
 
 /// Puts an action in the outbox, due now.
-fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> Result<(), String> {
+pub(crate) fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: &Value) -> Result<(), String> {
     tx.execute(
         "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, ?2, ?3, ?4)",
         params![work, kind, args.to_string(), db::now()],

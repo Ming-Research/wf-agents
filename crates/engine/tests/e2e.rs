@@ -3349,6 +3349,38 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A new policy that takes effect goes straight on to what to do next under it, in a new session of the architect's line
+// given the state of things the wake wrote and the new policy, and not back through understanding the project.
+#[test]
+fn a_new_policy_goes_straight_on_to_what_to_do_next_in_a_new_session() {
+    let s = setup("policy-next");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "P12");
+    let line = json!({ "line": "The parser", "where": "w", "stuck": "no", "recent": "r", "grounds": "g" });
+    let state = json!({ "outcome": { "state": [line], "changed": "c", "unclear": [] }, "progress": "Seen." });
+    let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
+                         "signals": [{ "what": "s", "how": "h" }] });
+    let written = json!({ "outcome": { "policy": policy, "probes": [] }, "progress": "Written." });
+    let approved = json!({ "ruling": { "choice": "approved", "text": "Yes." } });
+    e.db.write(Actor::Engine, |tx| {
+        record_round(tx, wake, 1, "U1", &state, "understood")?;
+        record_round(tx, wake, 2, "P4", &written, "written")?;
+        record_round(tx, wake, 3, "P11", &approved, "approved")
+    })
+    .unwrap();
+    let next = |e: &mut Engine| cells_of(e, wake).iter().any(|c| c.0 == "N1" && c.1.is_some());
+    assert!(steps_until(&mut e, 6, next), "{}", said.borrow().join("\n"));
+    let log = said.borrow().join("\n");
+    assert_eq!(path_of(&e, wake)[3..5], ["P12", "N1"], "{log}");
+    let lines = line_sessions(&e, wake, "architect");
+    assert_eq!(lines.last().map(|l| l.2.as_str()), Some("N1"), "{lines:?}\n{log}");
+    let m = message_at(&e, wake, "N1", false);
+    let given = given_value(&m, "·U1·state").expect(&m);
+    assert_eq!(given[0]["line"], "The parser", "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Each project has its architect: a message from project p's architect is a matter of project q's architect's queue,
 // which wakes q's architect in a wake of its own; q's answer comes back to p's queue as a message.
 #[test]
@@ -4648,9 +4680,8 @@ fn the_first_wake_is_told_the_week_before_it_and_every_item_not_done() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The numbers the architect is given are measured up to the start of its wake, so they hold through it: the wake's own
-// rounds change nothing, and the next cell that reads them is only referred to them. What each week spent is split
-// between the items' works and the architect's wakes.
+// The numbers the architect is given are measured up to the start of its wake, its own rounds counting for nothing,
+// and what each week spent is split between the items' works and the architect's wakes.
 #[test]
 fn the_numbers_hold_through_a_wake_and_split_what_was_spent() {
     let s = setup("numbers");
@@ -4686,12 +4717,6 @@ fn the_numbers_hold_through_a_wake_and_split_what_was_spent() {
         numbers["weeks"][0]["spent_usd"],
         json!({ "items": 0.5, "architect": 0.25 }),
         "{numbers}"
-    );
-    let policy_right = &inputs_at(&e, wake, "P1")[0];
-    assert_eq!(
-        given_ending(policy_right, "·engine·numbers"),
-        Some(false),
-        "{policy_right}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -4754,14 +4779,16 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
         .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
         .collect();
     let number = |of: &dyn Fn(&flow::CompiledInput) -> bool| numbered.iter().position(|x| of(x)).unwrap() + 1;
-    let constitution = number(&|x| x.from == [flow::format::Src::Engine("constitution".into())]);
+    let before = number(&|x| {
+        x.from
+            == [flow::format::Src::Db {
+                relation: "architect_state".into(),
+                by: Some("project".into()),
+            }]
+    });
     let tools = number(&|x| x.name.as_deref() == Some("Tool results"));
     let listed = |m: &str, n: usize| work_from(m).into_iter().find(|l| l.starts_with(&format!("{n}. ")));
-    assert_eq!(
-        listed(&first, constitution),
-        Some(format!("{constitution}. none")),
-        "{first}"
-    );
+    assert_eq!(listed(&first, before), Some(format!("{before}. none")), "{first}");
     assert_eq!(listed(&first, tools), None, "{first}");
     assert!(listed(&second, tools).is_some_and(|l| l.contains("·X1·")), "{second}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -4778,10 +4805,11 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     agents.insert(
         "P4",
         Box::new(|_: &Request, _: usize| {
-            let policy = json!({ "goal": "Ship the parser.", "why": "Users wait for it.",
-                                 "points": [{ "no": 1, "text": "Parse before checking." }], "stages": ["Lex."],
-                                 "signals": [{ "what": "Speed", "how": "merged" }], "scope": "The front end." });
-            let probes = json!([{ "id": "x", "ask": "What comes first?", "points": [1], "expect": "Point 1." }]);
+            let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
+                                 "principles": [{ "no": 1, "text": "Parse before checking." }],
+                                 "signals": [{ "what": "Speed", "how": "merged" }] });
+            let probes =
+                json!([{ "id": "x", "ask": "What comes first?", "principles": [1], "expect": "Principle 1." }]);
             (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
         }),
     );
@@ -4791,7 +4819,8 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
             if n > 1 {
                 return (Vec::new(), Vec::new());
             }
-            let gaps = json!([{ "what": "The probes x and y", "seen": "It hesitated on x.", "missing": "Point 1." }]);
+            let gaps =
+                json!([{ "what": "The probes x and y", "seen": "It hesitated on x.", "missing": "Principle 1." }]);
             (
                 vec![("outcome.verdict", "gaps")],
                 vec![
@@ -4804,7 +4833,8 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     agents.insert(
         "P8",
         Box::new(|_: &Request, n: usize| {
-            let probe = |id: &str| json!({ "id": id, "ask": "What first?", "points": [1], "expect": "Point 1." });
+            let probe =
+                |id: &str| json!({ "id": id, "ask": "What first?", "principles": [1], "expect": "Principle 1." });
             let probes = if n == 1 {
                 json!([probe("x"), probe("y"), probe("z")])
             } else {
@@ -4870,7 +4900,7 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     )
     .unwrap()
     .iter()
-    .map(|r| r["policy"]["goal"].clone())
+    .map(|r| r["policy"]["direction"].clone())
     .collect();
     assert_eq!(text, [json!("Ship the parser first.")]);
     let rejected: Vec<String> = engine::query_json(
@@ -4943,12 +4973,12 @@ fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays(
         record_round(tx, wake, 2, "P3", &ruling("satisfied"), "satisfied")
     })
     .unwrap();
-    assert_eq!(next_listed(&mut e, wake, 8), "8. none");
+    assert_eq!(next_listed(&mut e, wake, 9), "9. none");
     e.db.write(Actor::Engine, |tx| {
         record_round(tx, wake, 3, "P3", &ruling("policy_stays"), "policy_stays")
     })
     .unwrap();
-    let stays = next_listed(&mut e, wake, 8);
+    let stays = next_listed(&mut e, wake, 9);
     assert!(
         stays.contains("·P2·study") && stays.contains(&format!("R{wake}-3·P3·ruling")),
         "{stays}"
@@ -4965,8 +4995,8 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
     quiet(&mut e);
     let set = |e: &mut Engine, signals: Value| {
         let v = e.flow_now;
-        let policy = json!({ "goal": "g", "why": "w", "points": [{ "no": 1, "text": "t" }], "stages": ["s"],
-                             "signals": signals, "scope": "all" });
+        let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
+                             "signals": signals });
         let written =
             json!({ "outcome": { "policy": policy, "probes": [] }, "progress": "Written.", "tell_owner": [] });
         e.db.write(Actor::Engine, |tx| {
@@ -4977,7 +5007,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
             )?;
             let set = tx.last_insert_rowid();
             record_round(tx, set, 1, "P4", &written, "written")?;
-            record_round(tx, set, 2, "P12", &json!({}), "new_architect")
+            record_round(tx, set, 2, "P12", &json!({}), "next")
         })
         .unwrap();
     };

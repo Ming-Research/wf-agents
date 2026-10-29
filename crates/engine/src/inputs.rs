@@ -210,9 +210,7 @@ pub fn gather(
                     parts.extend(whole);
                     continue;
                 }
-                for path in ["state", "direction"] {
-                    parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), path.into()))?);
-                }
+                parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), "state".into()))?);
                 if let Some(p) = whole {
                     let has = |v: &Value| v.as_array().is_some_and(|xs| xs.iter().any(|x| !x.is_null()));
                     let since: Vec<Value> = p

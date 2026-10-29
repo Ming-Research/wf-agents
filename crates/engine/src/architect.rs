@@ -137,6 +137,11 @@ const UNDERSTOOD_YET: &str = "W1";
 const SETTING_POLICY: &str = "policy";
 const POLICY_CHECK: &str = "P1";
 
+/// The cell a new policy takes effect at, and what to do next under it, which a new session takes up straight after,
+/// given the state of things the wake wrote and the new policy.
+const TAKES_EFFECT: &str = "P12";
+const NEXT: &str = "N1";
+
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
@@ -698,12 +703,15 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 
 /// Whether the wake goes back to understanding the project before a round of the architect's line at a cell: the round
 /// would start a new session there (the owner asked for one, the last was past the limit, or the model changed), past
-/// the understanding and outside the setting of a policy, and a new session holds no state of things and no notes.
+/// the understanding and outside the setting of a policy, and a new session holds no state of things and no notes. A
+/// new policy that just took effect goes straight on to what to do next, whose new session is given the state of things
+/// the wake wrote.
 pub fn understand_first(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<bool, String> {
     if g.name != ARCHITECT
         || cell.line.as_deref() != Some(LINE)
         || cell.id == UNDERSTAND
         || (cell.stage.as_deref() == Some(SETTING_POLICY) && cell.id != POLICY_CHECK)
+        || (cell.id == NEXT && w.pos.from.as_deref() == Some(TAKES_EFFECT))
     {
         return Ok(false);
     }
@@ -1443,6 +1451,27 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
 pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> Result<bool, String> {
     let w = ctx.work.id;
     match name {
+        "tell_owner_unclear" => {
+            // What the understanding could not settle goes to the owner as one message of the round, as an agent's
+            // message does; the notifications log says it too.
+            let rows: Vec<String> = items(Some(&ctx.unwrapped["unclear"]))
+                .iter()
+                .map(|u| format!("- {}: {}", text(&u["what"]), text(&u["why"])))
+                .collect();
+            if !rows.is_empty() {
+                let (_, project) = wake_of(ctx)?;
+                let said = format!(
+                    "What the architect of {project} could not settle about the project now:\n{}",
+                    rows.join("\n")
+                );
+                tx.execute(
+                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
+                    params![ctx.round.work, ctx.round.n, said],
+                )
+                .map_err(sql)?;
+                actions::outbox(tx, Some(w), "notify", &json!({ "text": said }))?;
+            }
+        }
         "queue_fixes" => {
             let (_, project) = wake_of(ctx)?;
             let fit = &ctx.unwrapped["fit"];
@@ -1645,6 +1674,30 @@ fn names_date(text: &str) -> bool {
     })
 }
 
+/// The first item a policy's text names by its number, as `#12` or `item 12`; none when it names none.
+fn names_item(policy: &Value) -> Option<String> {
+    let text = policy.to_string();
+    if let Some(i) = text
+        .as_bytes()
+        .windows(2)
+        .position(|w| w[0] == b'#' && w[1].is_ascii_digit())
+    {
+        let n: String = text[i + 1..].chars().take_while(char::is_ascii_digit).collect();
+        return Some(format!("#{n}"));
+    }
+    let words: Vec<&str> = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    words
+        .windows(2)
+        .find(|w| {
+            (w[0].eq_ignore_ascii_case("item") || w[0].eq_ignore_ascii_case("items"))
+                && w[1].chars().all(|c| c.is_ascii_digit())
+        })
+        .map(|w| format!("item {}", w[1]))
+}
+
 /// The cells of the flow a text names: as the flow's own texts name one ([`flow::cells_named`]), or by its name after
 /// the word cell, as `cell Q1`; a name alone is a word.
 fn names_cell(e: &Engine, text: &str) -> Option<String> {
@@ -1668,9 +1721,9 @@ fn names_cell(e: &Engine, text: &str) -> Option<String> {
     None
 }
 
-/// The point numbers of a policy.
-fn point_numbers(policy: &Value) -> Vec<i64> {
-    items(policy.get("points"))
+/// The numbers of a policy's principles.
+fn principle_numbers(policy: &Value) -> Vec<i64> {
+    items(policy.get("principles"))
         .iter()
         .filter_map(|p| p["no"].as_i64())
         .collect()
@@ -1745,9 +1798,9 @@ pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
 }
 
 /// A policy with a correction's edits applied in order: each passage changed is in its texts, as the edits before
-/// leave them, exactly once, and is replaced there; a point, stage or signal added goes last, a point numbered after
-/// the highest; one removed is taken out, the other points keeping their numbers. When an edit does not apply, none
-/// is, and why each does not is said, each by its number.
+/// leave them, exactly once, and is replaced there; a principle or signal added goes last, a principle numbered after
+/// the highest; one removed is taken out, the other principles keeping their numbers. When an edit does not apply,
+/// none is, and why each does not is said, each by its number.
 pub fn applied(policy: &Value, edits: &[Value]) -> Result<Value, String> {
     let mut p = policy.clone();
     let mut problems: Vec<String> = Vec::new();
@@ -1766,19 +1819,18 @@ pub fn applied(policy: &Value, edits: &[Value]) -> Result<Value, String> {
                     ));
                 }
             }
-            "add_point" => {
-                let no = point_numbers(&p).into_iter().max().unwrap_or(0) + 1;
-                push_row(&mut p, "points", json!({ "no": no, "text": x["text"] }));
+            "add_principle" => {
+                let no = principle_numbers(&p).into_iter().max().unwrap_or(0) + 1;
+                push_row(&mut p, "principles", json!({ "no": no, "text": x["text"] }));
             }
-            "add_stage" => push_row(&mut p, "stages", x["text"].clone()),
             "add_signal" => push_row(&mut p, "signals", json!({ "what": x["what"], "how": x["how"] })),
             "remove" => {
-                // A point by its number; a stage or a signal by its place in its list, from 1.
+                // A principle by its number; a signal by its place in its list, from 1.
                 let no = x["no"].as_i64().unwrap_or_default();
                 let part = text(&x["part"]);
                 let list = format!("{part}s");
                 let rows = items(p.get(&list));
-                let at = if part == "point" {
+                let at = if part == "principle" {
                     rows.iter().position(|q| q["no"].as_i64() == Some(no))
                 } else {
                     usize::try_from(no - 1).ok().filter(|i| *i < rows.len())
@@ -2159,17 +2211,23 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if names_date(&text) {
                 return Err("the policy names a date".into());
             }
+            if let Some(item) = names_item(&policy) {
+                return Err(format!(
+                    "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
+                     into it"
+                ));
+            }
             Ok(())
         }
-        "probes_cover_points" => {
+        "probes_cover_principles" => {
             let probes = items(v);
             let Some(policy) = revised(c, at)? else { return Ok(()) };
-            let numbers = point_numbers(&policy);
+            let numbers = principle_numbers(&policy);
             for p in &probes {
-                for n in items(p.get("points")).iter().filter_map(Value::as_i64) {
+                for n in items(p.get("principles")).iter().filter_map(Value::as_i64) {
                     if !numbers.contains(&n) {
                         return Err(format!(
-                            "the probe {} names point {n}, which the text does not have",
+                            "the probe {} names principle {n}, which the text does not have",
                             p["id"]
                         ));
                     }
@@ -2178,9 +2236,9 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             for n in numbers {
                 let probed = probes
                     .iter()
-                    .any(|p| items(p.get("points")).iter().any(|x| x.as_i64() == Some(n)));
+                    .any(|p| items(p.get("principles")).iter().any(|x| x.as_i64() == Some(n)));
                 if !probed {
-                    return Err(format!("point {n} has no probe"));
+                    return Err(format!("principle {n} has no probe"));
                 }
             }
             Ok(())
@@ -2230,8 +2288,8 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 .iter()
                 .filter_map(|r| r["no"].as_i64())
                 .collect();
-            if let Some(n) = point_numbers(&policy).into_iter().find(|n| !restated.contains(n)) {
-                return Err(format!("point {n} is not restated"));
+            if let Some(n) = principle_numbers(&policy).into_iter().find(|n| !restated.contains(n)) {
+                return Err(format!("principle {n} is not restated"));
             }
             let answered: Vec<String> = items(reading.get("answers"))
                 .iter()
@@ -3550,33 +3608,34 @@ mod tests {
     }
 
     // A correction's edits apply in order: a passage changed where it is once, as the edits before leave the text, a
-    // point added after the highest, rows removed; when one does not apply, none does, and each that does not is named.
+    // principle added after the highest, rows removed; when one does not apply, none does, and each that does not is
+    // named.
     #[test]
     fn a_correction_s_edits_apply_in_order_or_not_at_all() {
-        let policy = json!({ "goal": "Ship the parser.", "why": "Users wait.", "scope": "The parser.",
-                             "points": [{ "no": 1, "text": "Parse first." }, { "no": 2, "text": "Check second." }],
-                             "stages": ["Lex.", "Parse."], "signals": [{ "what": "Speed", "how": "merged" }] });
+        let policy = json!({ "direction": "The parser first: a parser others build on.", "why": "Users wait.",
+                             "principles": [{ "no": 1, "text": "Parse first." }, { "no": 2, "text": "Check second." }],
+                             "signals": [{ "what": "Speed", "how": "merged" }, { "what": "Bugs", "how": "reports" }] });
         let edits = [
             json!({ "kind": "change", "old": "Users wait.", "new": "Users wait for it." }),
             json!({ "kind": "change", "old": "for it", "new": "for the parser" }),
-            json!({ "kind": "add_point", "text": "Measure third." }),
-            json!({ "kind": "remove", "part": "point", "no": 1 }),
-            json!({ "kind": "remove", "part": "stage", "no": 1 }),
+            json!({ "kind": "add_principle", "text": "Measure third." }),
+            json!({ "kind": "remove", "part": "principle", "no": 1 }),
+            json!({ "kind": "remove", "part": "signal", "no": 2 }),
             json!({ "kind": "add_signal", "what": "Size", "how": "design_bytes" }),
         ];
         let p = applied(&policy, &edits).unwrap();
         assert_eq!(p["why"], "Users wait for the parser.");
         assert_eq!(
-            p["points"],
+            p["principles"],
             json!([{ "no": 2, "text": "Check second." }, { "no": 3, "text": "Measure third." }])
         );
-        assert_eq!(p["stages"], json!(["Parse."]));
         assert_eq!(p["signals"][1]["what"], "Size");
+        assert_eq!(p["signals"].as_array().map(Vec::len), Some(2));
         let wrong = [
             json!({ "kind": "change", "old": "parser", "new": "lexer" }),
             json!({ "kind": "change", "old": "Users wait.", "new": "Users wait long." }),
             json!({ "kind": "change", "old": "Nowhere.", "new": "Somewhere." }),
-            json!({ "kind": "remove", "part": "stage", "no": 5 }),
+            json!({ "kind": "remove", "part": "signal", "no": 5 }),
         ];
         let why = applied(&policy, &wrong).unwrap_err();
         assert!(
@@ -3587,8 +3646,21 @@ mod tests {
             why.contains("edit 3 (change): its old passage is in the text 0 times"),
             "{why}"
         );
-        assert!(why.contains("edit 4 (remove): the text has no stage 5"), "{why}");
+        assert!(why.contains("edit 4 (remove): the text has no signal 5"), "{why}");
         assert!(!why.contains("edit 2"), "{why}");
+    }
+
+    #[test]
+    fn a_policy_names_no_item() {
+        assert_eq!(names_item(&json!({ "why": "As #12 showed." })).as_deref(), Some("#12"));
+        assert_eq!(
+            names_item(&json!({ "direction": "Finish item 7 first." })).as_deref(),
+            Some("item 7")
+        );
+        assert_eq!(
+            names_item(&json!({ "direction": "Items come in by principle 2." })),
+            None
+        );
     }
 
     #[test]

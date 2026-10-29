@@ -296,6 +296,10 @@ pub struct Rule {
     /// The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lines: Vec<String>,
+    /// What a cell given any of must be given the rule with, by an engine input's name, a table's or a view's, or a
+    /// cell's return place as `cell·place`: the compiler refuses an agent's cell given one of them without the rule.
+    #[serde(default, rename = "givenWith", skip_serializing_if = "Vec::is_empty")]
+    pub given_with: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

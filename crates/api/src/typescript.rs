@@ -92,6 +92,7 @@ pub fn typescript() -> String {
         decl::<Draft>(&cfg),
         decl::<Reading>(&cfg),
         decl::<Understanding>(&cfg),
+        decl::<NextPlan>(&cfg),
         decl::<StateVersion>(&cfg),
         decl::<Spend>(&cfg),
         decl::<ApiError>(&cfg),
