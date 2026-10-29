@@ -601,14 +601,14 @@ fn an_item_goes_from_the_queue_to_main() {
     })
     .collect();
     for c in [
-        "start:started",
-        "implement:tools",
-        "tools:ran",
+        "S0:started",
+        "I1:tools",
+        "X1:ran",
         "T2:review_first",
         "T3:done",
         "M2:merged",
-        "watch_main:green",
-        "end:-",
+        "L1:green",
+        "E1:-",
     ] {
         assert!(cells.iter().any(|x| x == c), "no round {c}: {cells:?}\n{log}");
     }
@@ -4045,7 +4045,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
     assert_eq!((lines[0].0.as_str(), lines[0].1), ("line", true), "{lines:?}");
     assert!(lines[0].2.starts_with("R1,") && !lines[0].2.contains("I1"), "{lines:?}");
-    assert_eq!(lines[1], ("cell".to_string(), false, "implement,implement".to_string()));
+    assert_eq!(lines[1], ("cell".to_string(), false, "I1,I1".to_string()));
     let rounds = agent_rounds(&e, item);
     let implements: Vec<&Value> = rounds.iter().filter(|r| r.1 == "I1").map(|r| &r.2).collect();
     assert_eq!(given(implements[0], "format:common"), Some(true));
@@ -4103,7 +4103,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
         item_address.as_str(),
         "·D2·acceptance",
         "·D2·design",
-        "·implement·conditions",
+        "·I1·conditions",
     ] {
         assert_eq!(
             given_ending(fixes[0], end),
@@ -4769,7 +4769,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     );
     assert_eq!(listed(&first, tools), None, "{first}");
     assert!(
-        listed(&second, tools).is_some_and(|l| l.contains("·tools·")),
+        listed(&second, tools).is_some_and(|l| l.contains("·X1·")),
         "{second}"
     );
     let _ = std::fs::remove_dir_all(&s.root);

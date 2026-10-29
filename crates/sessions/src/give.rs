@@ -459,7 +459,7 @@ mod tests {
             round(
                 4,
                 record(&[
-                    ("R1-3·tools·results", &results),
+                    ("R1-3·X1·results", &results),
                     ("R1-4·T4·columns[findings]", &findings),
                     ("R1-4·engine·work_ci", &ci),
                 ]),
@@ -507,7 +507,7 @@ mod tests {
         let new = [
             changed,
             one(
-                "R1-9·tools·results",
+                "R1-9·X1·results",
                 json!({ "results": [{ "tool": "query", "ran": { "rows": [2] } }] }),
             ),
             one(

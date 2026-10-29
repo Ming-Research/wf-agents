@@ -256,13 +256,13 @@ mod tests {
     #[test]
     fn a_round_is_named_by_its_work_and_number() {
         assert_eq!(
-            round_of("R5-28·implement·end.test_changes[added]"),
+            round_of("R5-28·I1·end.test_changes[added]"),
             Some(RoundId::new(5, 28))
         );
         assert_eq!(RoundId::new(5, 28).to_string(), "R5-28");
         assert_eq!(round_of("rule:ground"), None);
         // An address written before rounds were named by their work names no round.
-        assert_eq!(round_of("R28·implement·end.test_changes[added]"), None);
+        assert_eq!(round_of("R28·I1·end.test_changes[added]"), None);
     }
 
     // What the engine computes as the architect's standard context is known by its input, whichever round gave it; what
