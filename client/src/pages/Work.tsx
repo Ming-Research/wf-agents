@@ -375,7 +375,8 @@ function runsNow(w: WorkSummary, c: Course): boolean {
 
 /// What a work's chart marks: what it did at each cell (the cell it is at, whether a round runs there and why the work
 /// waits there while none does), the cell the halo goes round, how many times it took each arrow, and the arrows the
-/// round chosen came in by and left by.
+/// round chosen came in by and left by; `flow`, the work's flow, gives the arrows to the circles beside the actions
+/// that start a task of another graph, which the work takes with the rows through those actions.
 export function workMarks(
   g: CompiledGraph,
   v: GraphView,
@@ -385,8 +386,9 @@ export function workMarks(
   status: Status | null,
   halo: string | null,
   round: number | null = null,
+  flow: Compiled | null = null,
 ) {
-  const model = chart(g, v);
+  const model = chart(g, v, flow?.engine ?? null, flow?.graphs ?? []);
   return {
     overlays: overlays(rounds, w.at, { running: runsNow(w, c), waits: waitOf(c, w, status) }),
     halo,
@@ -452,7 +454,7 @@ function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled:
       compiled={compiled}
       graphs={graphs}
       legend="work"
-      marks={[workMarks(g, v, d.work, d.rounds, c, status, halo, r.round)]}
+      marks={[workMarks(g, v, d.work, d.rounds, c, status, halo, r.round, compiled)]}
       cell={r.cell}
       onCell={(c) => go({ round: null, cell: c })}
       start={roundCell ?? d.work.at}

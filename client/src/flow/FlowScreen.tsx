@@ -4,7 +4,8 @@
 // interjection, a comparison or a round is open, its panel is in the lower part, split from the top by a divider that
 // drags; on the architect's page what is open takes the place of the panel's list, with a way back to it; on the flow
 // page that panel is alone, while something is open. The flow page, a work's page and the architect's page all show a
-// flow this way.
+// flow this way. A circle to or from another graph opens the cell it names, brought into view, where that graph is
+// drawn; on a page that does not draw it, the page shows it elsewhere.
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -76,6 +77,9 @@ export type FlowScreenProps = {
   side?: ReactNode | ((open: ReactNode | null) => ReactNode);
   /// When what is open takes the place of a list: the list's name, which the way back to it says.
   list?: string;
+  /// Called with a cell of a graph this page does not draw, which a circle to or from another graph leads to: the
+  /// page shows it where that graph is drawn.
+  onGraph?: (graph: string, cell: string) => void;
 };
 
 const DOCK_KEY = 'wf-agents.dock-width';
@@ -168,6 +172,7 @@ export function FlowScreen(props: FlowScreenProps) {
     renderRound,
     side,
     list,
+    onGraph,
   } = props;
   const [width, setWidth] = useState<number | null>(() => savedSize(DOCK_KEY, DOCK_MIN));
   const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
@@ -217,7 +222,7 @@ export function FlowScreen(props: FlowScreenProps) {
   );
   // Each graph's chart, for the panel of the actions on a line, which names the rows through them.
   const charts = useMemo(
-    () => new Map(graphs.map(({ g, view }) => [g.name, chart(g, view, compiled.engine)])),
+    () => new Map(graphs.map(({ g, view }) => [g.name, chart(g, view, compiled.engine, compiled.graphs)])),
     [graphs, compiled],
   );
   const first = graphs[0];
@@ -297,6 +302,20 @@ export function FlowScreen(props: FlowScreenProps) {
         open({ kind: 'cell', graph, cell: p.from }, { kind: 'cell', graph, cell: p.cell });
         into(p.from, false, graph);
         break;
+      case 'graph': {
+        if (!graphs.some((x) => x.g.name === p.to)) {
+          onGraph?.(p.to, p.cell);
+          break;
+        }
+        const back: Subject =
+          p.beside.kind === 'action'
+            ? { kind: 'action', graph, node: p.beside.node }
+            : { kind: 'cell', graph, cell: p.beside.cell };
+        pickCell(p.to, p.cell);
+        open({ kind: 'cell', graph: p.to, cell: p.cell }, back);
+        into(p.cell, false, p.to);
+        break;
+      }
     }
   };
   const titleOf = (s: Subject): string => {
@@ -484,6 +503,7 @@ export function FlowScreen(props: FlowScreenProps) {
             graphs={graphs}
             marks={chartMarks}
             engine={compiled.engine}
+            every={compiled.graphs}
             store={openStore}
             start={start}
             startGraph={startGraph}

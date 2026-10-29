@@ -10,11 +10,14 @@
 // legend with a mark on each cell that does not; half or fewer, as a line from each cell that does. The way back from
 // such a move is drawn for no cell: an answer back to whichever cell asked goes only into the cells whose own answers
 // asked. What the engine does when a round ends in no return is the same for every cell and not drawn. The places the
-// engine keeps what it writes are drawn apart (`stores.tsx`). Pure, so that it is tested on its own.
+// engine keeps what it writes are drawn apart (`stores.tsx`). Where a task of another graph starts and where its end
+// comes back, as the flow names them, are drawn on the graph that starts it: a circle beside the actions on a line that
+// start it, naming that graph's start cell, and one above the cell the matter its end queues comes to, for each cell of
+// that graph that queues it. Pure, so that it is tested on its own.
 
 import type { Atom, CompiledCell, CompiledGraph, CompiledRow, EngineNames, GraphView, RoundSummary } from '../api';
 
-export type NodeKind = 'cell' | 'out' | 'in' | 'rule' | 'interjection' | 'action' | 'does';
+export type NodeKind = 'cell' | 'out' | 'in' | 'rule' | 'interjection' | 'action' | 'does' | 'to' | 'from';
 
 export type ChartNode = {
   id: string;
@@ -23,10 +26,13 @@ export type ChartNode = {
   part: string;
   /// The stage box it sits in, or the asking part's box; none for no box.
   group: string | null;
-  /// The cell it is, or sits beside; for the actions on a line, the cell the line leads into.
+  /// The cell it is, or sits beside; for the actions on a line and a circle beside them, the cell the line leads into.
   cell: string;
   /// For a circle, the cell it leads to or comes from; for a rule, the rule.
   other: string | null;
+  /// For a circle to or from another graph (`to`, beside the actions that start a task of it; `from`, beside the cell
+  /// the matter its end queues comes to): that graph, whose cell `other` is; none for every other node.
+  graph: string | null;
   /// For the actions on a line and those a cell does every time: the actions, by name, in order.
   actions: string[];
 };
@@ -259,8 +265,14 @@ export function letterOf(id: string): string {
   return m ? m[1] : '';
 }
 
-/// The chart of a graph; `engine`, the flow's engine part, says what the values a step decides by read.
-export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null = null): Chart {
+/// The chart of a graph; `engine`, the flow's engine part, says what the values a step decides by read and which tasks
+/// of another graph an action starts, and `every` holds the flow's graphs, that of such a task among them.
+export function chart(
+  g: CompiledGraph,
+  v: GraphView,
+  engine: EngineNames | null = null,
+  every: CompiledGraph[] = [],
+): Chart {
   const ms = moves(g);
   const drawn = new Set(ms.filter((m) => m.tier === 'lines').map((m) => m.row));
   const parts = partsOf(g, v, drawn);
@@ -274,7 +286,8 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     return stage ? `stage:${stage}` : null;
   };
   const nodes = new Map<string, ChartNode>();
-  const node = (n: Omit<ChartNode, 'part' | 'group' | 'actions'> & { beside?: string; actions?: string[] }) => {
+  type Made = Omit<ChartNode, 'part' | 'group' | 'actions' | 'graph'>;
+  const node = (n: Made & { beside?: string; actions?: string[]; graph?: string }) => {
     if (nodes.has(n.id)) return;
     const at = n.beside ?? n.cell;
     nodes.set(n.id, {
@@ -282,6 +295,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       kind: n.kind,
       cell: n.cell,
       other: n.other,
+      graph: n.graph ?? null,
       actions: n.actions ?? [],
       part: parts.get(at) ?? MAIN,
       group: groupOf(at),
@@ -418,6 +432,33 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       const id = `j:${c.id}`;
       node({ id, kind: 'interjection', cell: c.id, other: null });
       plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'interjection');
+    }
+  }
+  // Where a task of another graph starts and where its end comes back, on the graph whose rows start it. The arrow to
+  // the circle beside the actions draws the rows through them, as the arrow out of them does; the line from a circle
+  // into the cell the matter comes to is named by the rows of that graph's cell that queue it.
+  const across = (id: string, source: string, target: string, through: ChartEdge['through'], label: string) =>
+    edges.set(id, { id, source, target, cell: null, rows: [], through, label, main: false, kind: 'row' });
+  for (const [action, task] of Object.entries(engine?.tasks ?? {})) {
+    const other = every.find((x) => x.name === task.graph);
+    const starts = g.cells.some((c) => c.rows.some((r) => !fallback(r) && rowActions(r).includes(action)));
+    if (other === undefined || other.name === g.name || !starts) continue;
+    for (const a of [...nodes.values()].filter((n) => n.kind === 'action' && n.actions.includes(action))) {
+      const id = `to:${other.name}:${a.id}`;
+      nodes.set(id, { ...a, id, kind: 'to', other: other.start, graph: other.name, actions: [] });
+      const through = [...edges.values()]
+        .filter((e) => e.target === a.id)
+        .flatMap((e) => (e.cell !== null ? e.rows.map((row) => ({ cell: e.cell ?? '', row })) : []));
+      across(`${a.id}->${id}`, a.id, id, through, '');
+    }
+    if (!cells.has(task.into)) continue;
+    for (const c of other.cells) {
+      const rows = c.rows.filter((r) => !fallback(r) && rowActions(r).includes(task.queues));
+      if (rows.length === 0) continue;
+      const id = `from:${other.name}:${c.id}:${task.into}`;
+      node({ id, kind: 'from', cell: task.into, other: c.id, graph: other.name });
+      const names = [...new Set(rows.map((r) => r.name))].join(', ');
+      across(`${id}->${cellNode(task.into)}`, id, cellNode(task.into), [], names);
     }
   }
   for (const e of edges.values()) {

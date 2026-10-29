@@ -66,6 +66,24 @@ pub struct EngineNames {
     /// an entry, and a step that reads a store no input of its cell names has one too.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reads: BTreeMap<String, Reads>,
+    /// The tasks of another graph an action starts, by the action: what graph, and where its end comes back. The
+    /// engine does nothing by it; the owner's chart draws from it where the task starts and where its end comes back
+    /// in. None in a flow version stored before the flow said it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tasks: BTreeMap<String, Task>,
+}
+
+/// A task of another graph that an action on a row starts beside the work that took the row: a work of that graph,
+/// which starts at its start cell and, as it ends, queues a matter for the graph that started it.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Task {
+    /// The graph the task is a work of.
+    pub graph: String,
+    /// The action on that graph's rows that queues the matter as the task ends.
+    pub queues: String,
+    /// The cell of the graph that started the task that the matter's path leads to.
+    pub into: String,
 }
 
 /// A place the engine keeps something in, which a cell or the owner writes and a cell reads later.

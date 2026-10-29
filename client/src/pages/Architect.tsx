@@ -475,13 +475,16 @@ function Panel({ route, a, d, g, go, onRound }: {
 }
 
 /// The architect's graph filling the window, with the wake shown placed on it, and the docked column: the panel in its
-/// upper half, the conversation in its lower half.
-function Chart({ route, a, wake, d, compiled, view, go }: {
+/// upper half, the conversation in its lower half. A circle to or from another graph goes to that cell on the flow
+/// page, which draws every graph.
+function Chart({ route, a, wake, d, compiled, version, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   wake: Wake | null;
   d: WorkDetail | null;
   compiled: Compiled;
+  /// The stored flow version the chart draws.
+  version: number | null;
   view: FlowView;
   go: (to: Partial<ArchitectRoute>) => void;
 }) {
@@ -507,7 +510,7 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       legend={d !== null ? 'work' : 'flow'}
       marks={[
         d !== null && c !== null
-          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.wake === id ? route.round : null)
+          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.wake === id ? route.round : null, compiled)
           : BARE,
       ]}
       cell={route.cell}
@@ -520,6 +523,9 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
       list={t(TAB_NAMES[route.tab])}
       side={(open) => open ?? <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
+      onGraph={(graph, cell) =>
+        navigate(href({ page: 'flow', version, project: null, ref: null, from: null, graph, cell }))
+      }
     />
   );
 }
@@ -559,7 +565,9 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
           <Loaded r={compiled}>
             {(c) => (
               <Loaded r={view}>
-                {(v) => <Chart route={route} a={a} wake={wake} d={d} compiled={c} view={v} go={go} />}
+                {(v) => (
+                  <Chart route={route} a={a} wake={wake} d={d} compiled={c} version={version} view={v} go={go} />
+                )}
               </Loaded>
             )}
           </Loaded>

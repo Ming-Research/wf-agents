@@ -3855,6 +3855,13 @@
           "sessions"
         ]
       }
+    },
+    "tasks": {
+      "start_policy": {
+        "graph": "policy",
+        "queues": "queue_policy_set",
+        "into": "N1"
+      }
     }
   },
   "rules": [

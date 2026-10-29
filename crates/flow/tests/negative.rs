@@ -120,6 +120,24 @@ case!(
 case!(a_tool_cell_with_no_step, "names its step", |v| {
     obj(node(v, "X1")).remove("step");
 });
+// A task of another graph that an action starts, which the owner's chart draws, names what there is.
+case!(a_task_of_no_such_graph, "task start_policy: no such graph: nope", |v| {
+    v["engine"]["tasks"]["start_policy"]["graph"] = json!("nope");
+});
+case!(
+    a_task_whose_end_no_row_of_its_graph_queues,
+    "task start_policy: no row of the graph policy does lock_acceptance",
+    |v| {
+        v["engine"]["tasks"]["start_policy"]["queues"] = json!("lock_acceptance");
+    }
+);
+case!(
+    a_task_whose_matter_leads_to_no_cell_of_the_graph_that_starts_it,
+    "task start_policy: no cell X9 in the graph architect",
+    |v| {
+        v["engine"]["tasks"]["start_policy"]["into"] = json!("X9");
+    }
+);
 case!(
     a_form_leaving_out_what_does_not_come_every_time,
     "a form leaves out a field",

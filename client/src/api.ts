@@ -2051,7 +2051,13 @@ writes?: { [key in string]: Array<string> },
  * What each of the engine's values reads, in a few words for the chart, and the stores it reads; each value has
  * an entry, and a step that reads a store no input of its cell names has one too.
  */
-reads?: { [key in string]: Reads }, };
+reads?: { [key in string]: Reads }, 
+/**
+ * The tasks of another graph an action starts, by the action: what graph, and where its end comes back. The
+ * engine does nothing by it; the owner's chart draws from it where the task starts and where its end comes back
+ * in. None in a flow version stored before the flow said it.
+ */
+tasks?: { [key in string]: Task }, };
 
 /**
  * A place the engine keeps something in, which a cell or the owner writes and a cell reads later.
@@ -2087,6 +2093,24 @@ export type Reads = {
  * What it is worked out from, in a few words, as the chart says it under the cell; every value has it.
  */
 says?: string | null, stores?: Array<string>, };
+
+/**
+ * A task of another graph that an action on a row starts beside the work that took the row: a work of that graph,
+ * which starts at its start cell and, as it ends, queues a matter for the graph that started it.
+ */
+export type Task = { 
+/**
+ * The graph the task is a work of.
+ */
+graph: string, 
+/**
+ * The action on that graph's rows that queues the matter as the task ends.
+ */
+queues: string, 
+/**
+ * The cell of the graph that started the task that the matter's path leads to.
+ */
+into: string, };
 
 export type ToolUse = { name: string, runs: string, };
 

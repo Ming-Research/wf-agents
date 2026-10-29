@@ -749,6 +749,8 @@ const messages = {
   chart_stage_letter: 'Stage {letter}: {stage}',
   chart_out_title: 'Goes to {cell}',
   chart_in_title: 'Comes from {cell}',
+  chart_to_title: "Goes to {cell} in the {graph}'s graph, where a task of its own starts",
+  chart_from_title: "Comes from {cell} in the {graph}'s graph, which queued this matter as the task ended",
   chart_rule_title: 'Rule {rule}',
   chart_interjection_title: 'The interjection: this engine step takes one',
   chart_lacks: 'no {move}',
@@ -794,6 +796,10 @@ const messages = {
   legend_shared_action: '{action} ({at})',
   legend_out: 'a row to another part of the chart',
   legend_in: 'a row from another part of the chart',
+  legend_to:
+    'named with another graph, beside the actions on a line: the cell of that graph where a task of its own they start begins',
+  legend_from:
+    'named with another graph, above a cell: the cell of that graph that queued the matter coming to it, as the task ended',
   legend_main: 'a row on the main path',
   legend_current: 'the cell the work is at',
   legend_running:

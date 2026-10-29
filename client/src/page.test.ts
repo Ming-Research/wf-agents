@@ -43,6 +43,7 @@ import { moveWords } from './graph/FlowChart';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
 import {
   ASKING,
+  type Chart,
   chart,
   HALO_HOLD,
   HALO_STEP,
@@ -58,6 +59,7 @@ import {
   taken,
 } from './graph/flowModel';
 import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
+import { attachments, layUnit } from './graph/units';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
@@ -529,6 +531,38 @@ const engine: EngineNames = {
   reads: { gates: { says: 'dependencies merged', stores: ['merged'] } },
 };
 
+// A graph of a task that the actions `lock` start: its start, and a step whose two rows queue the matter its end sends
+// back, which comes to `m`.
+const side: CompiledGraph = {
+  ...graph,
+  name: 'side',
+  start: 'y',
+  end: 'e',
+  asking: [],
+  rules: [],
+  interject: null,
+  cells: [
+    cell('y', [row('found', 'w', { main: true })], { kind: 'engine', line: null, stage: 'side' }),
+    cell('w', [row('kept', 'e', { do: ['finish'] }), row('set', 'e', { do: ['notify', 'finish'] })], {
+      kind: 'engine',
+      line: null,
+      stage: 'side',
+    }),
+    cell('e', [], { kind: 'engine', line: null, stage: 'side' }),
+  ],
+};
+const sideView: GraphView = {
+  ...view,
+  name: 'side',
+  cells: side.cells.map((c) => ({
+    id: c.id,
+    targets: c.rows.map((r) => [r.to]),
+    entered_from: side.cells.flatMap((x) => x.rows.flatMap((r, i) => (r.to === c.id ? [{ cell: x.id, row: i }] : []))),
+    inputs: [],
+    returns: { within: null, forms: [], every: [], used_by: [] },
+  })),
+};
+
 describe('the chart of a flow', () => {
   const c = chart(graph, view, engine);
   const node = (id: string) => c.nodes.find((n) => n.id === id);
@@ -679,6 +713,58 @@ describe('the chart of a flow', () => {
     // Back to where the work stopped: from the cell whose row decided it.
     expect(node('i:t:a')).toMatchObject({ kind: 'in', cell: 'a' });
     expect(edge('i:t:a->c:a')).toMatchObject({ label: 'failed' });
+  });
+
+  it('draws where a task of another graph starts and where its end comes back, on the graph that starts it alone', () => {
+    const tasks: EngineNames = { ...engine, tasks: { lock: { graph: 'side', queues: 'finish', into: 'm' } } };
+    const every = [graph, side];
+    const x = chart(graph, view, tasks, every);
+    const marks = (y: Chart) => y.nodes.filter((n) => n.kind === 'to' || n.kind === 'from').map((n) => n.id);
+    const to = 'to:side:a:b:lock+post';
+    // Beside the actions on the rows into b, which lock: a circle naming the side graph's start, the arrow to it
+    // drawing the rows through them.
+    const node2 = (id: string) => x.nodes.find((n) => n.id === id);
+    expect(node2(to)).toMatchObject({ kind: 'to', graph: 'side', other: 'y', cell: 'b', part: MAIN });
+    expect(x.edges.find((e) => e.id === `a:b:lock+post->${to}`)).toMatchObject({
+      source: 'a:b:lock+post',
+      cell: null,
+      label: '',
+      main: false,
+      through: [
+        { cell: 'a', row: 1 },
+        { cell: 'c', row: 1 },
+      ],
+    });
+    // Above m, where the matter the task's end queues comes: a circle naming the cell that queues it, its line named by
+    // the rows that do.
+    expect(node2('from:side:w:m')).toMatchObject({ kind: 'from', graph: 'side', other: 'w', cell: 'm' });
+    expect(x.edges.find((e) => e.id === 'from:side:w:m->c:m')).toMatchObject({ label: 'kept, set', cell: null });
+    expect(marks(x)).toEqual([to, 'from:side:w:m']);
+    // Pointing at a row into the actions lights the arrow to the circle with the way on.
+    expect(related(x.edges, 'c:a->a:b:lock+post')).toEqual(
+      new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b', `a:b:lock+post->${to}`]),
+    );
+    // The task's own graph draws none, nor a flow that names no task, nor a chart given no other graph.
+    expect(marks(chart(side, sideView, tasks, every))).toEqual([]);
+    expect(marks(chart(graph, view, engine, every))).toEqual([]);
+    expect(marks(chart(graph, view, tasks))).toEqual([]);
+    // Each laid out beside what it belongs to: the circle from the side graph with m, the one to it with the actions,
+    // on their right, level with their middle.
+    const owner = attachments(x.nodes, x.edges);
+    expect(owner.get('from:side:w:m')).toBe('c:m');
+    expect(owner.get(to)).toBe('a:b:lock+post');
+    const actions = node2('a:b:lock+post');
+    const circle = node2(to);
+    if (actions === undefined || circle === undefined) throw new Error('no actions or circle');
+    const size = (id: string) => (id === to ? { width: 80, height: 38 } : { width: 120, height: 46 });
+    const links = x.edges.filter((e) => e.target === to);
+    const u = layUnit(actions, [circle], links, size, () => null, { top: 2, bottom: 1 });
+    expect(u.boxes.get('a:b:lock+post')).toEqual({ x: 0, y: 0, width: 120, height: 46 });
+    expect(u.boxes.get(to)).toEqual({ x: 144, y: 4, width: 80, height: 38 });
+    expect(u.links.get(`a:b:lock+post->${to}`)?.points).toEqual([
+      { x: 120, y: 23 },
+      { x: 144, y: 23 },
+    ]);
   });
 
   it('puts the rules beside the cells given them and the interjection beside the steps that take one', () => {

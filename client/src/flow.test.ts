@@ -20,8 +20,9 @@ const { compiled, view } = JSON.parse(stored) as { compiled: Compiled; view: Flo
 
 /// How a graph's layout reads, in the chart's pixels: the total length of the arrows of rows (`rows`); the longest
 /// level piece of any arrow (`run`); how many times the arrows bend (`bends`); how far each node drawn beside a cell
-/// (its circles, rules, interjection and what it does every time) is from the cell, the farthest (`far`) and all of
-/// them together (`beside`); and how many arrows of rows, arrows and nodes beside a cell there are.
+/// (its circles, those from another graph among them, rules, interjection and what it does every time) is from the
+/// cell, the farthest (`far`) and all of them together (`beside`); and how many arrows of rows, arrows and nodes
+/// beside a cell there are.
 type Measures = {
   rows: number;
   run: number;
@@ -59,7 +60,7 @@ function measures(c: Chart, laid: Laid): Measures {
   let beside = 0;
   let besideNodes = 0;
   for (const n of c.nodes) {
-    if (!['in', 'out', 'rule', 'interjection', 'does'].includes(n.kind)) continue;
+    if (!['in', 'out', 'from', 'rule', 'interjection', 'does'].includes(n.kind)) continue;
     const a = laid.nodes.get(n.id);
     const b = laid.nodes.get(cellNode(n.cell));
     if (a === undefined || b === undefined) continue;
@@ -143,7 +144,7 @@ describe('the flow as the engine stores it', () => {
     // The graphs side by side with the stores between the first two, each drawing 24 px inside its sheet, as the
     // chart places them.
     const pad = 24;
-    const charts = graphs.map(({ g, v }) => chart(g, v, engine));
+    const charts = graphs.map(({ g, v }) => chart(g, v, engine, compiled.graphs));
     const laid = await Promise.all(
       graphs.map(({ g }, i) => {
         const c = charts[i];
@@ -199,7 +200,7 @@ describe('the flow as the engine stores it', () => {
 
   it("lays each graph out with short arrows, short level runs, few bends and what is beside a cell next to it", async () => {
     for (const { g, v } of graphs) {
-      const c = chart(g, v, engine);
+      const c = chart(g, v, engine, compiled.graphs);
       const measured = sizes(g, c);
       const edges = new Map(c.edges.map((e) => [e.id, e]));
       const laid = await layoutChart(
@@ -240,7 +241,7 @@ describe('the flow as the engine stores it', () => {
       });
 
       it('draws every cell, every arrow between two of its nodes, and each node at a size', () => {
-        const c = chart(g, v, engine);
+        const c = chart(g, v, engine, compiled.graphs);
         const nodes = new Set(c.nodes.map((n) => n.id));
         for (const cell of g.cells) expect(nodes.has(cellNode(cell.id)), cell.id).toBe(true);
         for (const e of c.edges) {
@@ -257,7 +258,7 @@ describe('the flow as the engine stores it', () => {
       });
 
       it('lays the actions on lines into a cell out just above it, in its box, with no cell between', async () => {
-        const c = chart(g, v, engine);
+        const c = chart(g, v, engine, compiled.graphs);
         const measured = sizes(g, c);
         const edges = new Map(c.edges.map((e) => [e.id, e]));
         const laid = await layoutChart(
@@ -286,7 +287,7 @@ describe('the flow as the engine stores it', () => {
       });
 
       it('draws the way back from an ask only into the cells whose own answers asked', () => {
-        const c = chart(g, v, engine);
+        const c = chart(g, v, engine, compiled.graphs);
         const views = new Map(v.cells.map((x) => [x.id, x]));
         const asked = (t: string, by: string) =>
           (g.cells.find((x) => x.id === t)?.rows ?? []).some(
@@ -307,7 +308,7 @@ describe('the flow as the engine stores it', () => {
       });
 
       it("draws no move as the main path, only a cell's own answers", () => {
-        const c = chart(g, v, engine);
+        const c = chart(g, v, engine, compiled.graphs);
         const cells = new Map(g.cells.map((x) => [x.id, x]));
         for (const e of c.edges) {
           const rows = [
@@ -344,4 +345,37 @@ describe('the flow as the engine stores it', () => {
       });
     });
   }
+
+  it('draws where the setting of a policy starts and where its end comes back on the architect graph alone', () => {
+    for (const { g, v } of graphs) {
+      const c = chart(g, v, engine, compiled.graphs);
+      const marks = c.nodes.filter((n) => n.kind === 'to' || n.kind === 'from');
+      if (g.name !== 'architect') {
+        expect(marks.map((n) => n.id), g.name).toEqual([]);
+        continue;
+      }
+      // Beside the actions on P1's set_again, which start the setting: a circle to P2, the policy graph's start.
+      const to = marks.filter((n) => n.kind === 'to');
+      expect(to.map((n) => [n.graph, n.other])).toEqual([['policy', 'P2']]);
+      const into = c.edges.filter((e) => e.target === to[0].id);
+      const actions = c.nodes.find((n) => n.id === into[0]?.source);
+      expect(actions?.kind).toBe('action');
+      expect(actions?.actions).toContain('start_policy');
+      const name = (x: { cell: string; row: number }) => g.cells.find((y) => y.id === x.cell)?.rows[x.row].name;
+      const rows = into.flatMap((e) => e.through.map((x) => `${x.cell} ${name(x)}`));
+      expect(rows).toEqual(['P1 set_again']);
+      // Above N1, where the matter the setting's end queues comes: a circle from P12, where the new policy takes
+      // effect, and one from P3, where the owner says the policy in force stays, each line named by the row.
+      const from = marks.filter((n) => n.kind === 'from');
+      expect(from.map((n) => [n.graph, n.other, n.cell])).toEqual([
+        ['policy', 'P3', 'N1'],
+        ['policy', 'P12', 'N1'],
+      ]);
+      expect(from.map((n) => c.edges.find((e) => e.source === n.id && e.target === cellNode('N1'))?.label)).toEqual([
+        'policy_stays',
+        'next',
+      ]);
+    }
+    expect(graphs.some(({ g }) => g.name === 'architect')).toBe(true);
+  });
 });
