@@ -1,12 +1,11 @@
 // What a round's panel reads from a round, apart from how it draws it: the message as sent, cut at its headings, a
 // long part folded with its size and its share of the message; a value given or handed back, laid out by the JSON
-// Schema of where it belongs (each key with what the schema says it is, the value of an enum or a const with what it
-// means, the alternative of a `oneOf` or `anyOf` the value is, and in a list of objects each key's note once, at the
-// list's head) and by its JSON type wherever the schema says nothing of it; and where an agent's round spent its tokens
-// and its cost.
+// Schema of where it belongs, each field under the title the flow gives it, found by the place's path, a value the
+// schema fixes (a kind) apart, and by its JSON type wherever the schema says nothing of it; and where an agent's round
+// spent its tokens and its cost.
 
 import type { JsonValue, RoundTokens } from './api';
-import { isObj, type Obj } from './labelled';
+import { isObj, type Obj, words } from './labelled';
 import { t } from './text';
 
 /// A part of a message as sent: a heading line, or the lines between two headings, exactly as they are.
@@ -29,7 +28,7 @@ export function messageParts(message: string): Part[] {
   return parts;
 }
 
-/// A part longer than this many characters is folded.
+/// A text longer than this many characters is folded to its first three lines.
 export const FOLD_AT = 1000;
 
 /// How many characters a text has, as a reader counts them.
@@ -43,63 +42,44 @@ export function share(n: number, total: number): string {
   return p === 0 && n > 0 ? '<1%' : `${p}%`;
 }
 
-/// The label of a folded part, in the page's words: its size and its share of the message to open it, its size to
-/// fold it again.
-export function foldLabel(n: number, total: number, open: boolean): string {
-  const size = n.toLocaleString('en-US');
-  return open ? t('fold_hide', { n: size }) : t('fold_show', { n: size, share: share(n, total) });
+/// What the control that opens a folded part of a message adds after its size: the part's share of the message, and
+/// for the task, that it is the cell's, the same every round.
+export function shareWords(n: number, total: number, task: boolean): string {
+  return t(task ? 'long_share_task' : 'long_share', { share: share(n, total) });
 }
 
-/// The first few lines of a folded part, as they are, shown before it is opened: the first three after any empty
-/// lines it starts with, no more than 300 characters of them.
-export function preview(text: string): string {
-  const lines = text.split('\n');
-  const first = lines.findIndex((l) => l.trim() !== '');
-  const head = lines.slice(Math.max(first, 0), Math.max(first, 0) + 3).join('\n');
-  return Array.from(head).slice(0, 300).join('');
+/// A field's title, as the flow gives it by the field's path (`understanding.grounds[verified].claim`), or that of
+/// the same path with its branches taken out; for a flow version stored before fields had titles, its key in words.
+export function titleOf(titles: Record<string, string> | undefined, path: string, key: string): string {
+  const own = titles?.[path];
+  if (own !== undefined) return own;
+  const bare = (p: string) => p.replace(/\[[^\]]*\]/g, '');
+  const want = bare(path);
+  for (const [p, title] of Object.entries(titles ?? {})) if (bare(p) === want) return title;
+  const w = words(key);
+  return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
-/// A table of more rows than this is folded, its first `ROWS_PREVIEW` rows showing.
-export const ROWS_FOLD_AT = 10;
-export const ROWS_PREVIEW = 3;
-
-/// The label of a folded table, in the page's words: how many rows it has, to open it or to fold it again.
-export function rowsLabel(n: number, open: boolean): string {
-  const rows = n.toLocaleString('en-US');
-  return open ? t('fold_rows_hide', { n: rows }) : t('fold_rows_show', { n: rows });
-}
-
-/// A value laid out by its schema: a text, a number, a boolean or null as JSON writes it, an empty list or object,
-/// an object by its keys in its own order, a list by its items in order; a list of objects the schema lists no fields
-/// of, each holding only texts, numbers, booleans and nulls (the rows a query found), as a table, a column for each
-/// key any of them has, in the order they first come, and a row for each, a key a row lacks left empty. A list of two
-/// or more objects has a head that gives each key's note once (`head`), its items then holding only the notes the
-/// items do not share.
+/// A value laid out by its schema: a text; a number, a boolean or null as JSON writes it; a value the schema fixes
+/// (a const, or one of an enum's values), which is a kind; an empty list or object; an object by its fields in its
+/// own order; a list by its items in order.
 export type Shown =
   | { kind: 'text'; text: string }
   | { kind: 'plain'; text: string }
+  | { kind: 'fixed'; text: string }
   | { kind: 'empty'; text: string }
   | { kind: 'fields'; fields: ShownField[] }
-  | { kind: 'list'; items: ShownItem[]; head?: HeadKey[] }
-  | { kind: 'table'; columns: string[]; rows: Array<Array<string | null>> };
+  | { kind: 'list'; items: Shown[] };
 
-/// A key of an object with its value, and what the schema says of it: the note beside the key, and the whole of what
-/// the schema says, for hovering, when the note is shorter; for a list that is not empty, how many items it holds.
-export type ShownField = { key: string; note: string | null; full: string | null; count: string | null; value: Shown };
-
-/// A key of the objects of a list as the list's head gives it, once for them all: its note and the whole of it, none
-/// when the objects' notes for it differ (as the meanings of an enum's different values), and the keys under it, of
-/// an object or of the objects of a list it holds.
-export type HeadKey = { key: string; note: string | null; full: string | null; under: HeadKey[] };
-
-/// An item of a list, with what its value means when the schema says.
-export type ShownItem = { note: string | null; value: Shown };
+/// A field of an object with its value: its key and the title the flow gives the place, none where the schema does
+/// not describe the key, which is then shown by its key alone.
+export type ShownField = { key: string; title: string | null; value: Shown };
 
 export type ShapeOptions = {
-  /// The key of an agent's return that holds exactly one of its forms.
+  /// The key of an agent's return that holds exactly one of its forms: the form's fields are at the places' root.
   within?: string;
-  /// What the form a return holds is, by its alternative in the schema of `within`.
-  form?: (alternative: number) => string | null;
+  /// The titles of the places of the return, by their paths.
+  titles?: Record<string, string>;
 };
 
 const props = (s: Obj): Obj => (isObj(s.properties) ? s.properties : {});
@@ -144,9 +124,10 @@ function fits(s: Obj, v: JsonValue): boolean {
   return required.every((k) => typeof k === 'string' && k in v) && (s.additionalProperties !== false || Object.keys(v).every((k) => k in p));
 }
 
-/// The alternative of a `oneOf` or `anyOf` a value is, with its place among them: the one whose fixed value of the
-/// field every alternative fixes is the value's, else the first the value fits; none when it is none of them.
-export function branch(s: Obj, v: JsonValue): { schema: Obj; at: number } | null {
+/// The alternative of a `oneOf` or `anyOf` a value is, with its place among them and, where a field every alternative
+/// fixes tells them apart, the value it fixes: the one whose fixed value is the value's, else the first the value
+/// fits; none when it is none of them.
+export function branch(s: Obj, v: JsonValue): { schema: Obj; at: number; value?: string } | null {
   const alts = alternatives(s);
   if (alts === null) return fits(s, v) ? { schema: s, at: -1 } : null;
   const first = alts[0];
@@ -158,7 +139,7 @@ export function branch(s: Obj, v: JsonValue): { schema: Obj; at: number } | null
   if (disc !== undefined) {
     if (!isObj(v)) return null;
     const at = alts.findIndex((a) => fixed(a, disc)?.const === v[disc]);
-    return at >= 0 ? { schema: alts[at], at } : null;
+    return at >= 0 ? { schema: alts[at], at, value: String(v[disc]) } : null;
   }
   const at = alts.findIndex((a) => fits(a, v));
   return at >= 0 ? { schema: alts[at], at } : null;
@@ -166,59 +147,13 @@ export function branch(s: Obj, v: JsonValue): { schema: Obj; at: number } | null
 
 /// The schema a value is read by: the alternative it is of one of several, the schema itself when the value is of
 /// the type it names, none when the schema does not describe the value.
-function resolve(s: Obj | null, v: JsonValue): { schema: Obj; at: number } | null {
+function resolve(s: Obj | null, v: JsonValue): { schema: Obj; at: number; value?: string } | null {
   if (s === null) return null;
   if (alternatives(s) !== null) return branch(s, v);
-  return typeFits(s, v) ? { schema: s, at: -1 } : null;
+  return typeFits(s, v) || 'const' in s || Array.isArray(s.enum) ? { schema: s, at: -1 } : null;
 }
 
-/// A description with the meaning of each value folded into it, as the compiler writes it (`<desc>. Values: <value>:
-/// <means>; …`), taken apart: the description before, and each value's meaning; a description written otherwise is
-/// kept whole, and no value's meaning is known.
-export function valueMeanings(desc: string | null, values: string[]): { desc: string | null; means: Map<string, string> } {
-  const none = { desc, means: new Map<string, string>() };
-  const first = values[0];
-  if (desc === null || first === undefined) return none;
-  const at = desc.lastIndexOf(`Values: ${first}: `);
-  if (at < 0) return none;
-  const before = desc.slice(0, at).trimEnd().replace(/\.$/, '').trimEnd();
-  let rest = desc.slice(at + 'Values: '.length);
-  const means = new Map<string, string>();
-  for (const [i, v] of values.entries()) {
-    if (!rest.startsWith(`${v}: `)) return none;
-    const after = rest.slice(v.length + 2);
-    const next = values[i + 1];
-    const end = next === undefined ? after.length : after.indexOf(`; ${next}: `);
-    if (end < 0) return none;
-    means.set(v, after.slice(0, end));
-    rest = after.slice(end + 2);
-  }
-  return { desc: before === '' ? null : before, means };
-}
-
-/// What a fixed value means: a const's description, or the meaning an enum's description gives the value.
-function meaning(s: Obj | null, v: JsonValue): string | null {
-  if (s === null || typeof v !== 'string') return null;
-  const desc = typeof s.description === 'string' ? s.description : null;
-  if ('const' in s) return s.const === v ? desc : null;
-  if (!Array.isArray(s.enum) || !s.enum.includes(v)) return null;
-  const values = s.enum.filter((x): x is string => typeof x === 'string');
-  return valueMeanings(desc, values).means.get(v) ?? null;
-}
-
-/// What a schema says a key is: its description, or that of a list's items, an enum's without its values.
-function described(s: Obj | null): string | null {
-  if (s === null) return null;
-  const own = typeof s.description === 'string' ? s.description : null;
-  const items = isObj(s.items) && typeof s.items.description === 'string' ? s.items.description : null;
-  const desc = own ?? items;
-  if (desc !== null && Array.isArray(s.enum)) {
-    return valueMeanings(desc, s.enum.filter((x): x is string => typeof x === 'string')).desc;
-  }
-  return desc;
-}
-
-/// A long description, for a note, as its first sentence or clause; the whole is read on hovering.
+/// A long description, for a note, as its first sentence or clause.
 export function brief(text: string): string {
   if (text.length <= 120) return text;
   const m = /[.;:] /g;
@@ -228,88 +163,29 @@ export function brief(text: string): string {
   return text;
 }
 
-function note(text: string | null): { note: string | null; full: string | null } {
-  if (text === null || text.trim() === '') return { note: null, full: null };
-  const short = brief(text);
-  return { note: short, full: short === text ? null : text };
-}
-
 /// A value, laid out by the schema of where it belongs; with no schema, or where the value is not what the schema
-/// describes, by its JSON type alone. A list of two or more objects gives each key's note once, at its head.
+/// describes, by its JSON type alone.
 export function shape(value: JsonValue, schema: JsonValue | null | undefined, o: ShapeOptions = {}): Shown {
-  return headed(shapeAt(value, isObj(schema) ? schema : null, o, 0));
+  return shapeAt(value, isObj(schema) ? schema : null, o, '', 0);
 }
 
-/// A value with each list of two or more objects headed by its keys' notes, given once there: an item keeps a note
-/// only where the items' notes for that key differ. The objects of lists inside such a list share its head, outermost
-/// first, so that a note is given once however deep it is.
-function headed(v: Shown): Shown {
-  if (v.kind === 'fields') return { kind: 'fields', fields: v.fields.map((f) => ({ ...f, value: headed(f.value) })) };
-  if (v.kind !== 'list') return v;
-  const objects = v.items.flatMap((x) => (x.value.kind === 'fields' ? [x.value.fields] : []));
-  if (v.items.length < 2 || objects.length < v.items.length) {
-    return { kind: 'list', items: v.items.map((x) => ({ ...x, value: headed(x.value) })) };
+/// The path of a place under a branch: the branch's fixed value in brackets.
+const under = (path: string, r: { value?: string } | null) => (r?.value !== undefined ? `${path}[${r.value}]` : path);
+
+function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, path: string, depth: number): Shown {
+  if (typeof v === 'string') {
+    const fixed = s !== null && ('const' in s || Array.isArray(s.enum));
+    return { kind: fixed ? 'fixed' : 'text', text: v };
   }
-  const head = headOf(objects);
-  return { kind: 'list', head, items: v.items.map((x) => ({ ...x, value: bare(x.value, head) })) };
-}
-
-/// The objects a value holds for a head: itself when it is one, the items of a list that are objects.
-function objectsIn(v: Shown): ShownField[][] {
-  if (v.kind === 'fields') return [v.fields];
-  if (v.kind === 'list') return v.items.flatMap((x) => (x.value.kind === 'fields' ? [x.value.fields] : []));
-  return [];
-}
-
-/// The head of objects: each key in the order it first comes, with its note when every object that has it gives the
-/// same, and the keys under it; a key with no note and nothing under it is left out, as the head has nothing to say
-/// of it.
-function headOf(objects: ShownField[][]): HeadKey[] {
-  const keys = [...new Set(objects.flatMap((fs) => fs.map((f) => f.key)))];
-  return keys.flatMap((key): HeadKey[] => {
-    const fs = objects.flatMap((o) => o.filter((f) => f.key === key));
-    const same = fs.every((f) => f.note === fs[0].note);
-    const under = headOf(fs.flatMap((f) => objectsIn(f.value)));
-    const note = same ? fs[0].note : null;
-    if (note === null && under.length === 0) return [];
-    return [{ key, note, full: note !== null ? (fs.find((f) => f.full !== null)?.full ?? null) : null, under }];
-  });
-}
-
-/// A value of an object under a head, with the notes the head gives taken off, deep as the head goes.
-function bare(v: Shown, head: HeadKey[]): Shown {
-  if (head.length === 0) return v;
-  if (v.kind === 'list') return { kind: 'list', items: v.items.map((x) => ({ ...x, value: bare(x.value, head) })) };
-  if (v.kind !== 'fields') return v;
-  return {
-    kind: 'fields',
-    fields: v.fields.map((f) => {
-      const h = head.find((x) => x.key === f.key);
-      if (h === undefined) return f;
-      const given = h.note !== null && h.note === f.note;
-      return { ...f, note: given ? null : f.note, full: given ? null : f.full, value: bare(f.value, h.under) };
-    }),
-  };
-}
-
-function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, depth: number): Shown {
-  if (typeof v === 'string') return { kind: 'text', text: v };
   if (v === null || typeof v !== 'object') return { kind: 'plain', text: JSON.stringify(v) };
   if (Array.isArray(v)) {
     if (v.length === 0) return { kind: 'empty', text: '[]' };
     const items = s !== null && isObj(s.items) ? s.items : null;
-    const flat = (x: JsonValue) => isObj(x) && Object.values(x).every((y) => y === null || typeof y !== 'object');
-    if ((items === null || (!isObj(items.properties) && alternatives(items) === null)) && v.every(flat)) {
-      const columns = [...new Set(v.flatMap((x) => (isObj(x) ? Object.keys(x) : [])))];
-      const cellText = (y: JsonValue | undefined) => (y === undefined ? null : typeof y === 'string' ? y : JSON.stringify(y));
-      return { kind: 'table', columns, rows: v.map((x) => columns.map((c) => (isObj(x) ? cellText(x[c]) : null))) };
-    }
     return {
       kind: 'list',
       items: v.map((x) => {
-        const r = resolve(items, x)?.schema ?? null;
-        const means = meaning(r, x);
-        return { note: means !== null ? t('shape_means', { meaning: brief(means) }) : null, value: shapeAt(x, r, o, depth + 1) };
+        const r = resolve(items, x);
+        return shapeAt(x, r?.schema ?? null, o, under(path, r), depth + 1);
       }),
     };
   }
@@ -323,13 +199,11 @@ function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, depth: number): S
       const ks = isObj(own) ? own : null;
       const x = v[k];
       const r = resolve(ks, x);
-      const means = meaning(r?.schema ?? null, x);
-      const form = depth === 0 && k === o.within && r !== null && r.at >= 0 ? (o.form?.(r.at) ?? null) : null;
-      let said = note(form ?? (means !== null ? t('shape_means', { meaning: means }) : described(ks)));
-      if (form !== null || means !== null) said = { note: said.note, full: described(ks) ?? said.full };
-      const count =
-        Array.isArray(x) && x.length > 0 ? t(x.length === 1 ? 'shape_one_item' : 'shape_items', { n: x.length }) : null;
-      return { key: k, note: said.note, full: said.full, count, value: shapeAt(x, r?.schema ?? null, o, depth + 1) };
+      // The forms of an agent's return are at the places' root: their fields are named as the cell's own.
+      const form = depth === 0 && k === o.within;
+      const at = form ? '' : path === '' ? k : `${path}.${k}`;
+      const title = ks === null || form ? null : titleOf(o.titles, at, k);
+      return { key: k, title, value: shapeAt(x, r?.schema ?? null, o, form ? '' : under(at, r), depth + 1) };
     }),
   };
 }
@@ -407,6 +281,8 @@ export type SpentPart = {
   whole: string;
   /// Which of the shares the bar and the key colour it is: read again from the cache, newly cached or output.
   share?: 'read' | 'new' | 'output';
+  /// A fact of the round, its steps or its context, rather than a share of its cost.
+  fact?: boolean;
 };
 
 /// Where an agent's round spent its tokens and its cost: its steps; its context at its start (where the round before
@@ -445,13 +321,13 @@ export function spent(x: RoundTokens, model: string | null): Spent {
   const total = costs !== null ? costs.input + costs.read + costs.written + costs.output : 0;
   const parts: SpentPart[] = [];
   const steps = t(x.steps === 1 ? 'spent_step' : 'spent_steps', { n: x.steps });
-  parts.push({ text: steps, title: null, whole: steps });
+  parts.push({ text: steps, title: null, whole: steps, fact: true });
   if (x.context_end !== null) {
     const text =
       x.context_before !== null
         ? t('spent_context', { before: tokens(x.context_before), end: tokens(x.context_end) })
         : t('spent_context_end', { end: tokens(x.context_end) });
-    parts.push({ text, title: t(x.context_before !== null ? 'spent_context_hint' : 'spent_context_end_hint'), whole: text });
+    parts.push({ text, title: t(x.context_before !== null ? 'spent_context_hint' : 'spent_context_end_hint'), whole: text, fact: true });
   }
   const part = (key: SpentKey, n: number, c: number | null, title: string) => {
     if (n === 0) return;

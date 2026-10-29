@@ -17,6 +17,7 @@ import './styles/parts.css';
 import './styles/cards.css';
 import './styles/item.css';
 import './styles/screen.css';
+import './styles/panels.css';
 import './styles/flow.css';
 import './styles/settings.css';
 import './styles/charts.css';
@@ -27,7 +28,6 @@ import './styles/items.css';
 import './styles/system.css';
 import './styles/chart.css';
 import './styles/messages.css';
-import './styles.css';
 
 const root = document.getElementById('root');
 if (root) {

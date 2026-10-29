@@ -30,7 +30,7 @@ const said = (f: Finding) => `${f.file}:${f.line}: ${f.rule}: ${f.text}`;
 describe('the page against its UI spec', () => {
   it('writes every colour, size and spacing as a token, and never makes muted text bold', () => {
     // The check reads the page's styles and code where they are, as they are written.
-    expect(Object.keys(css)).toEqual(expect.arrayContaining(['styles.css', 'styles/base.css', 'styles/item.css']));
+    expect(Object.keys(css)).toEqual(expect.arrayContaining(['styles/panels.css', 'styles/base.css', 'styles/item.css']));
     expect(Object.keys(code)).toEqual(expect.arrayContaining(['main.tsx', 'pages/Item.tsx', 'graph/flowDraw.tsx']));
     expect(css['styles/base.css']).toContain('var(--fgColor-default)');
     expect(code['pages/Item.tsx']).toContain('PageHeader');

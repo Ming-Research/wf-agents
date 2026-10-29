@@ -15,12 +15,13 @@ import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
 import { LinkButton } from '../parts';
 import { t } from '../text';
-import { CellPanel, type CellTab, cellWhere } from './CellPanel';
+import { CellPanel, type CellSection, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
-import { CellLinks, inline } from './words';
+import { CellLinks, inline, sheetText } from './words';
+import { chars, counted, Name, Part, Sheet } from '../voices';
 
 const same = (a: Subject, b: Subject) => subjectKey(a) === subjectKey(b);
 
@@ -82,34 +83,36 @@ const DOCK_MIN = 320;
 const SPLIT_KEY = 'wf-agents.dock-split';
 const SPLIT_MIN = 120;
 
+/// A rule of the flow: its text, as the cells given it are sent it, and the cells it is given to.
 function RulePanel({ name }: { name: string }) {
   return (
     <FlowContext.Consumer>
       {(f) => {
         const rule = f?.g.rules.find((r) => r.name === name);
         const at = f?.g.cells.filter((c) => (c.rules ?? []).some((r) => r.name === name)).map((c) => c.id) ?? [];
+        const text = (rule?.text ?? []).join('\n');
         return (
-          <>
-            <section className="ds">
-              <h4>{t('sec_rule_text')}</h4>
-              <ul className="bl">
+          <div className="pp-page">
+            <Part title={t('sec_rule_text')} code={`rule:${name}`} facts={t('chars', { n: counted(chars(text)) })}>
+              <Sheet>
                 {(rule?.text ?? []).map((l, i) => (
-                  <li key={i}>{inline(l)}</li>
+                  <p key={i}>{sheetText(l)}</p>
                 ))}
-              </ul>
-            </section>
-            <section className="ds">
-              <h4>{t('sec_rule_at')}</h4>
-              <p className="fmt">{inline(t('rule_at_note', { address: `\`rule:${name}\`` }))}</p>
+              </Sheet>
+            </Part>
+            <Part title={t('sec_rule_at')}>
+              <p className="pp-note">{inline(t('rule_at_note', { address: `\`rule:${name}\`` }))}</p>
               <CellLinks ids={at} />
-            </section>
-          </>
+            </Part>
+          </div>
         );
       }}
     </FlowContext.Consumer>
   );
 }
 
+/// The interjection: who may interject, and what the agents are told of it, as they are sent it; and the steps that
+/// take one.
 function InterjectionPanel() {
   return (
     <FlowContext.Consumer>
@@ -118,31 +121,28 @@ function InterjectionPanel() {
         if (!f || !ij) return null;
         const steps = f.g.cells.filter((c) => c.kind !== 'agent' && c.rows.some((r) => r.interject)).map((c) => c.id);
         return (
-          <>
-            <section className="ds">
-              <h4>{t('sec_ij_from')}</h4>
-              <ul className="bl">
+          <div className="pp-page">
+            <Part title={t('sec_ij_from')}>
+              <Sheet>
                 {ij.from.map((x) => (
-                  <li key={x.name}>
-                    <strong>{x.name}</strong>: {inline(x.desc)}
-                  </li>
+                  <p key={x.name}>
+                    <Name>{x.name}</Name>: {sheetText(x.desc)}
+                  </p>
                 ))}
-              </ul>
-            </section>
-            <section className="ds">
-              <h4>{t('sec_ij_text')}</h4>
-              <ul className="bl">
+              </Sheet>
+            </Part>
+            <Part title={t('sec_ij_text')}>
+              <Sheet>
                 {ij.text.map((l, i) => (
-                  <li key={i}>{inline(l)}</li>
+                  <p key={i}>{sheetText(l)}</p>
                 ))}
-              </ul>
-            </section>
-            <section className="ds">
-              <h4>{t('sec_ij_at')}</h4>
-              <p className="fmt">{inline(t('ij_agents'))}</p>
+              </Sheet>
+            </Part>
+            <Part title={t('sec_ij_at')}>
+              <p className="pp-note">{inline(t('ij_agents'))}</p>
               <CellLinks ids={steps} />
-            </section>
-          </>
+            </Part>
+          </div>
         );
       }}
     </FlowContext.Consumer>
@@ -179,6 +179,16 @@ export function FlowScreen(props: FlowScreenProps) {
   const [picked, setPicked] = useState<{ graph: string; node: string } | { store: string } | null>(null);
   // The tab of a cell's panel the owner chose last: going to another cell keeps it.
   const [cellTab, setCellTab] = useState<CellTab | null>(null);
+  // The sections of a cell's page the owner opened: going to another cell keeps them.
+  const [cellOpen, setCellOpen] = useState<Set<CellSection>>(new Set());
+  const onCellOpen = (x: CellSection, o: boolean) =>
+    setCellOpen((was) => {
+      if (was.has(x) === o) return was;
+      const n = new Set(was);
+      if (o) n.add(x);
+      else n.delete(x);
+      return n;
+    });
   const open = (s: Subject, from?: Subject) =>
     trail.open(withGraph(s, graphs), from !== undefined ? withGraph(from, graphs) : undefined);
   const pickCell = (graph: string | undefined, c: string) =>
@@ -336,13 +346,14 @@ export function FlowScreen(props: FlowScreenProps) {
           body: (
             <CellPanel
               c={c}
-              rows={now.rows}
               work={work}
               rounds={rounds?.filter((r) => r.cell === c.id)}
               onRound={onRound ? (r) => open({ kind: 'round', round: r.n }) : undefined}
               diff={diff?.graphs.find((d) => d.name === x.g.name)?.cells.find((d) => d.id === c.id) ?? null}
               tab={cellTab}
               onTab={setCellTab}
+              open={cellOpen}
+              onOpen={onCellOpen}
             />
           ),
         };

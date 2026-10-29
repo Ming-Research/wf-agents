@@ -8,20 +8,21 @@ import type { CompiledGraph } from '../api';
 import type { Graph } from '../graph/FlowChart';
 import { actionWords, type Chart } from '../graph/flowModel';
 import { storeUses, writesOf } from '../graph/stores';
+import { LinkButton } from '../parts';
 import { t } from '../text';
-import { Section } from './CellPanel';
+import { Named, Pairs, Part } from '../voices';
 import { useFlow } from './context';
 import { inline } from './words';
 
-/// A cell of a graph, by its id and title, that opens its panel in that graph.
+/// A cell of a graph, by its code and title, that opens its panel in that graph.
 function CellIn({ g, id, extra }: { g: CompiledGraph; id: string; extra?: string | null }) {
   const f = useFlow();
   const c = g.cells.find((x) => x.id === id);
   return (
-    <button type="button" className="go" onClick={() => f.open({ kind: 'cell', cell: id, graph: g.name })}>
-      <strong>{id}</strong> {c?.title ?? ''}
-      {extra ? <span className="go-extra"> · {extra}</span> : null}
-    </button>
+    <LinkButton onClick={() => f.open({ kind: 'cell', cell: id, graph: g.name })}>
+      <span className="cell-id">{id}</span> {c?.title ?? ''}
+      {extra ? ` · ${extra}` : null}
+    </LinkButton>
   );
 }
 
@@ -29,15 +30,13 @@ function CellIn({ g, id, extra }: { g: CompiledGraph; id: string; extra?: string
 function StoreLinks({ names }: { names: string[] }) {
   const f = useFlow();
   const stores = f.compiled.engine.stores ?? {};
-  if (names.length === 0) return <span className="muted">{t('none')}</span>;
+  if (names.length === 0) return <span className="pp-facts">{t('none')}</span>;
   return (
-    <span className="links">
+    <span>
       {names.map((n, i) => (
         <Fragment key={n}>
           {i > 0 ? ', ' : null}
-          <button type="button" className="go" onClick={() => f.open({ kind: 'store', store: n })}>
-            {stores[n]?.title ?? n}
-          </button>
+          <LinkButton onClick={() => f.open({ kind: 'store', store: n })}>{stores[n]?.title ?? n}</LinkButton>
         </Fragment>
       ))}
     </span>
@@ -49,37 +48,32 @@ function StoreLinks({ names }: { names: string[] }) {
 export function ActionPanel({ chart, node }: { chart: Chart; node: string }) {
   const f = useFlow();
   const n = chart.nodes.find((x) => x.id === node);
-  if (n === undefined) return <p className="fmt">{t('none')}</p>;
+  if (n === undefined) return <p className="pp-note">{t('none')}</p>;
   const into = chart.edges.filter((e) => e.target === node && e.cell !== null);
   return (
-    <>
-      <Section title={t('sec_actions')}>
-        <ul className="bl">
-          {n.actions.map((a) => (
-            <li key={a}>
-              <strong>{actionWords(a)}</strong> <code>{a}</code>
-              <div className="fd">{f.compiled.engine.actions[a] ?? ''}</div>
-              <div className="srcs">
-                <span className="ul">{t('action_writes')}</span>
-                <StoreLinks names={writesOf(f.compiled.engine, [a])} />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Section>
-      <Section title={t('sec_action_lines')}>
-        <ul className="bl">
-          {into.map((e) => (
-            <li key={e.id}>
-              <CellIn g={f.g} id={e.cell ?? ''} extra={e.label} />
-            </li>
-          ))}
-        </ul>
-        <p className="fmt">
+    <div className="pp-page">
+      <Part title={t('sec_actions')}>
+        {n.actions.map((a) => (
+          <div key={a} className="pp-part">
+            <Named title={actionWords(a)} code={a} as="h4" />
+            <p className="pp-note">{f.compiled.engine.actions[a] ?? ''}</p>
+            <p className="pp-note">
+              {t('action_writes')} <StoreLinks names={writesOf(f.compiled.engine, [a])} />
+            </p>
+          </div>
+        ))}
+      </Part>
+      <Part title={t('sec_action_lines')}>
+        {into.map((e) => (
+          <div key={e.id}>
+            <CellIn g={f.g} id={e.cell ?? ''} extra={e.label} />
+          </div>
+        ))}
+        <p className="pp-note">
           {t('action_into')} <CellIn g={f.g} id={n.cell} />
         </p>
-      </Section>
-    </>
+      </Part>
+    </div>
   );
 }
 
@@ -96,52 +90,52 @@ export function storeWho(layer: string, computed: boolean): string {
 export function StorePanel({ store, graphs }: { store: string; graphs: Graph[] }) {
   const f = useFlow();
   const s = f.compiled.engine.stores?.[store];
-  if (s === undefined) return <p className="fmt">{t('none')}</p>;
+  if (s === undefined) return <p className="pp-note">{t('none')}</p>;
   const several = graphs.length > 1;
   return (
-    <>
-      <Section>
-        <p>{s.desc}</p>
-        {s.owner ? <p className="fmt">{t('store_owner', { what: s.owner })}</p> : null}
-      </Section>
+    <div className="pp-page">
+      <div className="pp-part">
+        <p className="pp-plain">{s.desc}</p>
+        {s.owner ? <p className="pp-note">{t('store_owner', { what: s.owner })}</p> : null}
+      </div>
       {graphs.map(({ g }) => {
         const uses = storeUses(f.compiled.engine, g, store);
         if (uses.writes.length === 0 && uses.reads.length === 0) return null;
         return (
           <Fragment key={g.name}>
-            <Section title={several ? t('store_written_in', { graph: g.name }) : t('store_written')}>
-              {uses.writes.length === 0 ? <p className="fmt">{t(s.computed ? 'store_computed_long' : 'none')}</p> : null}
-              <ul className="bl">
-                {uses.writes.map((w) => (
-                  <li key={`${w.step}:${w.what}`}>
-                    <strong>{actionWords(w.what)}</strong>{' '}
-                    <span className="fw">{inline(t(w.step ? 'store_by_step' : 'store_by_action', { name: `\`${w.what}\`` }))}</span>
-                    <div className="srcs">
-                      {w.at.map((x, i) => (
-                        <Fragment key={`${x.cell}:${x.row ?? ''}`}>
-                          {i > 0 ? ', ' : null}
-                          <CellIn g={g} id={x.cell} extra={x.row} />
-                        </Fragment>
-                      ))}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-            <Section title={several ? t('store_read_in', { graph: g.name }) : t('store_read')}>
-              {uses.reads.length === 0 ? <p className="fmt">{t('none')}</p> : null}
-              <div className="srcs">
+            <Part title={several ? t('store_written_in', { graph: g.name }) : t('store_written')}>
+              {uses.writes.length === 0 ? <p className="pp-note">{t(s.computed ? 'store_computed_long' : 'none')}</p> : null}
+              <Pairs
+                rows={uses.writes.map((w) => [
+                  <span key="w">
+                    {actionWords(w.what)}{' '}
+                    <span className="pp-facts">{inline(t(w.step ? 'store_by_step' : 'store_by_action', { name: `\`${w.what}\`` }))}</span>
+                  </span>,
+                  <span key="c">
+                    {w.at.map((x, i) => (
+                      <Fragment key={`${x.cell}:${x.row ?? ''}`}>
+                        {i > 0 ? ', ' : null}
+                        <CellIn g={g} id={x.cell} extra={x.row} />
+                      </Fragment>
+                    ))}
+                  </span>,
+                ])}
+              />
+            </Part>
+            <Part title={several ? t('store_read_in', { graph: g.name }) : t('store_read')}>
+              {uses.reads.length === 0 ? <p className="pp-note">{t('none')}</p> : null}
+              <span>
                 {uses.reads.map((id, i) => (
                   <Fragment key={id}>
                     {i > 0 ? ', ' : null}
                     <CellIn g={g} id={id} />
                   </Fragment>
                 ))}
-              </div>
-            </Section>
+              </span>
+            </Part>
           </Fragment>
         );
       })}
-    </>
+    </div>
   );
 }

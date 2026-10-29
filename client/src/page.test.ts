@@ -32,7 +32,9 @@ import {
   ownMoves,
   telling,
 } from './flow/CellPanel';
-import { conditionsWords, conditionWords, fieldActions, targetWords, valuesWords } from './flow/words';
+import { inputName } from './flow/CellGiven';
+import { fieldActions, shownNote, titleOf } from './flow/Returns';
+import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { badgeRow, EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
@@ -79,19 +81,7 @@ import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
 import { catalog, t } from './messages';
 import { href, parse, type Route } from './route';
-import {
-  chars,
-  foldLabel,
-  messageParts,
-  placeSchema,
-  preview,
-  rowsLabel,
-  shape,
-  type Shown,
-  spent,
-  tokens,
-  valueMeanings,
-} from './round';
+import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
 import { settingsChange, settingsProblems } from './pages/Settings';
 import { tiersAllowed } from './pages/TalkHead';
 import { spendTable } from './spend';
@@ -929,12 +919,12 @@ describe('the routes of arrows', () => {
 describe("a cell's panel", () => {
   const cellOf = (id: string) => graph.cells.find((x) => x.id === id) ?? graph.cells[0];
   const into = (id: string) => view.cells.find((x) => x.id === id)?.entered_from ?? [];
-  it('has its tabs in order, the rounds on a work\'s chart and the changes when two flows are compared', () => {
-    expect(cellTabs({ rounds: false, diff: false })).toEqual(['inputs', 'returns', 'route']);
-    expect(cellTabs({ rounds: true, diff: true })).toEqual(['changes', 'rounds', 'inputs', 'returns', 'route']);
-    expect(cellTab(['inputs', 'returns', 'route'], 'rounds')).toBe('inputs');
-    expect(cellTab(['rounds', 'inputs', 'returns', 'route'], 'route')).toBe('route');
-    expect(cellTab(['rounds', 'inputs', 'returns', 'route'], null)).toBe('rounds');
+  it('is one page, with its rounds on a work\'s chart and the changes when two flows are compared as tabs beside it', () => {
+    expect(cellTabs({ rounds: false, diff: false })).toEqual(['cell']);
+    expect(cellTabs({ rounds: true, diff: true })).toEqual(['changes', 'rounds', 'cell']);
+    expect(cellTab(['cell'], 'rounds')).toBe('cell');
+    expect(cellTab(['rounds', 'cell'], 'cell')).toBe('cell');
+    expect(cellTab(['rounds', 'cell'], null)).toBe('rounds');
   });
 
   it('says after the title where the cell stands, and its line only when the chart has no colour for it', () => {
@@ -992,6 +982,34 @@ describe("a cell's panel", () => {
       ],
     });
     expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
+  });
+
+  it('heads an input by its name, or in a flow stored before inputs had names by the first words of what it is', () => {
+    const x = (what: string, name?: string) => ({ id: null, name, what, from: [], maybe: false });
+    expect(inputName(x('The item itself: its problem, why', 'The item itself'))).toBe('The item itself');
+    expect(inputName(x("The project's AGENTS.md, and the index of the design tree"))).toBe("The project's AGENTS.md");
+    expect(inputName(x('What already exists for this item, when it was worked on before'))).toBe('What already exists for this item');
+    expect(inputName(x('The results of the tools you asked for'))).toBe('The results of the tools you asked for');
+  });
+
+  it('heads a field by the title the flow gives its place, a branch\'s field by that of its place in any branch', () => {
+    const titles = { 'understanding.grounds[verified].claim': 'Claim', 'understanding.grounds[verified].where': 'Where checked' };
+    expect(titleOf(titles, 'understanding.grounds[verified].where', 'where')).toBe('Where checked');
+    expect(titleOf(titles, 'understanding.grounds[inferred].claim', 'claim')).toBe('Claim');
+    // A flow version stored before fields had titles: the key in words.
+    expect(titleOf(undefined, 'understanding.vs_item', 'vs_item')).toBe('Vs item');
+  });
+
+  it('gives once the note every field shown on the item is told, and none when fewer than two fields say it', () => {
+    const note = 'Write it in the owner\'s language. Keep technical terms in their English original.';
+    const descs: Record<string, string> = {
+      'a:understanding': `How you understand this work. ${note}`,
+      'b:design': `The design you chose. ${note}`,
+    };
+    const g = { ...graph, cells: [cell('a', [], { kind: 'agent', shown: ['understanding'] }), cell('b', [], { kind: 'agent', shown: ['design'] })] };
+    expect(shownNote(g, (c, p) => descs[`${c}:${p}`] ?? null)).toBe(note);
+    const one = { ...graph, cells: [cell('a', [], { kind: 'agent', shown: ['understanding'] })] };
+    expect(shownNote(one, (c, p) => descs[`${c}:${p}`] ?? null)).toBeNull();
   });
 });
 
@@ -1065,42 +1083,14 @@ describe('a round', () => {
     expect(messageParts('')).toEqual([{ text: '' }]);
   });
 
-  it('labels a folded part with its size and its share of the message, and shows its first lines', () => {
-    expect(foldLabel(14730, 17330, false)).toBe('show all 14,730 characters, 85% of this message');
-    expect(foldLabel(1200, 900000, false)).toBe('show all 1,200 characters, <1% of this message');
-    expect(foldLabel(14730, 17330, true)).toBe('fold these 14,730 characters');
+  it("says what a folded part of a message holds: its size and its share of the message, and for the task that it is the cell's", () => {
+    expect(shareWords(14730, 17330, false)).toBe(', 85% of the message');
+    expect(shareWords(1200, 900000, false)).toBe(', <1% of the message');
+    expect(shareWords(1402, 12277, true)).toBe(", 11% of the message, the cell's task, the same every round");
     expect(chars('一二三')).toBe(3);
-    expect(preview('\n\na\nb\nc\nd')).toBe('a\nb\nc');
-    expect(preview('x'.repeat(400)).length).toBe(300);
   });
 
-  it('lays out an object by its schema: each key with its description, nested keys and the value of a const', () => {
-    const schema: JsonValue = {
-      type: 'object',
-      properties: {
-        what: { type: 'string', description: 'What it is' },
-        size: { type: 'object', description: 'How big', properties: { lines: { type: 'integer', description: 'Lines' } } },
-      },
-    };
-    expect(shape({ what: 'a tool', size: { lines: 3 } }, schema)).toEqual({
-      kind: 'fields',
-      fields: [
-        { key: 'what', note: 'What it is', full: null, count: null, value: { kind: 'text', text: 'a tool' } },
-        {
-          key: 'size',
-          note: 'How big',
-          full: null,
-          count: null,
-          value: {
-            kind: 'fields',
-            fields: [{ key: 'lines', note: 'Lines', full: null, count: null, value: { kind: 'plain', text: '3' } }],
-          },
-        },
-      ],
-    });
-  });
-
-  it('matches a oneOf to its branch by the value its const field fixes, and the form of a return to its alternative', () => {
+  it("heads each field handed back by the title of its place, the forms of a return at the places' root", () => {
     const better: JsonValue = {
       description: 'Is there a better design',
       oneOf: [
@@ -1127,49 +1117,39 @@ describe('a round', () => {
             { type: 'object', properties: { pause: { type: 'object' } }, required: ['pause'], additionalProperties: false },
           ],
         },
+        progress: { type: 'string', description: 'One sentence' },
       },
     };
-    const forms = (i: number) => (i === 0 ? 'its own answer' : 'a pause');
-    const shown = shape({ outcome: { better: { verdict: 'no', considered: ['one', 'two'] } } }, schema, {
+    const titles = { better: 'A better design', 'better[no].considered': 'Approaches considered', progress: 'Progress note' };
+    const shown = shape({ outcome: { better: { verdict: 'no', considered: ['one', 'two'] } }, progress: 'Done.' }, schema, {
       within: 'outcome',
-      form: forms,
+      titles,
     });
     expect(shown).toEqual({
       kind: 'fields',
       fields: [
         {
           key: 'outcome',
-          note: 'its own answer',
-          full: 'What this round comes to: exactly one',
-          count: null,
+          title: null,
           value: {
             kind: 'fields',
             fields: [
               {
                 key: 'better',
-                note: 'Is there a better design',
-                full: null,
-                count: null,
+                title: 'A better design',
                 value: {
                   kind: 'fields',
                   fields: [
-                    {
-                      key: 'verdict',
-                      note: 'means: The present one is best',
-                      full: 'The present one is best',
-                      count: null,
-                      value: { kind: 'text', text: 'no' },
-                    },
+                    // A value the schema fixes is a kind; its place has no title, so its key in words heads it.
+                    { key: 'verdict', title: 'Verdict', value: { kind: 'fixed', text: 'no' } },
                     {
                       key: 'considered',
-                      note: 'Which approaches you considered',
-                      full: null,
-                      count: '(2 items)',
+                      title: 'Approaches considered',
                       value: {
                         kind: 'list',
                         items: [
-                          { note: null, value: { kind: 'text', text: 'one' } },
-                          { note: null, value: { kind: 'text', text: 'two' } },
+                          { kind: 'text', text: 'one' },
+                          { kind: 'text', text: 'two' },
                         ],
                       },
                     },
@@ -1179,106 +1159,77 @@ describe('a round', () => {
             ],
           },
         },
+        { key: 'progress', title: 'Progress note', value: { kind: 'text', text: 'Done.' } },
       ],
     });
-    // A pause holds an object with no fields listed: its own keys, by their JSON type.
-    const paused = shape({ outcome: { pause: { why: 'asked' } } }, schema, { within: 'outcome', form: forms });
-    expect(paused.kind === 'fields' && paused.fields[0].note).toBe('a pause');
+    // A pause holds an object with no fields listed: its own keys, by their JSON type, with no title.
+    const paused = shape({ outcome: { pause: { why: 'asked', n: 2 } } }, schema, { within: 'outcome', titles });
+    const pause = paused.kind === 'fields' && paused.fields[0].value.kind === 'fields' ? paused.fields[0].value.fields[0] : null;
+    expect(pause?.value).toEqual({
+      kind: 'fields',
+      fields: [
+        { key: 'why', title: null, value: { kind: 'text', text: 'asked' } },
+        { key: 'n', title: null, value: { kind: 'plain', text: '2' } },
+      ],
+    });
   });
 
-  it("gives an enum's value its meaning, lays out a list of objects item by item, and shows what the schema does not describe by its JSON type", () => {
+  it("lays out a list of objects item by item, each branch's fields by the titles of its places, and an empty list as empty", () => {
     const schema: JsonValue = {
       type: 'object',
       properties: {
-        side_reports: {
+        grounds: {
           type: 'array',
-          description: 'Things you came across that do not block this work. Go on with your work as usual; this only reports them. An empty list if none',
           items: {
-            type: 'object',
-            properties: {
-              kind: { enum: ['duplicate', 'other'], description: 'Which kind. Values: duplicate: It duplicates another work; other: None of the kinds above' },
-              urgent: { type: 'boolean', description: 'True when it cannot wait' },
-            },
+            oneOf: [
+              { type: 'object', properties: { kind: { const: 'verified' }, claim: { type: 'string' }, where: { type: 'string' } } },
+              { type: 'object', properties: { kind: { const: 'inferred' }, claim: { type: 'string' }, from: { type: 'string' } } },
+            ],
           },
         },
-        tell_owner: { type: 'array', items: { type: 'string' }, description: 'Messages for the owner' },
-        progress: { type: 'string', description: 'One sentence' },
+        side_reports: { type: 'array', items: { type: 'object', properties: { urgent: { type: 'boolean' } } } },
       },
     };
-    const shown = shape({ side_reports: [{ kind: 'other', urgent: false }], tell_owner: [], progress: { odd: [1, null] }, extra: 7 }, schema);
-    expect(shown).toEqual({
+    const titles = {
+      grounds: 'What it rests on',
+      'grounds[verified].claim': 'Claim',
+      'grounds[verified].where': 'Where checked',
+      'grounds[inferred].from': 'Follows from',
+    };
+    const shown = shape(
+      { grounds: [{ kind: 'verified', claim: 'a', where: 'here' }, { kind: 'inferred', claim: 'b', from: 'there' }], side_reports: [] },
+      schema,
+      { titles },
+    );
+    const grounds = shown.kind === 'fields' ? shown.fields[0] : null;
+    expect(grounds?.title).toBe('What it rests on');
+    expect(grounds?.value).toEqual({
+      kind: 'list',
+      items: [
+        {
+          kind: 'fields',
+          fields: [
+            { key: 'kind', title: 'Kind', value: { kind: 'fixed', text: 'verified' } },
+            { key: 'claim', title: 'Claim', value: { kind: 'text', text: 'a' } },
+            { key: 'where', title: 'Where checked', value: { kind: 'text', text: 'here' } },
+          ],
+        },
+        {
+          kind: 'fields',
+          fields: [
+            { key: 'kind', title: 'Kind', value: { kind: 'fixed', text: 'inferred' } },
+            // The same field in another branch takes the title of its place in any branch.
+            { key: 'claim', title: 'Claim', value: { kind: 'text', text: 'b' } },
+            { key: 'from', title: 'Follows from', value: { kind: 'text', text: 'there' } },
+          ],
+        },
+      ],
+    });
+    expect(shown.kind === 'fields' && shown.fields[1].value).toEqual({ kind: 'empty', text: '[]' });
+    // With no schema, a value by its JSON type alone, no field titled.
+    expect(shape({ a: [1, 'x'] }, null)).toEqual({
       kind: 'fields',
-      fields: [
-        {
-          key: 'side_reports',
-          note: 'Things you came across that do not block this work',
-          full: 'Things you came across that do not block this work. Go on with your work as usual; this only reports them. An empty list if none',
-          count: '(1 item)',
-          value: {
-            kind: 'list',
-            items: [
-              {
-                note: null,
-                value: {
-                  kind: 'fields',
-                  fields: [
-                    {
-                      key: 'kind',
-                      note: 'means: None of the kinds above',
-                      full: 'Which kind',
-                      count: null,
-                      value: { kind: 'text', text: 'other' },
-                    },
-                    { key: 'urgent', note: 'True when it cannot wait', full: null, count: null, value: { kind: 'plain', text: 'false' } },
-                  ],
-                },
-              },
-            ],
-          },
-        },
-        { key: 'tell_owner', note: 'Messages for the owner', full: null, count: null, value: { kind: 'empty', text: '[]' } },
-        {
-          key: 'progress',
-          note: 'One sentence',
-          full: null,
-          count: null,
-          value: {
-            kind: 'fields',
-            fields: [
-              {
-                key: 'odd',
-                note: null,
-                full: null,
-                count: '(2 items)',
-                value: {
-                  kind: 'list',
-                  items: [
-                    { note: null, value: { kind: 'plain', text: '1' } },
-                    { note: null, value: { kind: 'plain', text: 'null' } },
-                  ],
-                },
-              },
-            ],
-          },
-        },
-        { key: 'extra', note: null, full: null, count: null, value: { kind: 'plain', text: '7' } },
-      ],
-    });
-    // Objects the schema lists no fields of, of plain values only, such as a query's rows: a table.
-    expect(shape([{ n: 1, cell: 'a' }, { n: 2, note: null }], { type: 'array', items: { type: 'object' } })).toEqual({
-      kind: 'table',
-      columns: ['n', 'cell', 'note'],
-      rows: [
-        ['1', 'a', null],
-        ['2', null, 'null'],
-      ],
-    });
-    expect(valueMeanings('Pick. Values: a: one; two; b: three', ['a', 'b'])).toEqual({
-      desc: 'Pick',
-      means: new Map([
-        ['a', 'one; two'],
-        ['b', 'three'],
-      ]),
+      fields: [{ key: 'a', title: null, value: { kind: 'list', items: [{ kind: 'plain', text: '1' }, { kind: 'text', text: 'x' }] } }],
     });
   });
 
@@ -1299,129 +1250,6 @@ describe('a round', () => {
     expect(placeSchema(schema, 'tools')?.description).toBe('Tools');
     expect(placeSchema(schema, 'results.tool')?.description).toBe('Which');
     expect(placeSchema(schema, 'missing')).toBeNull();
-  });
-
-  it("gives each key's note once at the head of a list of objects, and each item as its values", () => {
-    // The tools a round asked for and what they returned, as the flow's compiler writes their schemas.
-    const query = (desc: string, rest: Record<string, JsonValue>): JsonValue => ({
-      type: 'object',
-      properties: { tool: { const: 'query', description: desc }, ...rest },
-      required: ['tool'],
-      additionalProperties: false,
-    });
-    const asked: JsonValue = {
-      type: 'array',
-      description: 'The tools to run',
-      items: { oneOf: [query('Runs one read-only SQL query for you', { sql: { type: 'string', description: 'One SQL query' } })] },
-    };
-    const ran: JsonValue = {
-      description: 'Whether it ran',
-      oneOf: [
-        {
-          type: 'object',
-          properties: {
-            verdict: { const: 'ran', description: 'It ran' },
-            rows: { type: 'array', description: 'The rows found', items: { type: 'object', description: 'One row' } },
-            cut: { type: 'boolean', description: 'True when the rows exceeded the limit' },
-          },
-        },
-        {
-          type: 'object',
-          properties: {
-            verdict: { const: 'error', description: 'It did not run: SQLite reported an error' },
-            error: { type: 'string', description: 'The error as reported' },
-          },
-        },
-      ],
-    };
-    const returned: JsonValue = {
-      type: 'object',
-      properties: {
-        results: {
-          type: 'array',
-          description: 'The results of the tools that ran',
-          items: { oneOf: [query('The engine opens the database read-only', { ran })] },
-        },
-      },
-    };
-    // What the tools were given: each item its values only, the notes once above them.
-    const given = shape(
-      [
-        { tool: 'query', sql: 'SELECT id FROM items' },
-        { tool: 'query', sql: 'SELECT id FROM works' },
-      ],
-      asked,
-    );
-    expect(given.kind === 'list' && given.head).toEqual([
-      { key: 'tool', note: 'means: Runs one read-only SQL query for you', full: 'Runs one read-only SQL query for you', under: [] },
-      { key: 'sql', note: 'One SQL query', full: null, under: [] },
-    ]);
-    // The notes an item still has beside its keys, deep as they go.
-    const notes = (v: Shown): Array<string | null> => (v.kind === 'fields' ? v.fields.flatMap((f) => [f.note, ...notes(f.value)]) : []);
-    expect(given.kind === 'list' && given.items.map((x) => notes(x.value))).toEqual([
-      [null, null],
-      [null, null],
-    ]);
-    expect(given.kind === 'list' && given.items.map((x) => x.value.kind === 'fields' && x.value.fields[1].value)).toEqual([
-      { kind: 'text', text: 'SELECT id FROM items' },
-      { kind: 'text', text: 'SELECT id FROM works' },
-    ]);
-    // What they returned: the notes under a key go to the head too, deep as they are; where the items' notes differ,
-    // as the meanings of two verdicts, each item keeps its own, and the head names no note for the key.
-    const back = shape(
-      {
-        results: [
-          { tool: 'query', ran: { verdict: 'ran', rows: [{ id: 1 }, { id: 2 }], cut: false } },
-          { tool: 'query', ran: { verdict: 'error', error: 'no such table: work' } },
-        ],
-      },
-      returned,
-    );
-    const results = back.kind === 'fields' ? back.fields[0] : null;
-    expect(results).toMatchObject({ note: 'The results of the tools that ran', count: '(2 items)' });
-    const list = results?.value;
-    expect(list?.kind === 'list' && list.head).toEqual([
-      {
-        key: 'tool',
-        note: 'means: The engine opens the database read-only',
-        full: 'The engine opens the database read-only',
-        under: [],
-      },
-      {
-        key: 'ran',
-        note: 'Whether it ran',
-        full: null,
-        under: [
-          { key: 'rows', note: 'The rows found', full: null, under: [] },
-          { key: 'cut', note: 'True when the rows exceeded the limit', full: null, under: [] },
-          { key: 'error', note: 'The error as reported', full: null, under: [] },
-        ],
-      },
-    ]);
-    expect(list?.kind === 'list' && list.items.map((x) => notes(x.value))).toEqual([
-      [null, null, 'means: It ran', null, null],
-      [null, null, 'means: It did not run: SQLite reported an error', null],
-    ]);
-    // The rows themselves are a table, its count beside its key, what was handed back untouched.
-    const first = list?.kind === 'list' ? list.items[0].value : null;
-    const ranOf = first?.kind === 'fields' ? first.fields[1].value : null;
-    const rows = ranOf?.kind === 'fields' ? ranOf.fields[1] : null;
-    expect(rows).toEqual({
-      key: 'rows',
-      note: null,
-      full: null,
-      count: '(2 items)',
-      value: { kind: 'table', columns: ['id'], rows: [['1'], ['2']] },
-    });
-    // A list of one object, with nothing said twice, keeps its notes beside its keys.
-    const one = shape([{ tool: 'query', sql: 'SELECT 1' }], asked);
-    expect(one.kind === 'list' && one.head).toBeUndefined();
-    expect(one.kind === 'list' && notes(one.items[0].value)).toEqual(['means: Runs one read-only SQL query for you', 'One SQL query']);
-  });
-
-  it('labels a folded table of rows with how many it has', () => {
-    expect(rowsLabel(1234, false)).toBe('show all 1,234 rows');
-    expect(rowsLabel(42, true)).toBe('fold these 42 rows');
   });
 
   it('says where an agent round spent its cost, by the shares of its prices, with the tokens on hovering', () => {

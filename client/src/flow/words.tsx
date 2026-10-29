@@ -1,36 +1,32 @@
-// The flow written out in words: a row's condition and target, where an input comes from, what reads a field, each
-// cell by its id and title, a link that opens it, a row's number as a badge. Names the flow gives (fields, values,
-// views, actions) are set in code type; what they are is said in words.
+// The flow written out in words: a row's condition and target, each cell by its code and title or by its code alone,
+// a link that opens it. Names the flow gives (fields, values, views, actions) are set as codes, in the colour of the
+// text round them; what they are is said in words.
 
 import { Fragment, type ReactNode } from 'react';
 
-import type { Atom, CompiledCell, Src, Use } from '../api';
-import { actionWords } from '../graph/flowModel';
+import type { Atom, CompiledCell } from '../api';
 import { LinkButton } from '../parts';
-import { type Key, t } from '../text';
+import { t } from '../text';
 import { useFlow } from './context';
 
-/// A text with names between backticks set in code type.
+/// The page's words with names between backticks set as codes: monospace, in the colour of the text round them.
 export function inline(text: string): ReactNode {
   const parts = text.split('`');
-  return parts.map((p, i) => (i % 2 === 1 ? <code key={i}>{p}</code> : <Fragment key={i}>{p}</Fragment>));
-}
-
-/// A row's number, its place in its cell's transition table from 1, as a badge of one size whatever its digits.
-export function RowNo({ row }: { row: number }) {
-  return <span className="no">{row + 1}</span>;
-}
-
-/// A text with `{no}` in it, the row's badge put there.
-function withRow(text: string, row: number): ReactNode {
-  const [before, after = ''] = text.split('{no}');
-  return (
-    <>
-      {inline(before)}
-      <RowNo row={row} />
-      {inline(after)}
-    </>
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="cell-id">
+        {p}
+      </span>
+    ) : (
+      <Fragment key={i}>{p}</Fragment>
+    ),
   );
+}
+
+/// A text sent to an agent, as markdown reads it: what is between backticks in monospace, the backticks themselves
+/// being markdown's.
+export function sheetText(text: string): ReactNode {
+  return <span>{inline(text)}</span>;
 }
 
 /// Values, as `a`, `b` or `c`.
@@ -90,14 +86,24 @@ export function targetWords(to: string): string | null {
   }
 }
 
-/// A cell, by its id and title, that opens its panel.
+/// A cell, by its code and title, that opens its panel.
 export function CellLink({ id, extra }: { id: string; extra?: string }) {
   const f = useFlow();
   const c = f.cell(id);
   return (
     <LinkButton onClick={() => f.open({ kind: 'cell', cell: id })}>
       <span className="cell-id">{id}</span> {c?.title ?? ''}
-      {extra ? <span className="go-extra"> · {extra}</span> : null}
+      {extra ? ` · ${extra}` : null}
+    </LinkButton>
+  );
+}
+
+/// A cell by its code alone, that opens its panel, its title on hovering: for cells named many at once.
+export function CellCode({ id }: { id: string }) {
+  const f = useFlow();
+  return (
+    <LinkButton title={f.cell(id)?.title} onClick={() => f.open({ kind: 'cell', cell: id })}>
+      <span className="cell-id">{id}</span>
     </LinkButton>
   );
 }
@@ -105,7 +111,7 @@ export function CellLink({ id, extra }: { id: string; extra?: string }) {
 /// Cells, each a link, joined.
 export function CellLinks({ ids }: { ids: string[] }) {
   return (
-    <span className="links">
+    <span>
       {ids.map((id, i) => (
         <Fragment key={id}>
           {i > 0 ? ', ' : null}
@@ -129,182 +135,14 @@ export function Target({ c, row }: { c: CompiledCell; row: number }) {
       {cells.length > 0 ? (
         <>
           {': '}
-          <CellLinks ids={cells} />
+          {cells.map((x, i) => (
+            <Fragment key={x}>
+              {i > 0 ? ', ' : null}
+              <CellCode id={x} />
+            </Fragment>
+          ))}
         </>
       ) : null}
     </span>
-  );
-}
-
-/// The rows of a table or view an input reads: those of the work, item or project at hand.
-const BY: Record<string, Key> = { work: 'src_by_work', item: 'src_by_item', project: 'src_by_project' };
-
-/// Where one source of an input reads from, as a chip; a place of a cell opens that cell.
-export function SourceChip({ src, cells }: { src: Src; cells: string[] }) {
-  const f = useFlow();
-  if (Array.isArray(src)) {
-    const [at, path] = src;
-    if (!at.startsWith('@')) {
-      return (
-        <span className="src">
-          <CellLink id={at} extra={path} />
-        </span>
-      );
-    }
-    const who = at === '@from' ? t('src_from') : at === '@caller' ? t('src_caller') : t('src_stopped');
-    return (
-      <span className="src">
-        {who} · <code>{path}</code>
-        {cells.length > 0 ? (
-          <>
-            {' ('}
-            <CellLinks ids={cells} />
-            {')'}
-          </>
-        ) : null}
-      </span>
-    );
-  }
-  if (src === 'self') return <span className="src plain">{t('src_self')}</span>;
-  if ('config' in src) return <span className="src plain">{inline(t('src_config', { name: `\`${src.config}\`` }))}</span>;
-  if ('db' in src) {
-    const key = src.by ? BY[src.by] : undefined;
-    const by = key ? t(key) : src.by ? t('src_by', { column: src.by }) : null;
-    return (
-      <span className="src plain">
-        {inline(t('src_db', { name: `\`${src.db}\`` }))}
-        {by ? `, ${by}` : ''}
-      </span>
-    );
-  }
-  if ('engine' in src) {
-    const desc = f.compiled.engine.inputs[src.engine];
-    return (
-      <span className="src plain" title={desc}>
-        {inline(t('src_engine', { name: `\`${src.engine}\`` }))}
-      </span>
-    );
-  }
-  return <span className="src plain">{inline(t('src_recorded', { name: `\`${src.recorded}\`` }))}</span>;
-}
-
-/// What reads a field, as a chip; `here` is the cell whose field it is.
-export function UseChip({ u, here }: { u: Use; here: string }) {
-  const f = useFlow();
-  const of = (cell: string, what: ReactNode) =>
-    cell === here ? (
-      what
-    ) : (
-      <>
-        <CellLink id={cell} />
-        {': '}
-        {what}
-      </>
-    );
-  switch (u.kind) {
-    case 'input': {
-      const what = f.cell(u.cell)?.inputs[u.input]?.what ?? '';
-      return (
-        <span className="use" title={what}>
-          {t('use_input')} <CellLink id={u.cell} />
-        </span>
-      );
-    }
-    case 'condition':
-      return <span className="use">{of(u.cell, withRow(t('use_condition'), u.row))}</span>;
-    case 'action':
-      return (
-        <span className="use" title={f.compiled.engine.actions[u.action]}>
-          {of(u.cell, withRow(t('use_action', { action: `\`${u.action}\`` }), u.row))}
-        </span>
-      );
-    case 'always':
-      return (
-        <span className="use" title={u.action ? f.compiled.engine.actions[u.action] : undefined}>
-          {of(
-            u.cell,
-            inline(
-              u.view
-                ? t('use_view', { view: `\`${u.view}\`` })
-                : t('use_always_action', { action: `\`${u.action ?? ''}\`` }),
-            ),
-          )}
-        </span>
-      );
-    case 'check':
-      return (
-        <span className="use" title={f.compiled.engine.checks[u.check]}>
-          {of(u.cell, inline(t('use_check', { check: `\`${u.check}\`` })))}
-        </span>
-      );
-    case 'handoff':
-      return <span className="use">{of(u.cell, t('use_handoff'))}</span>;
-    case 'shown':
-      return <span className="use">{of(u.cell, t('use_shown'))}</span>;
-    case 'role':
-      return <span className="use">{of(u.cell, t('use_role', { role: u.role }))}</span>;
-  }
-}
-
-/// A check the engine makes on a field, or on the whole return: its name and what it checks, where the field is.
-function CheckLine({ check }: { check: string }) {
-  const f = useFlow();
-  return (
-    <div className="use-check">
-      <span className="ul">{t('check_label')}</span>
-      <code>{check}</code> <span className="fw">{f.compiled.engine.checks[check] ?? ''}</span>
-    </div>
-  );
-}
-
-/// What the engine does every time the cell's return holds a field, where the field is: the action in words and what
-/// it does.
-function ActionLine({ action }: { action: string }) {
-  const f = useFlow();
-  return (
-    <div className="use-check">
-      <span className="ul">{t('row_action')}</span>
-      {actionWords(action)} <span className="fw">{f.compiled.engine.actions[action] ?? ''}</span>
-    </div>
-  );
-}
-
-/// The action the engine does every time `here`'s return holds the field, if a use is one.
-function doneHere(u: Use, here: string): string | null {
-  return u.kind === 'always' && u.cell === here && u.action != null ? u.action : null;
-}
-
-/// What the engine does every time `here`'s return holds a field, by the field's uses.
-export function fieldActions(uses: Use[], here: string): string[] {
-  return uses.flatMap((u) => {
-    const a = doneHere(u, here);
-    return a !== null ? [a] : [];
-  });
-}
-
-/// The uses of a field: first the checks on it, each with what it checks, and what the engine does every time the
-/// return holds it; then what else reads it, after a label.
-export function Uses({ uses, here, label }: { uses: Use[]; here: string; label?: string }) {
-  if (uses.length === 0) return null;
-  const checks = uses.flatMap((u) => (u.kind === 'check' ? [u.check] : []));
-  const actions = fieldActions(uses, here);
-  const rest = uses.filter((u) => u.kind !== 'check' && doneHere(u, here) === null);
-  return (
-    <>
-      {checks.map((k, i) => (
-        <CheckLine key={`${k}:${i}`} check={k} />
-      ))}
-      {actions.map((a, i) => (
-        <ActionLine key={`${a}:${i}`} action={a} />
-      ))}
-      {rest.length > 0 ? (
-        <div className="uses">
-          <span className="ul">{label ?? t('used_by')}</span>
-          {rest.map((u, i) => (
-            <UseChip key={i} u={u} here={here} />
-          ))}
-        </div>
-      ) : null}
-    </>
   );
 }

@@ -11,14 +11,7 @@ export const TOKEN_FILE = 'styles/tokens.css';
 
 /// What the check leaves alone, each with why: a whole file (no `text`) or one value in it. The list only shrinks: a
 /// view converted to the spec takes its file off it, and the check refuses an entry that matches nothing.
-export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
-  {
-    file: 'styles.css',
-    why:
-      "The styles of what a cell's tabs and a round's panel hold (with the JSON and file text they show), which a " +
-      'redesign of their own converts, leaving it for a file under styles/ when it is converted.',
-  },
-];
+export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [];
 
 const COLOUR_FUNCTION = /\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color-mix|color)\(/;
 const HEX = /#[0-9a-fA-F]{3,8}\b/;

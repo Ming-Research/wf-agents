@@ -3,38 +3,9 @@
 import { Flash, Label, type LabelColorOptions } from '@primer/react';
 import type { ReactNode } from 'react';
 
-import type { ItemState, JsonValue, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
+import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
 import type { Resource } from './live';
 import { t } from './text';
-
-/// A JSON value laid out as a tree: long or multi-line text keeps its lines, and nested objects fold, those deeper than
-/// `open` levels folded at first.
-export function Json({ value, depth = 0, open = 2 }: { value: JsonValue | undefined; depth?: number; open?: number }) {
-  if (value === undefined || value === null) return <span className="j-null">null</span>;
-  if (typeof value === 'string') {
-    if (value.includes('\n') || value.length > 120) return <pre className="j-text">{value}</pre>;
-    return <span className="j-str">{JSON.stringify(value)}</span>;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') return <span className="j-lit">{String(value)}</span>;
-  const entries: Array<[string, JsonValue]> = Array.isArray(value)
-    ? value.map((v, i) => [String(i), v])
-    : Object.entries(value);
-  if (entries.length === 0) return <span className="j-lit">{Array.isArray(value) ? '[]' : '{}'}</span>;
-  const label = Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`;
-  return (
-    <details className="j-tree" open={depth < open}>
-      <summary>{label}</summary>
-      <div className="j-entries">
-        {entries.map(([k, v]) => (
-          <div key={k} className="j-entry">
-            <span className="j-key">{k}</span>
-            <Json value={v} depth={depth + 1} open={open} />
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}
 
 /// Label and value pairs.
 export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | false> }) {
