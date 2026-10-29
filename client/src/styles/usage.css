@@ -1,0 +1,156 @@
+/* A work's usage tab: its tiles, then its parts, each under its heading with the rule under it and a note on what it
+   shows: where the time went (a stacked bar, and the work's wall time with a block for each round and its times
+   marked under it), its models, where its cost went, its sessions with their context after each round, the
+   keep-warm pings and the tools. */
+
+.us {
+  display: grid;
+  gap: var(--base-size-24);
+  min-width: 0;
+}
+
+.us-sec {
+  display: grid;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.us-sec-title {
+  padding-bottom: var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+  font: var(--text-title-shorthand-small);
+}
+
+.us-note,
+.us-sub {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.us-part {
+  margin-top: var(--base-size-8);
+}
+
+/* A share of a table's whole under its number. */
+.us-mini {
+  height: var(--base-size-4);
+  margin-top: var(--base-size-4);
+  border-radius: var(--borderRadius-full);
+  background: var(--bgColor-neutral-muted);
+}
+
+.us-mini > div {
+  height: var(--base-size-4);
+  border-radius: var(--borderRadius-full);
+  background: var(--chart-1);
+}
+
+.us-table td.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The work's wall time: a block for each round of a model or of the tools, a block of its own for each stretch no
+   round ran, and its times under it. */
+.us-timeline {
+  margin-top: var(--base-size-8);
+}
+
+.us-track {
+  position: relative;
+  height: var(--base-size-28);
+  border-radius: var(--borderRadius-small);
+  background: var(--bgColor-neutral-muted);
+}
+
+.us-block {
+  position: absolute;
+  top: calc(-1 * var(--base-size-2));
+  bottom: calc(-1 * var(--base-size-2));
+  border-radius: var(--borderRadius-small);
+}
+
+.us-model {
+  background: var(--chart-1);
+}
+
+.us-tool {
+  background: var(--chart-2);
+}
+
+.us-block.us-gap {
+  top: 0;
+  bottom: 0;
+  background: var(--chart-idle);
+}
+
+.us-axis {
+  position: relative;
+  height: var(--base-size-20);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.us-axis > span {
+  position: absolute;
+  top: var(--base-size-2);
+  white-space: nowrap;
+}
+
+.us-axis > .us-tick {
+  transform: translateX(-50%);
+}
+
+.us-axis > .us-axis-end {
+  transform: translateX(-100%);
+}
+
+/* Each session's context after each of its rounds: its scale and labels in HTML over the drawing. */
+.us-chart {
+  position: relative;
+  width: 100%;
+  margin: var(--base-size-16) 0 var(--base-size-20);
+}
+
+.us-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.us-grid {
+  stroke: var(--borderColor-muted);
+}
+
+.us-point {
+  stroke: var(--bgColor-default);
+  stroke-width: 2;
+}
+
+.us-compacted {
+  stroke: var(--fgColor-default);
+}
+
+.us-chart > span {
+  position: absolute;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.us-chart > .us-y {
+  left: 0;
+  transform: translateY(-120%);
+}
+
+.us-chart > .us-end-label {
+  transform: translateY(-50%);
+}
+
+.us-chart > .us-x {
+  bottom: calc(-1 * var(--base-size-16));
+}
+
+.us-chart > .us-x-end {
+  transform: translateX(-100%);
+}

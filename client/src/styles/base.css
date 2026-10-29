@@ -52,9 +52,15 @@ pre {
   font-size: var(--text-codeBlock-size);
 }
 
-button {
+/* A button of the page's own takes the text round it; Primer's components (which name themselves in data-component,
+   and draw a link as a button with styles of no weight) keep their own colour. */
+button:not([data-component]) {
   font: inherit;
   color: inherit;
+}
+
+button[data-component='Link'] {
+  font: inherit;
 }
 
 /* An action written as a link inside a line of text. */
@@ -168,9 +174,13 @@ tr.clickable {
   cursor: pointer;
 }
 
-tr.clickable:hover,
-tr.selected {
+/* A row under the pointer, and the row picked. */
+tr.clickable:hover {
   background: var(--bgColor-neutral-muted);
+}
+
+tr.selected {
+  background: var(--bgColor-accent-muted);
 }
 
 td.clip {

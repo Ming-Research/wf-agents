@@ -1,0 +1,251 @@
+/* The works: the two lists over the window's width, each under its heading with its count, the ended folded; and a
+   work picked from them, in the list's place: its line over its chart, and its panel in the docked column, its tabs
+   an UnderlineNav over how it goes on and its rounds, its design cards, its conversation and its usage. */
+
+.works-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.works-lists {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--base-size-16) var(--base-size-16);
+  overflow: auto;
+}
+
+/* The heading of the works running and waiting, as a section's line, with the rule under it. */
+.works-active {
+  display: grid;
+  gap: var(--base-size-12);
+  margin-top: var(--base-size-16);
+}
+
+.works-head {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  padding-bottom: var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.works-wide {
+  overflow-x: auto;
+  border-radius: var(--borderRadius-medium);
+}
+
+/* Both lists of works have the same columns at the same widths, which the owner drags at the right edge of each
+   header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
+   lists sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
+.works-table {
+  table-layout: fixed;
+}
+
+.works-table th,
+.works-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+table.list.works-table td {
+  vertical-align: middle;
+}
+
+.works-table th {
+  position: relative;
+}
+
+.works-table td.control-cell {
+  cursor: default;
+}
+
+/* The right edge of a column's header, which drags the column's width: a line in the accent under the pointer, as a
+   divider is. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--base-size-8);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-grip:hover {
+  box-shadow: inset calc(-1 * var(--borderWidth-thick)) 0 0 var(--borderColor-accent-emphasis);
+}
+
+/* How a work goes on, on one line: its Labels and what it waits for, then why the engine stopped it or why it ended. */
+.course {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  max-width: 100%;
+}
+
+.course .why {
+  max-width: none;
+  white-space: nowrap;
+}
+
+/* The rounds sent back and failed beside a work's rounds, each its mark and how many, in the colour of its state. */
+.rounds-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-2);
+}
+
+.rounds-mark-back {
+  color: var(--fgColor-attention);
+}
+
+.rounds-mark-failed {
+  color: var(--fgColor-danger);
+}
+
+/* The owner's Start or Pause, Step and the choice of a new session for them, of a work: small IconButtons, the choice
+   marked as the option picked while it is pressed. */
+.controls {
+  display: inline-flex;
+  gap: var(--base-size-4);
+  vertical-align: middle;
+}
+
+.session-choice[aria-pressed='true'] {
+  border-color: var(--borderColor-accent-emphasis);
+  background: var(--bgColor-accent-muted);
+  color: var(--fgColor-accent);
+}
+
+/* The line over an open work's chart, on one line: back to the list, the work, how it goes on and where, its facts,
+   its controls, and the other works running or waiting. */
+.work-line {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-default);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.work-line > * {
+  flex: none;
+}
+
+.work-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* What the work waits for gives way last, then where it is, then its name. */
+.work-name,
+.work-state,
+.work-where {
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-name {
+  flex: 0 4 auto;
+}
+
+.work-state {
+  flex: 0 1 auto;
+}
+
+.work-where {
+  flex: 0 2 auto;
+}
+
+.work-others {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-12);
+  min-width: 0;
+  margin-left: auto;
+  overflow-x: auto;
+}
+
+.work-other {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* A work's panel on top of the column: its tabs, and what the tab shown holds under them. */
+.drawer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.drawer-count {
+  margin-left: var(--base-size-4);
+}
+
+/* What a tab holds follows one another and keeps its height. */
+.drawer-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+  min-height: 0;
+  padding: var(--base-size-16);
+  overflow: auto;
+}
+
+.drawer-body > * {
+  flex: none;
+}
+
+.drawer-body > p {
+  margin: 0;
+}
+
+/* How the work goes on, at the top of its rounds, as a Flash in the colour of how it goes. */
+.going {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.going p,
+.going ol {
+  margin: 0;
+}
+
+.going-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-8);
+}
+
+.going-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4) var(--base-size-12);
+}
+
+.going-activity {
+  padding-left: var(--base-size-24);
+  font-size: var(--text-body-size-small);
+}
+
+/* The rounds fill the panel's width, whatever it is dragged to: what a round did takes the room left, wrapped rather
+   than cut, so that the whole row it took shows. */
+.timeline td.timeline-what {
+  width: 100%;
+  overflow-wrap: anywhere;
+}

@@ -5,7 +5,17 @@
 // something, its words and the button that sends them.
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
-import { Button, CounterLabel, Details, Flash, Heading, Link as PrimerLink, Textarea } from '@primer/react';
+import {
+  Button,
+  CounterLabel,
+  Details,
+  Flash,
+  Heading,
+  Label,
+  type LabelColorOptions,
+  Link as PrimerLink,
+  Textarea,
+} from '@primer/react';
 import { createContext, createElement, useContext, type ReactNode } from 'react';
 
 import { roundName, time } from './format';
@@ -15,11 +25,17 @@ import { t } from './text';
 /// What opens a round of a work where the page shows it in place.
 export type OpenRound = (work: number, round: number) => void;
 
-/// A round, by its name: a click opens it where the page shows it (`onRound`), else on its work's page.
-export function RoundLink({ work, round, onRound }: { work: number; round: number; onRound?: OpenRound }) {
+/// A round, by its name: a click opens it where the page shows it (`onRound`), else on its work's page; `muted` in
+/// small text, such as the line that says who wrote something.
+export function RoundLink({ work, round, onRound, muted }: {
+  work: number;
+  round: number;
+  onRound?: OpenRound;
+  muted?: boolean;
+}) {
   if (onRound === undefined) {
     return (
-      <Link to={workHref(work, { round })} className="round-link">
+      <Link to={workHref(work, { round })} className="round-link" muted={muted}>
         {roundName(work, round)}
       </Link>
     );
@@ -29,6 +45,7 @@ export function RoundLink({ work, round, onRound }: { work: number; round: numbe
       as="button"
       type="button"
       className="round-link"
+      muted={muted}
       onClick={(e: { stopPropagation: () => void }) => {
         e.stopPropagation();
         onRound(work, round);
@@ -64,7 +81,7 @@ export function By({ who, cell, at, work, round, onRound, children }: {
       {title !== undefined ? <span>{title}</span> : null}
       {at !== undefined && at !== null ? <span>{time(at)}</span> : null}
       {work !== undefined && work !== null && round !== undefined && round !== null ? (
-        <RoundLink work={work} round={round} onRound={onRound} />
+        <RoundLink work={work} round={round} onRound={onRound} muted />
       ) : null}
     </span>
   );
@@ -190,6 +207,20 @@ export function LinkButton({ onClick, title, muted, className, children }: {
     >
       {children}
     </PrimerLink>
+  );
+}
+
+/// A state or a kind that leads where the owner acts on it, such as what a work waits for: its Label inside a link.
+export function LabelLink({ to, variant, title, children }: {
+  to: string;
+  variant: LabelColorOptions;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link to={to} className="label-link" title={title}>
+      <Label variant={variant}>{children}</Label>
+    </Link>
   );
 }
 

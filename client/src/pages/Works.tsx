@@ -7,6 +7,8 @@
 // controls, and leads to the other works running or waiting with what each needs of the owner. What waits for the owner
 // opens that tab of the work, and the marks of rounds that went wrong open the work with only those rounds.
 
+import { ArrowLeftIcon, ReplyIcon, XCircleIcon } from '@primer/octicons-react';
+import { CounterLabel, Heading, Label } from '@primer/react';
 import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
@@ -14,7 +16,7 @@ import { type Course, heldName, WorkBadge, Loaded } from '../components';
 import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { ItemRef } from '../parts';
+import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
 import { architectHref, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
@@ -38,24 +40,23 @@ function useNow(ticking: boolean): number {
 function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   if (c.over) {
     return (
-      <>
+      <span className="course">
         <WorkBadge state={w.state} />
         {w.ended ? <span className="why">{w.ended}</span> : null}
-      </>
+      </span>
     );
   }
   const why = held(c, w);
   const parts: ReactNode[] = [];
   if (c.running !== null) {
     parts.push(
-      <span key="running" className="badge state-running">
+      <Label key="running" variant="accent">
         {runningWords(c)}
-      </span>,
+      </Label>,
     );
     if (w.running) {
       parts.push(
         <span key="for" className="muted">
-          {' '}
           {duration(Math.max(0, now - w.running.started_at))}
         </span>,
       );
@@ -63,9 +64,9 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   } else if (why !== null) {
     const h = heldName(c);
     parts.push(
-      <span key="held" className={`badge ${h.problem ? 'state-stopped' : 'state-paused'}`} title={why}>
+      <Label key="held" variant={h.problem ? 'danger' : 'attention'} title={why}>
         {h.name}
-      </span>,
+      </Label>,
     );
   }
   const waits = c.waits;
@@ -81,17 +82,17 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
               ? `/items/${waits.items[0]}`
               : workHref(w.id);
     parts.push(
-      <Link key="waits" to={to} className="chip waits" title={waitsWords(waits)}>
+      <LabelLink key="waits" to={to} variant="attention" title={waitsWords(waits)}>
         {waitsWords(waits)}
-      </Link>,
+      </LabelLink>,
     );
   }
   if (c.running === null && why === null && waits === null) {
     parts.push(
       c.started ? (
-        <span key="ready" className="badge state-ready">
+        <Label key="ready" variant="secondary">
           {t('course_ready_started')}
-        </span>
+        </Label>
       ) : (
         <WorkBadge key="ready" state="ready" />
       ),
@@ -99,9 +100,9 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   }
   if (c.running === null && waits === null && w.answered !== null) {
     parts.push(
-      <span key="answered" className="chip" title={t('course_answered_hint')}>
+      <Label key="answered" variant="secondary" title={t('course_answered_hint')}>
         {t('course_answered', { id: w.answered })}
-      </span>,
+      </Label>,
     );
   }
   // The asks and design cards waiting for the owner that what the work waits for does not name already: they are the
@@ -110,28 +111,28 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   const cards = w.open_design_cards - (waits?.kind === 'ruling' ? 1 : 0);
   if (asks > 0) {
     parts.push(
-      <Link key="asks" to={workHref(w.id, { tab: 'messages' })} className="chip warn" title={t('open_asks_n', { n: asks })}>
+      <LabelLink key="asks" to={workHref(w.id, { tab: 'messages' })} variant="attention" title={t('open_asks_n', { n: asks })}>
         {t('open_asks_chip', { n: asks })}
-      </Link>,
+      </LabelLink>,
     );
   }
   if (cards > 0) {
     parts.push(
-      <Link
+      <LabelLink
         key="cards"
         to={workHref(w.id, { tab: 'cards' })}
-        className="chip warn"
+        variant="attention"
         title={t('open_design_cards_later_n', { n: cards })}
       >
         {t('open_design_cards_chip', { n: cards })}
-      </Link>,
+      </LabelLink>,
     );
   }
   return (
-    <>
+    <span className="course">
       {parts}
       {(c.held === 'engine' || c.held === 'architect') && w.paused ? <span className="why">{w.paused}</span> : null}
-    </>
+    </span>
   );
 }
 
@@ -169,18 +170,20 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
         <Controls a={a} w={w} status={status} onStep={() => a.step()} />
         {a.error !== null ? (
-          <span className="bad why" title={a.error}>
+          <span className="error" title={a.error}>
             {t('request_failed', { error: a.error })}
           </span>
         ) : null}
       </td>
       <td title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
-        <span className="cell-id">{w.at}</span>
+        <span className="cell-id">{w.at}</span>{' '}
         {a.c.outdated ? (
-          <span className="chip warn" title={takeoverWords(w, status)}>
-            {t('course_outdated', { version: w.flow_version })}
-          </span>
-        ) : null}{' '}
+          <>
+            <Label variant="attention" title={takeoverWords(w, status)}>
+              {t('course_outdated', { version: w.flow_version })}
+            </Label>{' '}
+          </>
+        ) : null}
         {w.at_title}
       </td>
       <td title={stage}>{stage}</td>
@@ -191,10 +194,11 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
             {' '}
             <Link
               to={workHref(w.id, { only: 'sent_back' })}
-              className="warn rounds-mark"
+              className="rounds-mark rounds-mark-back"
               title={t('rounds_sent_back_title', { n: w.sent_back })}
             >
-              ↩{w.sent_back}
+              <ReplyIcon aria-label={t('outcome_sent_back')} />
+              {w.sent_back}
             </Link>
           </>
         ) : null}
@@ -203,10 +207,11 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
             {' '}
             <Link
               to={workHref(w.id, { only: 'failed' })}
-              className="bad rounds-mark"
+              className="rounds-mark rounds-mark-failed"
               title={t('rounds_failed_title', { n: w.failed })}
             >
-              ✕{w.failed}
+              <XCircleIcon aria-label={t('outcome_failed')} />
+              {w.failed}
             </Link>
           </>
         ) : null}
@@ -376,7 +381,7 @@ function List({ works, tab, widths, onWidths }: {
   widths: Widths;
   onWidths: (w: Widths) => void;
 }) {
-  if (works.length === 0) return <p className="muted works-none">{t('none')}</p>;
+  if (works.length === 0) return <p className="muted">{t('none')}</p>;
   return (
     <div className="works-wide">
       <Table works={works} tab={tab} widths={widths} onWidths={onWidths} />
@@ -399,9 +404,7 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
   const at = `${w.at} ${w.at_title ?? ''}${stage ? ` · ${stage}` : ''}`;
   return (
     <div className="work-line">
-      <Link to="/works" className="work-back" title={t('work_back')}>
-        ← {t('nav_works')}
-      </Link>
+      <WorksBack />
       <span className="work-name" title={name}>
         <strong>#{w.id}</strong>{' '}
         {w.item !== null ? (
@@ -417,12 +420,14 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
         <State w={w} c={a.c} now={now} />
       </span>
       <span className="work-where" title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
-        <span className="cell-id">{w.at}</span>
+        <span className="cell-id">{w.at}</span>{' '}
         {a.c.outdated ? (
-          <span className="chip warn" title={takeoverWords(w, status)}>
-            {t('course_outdated', { version: w.flow_version })}
-          </span>
-        ) : null}{' '}
+          <>
+            <Label variant="attention" title={takeoverWords(w, status)}>
+              {t('course_outdated', { version: w.flow_version })}
+            </Label>{' '}
+          </>
+        ) : null}
         {w.at_title}
         {stage ? <span className="muted"> · {stage}</span> : null}
       </span>
@@ -447,7 +452,7 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
         }}
       />
       {a.error !== null ? (
-        <span className="bad why" title={a.error}>
+        <span className="error" title={a.error}>
           {t('request_failed', { error: a.error })}
         </span>
       ) : null}
@@ -461,19 +466,30 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
             ].filter((x) => x !== null);
             const title = `#${o.id}${o.title ? ` · ${o.title}` : ''}${needs.length > 0 ? ` · ${needs.join(', ')}` : ''}`;
             return (
-              <Link key={o.id} to={workHref(o.id, { tab })} className="work-other" title={title}>
-                #{o.id}
+              <span key={o.id} className="work-other">
+                <Link to={workHref(o.id, { tab })} title={title}>
+                  #{o.id}
+                </Link>
                 {needs.map((x) => (
-                  <span key={x} className="chip warn">
+                  <Label key={x} variant="attention">
                     {x}
-                  </span>
+                  </Label>
                 ))}
-              </Link>
+              </span>
             );
           })}
         </nav>
       ) : null}
     </div>
+  );
+}
+
+/// The way back from a work to the list of works.
+function WorksBack() {
+  return (
+    <Link to="/works" className="work-back" title={t('work_back')}>
+      <ArrowLeftIcon /> {t('nav_works')}
+    </Link>
   );
 }
 
@@ -495,18 +511,20 @@ export function Works({ work }: { work: WorkRoute | null }) {
               .filter((w) => ENDED.has(w.state))
               .sort((a, b) => (b.last_at ?? 0) - (a.last_at ?? 0));
             return (
-              <>
-                <div className="works-label">
-                  {t('works_active')} ({active.length})
-                </div>
-                <List works={active} tab={tab} widths={widths} onWidths={setWidths} />
-                <details className="works-ended">
-                  <summary className="works-label">
-                    {t('works_ended')} ({ended.length})
-                  </summary>
+              <HeadingLevel.Provider value={2}>
+                <section className="works-active">
+                  <div className="works-head">
+                    <Heading as="h2" variant="small">
+                      {t('works_active')}
+                    </Heading>
+                    <CounterLabel>{active.length}</CounterLabel>
+                  </div>
+                  <List works={active} tab={tab} widths={widths} onWidths={setWidths} />
+                </section>
+                <Section title={t('works_ended')} n={ended.length}>
                   <List works={ended} tab={tab} widths={widths} onWidths={setWidths} />
-                </details>
-              </>
+                </Section>
+              </HeadingLevel.Provider>
             );
           }}
         </Loaded>
@@ -517,9 +535,7 @@ export function Works({ work }: { work: WorkRoute | null }) {
             <WorkLine w={open} others={active.filter((w) => w.id !== open.id)} tab={tab} />
           ) : (
             <div className="work-line">
-              <Link to="/works" className="work-back" title={t('work_back')}>
-                ← {t('nav_works')}
-              </Link>
+              <WorksBack />
             </div>
           )}
           <Work r={work} />

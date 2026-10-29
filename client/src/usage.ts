@@ -288,3 +288,95 @@ export function gapsOf(blocks: Block[], events: Array<{ at: number; what: string
   }
   return gaps;
 }
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/// The steps the axis of a work's wall time may mark it by, the finest first.
+const STEPS = [
+  MINUTE,
+  2 * MINUTE,
+  5 * MINUTE,
+  10 * MINUTE,
+  15 * MINUTE,
+  30 * MINUTE,
+  HOUR,
+  2 * HOUR,
+  3 * HOUR,
+  6 * HOUR,
+  12 * HOUR,
+  DAY,
+  2 * DAY,
+  7 * DAY,
+];
+
+/// A time of day as the axis writes it, hours and minutes.
+export function clockOf(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/// A day as the axis writes it, its month's short name and its date.
+function dayOf(ms: number): string {
+  return new Date(ms).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+}
+
+/// The time one step after `at`: a step of days by the calendar, so that a mark stays at midnight.
+function after(at: number, step: number): number {
+  if (step < DAY) return at + step;
+  const d = new Date(at);
+  d.setDate(d.getDate() + Math.round(step / DAY));
+  return d.getTime();
+}
+
+/// The first time after `start` that falls on a whole `step` of the local clock: a whole minute, hour or day.
+function firstOn(start: number, step: number): number {
+  const d = new Date(start);
+  if (step < HOUR) {
+    const m = step / MINUTE;
+    d.setSeconds(0, 0);
+    d.setMinutes(Math.floor(d.getMinutes() / m) * m);
+  } else if (step < DAY) {
+    const h = step / HOUR;
+    d.setMinutes(0, 0, 0);
+    d.setHours(Math.floor(d.getHours() / h) * h);
+  } else {
+    d.setHours(0, 0, 0, 0);
+  }
+  let at = d.getTime();
+  while (at <= start) at = after(at, step);
+  return at;
+}
+
+/// A mark on the axis of a work's wall time: where it is, as a share of the axis from 0 to 1, what it says, and
+/// whether it is one of the two ends, which say when the work's time began and ended.
+export type Tick = { at: number; label: string; end: 'start' | 'end' | null };
+
+/// The marks of the axis under a work's wall time from `start` to `end` drawn `width` pixels wide: its two ends, with
+/// the day when the time spans more than one, and between them the times on a whole step of the clock, the finest step
+/// whose marks stand at least `least` pixels apart, so that no two labels run into each other; a mark at midnight says
+/// the day, and one too near an end is left out.
+export function axisTicks(start: number, end: number, width: number, least = 64): Tick[] {
+  const span = end - start;
+  const days = dayOf(start) !== dayOf(end);
+  const first: Tick = { at: 0, label: days ? `${dayOf(start)} ${clockOf(start)}` : clockOf(start), end: 'start' };
+  const last: Tick = { at: 1, label: days ? `${dayOf(end)} ${clockOf(end)}` : clockOf(end), end: 'end' };
+  if (span <= 0 || width <= 0) return [first];
+  let step = STEPS.find((s) => (s / span) * width >= least);
+  if (step === undefined) {
+    step = STEPS[STEPS.length - 1];
+    while ((step / span) * width < least) step *= 2;
+  }
+  // An end that says the day is wider than a time of day: the marks keep further from it.
+  const room = (days ? 1.5 : 1) * least;
+  const marks: Tick[] = [];
+  for (let at = firstOn(start, step); at < end; at = after(at, step)) {
+    const x = (at - start) / span;
+    if (x * width < room || (1 - x) * width < room) continue;
+    const d = new Date(at);
+    const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+    marks.push({ at: x, label: midnight && days ? dayOf(at) : clockOf(at), end: null });
+  }
+  return [first, ...marks, last];
+}

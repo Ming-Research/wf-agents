@@ -15,10 +15,9 @@ export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [
   {
     file: 'styles.css',
     why:
-      'The styles of the views not yet converted to the UI spec (the works, a work and its rounds, the chart, the ' +
-      'architect, the items tree, the messages, the system, the settings, the usage) and of what a cell\'s tabs and a ' +
-      "round's panel hold, which a redesign of their own converts; each part leaves it for a file under styles/ when " +
-      'it is converted.',
+      'The styles of the views not yet converted to the UI spec (the chart, the architect, the items tree, the ' +
+      "messages, the system) and of what a cell's tabs and a round's panel hold, which a redesign of their own " +
+      'converts; each part leaves it for a file under styles/ when it is converted.',
   },
   {
     file: 'graph/flowDraw.tsx',

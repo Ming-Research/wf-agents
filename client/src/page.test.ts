@@ -80,7 +80,7 @@ import {
 import { settingsChange, settingsProblems } from './pages/Settings';
 import { tiersAllowed } from './pages/Item';
 import { spendTable } from './spend';
-import { gapsOf, usageOf } from './usage';
+import { axisTicks, gapsOf, usageOf } from './usage';
 import { stateChanges } from './architect';
 
 describe('the message catalog', () => {
@@ -1546,6 +1546,35 @@ describe("a work's usage", () => {
     expect([u.pings.length, u.pings[0].nth]).toEqual([1, 1]);
     expect(u.pingCost).toBeCloseTo(0.05);
     expect(u.cost).toBeCloseTo(3.55);
+  });
+
+  it('marks the axis of its wall time at a step the width has room for, so that no two labels run into each other', () => {
+    // A work that ran a day and twenty-two hours and a half.
+    const start = new Date(2026, 9, 27, 5, 12).getTime();
+    const end = start + (46 * 60 + 30) * 60_000;
+    for (const width of [240, 480, 700, 1400]) {
+      const ticks = axisTicks(start, end, width);
+      expect(ticks[0]).toEqual({ at: 0, label: 'Oct 27 05:12', end: 'start' });
+      expect(ticks[ticks.length - 1]).toEqual({ at: 1, label: 'Oct 29 03:42', end: 'end' });
+      for (let i = 1; i < ticks.length; i++) {
+        expect((ticks[i].at - ticks[i - 1].at) * width).toBeGreaterThanOrEqual(64);
+      }
+    }
+    // At 700 pixels the marks are six hours apart, one at midnight saying the day, none crowding an end.
+    expect(
+      axisTicks(start, end, 700)
+        .filter((x) => x.end === null)
+        .map((x) => x.label),
+    ).toEqual(['12:00', '18:00', 'Oct 28', '06:00', '12:00', '18:00']);
+    // Twenty minutes in 600 pixels are marked every five, with no day.
+    const morning = new Date(2026, 9, 27, 10, 0).getTime();
+    expect(axisTicks(morning, morning + 20 * 60_000, 600).map((x) => x.label)).toEqual([
+      '10:00',
+      '10:05',
+      '10:10',
+      '10:15',
+      '10:20',
+    ]);
   });
 });
 

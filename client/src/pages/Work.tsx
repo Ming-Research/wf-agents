@@ -8,6 +8,7 @@
 // the owner's answer pinned with their forms, then what its agents, the owner, the architect and the engine said about
 // it. A round or a cell opened shows in the column's lower part, its cell brought into view.
 
+import { Button, CounterLabel, Flash as PrimerFlash, Label, UnderlineNav } from '@primer/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -28,7 +29,7 @@ import { cost, duration, roundName } from '../format';
 import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
-import { ItemRef, RoundLink } from '../parts';
+import { ItemRef, LinkButton, RoundLink } from '../parts';
 import { href, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
 import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
@@ -112,12 +113,16 @@ export function Timeline(props: {
               </td>
               <td className="timeline-what">
                 {r.outcome === 'running' && props.stale ? (
-                  <span className="badge" title={t('round_left_open_hint')}>
-                    {t('round_left_open')}
-                  </span>
+                  <>
+                    <Label variant="secondary" title={t('round_left_open_hint')}>
+                      {t('round_left_open')}
+                    </Label>{' '}
+                  </>
                 ) : r.outcome !== 'took' ? (
-                  <OutcomeBadge outcome={r.outcome} />
-                ) : null}{' '}
+                  <>
+                    <OutcomeBadge outcome={r.outcome} />{' '}
+                  </>
+                ) : null}
                 <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
               </td>
               <td className="num muted nowrap">
@@ -166,50 +171,51 @@ function Going({ d, onCard, onAsk }: {
           ? t('course_ready_started')
           : t('state_ready');
   const waits = c.waits;
+  // A Flash in the colour of how the work goes on: a round running is news, a stop of the engine's is a problem, and
+  // a work held back or waiting waits for someone.
+  const variant = runs ? 'default' : c.held === 'engine' ? 'danger' : why !== null || waits !== null ? 'warning' : 'default';
   return (
-    <section className={`next going${c.held === 'engine' ? ' paused' : ''}`}>
-      <div className="next-head">
+    <PrimerFlash variant={variant} className="going">
+      <div className="going-head">
         <strong>{head}</strong>
         {runs && since !== null ? <span className="muted">{duration(now - since)}</span> : null}
       </div>
       {(c.held === 'engine' || c.held === 'architect') && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
       {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
-      {c.held === 'all' && !runs ? <p className="muted">{t('course_note_all')}</p> : null}
-      {c.releasing ? <p className="muted">{t('course_releasing_why')}</p> : null}
+      {c.held === 'all' && !runs ? <p>{t('course_note_all')}</p> : null}
+      {c.releasing ? <p>{t('course_releasing_why')}</p> : null}
       {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}
       {waits?.kind === 'ruling' ? (
         <div>
-          <button type="button" className="decide-button" onClick={() => onCard(waits.design_card)}>
+          <Button size="small" onClick={() => onCard(waits.design_card)}>
             {t('next_rule_card', { id: waits.design_card })}
-          </button>
+          </Button>
         </div>
       ) : null}
       {waits?.kind === 'answer' ? (
         <div>
-          <button type="button" className="decide-button" onClick={() => onAsk(waits.ask)}>
+          <Button size="small" onClick={() => onAsk(waits.ask)}>
             {t('next_answer_ask', { id: waits.ask })}
-          </button>
+          </Button>
         </div>
       ) : null}
       {waits?.kind === 'items' ? (
-        <p>
+        <p className="going-items">
           {waits.items.map((i) => (
             <ItemRef key={i} id={i} />
           ))}
         </p>
       ) : null}
-      {!runs && waits === null && w.answered !== null ? (
-        <p className="muted">{t('course_answered', { id: w.answered })}</p>
-      ) : null}
-      {c.outdated ? <p className="warn">{takeoverWords(w, status)}</p> : null}
-      {runs ? (
-        <ol className="next-activity">
+      {!runs && waits === null && w.answered !== null ? <p>{t('course_answered', { id: w.answered })}</p> : null}
+      {c.outdated ? <p>{takeoverWords(w, status)}</p> : null}
+      {runs && activity.length > 0 ? (
+        <ol className="going-activity">
           {activity.map((x, i) => (
             <li key={i}>{x.what}</li>
           ))}
         </ol>
       ) : null}
-    </section>
+    </PrimerFlash>
   );
 }
 
@@ -264,62 +270,60 @@ function WorkPanel({ d, g, r, go }: {
   const onAsk = (id: number) => show('messages', `ask-${id}`);
   const openCards = d.design_cards.filter((c) => c.status === 'open').length;
   const openAsks = d.asks.filter((a) => a.answer === null).length;
-  const tabs: Array<{ tab: WorkTab; label: string; n: number | null; chip: string | null; hint: string }> = [
-    { tab: 'rounds', label: t('rounds'), n: d.rounds.length, chip: null, hint: '' },
+  // Each tab's count, and what in it waits for the owner as a count of its own.
+  const tabs: Array<{ tab: WorkTab; label: string; n: number | null; waiting: number; hint: string }> = [
+    { tab: 'rounds', label: t('rounds'), n: d.rounds.length, waiting: 0, hint: '' },
     {
       tab: 'cards',
       label: t('design_cards'),
       n: d.design_cards.length,
-      chip: openCards > 0 ? t('open_design_cards_chip', { n: openCards }) : null,
+      waiting: openCards,
       hint: t('open_design_cards_n', { n: openCards }),
     },
     {
       tab: 'messages',
       label: t('work_messages_tab'),
       n: d.messages.length + d.asks.length,
-      chip: openAsks > 0 ? t('open_asks_chip', { n: openAsks }) : null,
+      waiting: openAsks,
       hint: t('open_asks_n', { n: openAsks }),
     },
-    { tab: 'usage', label: t('us_tab'), n: null, chip: null, hint: '' },
+    { tab: 'usage', label: t('us_tab'), n: null, waiting: 0, hint: '' },
   ];
   const shown = roundsShown(d.rounds, r.only);
   return (
     <div className="drawer">
-      <div className="drawer-head">
-        <div className="tabs" role="tablist">
-          {tabs.map((x) => (
-            <button
-              key={x.tab}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={x.tab === r.tab}
-              onClick={() => show(x.tab, null)}
-            >
-              {x.label}
-              {x.n !== null ? <span className="tab-n">{x.n}</span> : null}
-              {x.chip !== null ? (
-                <span className="chip warn" title={x.hint}>
-                  {x.chip}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="drawer-body" role="tabpanel" ref={body}>
+      <UnderlineNav aria-label={t('work_tabs')} className="drawer-tabs">
+        {tabs.map((x) => (
+          <UnderlineNav.Item
+            key={x.tab}
+            href={href({ ...r, tab: x.tab, round: r.round, cell: r.cell })}
+            aria-current={x.tab === r.tab ? 'page' : undefined}
+            onSelect={(e) => {
+              // A click with a modifier key opens the tab as the browser would.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              show(x.tab, null);
+            }}
+          >
+            {x.label}
+            {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
+            {x.waiting > 0 ? (
+              <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
+                {x.waiting}
+              </CounterLabel>
+            ) : null}
+          </UnderlineNav.Item>
+        ))}
+      </UnderlineNav>
+      <div className="drawer-body" ref={body}>
         {r.tab === 'rounds' ? (
           <>
             <Going d={d} onCard={onCard} onAsk={onAsk} />
             {r.only !== null ? (
-              <div className="rounds-only">
-                <span>
-                  {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}
-                </span>
-                <button type="button" className="link" onClick={() => go({ only: null })}>
-                  {t('rounds_show_all', { n: d.rounds.length })}
-                </button>
-              </div>
+              <p className="rounds-only">
+                {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}{' '}
+                <LinkButton onClick={() => go({ only: null })}>{t('rounds_show_all', { n: d.rounds.length })}</LinkButton>
+              </p>
             ) : null}
             <Timeline
               work={d.work.id}

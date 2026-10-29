@@ -6,30 +6,40 @@
 // in HTML so that they keep their size as the charts shrink with the panel; colours come from the page's tokens, in
 // light and dark alike.
 
-import type { ReactNode } from 'react';
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
 import type { CompiledGraph, WorkDetail } from '../api';
 import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
 import { tokens } from '../round';
 import { t } from '../text';
-import { type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
+import { axisTicks, clockOf, type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
 import { modelName } from './RoundView';
 
 /// A time of day, hours and minutes.
-function clock(ms: number): string {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const clock = clockOf;
+
+/// How wide an element is drawn now, followed as the panel it is in is dragged.
+function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    setWidth(el.getBoundingClientRect().width);
+    const seen = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0));
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, []);
+  return [ref, width];
 }
 
 /// The work's wall time, from its first round's start to its last round's end, a block for each round of a model or
-/// of the tools over the time no round ran, with the hours marked under it.
+/// of the tools over the time no round ran, with its times marked under it at a step its width has room for.
 function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }) {
   const x = (ms: number) => pct(ms - u.start, u.wall);
-  const hours: number[] = [];
-  const first = new Date(u.start);
-  first.setMinutes(0, 0, 0);
-  for (let h = first.getTime() + 3_600_000; h < u.end; h += 3_600_000) hours.push(h);
+  const [axis, width] = useWidth<HTMLDivElement>();
+  const ticks = axisTicks(u.start, u.end, width);
   return (
     <div className="us-timeline">
       <div className="us-track">
@@ -67,16 +77,16 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
             />
           ))}
       </div>
-      <div className="us-axis">
-        <span style={{ left: '0%' }}>{clock(u.start)}</span>
-        {hours.map((h) => (
-          <span key={h} className="us-tick" style={{ left: `${x(h)}%` }}>
-            {clock(h)}
+      <div className="us-axis" ref={axis}>
+        {ticks.map((k) => (
+          <span
+            key={`${k.end ?? ''}${k.at}`}
+            className={k.end === 'end' ? 'us-axis-end' : k.end === null ? 'us-tick' : undefined}
+            style={{ left: `${100 * k.at}%` }}
+          >
+            {k.label}
           </span>
         ))}
-        <span style={{ left: '100%' }} className="us-axis-end">
-          {clock(u.end)}
-        </span>
       </div>
     </div>
   );
@@ -102,7 +112,7 @@ function waits(d: WorkDetail): Array<{ at: number; what: string }> {
   return out;
 }
 
-const LINE_COLOURS = ['var(--us-1)', 'var(--us-2)', 'var(--us-3)', 'var(--us-4)'];
+const LINE_COLOURS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
 
 /// A session as the tab names it: its line, and its number among the line's when the line had more than one.
 function sessionName(u: UsageData, s: { line: string; nth: number }): string {
@@ -206,10 +216,11 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
   );
 }
 
+/// A part of the tab: its heading as a section's, with the rule under it, a note on what it shows, and what it shows.
 function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
     <section className="us-sec">
-      <h4>{title}</h4>
+      <h3 className="us-sec-title">{title}</h3>
       {note !== undefined ? <p className="us-note">{note}</p> : null}
       {children}
     </section>
@@ -252,12 +263,12 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
       <Section title={t('us_time_title')} note={t('us_time_note')}>
         <Stack
           parts={[
-            { value: u.time.model, colour: 'var(--us-1)', label: t('us_models'), tip: `${t('us_models')} · ${duration(u.time.model)}` },
-            { value: u.time.tool, colour: 'var(--us-2)', label: t('us_tools'), tip: `${t('us_tools')} · ${duration(u.time.tool)}` },
+            { value: u.time.model, colour: 'var(--chart-1)', label: t('us_models'), tip: `${t('us_models')} · ${duration(u.time.model)}` },
+            { value: u.time.tool, colour: 'var(--chart-2)', label: t('us_tools'), tip: `${t('us_tools')} · ${duration(u.time.tool)}` },
             ...(u.time.engine >= 1000
-              ? [{ value: u.time.engine, colour: 'var(--us-3)', label: t('us_engine'), tip: `${t('us_engine')} · ${duration(u.time.engine)}` }]
+              ? [{ value: u.time.engine, colour: 'var(--chart-3)', label: t('us_engine'), tip: `${t('us_engine')} · ${duration(u.time.engine)}` }]
               : []),
-            { value: u.time.idle, colour: 'var(--us-idle)', label: t('us_not_running'), tip: t('us_not_running_tip', { time: duration(u.time.idle) }) },
+            { value: u.time.idle, colour: 'var(--chart-idle)', label: t('us_not_running'), tip: t('us_not_running_tip', { time: duration(u.time.idle) }) },
           ]}
         />
         <Timeline u={u} work={work} gaps={gapsOf(u.blocks, waits(d))} />
@@ -272,24 +283,24 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
               })
         }
       >
-        <table className="us-table">
+        <table className="list us-table">
           <thead>
             <tr>
               <th>{t('us_col_model')}</th>
-              <th>{t('us_col_rounds')}</th>
-              <th>{t('us_col_turns')}</th>
-              <th>{t('us_col_time')}</th>
-              <th>{t('us_col_read')}</th>
-              <th>{t('us_col_written')}</th>
-              <th>{t('us_col_output')}</th>
-              <th>{t('us_col_cost')}</th>
+              <th className="num">{t('us_col_rounds')}</th>
+              <th className="num">{t('us_col_turns')}</th>
+              <th className="num">{t('us_col_time')}</th>
+              <th className="num">{t('us_col_read')}</th>
+              <th className="num">{t('us_col_written')}</th>
+              <th className="num">{t('us_col_output')}</th>
+              <th className="num">{t('us_col_cost')}</th>
             </tr>
           </thead>
           <tbody>
             {u.models.map((m) => (
               <tr key={`${m.model}-${m.effort ?? ''}-${m.level ?? ''}`}>
                 <td>
-                  <b>{modelName(m.model)}</b>
+                  {modelName(m.model)}
                   <div className="us-sub">
                     {m.level !== null ? t('us_level', { level: m.level }) : t('us_level_unrecorded')}
                     {m.effort !== null ? ` · ${t('us_effort', { effort: m.effort })}` : ''}
@@ -305,7 +316,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
                   <div className="us-sub">{t('us_thinking', { n: tokens(m.thinking) })}</div>
                 </td>
                 <td className="num" data-tip={t('us_share_tip', { share: share(m.cost, u.cost) })}>
-                  <b>{cost(m.cost)}</b>
+                  {cost(m.cost)}
                   <div className="us-mini">
                     <div style={{ width: `${pct(m.cost, u.cost)}%` }} />
                   </div>
@@ -322,13 +333,13 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
               { value: k.read, colour: 'var(--share-read)', label: t('us_kind_read', { share: share(k.read, kTotal) }), tip: t('us_kind_read_tip', { n: tokens(tk.read), share: share(k.read, kTotal) }) },
               { value: k.written, colour: 'var(--share-new)', label: t('us_kind_written', { share: share(k.written, kTotal) }), tip: t('us_kind_written_tip', { n: tokens(tk.written), share: share(k.written, kTotal) }) },
               { value: k.output, colour: 'var(--share-output)', label: t('us_kind_output', { share: share(k.output, kTotal) }), tip: t('us_kind_output_tip', { n: tokens(tk.output), share: share(k.output, kTotal) }) },
-              { value: k.input, colour: 'var(--us-idle)', label: t('us_kind_input', { share: share(k.input, kTotal) }), tip: t('us_kind_input_tip', { n: tokens(tk.input), share: share(k.input, kTotal) }) },
+              { value: k.input, colour: 'var(--chart-idle)', label: t('us_kind_input', { share: share(k.input, kTotal) }), tip: t('us_kind_input_tip', { n: tokens(tk.input), share: share(k.input, kTotal) }) },
             ]}
           />
         ) : null}
-        <p className="us-note us-gap">{t('us_by_cell')}</p>
+        <h4 className="sub-heading us-part">{t('us_by_cell')}</h4>
         <Bars
-          colour="var(--us-1)"
+          colour="var(--chart-1)"
           items={[
             ...top.map((c) => ({
               label: `${c.cell} ${c.title}`,
@@ -350,17 +361,17 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
         />
       </Section>
       <Section title={t('us_sessions_title')} note={t('us_sessions_note')}>
-        <table className="us-table">
+        <table className="list us-table">
           <thead>
             <tr>
               <th>{t('us_col_line')}</th>
               <th>{t('us_col_started')}</th>
-              <th>{t('us_col_rounds')}</th>
-              <th>{t('us_col_turns')}</th>
-              <th>{t('us_col_time')}</th>
-              <th>{t('us_col_context')}</th>
-              <th>{t('us_col_compactions')}</th>
-              <th>{t('us_col_cost')}</th>
+              <th className="num">{t('us_col_rounds')}</th>
+              <th className="num">{t('us_col_turns')}</th>
+              <th className="num">{t('us_col_time')}</th>
+              <th className="num">{t('us_col_context')}</th>
+              <th className="num">{t('us_col_compactions')}</th>
+              <th className="num">{t('us_col_cost')}</th>
             </tr>
           </thead>
           <tbody>
@@ -368,7 +379,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
               <tr key={s.id ?? s.line}>
                 <td>
                   <i className="us-swatch" style={{ background: colour(s.line) }} />
-                  <b>{sessionName(u, s)}</b>
+                  {sessionName(u, s)}
                 </td>
                 <td>{startedText(s)}</td>
                 <td className="num">{s.rounds}</td>
@@ -380,27 +391,27 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
                 </td>
                 <td className="num">{s.compactions}</td>
                 <td className="num">
-                  <b>{cost(s.cost)}</b>
+                  {cost(s.cost)}
                   {s.pings > 0 ? <div className="us-sub">{t('us_with_pings', { n: s.pings })}</div> : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="us-note us-gap">{t('us_context_title')}</p>
+        <h4 className="sub-heading us-part">{t('us_context_title')}</h4>
         <ContextChart u={u} work={work} colour={colour} />
       </Section>
       {u.pings.length > 0 ? (
         <Section title={t('us_pings_title')} note={t('us_pings_note')}>
-          <table className="us-table">
+          <table className="list us-table">
             <thead>
               <tr>
                 <th>{t('us_col_when')}</th>
                 <th>{t('us_col_session')}</th>
                 <th>{t('us_col_waited')}</th>
-                <th>{t('us_col_read')}</th>
-                <th>{t('us_col_written')}</th>
-                <th>{t('us_col_cost')}</th>
+                <th className="num">{t('us_col_read')}</th>
+                <th className="num">{t('us_col_written')}</th>
+                <th className="num">{t('us_col_cost')}</th>
               </tr>
             </thead>
             <tbody>
@@ -418,7 +429,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
                   <td className="num">{tokens(p.read)}</td>
                   <td className="num">{tokens(p.written)}</td>
                   <td className="num">
-                    <b>{p.cost_usd !== null ? cost(p.cost_usd) : ''}</b>
+                    {p.cost_usd !== null ? cost(p.cost_usd) : ''}
                   </td>
                 </tr>
               ))}
@@ -429,7 +440,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
       {u.tools.length > 0 ? (
         <Section title={t('us_tools_title')} note={t('us_tools_note')}>
           <Bars
-            colour="var(--us-2)"
+            colour="var(--chart-2)"
             items={u.tools.map((x) => ({
               label: `${x.cell} ${x.title}`,
               value: x.ms,

@@ -339,6 +339,7 @@ const messages = {
   asks: 'Asks of the owner',
   ask_answered: 'answered',
   work_messages_tab: 'Conversation',
+  work_tabs: "The work's tabs",
   work_no_design_cards: 'No design cards.',
   work_answered_asks: 'Asks answered',
   close: 'Close',

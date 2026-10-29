@@ -2,6 +2,7 @@
 // round of it runs, what holds it back and what it waits for, and the owner's Start, Pause and Step, with the session
 // Start and Step run the next round in.
 
+import { IconButton } from '@primer/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Status, Waits, WorkSummary } from './api';
@@ -138,28 +139,33 @@ export function useOpenStepped(
   };
 }
 
-/// The icons of the owner's controls, drawn in the colour of their text: Start a triangle, Pause two bars, Step a
-/// triangle against a bar, and the new session a speech bubble holding a plus.
-function Icon({ of }: { of: 'start' | 'pause' | 'step' | 'session' }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
-      {of === 'start' ? <path d="M5 3.2v9.6l7.6-4.8z" /> : null}
-      {of === 'pause' ? <path d="M4.5 3.5h2.4v9H4.5zM9.1 3.5h2.4v9H9.1z" /> : null}
-      {of === 'step' ? <path d="M3.5 3.5v9l6.4-4.5zM10.6 3.5h2v9h-2z" /> : null}
-      {of === 'session' ? (
-        <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2.5 4q0-1.5 1.5-1.5h8q1.5 0 1.5 1.5v5.5q0 1.5-1.5 1.5H7l-3 2.5V11q-1.5 0-1.5-1.5z" />
-          <path d="M8 4.75v4M6 6.75h4" />
-        </g>
-      ) : null}
-    </svg>
-  );
+/// The icons of the owner's controls, at Octicons' size and drawn in the colour of their button's text: Start a
+/// triangle, Pause two bars, Step a triangle against a bar, and the new session a speech bubble holding a plus. Octicons
+/// has no step and no new session, and its play and pause are in circles, so the four are drawn alike here.
+function glyph(of: 'start' | 'pause' | 'step' | 'session') {
+  return function ControlIcon() {
+    return (
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false">
+        {of === 'start' ? <path d="M5 3.2v9.6l7.6-4.8z" /> : null}
+        {of === 'pause' ? <path d="M4.5 3.5h2.4v9H4.5zM9.1 3.5h2.4v9H9.1z" /> : null}
+        {of === 'step' ? <path d="M3.5 3.5v9l6.4-4.5zM10.6 3.5h2v9h-2z" /> : null}
+        {of === 'session' ? (
+          <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2.5 4q0-1.5 1.5-1.5h8q1.5 0 1.5 1.5v5.5q0 1.5-1.5 1.5H7l-3 2.5V11q-1.5 0-1.5-1.5z" />
+            <path d="M8 4.75v4M6 6.75h4" />
+          </g>
+        ) : null}
+      </svg>
+    );
+  };
 }
+
+const ICONS = { start: glyph('start'), pause: glyph('pause'), step: glyph('step'), session: glyph('session') };
 
 /// The names of Start, Pause and Step, said on hovering each and to a screen reader.
 const NAMES = { start: 'work_start', pause: 'work_pause', step: 'work_step' } as const;
 
-/// One of the owner's Start, Pause and Step, drawn as its icon: hovering says its name and what it does, or why it
+/// One of the owner's Start, Pause and Step, a small IconButton: hovering says its name and what it does, or why it
 /// cannot now, and a screen reader is told its name.
 export function Control({ icon, hint, onClick, disabled }: {
   icon: 'start' | 'pause' | 'step';
@@ -169,34 +175,33 @@ export function Control({ icon, hint, onClick, disabled }: {
 }) {
   const name = t(NAMES[icon]);
   return (
-    <button
-      type="button"
-      className="control icon-control"
+    <IconButton
+      size="small"
+      icon={ICONS[icon]}
       onClick={onClick}
       disabled={disabled}
       title={`${name}\n${hint}`}
       aria-label={name}
-    >
-      <Icon of={icon} />
-    </button>
+      unsafeDisableTooltip
+    />
   );
 }
 
-/// The owner's choice of the session the next Start or Step runs its round in, as a switch drawn as its icon: pressed,
-/// a new one given everything its cell needs; else the one its line goes on in.
+/// The owner's choice of the session the next Start or Step runs its round in, as a small IconButton that stays
+/// pressed: pressed, a new one given everything its cell needs; else the one its line goes on in.
 export function SessionChoice({ on, set, disabled }: { on: boolean; set: (on: boolean) => void; disabled?: boolean }) {
   return (
-    <button
-      type="button"
-      className="control icon-control"
+    <IconButton
+      size="small"
+      icon={ICONS.session}
+      className="session-choice"
       aria-pressed={on}
       disabled={disabled}
       title={`${t('session_new')}\n${t('session_choice_hint')}`}
       aria-label={t('session_new')}
       onClick={() => set(!on)}
-    >
-      <Icon of="session" />
-    </button>
+      unsafeDisableTooltip
+    />
   );
 }
 

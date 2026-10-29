@@ -152,7 +152,7 @@ function standingWords(w: WorkSummary, status: Status | null): string {
 /// Works, each by its number and item, how it stands, and how long since its last round.
 function WorkRows({ list, status, at }: { list: WorkSummary[]; status: Status | null; at: number }) {
   return (
-    <table className="us-table sys-table">
+    <table className="list us-table sys-table">
       <thead>
         <tr>
           <th>{t('sys_col_work')}</th>
@@ -182,7 +182,7 @@ function WorkRows({ list, status, at }: { list: WorkSummary[]; status: Status | 
 function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
   if (list.length === 0) return null;
   return (
-    <table className="us-table sys-table">
+    <table className="list us-table sys-table">
       <thead>
         <tr>
           <th>{t('sys_col_architect')}</th>
@@ -247,7 +247,7 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
       {s.weeks.length > 1 ? <WeekTable weeks={s.weeks} /> : null}
       {o.merged.length > 0 ? (
         <Section id="sys-merged" title={t('sys_merged')}>
-          <table className="us-table sys-table">
+          <table className="list us-table sys-table">
             <thead>
               <tr>
                 <th>{t('sys_col_item')}</th>
@@ -287,7 +287,7 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
       ) : null}
       {o.open_prs.length > 0 ? (
         <Section id="sys-prs" title={t('sys_open_prs')}>
-          <table className="us-table sys-table">
+          <table className="list us-table sys-table">
             <thead>
               <tr>
                 <th>{t('sys_col_pr')}</th>
@@ -329,7 +329,7 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
 /// Items made or cancelled, the latest first, each with when, and for one cancelled why.
 function ItemRows({ list, why }: { list: ItemAt[]; why: boolean }) {
   return (
-    <table className="us-table sys-table">
+    <table className="list us-table sys-table">
       <thead>
         <tr>
           <th>{t('sys_col_item')}</th>
@@ -355,7 +355,7 @@ function ItemRows({ list, why }: { list: ItemAt[]; why: boolean }) {
 /// What got done week by week, the latest first.
 function WeekTable({ weeks }: { weeks: Week[] }) {
   return (
-    <table className="us-table sys-table sys-weeks">
+    <table className="list us-table sys-table sys-weeks">
       <thead>
         <tr>
           <th>{t('sys_col_week')}</th>
@@ -390,8 +390,8 @@ function Spend({ s }: { s: SystemData }) {
   const merged = s.output.merged.length;
   const own = mergedAverages(s.output.merged);
   const lines = spendTable(s.spend.by_line_model);
-  const engineers = { colour: 'var(--us-1)', label: t('sys_engineers') };
-  const architects = { colour: 'var(--us-2)', label: t('sys_architects') };
+  const engineers = { colour: 'var(--chart-1)', label: t('sys_engineers') };
+  const architects = { colour: 'var(--chart-2)', label: t('sys_architects') };
   return (
     <>
       <div className="us-tiles">
@@ -429,7 +429,7 @@ function Spend({ s }: { s: SystemData }) {
       ) : null}
       {lines.models.length > 0 ? (
         <Section id="sys-by-line" title={t('sys_by_line')}>
-          <table className="us-table sys-table">
+          <table className="list us-table sys-table">
             <thead>
               <tr>
                 <th>{t('sys_col_line')}</th>
@@ -474,7 +474,7 @@ function Spend({ s }: { s: SystemData }) {
       ) : null}
       {s.spend.by_item.length > 0 ? (
         <Section id="sys-by-item" title={t('sys_by_item')}>
-          <table className="us-table sys-table">
+          <table className="list us-table sys-table">
             <thead>
               <tr>
                 <th>{t('sys_col_item')}</th>
@@ -502,7 +502,7 @@ function Spend({ s }: { s: SystemData }) {
       ) : null}
       {s.spend.cells.length > 0 ? (
         <Section id="sys-cells" title={t('sys_cells')}>
-          <table className="us-table sys-table">
+          <table className="list us-table sys-table">
             <thead>
               <tr>
                 <th>{t('sys_col_cell')}</th>
@@ -625,7 +625,7 @@ function Waste({ s }: { s: SystemData }) {
 /// work shows them.
 function Counts({ list, head, to }: { list: WorkCount[]; head: string; to: (c: WorkCount) => string }) {
   return (
-    <table className="us-table sys-table">
+    <table className="list us-table sys-table">
       <thead>
         <tr>
           <th>{t('sys_col_work')}</th>
@@ -708,7 +708,7 @@ function anomalyWords(a: Anomaly): string {
 /// wrong.
 function AnomalyRows({ list }: { list: Anomaly[] }) {
   return (
-    <table className="us-table sys-table">
+    <table className="list us-table sys-table">
       <thead>
         <tr>
           <th>{t('sys_col_when')}</th>

@@ -18,6 +18,9 @@ import './styles/item.css';
 import './styles/screen.css';
 import './styles/flow.css';
 import './styles/settings.css';
+import './styles/charts.css';
+import './styles/works.css';
+import './styles/usage.css';
 import './styles.css';
 
 const root = document.getElementById('root');
