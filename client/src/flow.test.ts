@@ -9,9 +9,10 @@ import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
 import { EFFORTS, effortOf, effortsOf, labelSize, sizes } from './graph/flowDraw';
-import { layoutChart } from './graph/flowLayout';
+import { besides, layoutChart } from './graph/flowLayout';
 import { cellActions, cellNode, chart, moves } from './graph/flowModel';
-import { storeLinks, storeUses } from './graph/stores';
+import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
+import { layStores, storeLinks, storeSize, storeUses } from './graph/stores';
 import { stagesOf } from './item/checklist';
 import stored from './stored-flow.json?raw';
 
@@ -49,6 +50,64 @@ describe('the flow as the engine stores it', () => {
     expect(levels).toEqual(EFFORTS.map(([level]) => level).filter((l) => cells.some((c) => c.effort === l)));
     expect(levels.length).toBeGreaterThan(1);
   });
+
+  it('draws every cell of every graph on the map of the flow page, and every store, inside the map', async () => {
+    // The graphs side by side with the stores between the first two, each drawing 24 px inside its sheet, as the
+    // chart places them.
+    const pad = 24;
+    const charts = graphs.map(({ g, v }) => chart(g, v, engine));
+    const laid = await Promise.all(
+      graphs.map(({ g }, i) => {
+        const c = charts[i];
+        const measured = sizes(g, c);
+        const edges = new Map(c.edges.map((e) => [e.id, e]));
+        return layoutChart(
+          c,
+          (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+          (id) => {
+            const e = edges.get(id);
+            return e ? labelSize(e, true) : null;
+          },
+        );
+      }),
+    );
+    const all = engine.stores ?? {};
+    const stores = Object.keys(all).length > 0 ? layStores(all, storeSize) : null;
+    const storesAt = graphs.length >= 2 ? 1 : graphs.length;
+    const sheets = laid.map((l) => ({ width: l.bounds.width + 2 * pad, height: l.bounds.height + 2 * pad }));
+    if (stores !== null) sheets.splice(storesAt, 0, { width: stores.width + 2 * pad, height: stores.height + 2 * pad });
+    const placed = besides(sheets);
+    const map = mapOf(
+      placed,
+      laid.map((l, i) => ({
+        graph: graphs[i].g.name,
+        chart: charts[i],
+        laid: l,
+        left: placed.x[stores !== null && i >= storesAt ? i + 1 : i],
+        overlays: null,
+      })),
+      placed.top,
+      pad,
+      stores !== null ? { laid: stores, left: placed.x[storesAt] } : null,
+    );
+    const { width, height } = map.geom;
+    expect(width <= MAP_WIDTH + 1e-6 && height <= MAP_HEIGHT + 1e-6, `${width} by ${height}`).toBe(true);
+    expect(Math.max(width / MAP_WIDTH, height / MAP_HEIGHT)).toBeCloseTo(1, 6);
+    const inside = (s: { x: number; y: number; width: number; height: number }) =>
+      s.x >= -0.5 && s.y >= -0.5 && s.x + s.width <= width + 0.5 && s.y + s.height <= height + 0.5;
+    for (const { g } of graphs) {
+      for (const cell of g.cells) {
+        const drawn = map.shapes.filter((s) => s.kind === 'cell' && s.graph === g.name && s.cell === cell.id);
+        expect(drawn.length, `${g.name} ${cell.id}`).toBe(1);
+        const s = drawn[0];
+        expect(inside(s) && s.width >= LEAST && s.height >= LEAST, `${g.name} ${cell.id}`).toBe(true);
+      }
+      expect(map.shapes.filter((s) => s.kind === 'box' && s.graph === g.name).length, g.name).toBeGreaterThan(0);
+    }
+    const drawnStores = map.shapes.filter((s) => s.kind === 'cell' && s.graph === null);
+    expect(drawnStores.length).toBe(Object.keys(all).length);
+    expect(map.shapes.every(inside)).toBe(true);
+  }, 30_000);
 
   for (const { g, v } of graphs) {
     describe(`its ${g.name} graph`, () => {

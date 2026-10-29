@@ -6,7 +6,8 @@
 // them. On a work's page each cell carries what the work did there and the arrows the work took stand out, and the
 // rows' numbers, which serve the flow's author, are left out; when two flows are compared, the cells added and changed
 // are marked. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
-// cell than the one it last centred on, it centres on that cell at the zoom it has.
+// cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
+// top left corner shows the part in view and moves the view, while some of the chart is out of view.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
@@ -15,6 +16,7 @@ import { t } from '../text';
 import { EffortBadge, effortsOf, effortWidth, FlowSvg, Halo, labelSize, type Marks, sizes, styleOf } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
 import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
+import { mapOf, Minimap } from './Minimap';
 import { layStores, linkPath, LinksSvg, storeLinks, StoresSvg, storeSize } from './stores';
 import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
@@ -418,6 +420,7 @@ function Legend({ charts, stores, legend }: {
         ) : null}
       </ul>
       <p className="legend-keys">{t('legend_keys')}</p>
+      <p className="legend-keys">{t(work ? 'legend_map_work' : 'legend_map')}</p>
     </details>
   );
 }
@@ -478,6 +481,18 @@ export function FlowChart(props: FlowChartProps) {
     return besides(sheets);
   }, [current, stores, storesAt]);
   const viewer = useRef<ViewerHandle>(null);
+  // The map, from the layout the chart already has.
+  const map = useMemo(() => {
+    if (current === null || placed === null) return null;
+    const sheets = current.map((l, i) => ({
+      graph: graphs[i].g.name,
+      chart: models[i],
+      laid: l,
+      left: placed.x[stores !== null && i >= storesAt ? i + 1 : i],
+      overlays: marks[i]?.overlays ?? null,
+    }));
+    return mapOf(placed, sheets, placed.top, PAD, stores !== null ? { laid: stores.laid, left: placed.x[storesAt] } : null);
+  }, [current, placed, graphs, models, marks, stores, storesAt]);
   // Chart pixels: each drawing starts PAD before its layout's bounds, at its place among the sheets. A node is found
   // in the graph named, or else in the first graph that has it.
   const rect = (id: string, graph?: string): Rect | null => {
@@ -626,7 +641,13 @@ export function FlowChart(props: FlowChartProps) {
       {failed !== null ? <div className="error flowchart-note">{t('chart_layout_failed', { error: failed })}</div> : null}
       {current === null && failed === null ? <div className="muted flowchart-note">{t('chart_laying_out')}</div> : null}
       {current !== null && placed !== null ? (
-        <Viewer ref={viewer} width={placed.width} height={placed.height} onPick={pick}>
+        <Viewer
+          ref={viewer}
+          width={placed.width}
+          height={placed.height}
+          onPick={pick}
+          over={map !== null ? <Minimap map={map} viewer={viewer} /> : null}
+        >
           <div className="fc-sheets" style={{ width: placed.width, height: placed.height }}>
             {current.map((l, i) => {
               const { g } = graphs[i];

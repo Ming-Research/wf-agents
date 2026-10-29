@@ -1,11 +1,18 @@
 // A pan-and-zoom view of a drawing that fills the space it is given. Two fingers on a trackpad, or the wheel, move
 // the drawing; a pinch, or Shift with two fingers, zooms at the pointer; dragging moves it. Space shows the whole
 // drawing and remembers the zoom; Space again goes back to that zoom with the point under the pointer in the middle.
-// A click that does not drag picks what is under the pointer.
+// A click that does not drag picks what is under the pointer. What floats over the drawing, such as its map, stays
+// where it is as the drawing moves under it, and is told the view each time it changes.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef } from 'react';
 
 export type Rect = { x: number; y: number; width: number; height: number };
+
+/// The view: the zoom, and where the drawing's top left corner is, in the viewer's own pixels.
+export type View = { s: number; x: number; y: number };
+
+/// The size of what can be seen of the viewer, in its own pixels.
+export type Seen = { width: number; height: number };
 
 export type ViewerHandle = {
   /// Shows the whole drawing, or, when that is smaller than `least`, the top of it at that zoom, centred on `around`.
@@ -18,15 +25,20 @@ export type ViewerHandle = {
   /// Brings a rectangle of the drawing to the middle of what can be seen at the zoom it has now.
   centre: (r: Rect) => void;
   toggle: () => void;
+  /// Calls `f` with the view and the size of what can be seen each time either changes, until the function returned
+  /// is called.
+  listen: (f: (v: View, seen: Seen) => void) => () => void;
+  /// Moves to a view: in a fifth of a second with `smooth`, else at once.
+  to: (v: View, smooth: boolean) => void;
 };
-
-type View = { s: number; x: number; y: number };
 
 export function Viewer(props: {
   /// The drawing's size, in its own pixels.
   width: number;
   height: number;
   children: ReactNode;
+  /// What floats over the drawing, which neither moves nor zooms with it.
+  over?: ReactNode;
   /// Called with the element under the pointer when a click does not drag.
   onPick: (target: Element) => void;
   ref?: Ref<ViewerHandle>;
@@ -42,14 +54,18 @@ export function Viewer(props: {
   const mouse = useRef<[number, number] | null>(null);
   const pick = useRef(onPick);
   pick.current = onPick;
+  const dims = useRef<Seen>({ width: 0, height: 0 });
+  const watchers = useRef(new Set<(v: View, seen: Seen) => void>());
 
   const api = useRef<ViewerHandle & { whole: () => View; apply: () => void } | null>(null);
   if (api.current === null) {
     const apply = () => {
       const v = view.current;
       if (stage.current) stage.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
+      for (const f of watchers.current) f(v, dims.current);
     };
-    // The part of the viewer one can see, in the viewer's own pixels: all of it, as nothing floats over the chart.
+    // The part of the viewer one can see, in the viewer's own pixels: all of it, as what floats over the chart keeps
+    // to its corners.
     const seen = () => {
       const r = box.current?.getBoundingClientRect() ?? new DOMRect(0, 0, 800, 600);
       return { x0: 0, y0: 0, x1: r.width, y1: r.height };
@@ -151,6 +167,23 @@ export function Viewer(props: {
         const px = (m[0] - v.x) / v.s;
         const py = (m[1] - v.y) / v.s;
         moveTo({ s, x: cx - px * s, y: cy - py * s });
+      },
+      listen: (f) => {
+        watchers.current.add(f);
+        f(view.current, dims.current);
+        return () => {
+          watchers.current.delete(f);
+        };
+      },
+      to: (v, smooth) => {
+        if (smooth) {
+          moveTo(v);
+          return;
+        }
+        anim.current.id++;
+        anim.current.goal = null;
+        view.current = { ...v };
+        apply();
       },
     };
   }
@@ -267,8 +300,10 @@ export function Viewer(props: {
     };
     // Resizing keeps the zoom, and the point in the middle in the middle.
     let was = { w: el.clientWidth, h: el.clientHeight };
+    dims.current = { width: was.w, height: was.h };
     const resized = new ResizeObserver(() => {
       const now = { w: el.clientWidth, h: el.clientHeight };
+      dims.current = { width: now.w, height: now.h };
       view.current = {
         ...view.current,
         x: view.current.x + (now.w - was.w) / 2,
@@ -304,6 +339,7 @@ export function Viewer(props: {
       <div className="viewer-stage" ref={stage}>
         {props.children}
       </div>
+      {props.over}
     </div>
   );
 }

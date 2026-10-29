@@ -1851,6 +1851,74 @@ svg.fc {
   color: var(--muted);
 }
 
+/* The map over the chart's top left corner, under the flow's tools on the flow page and under the legend when that is
+   open: the whole chart small, its boxes and cells as plain shapes, the cell a work is at ringed as on the chart, and
+   the part in view framed. It shows only while some of the chart is out of view. */
+.fc-map {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 4;
+  visibility: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fc-map[data-on] {
+  visibility: visible;
+}
+
+.fc-map[data-dragging],
+.fc-map[data-dragging] * {
+  cursor: grabbing;
+}
+
+.fc-map svg {
+  display: block;
+}
+
+.screen > .flow-tools ~ .flow-screen .fc-map {
+  top: 54px;
+}
+
+.fc-map-box {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: 0.75;
+}
+
+.fc-map-cell {
+  fill: var(--fc-arrow-main);
+}
+
+.fc-map-cell.fc-map-current {
+  fill: var(--fc-taken);
+}
+
+.fc-map-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: 1.5;
+}
+
+.fc-map-cell.fc-map-running {
+  fill: var(--good);
+}
+
+.fc-map-ring.fc-map-running {
+  stroke: var(--good);
+}
+
+.fc-map-frame {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
 /* The bar keeps the engine at its right end. */
 
 .bar-gap {

@@ -35,8 +35,9 @@ import {
 import { conditionsWords, conditionWords, fieldActions, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { badgeRow, EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
-import { addHops, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
+import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords } from './graph/FlowChart';
+import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
 import {
   ASKING,
   chart,
@@ -775,6 +776,95 @@ describe("the halo on a work's chart", () => {
   it('is on the cell a round runs at, and nowhere while none does, when no round came in', () => {
     expect(haloAt([], 0, { at: 'a', runs: true, newest: 7 })).toEqual({ cell: 'a', next: null });
     expect(haloAt([], 0, { at: 'a', runs: false, newest: 7 })).toEqual({ cell: null, next: null });
+  });
+});
+
+describe('the map of a chart', () => {
+  // Numbers to a millionth, so that a float's last bit does not count.
+  const near = <T extends Record<string, number>>(o: T | null): T | null =>
+    o === null ? null : (Object.fromEntries(Object.entries(o).map(([k, n]) => [k, Math.round(n * 1e6) / 1e6])) as T);
+  const wide = mapGeom({ width: 4000, height: 1000 });
+  const seen = { width: 800, height: 600 };
+  // At half size, the chart's top left corner 100 px left of the viewer's and 50 px above it.
+  const v = { s: 0.5, x: -100, y: -50 };
+
+  it("is as wide as it may be, or as tall, in the chart's proportions", () => {
+    expect(near({ k: wide.k, width: wide.width, height: wide.height })).toEqual({ k: 0.05, width: 200, height: 50 });
+    const tall = mapGeom({ width: 1000, height: 4000 });
+    expect(near({ k: tall.k, width: tall.width, height: tall.height })).toEqual({ k: 0.04, width: 40, height: 160 });
+  });
+
+  it('frames the part of the chart in view, cut to the chart, and none when none of it is', () => {
+    // The chart from 200 to 1800 px across and from 100 px down to its foot, at a twentieth.
+    expect(near(viewFrame(wide, v, seen))).toEqual({ x: 10, y: 5, width: 80, height: 45 });
+    // A view past the chart's right edge is cut there.
+    expect(near(viewFrame(wide, { s: 1, x: -3600, y: 0 }, seen))).toEqual({ x: 180, y: 0, width: 20, height: 30 });
+    expect(viewFrame(wide, { s: 1, x: -5000, y: 0 }, seen)).toBeNull();
+  });
+
+  it('brings the point clicked to the middle at the zoom the chart has, and moves the view as the frame is dragged', () => {
+    // The map's point 100, 25 is the chart's 2000, 500, which the view puts in the middle, at half size still.
+    const to = centredAt(wide, 100, 25, v, seen);
+    expect(near(to)).toEqual({ s: 0.5, x: -600, y: 50 });
+    const f = viewFrame(wide, to, seen);
+    expect(f && Math.round((f.x + f.width / 2) * 1e6) / 1e6).toBe(100);
+    // Dragging the frame 10 px right and 4 px up moves the chart 200 px left and 80 px down, at half size.
+    expect(near(draggedBy(wide, 10, -4, v))).toEqual({ s: 0.5, x: -200, y: -10 });
+  });
+
+  it('shows while some of the chart is out of view, clear of the middle where the chart centres a running cell', () => {
+    // The whole chart in view: no map.
+    expect(mapShown(wide, { s: 0.15, x: 100, y: 200 }, seen, 212, 172)).toBe(false);
+    expect(mapShown(wide, v, seen, 212, 172)).toBe(true);
+    // Too small for the map to keep to the left of the middle or above it; wide or tall enough for either.
+    expect(mapShown(wide, v, { width: 600, height: 400 }, 212, 172)).toBe(false);
+    expect(mapShown(wide, v, { width: 760, height: 400 }, 212, 172)).toBe(true);
+    expect(mapShown(wide, v, { width: 600, height: 480 }, 212, 172)).toBe(true);
+    // Before the viewer has a size.
+    expect(mapShown(wide, v, { width: 0, height: 0 }, 212, 172)).toBe(false);
+  });
+
+  it("draws the stage boxes, the cells and the stores where the chart has them, and a work's marks", () => {
+    const c = chart(graph, view, engine);
+    const box = (x: number, y: number, width: number, height: number): Box => ({ x, y, width, height });
+    const laid: Laid = {
+      nodes: new Map([
+        ['c:a', box(100, 100, 200, 60)],
+        ['c:b', box(100, 300, 200, 10)],
+        ['a:b:lock+post', box(100, 220, 120, 30)],
+      ]),
+      groups: new Map([['stage:build', box(80, 60, 400, 400)]]),
+      edges: new Map(),
+      parts: new Map(),
+      bounds: box(0, 0, 1000, 800),
+    };
+    const stores = {
+      boxes: [{ id: 'work', box: box(0, 0, 100, 200) }],
+      stores: new Map([['cards', box(10, 34, 80, 30)]]),
+      width: 100,
+      height: 200,
+    };
+    const sheet = { graph: 'g', chart: c, laid, left: 1000, overlays: null };
+    // A chart of 2000 by 1000 px at a tenth; the graph's sheet at 1000 px, its drawing 20 px in, the sheets 40 px down.
+    const map = mapOf({ width: 2000, height: 1000 }, [sheet], 40, 20, { laid: stores, left: 0 });
+    const shapes = map.shapes.map((x) => ({ ...x, ...near(box(x.x, x.y, x.width, x.height)) }));
+    expect(shapes).toEqual([
+      { kind: 'box', graph: 'g', cell: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
+      { kind: 'box', graph: null, cell: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
+      { kind: 'cell', graph: 'g', cell: 'a', mark: null, x: 112, y: 16, width: 20, height: 6 },
+      // A cell thinner than the least a mark is drawn at keeps its middle.
+      { kind: 'cell', graph: 'g', cell: 'b', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
+      { kind: 'cell', graph: null, cell: null, mark: null, x: 3, y: 9.4, width: 8, height: 3 },
+    ]);
+    // On a work's chart: the cell the work is at, over the rest, and the cells it never reached.
+    const at = { rounds: 1, sentBack: 0, failed: 0, running: true, current: true, waits: null };
+    const worked = (o: typeof at) => mapOf({ width: 2000, height: 1000 }, [{ ...sheet, overlays: new Map([['b', o]]) }], 40, 20, null);
+    expect(worked(at).shapes.map((x) => [x.kind, x.cell, x.mark])).toEqual([
+      ['box', null, null],
+      ['cell', 'a', 'unvisited'],
+      ['cell', 'b', 'running'],
+    ]);
+    expect(worked({ ...at, running: false }).shapes.find((x) => x.cell === 'b')?.mark).toBe('current');
   });
 });
 

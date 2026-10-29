@@ -708,6 +708,7 @@ const messages = {
   chart_reads_title: 'What the values this step decides by read',
   chart_effort: 'Reasoning effort: {effort}',
   chart_stores: 'stores',
+  chart_map: 'Map of the whole chart, the part in view framed',
   stores_project: "The project's",
   stores_item: "An item's",
   stores_work: "A work's and its rounds'",
@@ -773,6 +774,10 @@ const messages = {
   legend_changed: 'a cell changed',
   legend_keys:
     'Hover a row: it lights up from its source to its target; click it to keep it lit, and click it again or the background to let it go. Space: the whole chart, and back. Two fingers or drag: move. Pinch, or Shift with two fingers: zoom.',
+  legend_map:
+    'The map at the top left is the whole chart drawn small, the part in view framed: click the map to go there, drag the frame to move the chart. It hides while the whole chart is in view.',
+  legend_map_work:
+    'The map at the top left is the whole chart drawn small, the cell the work is at ringed, the cells it never reached faint, and the part in view framed: click the map to go there, drag the frame to move the chart. It hides while the whole chart is in view.',
 
   // Which flow the flow page shows, and what it is compared with.
   flow_version_pick: 'Flow version',
