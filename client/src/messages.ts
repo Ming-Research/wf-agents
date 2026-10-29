@@ -456,7 +456,6 @@ const messages = {
   ask_head: 'Ask of the owner {id}',
 
   // The items view and an item's page.
-  items_pick: 'Pick an item to see it here.',
   items_drag: 'Drag to change the width of the tree',
   items_show: 'Show the {state} items',
   items_hide: 'Hide the {state} items',

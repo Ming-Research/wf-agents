@@ -59,6 +59,20 @@ export function depsDone(id: number, items: ItemSummary[], links: ItemLink[]): {
   return { done: deps.filter((l) => state.get(l.depends_on) === 'done').length, of: deps.length };
 }
 
+/// The item the items view opens while none is picked: the first the tree shows, the first project's by name first;
+/// none while it shows none.
+export function firstShown(items: ItemSummary[], links: ItemLink[], shown: ItemState[]): number | null {
+  const projects = [...new Set(items.map((i) => i.project))].sort();
+  for (const p of projects) {
+    const rows = tree(
+      items.filter((i) => i.project === p && shown.includes(i.state)),
+      links,
+    );
+    if (rows.length > 0) return rows[0].item.id;
+  }
+  return null;
+}
+
 /// How far through the stages a stage is: its place among them, counting from 1, and how many there are; none for a
 /// stage not among them.
 export function stageAt(stage: string | null, stages: string[]): { at: number; of: number } | null {

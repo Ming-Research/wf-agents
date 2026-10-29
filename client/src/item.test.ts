@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, ItemLink, ItemSummary, RoundSummary } from './api';
 import { byStage, mainPath, progress, type Step } from './item/checklist';
-import { depsDone, stageAt, tree, type TreeRow } from './item/tree';
+import { depsDone, firstShown, stageAt, tree, type TreeRow } from './item/tree';
 import { inline, parse } from './markdown';
 
 function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummary> = {}): ItemSummary {
@@ -75,6 +75,14 @@ describe('the tree of items', () => {
     const rows = tree(items, links);
     const shared = rows.find((r) => r.item.id === 4)?.children[0];
     expect(shared).toMatchObject({ full: false, children: [] });
+  });
+
+  it('opens the first item the tree shows while none is picked', () => {
+    expect(firstShown(items, links, ['working', 'queued', 'new'])).toBe(1);
+    expect(firstShown(items, links, ['queued', 'new'])).toBe(6);
+    const other = [item(7, 'new', { project: 'a' }), ...items];
+    expect(firstShown(other, links, ['working', 'new'])).toBe(7);
+    expect(firstShown(items, links, ['cancelled'])).toBeNull();
   });
 
   it('makes an item a top one when everything that waits for it is hidden', () => {

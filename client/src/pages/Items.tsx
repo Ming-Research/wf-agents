@@ -1,6 +1,6 @@
 // The items: on the left, each project's items as a tree of what depends on what, with chips that show or hide the
-// items in each state; on the right, the item picked, in place. The split between them is dragged, and kept in this
-// browser. A row says the item's state by the colour of its edge, its number and title, what it needs from the owner,
+// items in each state; on the right, the item picked, in place, or while none is, the first the tree shows. The split
+// between them is dragged, and kept in this browser. A row says the item's state by the colour of its edge, its number and title, what it needs from the owner,
 // the items it waits for before it starts, the kind of the dependency by which the item above depends on it, its
 // work's stage in words where the row has room, how far through the stages on hovering, how many of what it depends
 // on are done, and its place in the queue.
@@ -9,7 +9,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { DependencyKind, Loaded } from '../components';
-import { depsDone, stageAt, STATES, tree, type TreeRow } from '../item/tree';
+import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
 import { navigate } from '../route';
@@ -201,8 +201,12 @@ function Project(props: {
   );
 }
 
-function Tree({ data, selected }: { data: ItemsData; selected: number | null }) {
-  const [shown, setShown] = useState<ItemState[]>(() => kept('items-states', SHOWN, isStates));
+function Tree({ data, selected, shown, onShown }: {
+  data: ItemsData;
+  selected: number | null;
+  shown: ItemState[];
+  onShown: (s: ItemState) => void;
+}) {
   const [folded, setFolded] = useState<Set<number>>(() => new Set());
   if (data.items.length === 0) return <p className="muted tree-none">{t('no_items')}</p>;
   const projects = [...new Set(data.items.map((i) => i.project))].sort();
@@ -213,11 +217,6 @@ function Tree({ data, selected }: { data: ItemsData; selected: number | null }) 
       .sort((a, b) => (a.queued ?? 0) - (b.queued ?? 0))
       .map((i, n) => [i.id, n + 1]),
   );
-  const toggle = (s: ItemState) => {
-    const next = shown.includes(s) ? shown.filter((x) => x !== s) : [...shown, s];
-    setShown(next);
-    keep('items-states', next);
-  };
   const fold = (id: number) =>
     setFolded((f) => {
       const next = new Set(f);
@@ -236,7 +235,7 @@ function Tree({ data, selected }: { data: ItemsData; selected: number | null }) 
           data={data}
           place={place}
           shown={shown}
-          onShown={toggle}
+          onShown={onShown}
           selected={selected}
           folded={folded}
           onFold={fold}
@@ -251,6 +250,14 @@ const WIDTH = 520;
 
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');
+  const [shown, setShown] = useState<ItemState[]>(() => kept('items-states', SHOWN, isStates));
+  const toggle = (s: ItemState) => {
+    const next = shown.includes(s) ? shown.filter((x) => x !== s) : [...shown, s];
+    setShown(next);
+    keep('items-states', next);
+  };
+  // While no item is picked, the first the tree shows is open.
+  const open = selected ?? (items.data !== undefined ? firstShown(items.data.items, items.data.links, shown) : null);
   const [width, setWidth] = useState(() => kept('items-width', WIDTH, isWidth));
   const [from, setFrom] = useState<{ x: number; w: number } | null>(null);
   const grip = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -270,7 +277,7 @@ export function Items({ selected }: { selected: number | null }) {
   return (
     <div className="items-screen">
       <div className="items-tree" style={{ width }}>
-        <Loaded r={items}>{(data) => <Tree data={data} selected={selected} />}</Loaded>
+        <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>
       </div>
       <div
         className={`items-grip${from !== null ? ' items-grip-on' : ''}`}
@@ -283,7 +290,7 @@ export function Items({ selected }: { selected: number | null }) {
         onPointerCancel={up}
       />
       <div className="items-item">
-        {selected !== null ? <Item id={selected} /> : <p className="muted items-pick">{t('items_pick')}</p>}
+        {open !== null ? <Item id={open} /> : null}
       </div>
     </div>
   );
