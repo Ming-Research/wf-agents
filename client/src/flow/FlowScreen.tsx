@@ -1,8 +1,9 @@
 // A flow's chart filling the window under the bar, its graphs side by side, and a column docked at its right, whose
 // width drags at its left edge: on a work's page the work's panel on top, at the column's full height, and while a
 // cell, a rule, the interjection, a comparison or a round is open, its panel in the lower part, split from the top by
-// a divider that drags; on the flow page that panel alone, while something is open. The flow page, a work's page and
-// the architect's page all show a flow this way.
+// a divider that drags; on the architect's page what is open takes the place of the list it was opened from, in the
+// upper part of a column that holds the conversation below, with a way back to the list; on the flow page that panel
+// alone, while something is open. The flow page, a work's page and the architect's page all show a flow this way.
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -61,8 +62,11 @@ export type FlowScreenProps = {
   round?: number | null;
   onRound?: (round: number | null) => void;
   renderRound?: (round: number) => ReactNode;
-  /// On a work's page: the work's panel, on top of the column.
-  side?: ReactNode;
+  /// On a work's page: the work's panel, on top of the column. On the architect's page, given what is open on the chart
+  /// (none while nothing is), the whole column, which puts what is open in place of its list.
+  side?: ReactNode | ((open: ReactNode | null) => ReactNode);
+  /// When what is open takes the place of a list: the list's name, which the way back to it says.
+  list?: string;
 };
 
 const DOCK_KEY = 'wf-agents.dock-width';
@@ -138,8 +142,23 @@ function InterjectionPanel() {
 }
 
 export function FlowScreen(props: FlowScreenProps) {
-  const { compiled, graphs, legend, marks, cell, onCell, start, diff, work, rounds, round, onRound, renderRound, side } =
-    props;
+  const {
+    compiled,
+    graphs,
+    legend,
+    marks,
+    cell,
+    onCell,
+    start,
+    diff,
+    work,
+    rounds,
+    round,
+    onRound,
+    renderRound,
+    side,
+    list,
+  } = props;
   const [width, setWidth] = useState<number | null>(() => savedSize(DOCK_KEY, DOCK_MIN));
   const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
   const nameOf = (n: number) => roundName(work ?? 0, n);
@@ -371,6 +390,28 @@ export function FlowScreen(props: FlowScreenProps) {
     }
   }, [now, rounds, first]);
   const shown = panel !== null && now !== null;
+  const opened =
+    panel !== null && now !== null ? (
+      <Panel
+        ref={panelRef}
+        title={panel.title}
+        who={panel.who}
+        back={trail.last !== null ? titleOf(trail.last) : null}
+        onBack={() => {
+          const prev = trail.last;
+          trail.back();
+          if (prev?.kind === 'cell') {
+            pickCell(prev.graph, prev.cell);
+            chartRef.current?.focus(prev.cell, true, prev.graph);
+          }
+        }}
+        onClose={trail.close}
+        list={list}
+        shown={subjectKey(now)}
+      >
+        <FlowContext.Provider value={panel.flow}>{panel.body}</FlowContext.Provider>
+      </Panel>
+    ) : null;
   const chartMarks = useMemo(
     () =>
       graphs.map((x, i) => ({
@@ -388,37 +429,30 @@ export function FlowScreen(props: FlowScreenProps) {
         {side !== undefined || shown ? (
           <aside className="dock" style={width !== null ? { width } : undefined}>
             <Grip edge="left" min={DOCK_MIN} storage={DOCK_KEY} label={t('dock_grip')} onSize={setWidth} />
-            {side !== undefined ? (
-              <div
-                className={shown ? 'dock-top dock-top-split' : 'dock-top'}
-                style={shown ? { height: split !== null ? split : '50%' } : undefined}
-              >
-                {side}
-                {shown ? (
-                  <Grip edge="bottom" min={SPLIT_MIN} storage={SPLIT_KEY} label={t('dock_split')} onSize={setSplit} />
+            {typeof side === 'function' ? (
+              <div className="dock-top">{side(opened)}</div>
+            ) : (
+              <>
+                {side !== undefined ? (
+                  <div
+                    className={shown ? 'dock-top dock-top-split' : 'dock-top'}
+                    style={shown ? { height: split !== null ? split : '50%' } : undefined}
+                  >
+                    {side}
+                    {shown ? (
+                      <Grip
+                        edge="bottom"
+                        min={SPLIT_MIN}
+                        storage={SPLIT_KEY}
+                        label={t('dock_split')}
+                        onSize={setSplit}
+                      />
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
-            ) : null}
-            {panel !== null && now !== null ? (
-              <Panel
-                ref={panelRef}
-                title={panel.title}
-                who={panel.who}
-                back={trail.last !== null ? titleOf(trail.last) : null}
-                onBack={() => {
-                  const prev = trail.last;
-                  trail.back();
-                  if (prev?.kind === 'cell') {
-                    pickCell(prev.graph, prev.cell);
-                    chartRef.current?.focus(prev.cell, true, prev.graph);
-                  }
-                }}
-                onClose={trail.close}
-                shown={subjectKey(now)}
-              >
-                <FlowContext.Provider value={panel.flow}>{panel.body}</FlowContext.Provider>
-              </Panel>
-            ) : null}
+                {opened}
+              </>
+            )}
           </aside>
         ) : null}
       </div>

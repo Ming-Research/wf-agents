@@ -1783,6 +1783,24 @@ svg.fc {
   font-weight: 400;
 }
 
+/* The tabs over a work's and an architect's chart stay on one line, closer together, and scroll sideways when they
+   still do not fit. */
+.drawer-head .tabs {
+  flex-wrap: nowrap;
+  gap: 0 1px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.drawer-head .tab {
+  flex: none;
+  padding: 6px 5px 5px;
+}
+
+.drawer-head .tab-n {
+  margin-left: 3px;
+}
+
 .drawer-body > .muted {
   margin: 0;
 }
@@ -3938,8 +3956,8 @@ summary > .work-item-head {
   max-width: calc(100% - 24px);
 }
 
-/* The architect's column: its panel in the upper half, the conversation with it in the lower half, whichever tab is
-   open. */
+/* The architect's column: its panel, or what is open on the chart in place of the panel's list, above; the
+   conversation with it below, split evenly until the owner drags the divider, and folding to one line. */
 .arch-side {
   flex: 1;
   min-height: 0;
@@ -3947,22 +3965,72 @@ summary > .work-item-head {
   flex-direction: column;
 }
 
-.arch-side > .drawer,
-.arch-side > .arch-talk {
+.arch-upper {
+  position: relative;
   flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+
+.arch-upper > .drawer,
+.arch-upper > .panel {
+  flex: 1;
   min-height: 0;
 }
 
 .arch-talk {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--line);
 }
 
-.arch-talk-h {
+.arch-talk-folded {
+  flex: none;
+}
+
+/* The bar on top of a conversation that folds; folded, the one line it is. */
+.talk-bar {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
   padding: 6px 10px;
-  font-weight: 600;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.talk-bar:hover {
+  background: var(--accent-soft);
+}
+
+.talk-bar-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.talk-bar-latest {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A panel that takes the place of a list goes back to it from where a panel closes. */
+.panel-back.panel-to-list {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 /* The owner's conversations: their list on the left, the one open on the right. */

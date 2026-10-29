@@ -221,12 +221,45 @@ function SayBox({ conversation }: { conversation: string }) {
   );
 }
 
+/// The bar of a conversation that folds: its name and the way to fold or open it; folded, its latest entry, how many
+/// of its messages are unread and how many things in it wait for the owner, and a click anywhere on it opens it.
+function FoldBar({ d, folded, onFold }: { d: ConversationDetail | null; folded: boolean; onFold: (f: boolean) => void }) {
+  const latest = d !== null && d.entries.length > 0 ? d.entries[d.entries.length - 1] : null;
+  const marks = d !== null ? toMarkRead(d) : { ids: [], notices: [] };
+  const unread = marks.ids.length + marks.notices.length;
+  const waits = d !== null ? pinnedOf(d).faults.length + d.asks.length + d.design_cards.length : 0;
+  return (
+    <button
+      type="button"
+      className={folded ? 'talk-bar talk-bar-folded' : 'talk-bar'}
+      aria-expanded={!folded}
+      title={t(folded ? 'talk_open' : 'talk_fold')}
+      onClick={() => onFold(!folded)}
+    >
+      <span className="talk-bar-name">
+        {folded ? '▸' : '▾'} {t('talk_title')}
+      </span>
+      {folded && waits > 0 ? <span className="chip waits">{t('conv_waits_chip', { n: waits })}</span> : null}
+      {folded && unread > 0 ? <span className="nav-count">{unread}</span> : null}
+      {folded && latest !== null ? (
+        <span className="talk-bar-latest muted">
+          {party(latest, latest.sender)} → {party(latest, latest.recipient)}:{' '}
+          {latest.text !== '' ? latest.text : t('conv_ask', { id: latest.ask ?? latest.id })}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 /// One conversation: what waits for the owner pinned on top, with its form; the stream, newest at the bottom and
 /// scrolled to; under it, while the owner's words wait to be taken up, why, when the place showing it can say (`note`);
-/// and the box that says more. Opening it marks its messages and notices read.
-export function ConversationView({ conversation, note }: {
+/// and the box that says more. Opening it marks its messages and notices read. Where it folds (`onFold`), a bar on top
+/// folds it to one line, which marks nothing read.
+export function ConversationView({ conversation, note, folded = false, onFold }: {
   conversation: string;
   note?: (entries: ConversationEntry[]) => string | null;
+  folded?: boolean;
+  onFold?: (folded: boolean) => void;
 }) {
   const r = useResource<ConversationDetail>(
     'messages',
@@ -238,8 +271,8 @@ export function ConversationView({ conversation, note }: {
   useEffect(() => {
     const el = list.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [conversation, shown]);
-  const marks = d !== null ? toMarkRead(d) : { ids: [], notices: [] };
+  }, [conversation, shown, folded]);
+  const marks = d !== null && !folded ? toMarkRead(d) : { ids: [], notices: [] };
   const unread = [...marks.ids.map((x) => `m${x}`), ...marks.notices.map((x) => `n${x}`)].join(',');
   useEffect(() => {
     if (unread === '') return;
@@ -249,12 +282,22 @@ export function ConversationView({ conversation, note }: {
       // Read again the next time the conversation is: nothing is lost.
     });
   }, [unread]);
-  if (d === null) return <p className="muted talk-view">{r.error ?? t('loading')}</p>;
+  const bar = onFold !== undefined ? <FoldBar d={d} folded={folded} onFold={onFold} /> : null;
+  if (folded) return bar;
+  if (d === null) {
+    return (
+      <>
+        {bar}
+        <p className="muted talk-view">{r.error ?? t('loading')}</p>
+      </>
+    );
+  }
   const { faults, stream } = pinnedOf(d);
   const pinned = faults.length + d.asks.length + d.design_cards.length;
   const why = note !== undefined && pendingWords(d.entries).length > 0 ? note(d.entries) : null;
   return (
     <div className="talk-view">
+      {bar}
       {pinned > 0 ? (
         <div className="talk-pins" aria-label={t('conv_waits_for_you')}>
           <div className="talk-pins-h">{t('conv_waits_for_you')}</div>

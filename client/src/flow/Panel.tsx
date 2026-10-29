@@ -1,5 +1,5 @@
 // The panel of what is open on a chart, in the column docked at the chart's right: its title and who does it, a way
-// back to what it showed before, a close button (Escape closes it too). The edges that drag the column's width and
+// back to what it showed before, a close button (Escape closes it too), which in place of a list goes back to it. The edges that drag the column's width and
 // the share of it a work's panel takes are here too, kept in this browser.
 
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
@@ -88,12 +88,14 @@ export function Panel(props: {
   back: string | null;
   onBack: () => void;
   onClose: () => void;
+  /// When the panel takes the place of a list: the list's name, which its close says it goes back to.
+  list?: string;
   /// Bumped each time the panel shows something else, so that it starts at its top.
   shown: string;
   children: ReactNode;
   ref?: Ref<HTMLElement>;
 }) {
-  const { title, who, back, onBack, onClose, shown, children, ref } = props;
+  const { title, who, back, onBack, onClose, list, shown, children, ref } = props;
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -117,9 +119,15 @@ export function Panel(props: {
           <h3 className="panel-title">{title}</h3>
           {who ? <p className="panel-who">{who}</p> : null}
         </div>
-        <button type="button" className="panel-close" aria-label={t('close')} onClick={onClose}>
-          ×
-        </button>
+        {list !== undefined ? (
+          <button type="button" className="panel-back panel-to-list" onClick={onClose}>
+            {t('panel_to_list', { list })}
+          </button>
+        ) : (
+          <button type="button" className="panel-close" aria-label={t('close')} onClick={onClose}>
+            ×
+          </button>
+        )}
       </div>
       <div className="panel-body" ref={body}>
         {children}
