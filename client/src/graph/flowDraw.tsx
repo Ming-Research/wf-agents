@@ -589,7 +589,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
   // beside one cell, whose cell it never reached.
   const going = (id: string) => (marks.taken?.get(id) ?? 0) > 0 || hot.has(id) || (marks.lit?.has(id) ?? false);
   const quietNode = (n: ChartNode) => {
-    if (marks.taken === undefined || n.kind === 'cell') return false;
+    if (marks.taken === null || n.kind === 'cell') return false;
     if (chart.edges.some((e) => (e.source === n.id || e.target === n.id) && going(e.id))) return false;
     if (n.kind === 'does' || n.kind === 'rule' || n.kind === 'interjection') return !(marks.overlays?.has(n.cell) ?? true);
     return true;
@@ -801,7 +801,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           n > 0 ? 'fc-label-taken' : '',
           hot.has(e.id) ? 'fc-label-hot' : '',
           marks.lit?.has(e.id) ? 'fc-label-lit' : '',
-          marks.taken !== undefined && !going(e.id) ? 'fc-label-quiet' : '',
+          marks.taken !== null && !going(e.id) ? 'fc-label-quiet' : '',
         ].join(' ');
         return (
           <g key={`l:${e.id}`} className={cls} data-edge={e.id}>
