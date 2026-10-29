@@ -503,7 +503,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 &json!({ "repo": ctx.project()?.repo, "pr": pr, "comment": comment }),
             )?;
         }
-        "set_aside_checks" => {}
         // The session manager opens the new session as the round at the cell the row leads to starts, at the work's
         // first round there: the cell's `new_session`, which the compiler sets from this action.
         "open_session" => {}
@@ -583,16 +582,43 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     (line_of(ctx), all)
                 }
             };
+            // The cell whose answers they are: the one that called, for the cell that hands them on.
+            let cell = match at {
+                Some(p) if p.starts_with('@') => ctx.work.pos.callers.last().cloned(),
+                _ => None,
+            }
+            .unwrap_or_else(|| ctx.cell.id.clone());
             for a in all {
+                let to = a["to"].as_str().unwrap_or("owner");
+                let text = a["text"].as_str().unwrap_or_default();
+                // An answer to the architect reaches its queue, as a report it takes in.
+                if to == "architect"
+                    && let Some(item) = &ctx.item
+                {
+                    let m = Matter {
+                        project: item.project.clone(),
+                        kind: "report".into(),
+                        detail: Some("answer".into()),
+                        what: format!(
+                            "The {line} of {} at cell {cell} answers what you said: {}",
+                            ctx.about(),
+                            db::one_sentence(text)
+                        ),
+                        body: json!({
+                            "report": { "kind": "answer", "what": text, "urgent": false },
+                            "cell": cell,
+                            "line": line,
+                        }),
+                        item: Some(item.id),
+                        raised: Some((ctx.round.work, ctx.round.n)),
+                    };
+                    queue_matter(tx, &m).map_err(sql)?;
+                    continue;
+                }
                 notify(
                     tx,
                     Some(w),
-                    &format!(
-                        "The {line} of {} answers the {}: {}",
-                        ctx.about(),
-                        a["to"].as_str().unwrap_or("owner"),
-                        a["text"].as_str().unwrap_or_default()
-                    ),
+                    &format!("The {line} of {} answers the {to}: {text}", ctx.about()),
                 )?;
             }
         }

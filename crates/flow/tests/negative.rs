@@ -447,11 +447,18 @@ case!(a_loop_with_no_counter, "no counter", |v| {
     obj(row(v, "T6", "done")).remove("counts");
     rows(v, "S0")[0]["counts"] = json!("fixes");
 });
+// A pause counts nothing: the owner's Start it waits for closes its loop.
 case!(a_pause_with_no_counter, "no counter", |v| {
-    obj(&mut graph(v)["agentCommon"]["rows"][1]).remove("counts");
     obj(row(v, "X3", "started")).remove("waits");
-    rows(v, "S0")[0]["counts"] = json!("total_time");
 });
+// The total time is measured, never counted by a row.
+case!(
+    a_row_that_counts_the_total_time,
+    "a row counts the total time, which the engine measures",
+    |v| {
+        graph(v)["agentCommon"]["rows"][1]["counts"] = json!("total_time");
+    }
+);
 case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
     obj(row(v, "M1", "interjection")).remove("counts");
 });

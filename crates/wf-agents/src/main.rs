@@ -375,7 +375,21 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Init => init(d),
         Command::Deliver { work, round, line } => {
             let mut db = engine::database::open(d)?;
-            if let Some(out) = sessions::interject::deliver(&mut db, work, round, &line)? {
+            let said = sessions::interject::deliver(&mut db, work, round, &line)?;
+            // Once the budget of the work's stretch is used up while the round runs, it is asked to pause.
+            let open: bool = db
+                .conn()
+                .query_row(
+                    "SELECT count(*) > 0 FROM rounds WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                    [work, round],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let budget = match config::committed(d) {
+                Ok(c) if open => engine::limits::used_up(&c.config, db.conn(), work, Some(db::now()))?,
+                _ => None,
+            };
+            if let Some(out) = hook_output(said, budget.map(engine::limits::ask_to_pause)) {
                 println!("{out}");
             }
             Ok(())
@@ -509,6 +523,23 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Anomalies => print(owner::anomalies(d)),
         Command::Cost { work } => print(owner::cost(d, work)),
     }
+}
+
+/// What the hook after a tool use gives the session: the interjections handed in, as the session manager wrote them for
+/// the command line, with the ask to pause after them; none when there is neither.
+fn hook_output(said: Option<String>, ask: Option<String>) -> Option<String> {
+    let Some(ask) = ask else { return said };
+    let mut out: serde_json::Value = said.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(
+        || serde_json::json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": "" } }),
+    );
+    let context = &mut out["hookSpecificOutput"]["additionalContext"];
+    let before = context.as_str().unwrap_or_default().to_string();
+    *context = serde_json::Value::String(if before.is_empty() {
+        ask
+    } else {
+        format!("{before}\n\n{ask}")
+    });
+    Some(out.to_string())
 }
 
 /// Makes the database of a data directory that passes the check the engine makes when it starts: a git repository

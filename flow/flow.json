@@ -2701,10 +2701,9 @@
       "record_waits": "Records the items the architect's reply has this work wait for, as parallel dependencies, since the work already runs. The engineer's session is kept, and the work holds no slot while it waits.",
       "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
-      "set_aside_checks": "Leaves the checks just chosen unrun: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "wake_architect": "Queues each side report for the architect once, due at once, which wakes the architect when no wake runs; one marked urgent that comes while a wake runs is also given to that wake at the top of its next round.",
-      "deliver_answers": "Sends each answer back to the side that interjected, and records it on the work: those of the answers form, and those a redirect carries.",
+      "deliver_answers": "Sends each answer back to the side that interjected: to the owner's interface, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, and those a redirect carries.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
       "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause.",
       "hold_to_set_straight": "Starts no new work of the project while its architect sets it straight; the works running go on.",
@@ -2723,7 +2722,7 @@
       "new_architect_session": "Ends the project's architect's session: the next round, what to do next under the new policy, starts a new one, given the state of things the wake wrote and the new policy.",
       "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
-      "queue_slots_free": "When slots are free and none of a project's items is ready to start, queues a matter of the kind slots_free for its architect, unless one waits already, new starts of the project are held, or the last was handled within the wait the configuration sets (`agents.slots_free_wait`).",
+      "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, unless one waits already, new starts of the project are held, or the last was handled within the wait the configuration sets (`agents.slots_free_wait`).",
       "close_settled_cards": "Closes, without a look and before anything is picked, the design card matters whose card the owner confirmed or another replaced, as handled by this wake.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
       "replace_design_cards": "Marks the work's design cards replaced: the owner can no longer rule on them.",
@@ -2732,7 +2731,8 @@
       "remove_worktree": "Removes the work's worktree; its branch stays. A work taken over leaves it to the new work.",
       "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
-      "withdraw_question": "Withdraws the question the work waited on from the architect's queue, saying why."
+      "withdraw_question": "Withdraws the question the work waited on from the architect's queue, saying why.",
+      "tell_undelivered": "Tells the owner what was said to the work and never handed in, each with the line it was for: the work's way on no longer changes, and a change becomes a new item. A word that needs no answer is left out."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2740,7 +2740,7 @@
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
       "design_card_matches_tree": "The design paths changed on the branch and are committed. Each decision on the design card matches a changed node (except those it says sub-items carry, which are not on this branch), and every changed node is on the design card. A decision it says comes from the parent is word for word that section of the parent's design card. An answer of unchanged changed nothing; a report can only answer unchanged; an answer of design_paths_only changed nothing outside the design paths.",
       "design_tree_check": "When the design paths changed, the design tree check the project's configuration names passes on the branch, given the fork point with main.",
-      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor with the kind acceptance_change first. Those the advisor changed, or the owner changed in a ruling on the design card, were locked by the engine then. A work that delivers a change has no report_answer condition.",
+      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor with the kind acceptance_change first, or, after a ruling of the owner's that disagrees with a decision of the design card, the design changes them as the ruling needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
       "chosen_matches_ruling": "When the owner chose another approach for a decision in a ruling on the design card, the new design card's decision in the same node chooses it; otherwise the agent asks the owner first.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a change to the design paths only changes nothing outside them; a report changes nothing outside `research/`.",
@@ -2762,7 +2762,7 @@
       "blind_findings_carried": "After a blind review, each of its findings is either among some column's findings with the same number, or withdrawn; every number withdrawn is one the blind review handed in.",
       "table_answered": "Every row of the table is answered once, with an answer the table allows for that row.",
       "no_disagreeing_after_insist": "A finding the review insisted on, or a test adversarial testing insisted on, is not answered disagree or test_wrong again; when neither side gives way, the engineer asks.",
-      "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: a flaky one was run again, and one red on main was seen red there.",
+      "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: the check is red on main as the worktree last fetched it, or in the table of known red checks; a flaky one is answered unrelated_flake. When main's checks cannot be read, it is taken as written.",
       "ruling_matches_advisor": "This work did ask the advisor about this row, and the ruling written matches the advisor's reply.",
       "owner_kinds_to_owner": "A point of a kind in the owner_only group is asked of the owner.",
       "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
@@ -2836,7 +2836,7 @@
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
       "asker": "Whether the cell that asks the owner is on a matter's path, so that the ask holds only that matter.",
       "question": "The kind of question an engineer asks, as its matter says.",
-      "report": "What kind of report the matter is: one an engineer handed in beside its work, or a report's what to do next.",
+      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, or an engineer's answer to what the architect said to its work.",
       "start": "What holds an item back from starting, if anything.",
       "turn": "Whether the work is first in its project's merge queue.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet."
@@ -3158,7 +3158,6 @@
       "record_tool_runs": [
         "branch"
       ],
-      "set_aside_checks": [],
       "hand_over_to_sub_items": [
         "branch"
       ],
@@ -3166,7 +3165,8 @@
         "architect_queue"
       ],
       "deliver_answers": [
-        "owner_notices"
+        "owner_notices",
+        "architect_queue"
       ],
       "tell_owner": [
         "owner_messages"
@@ -3265,6 +3265,9 @@
       ],
       "withdraw_question": [
         "architect_queue"
+      ],
+      "tell_undelivered": [
+        "owner_notices"
       ],
       "start_work": [
         "branch",
@@ -3405,7 +3408,7 @@
         ]
       },
       "report": {
-        "says": "the kind of report picked",
+        "says": "the kind of report picked: beside a work, what to do next, or an answer",
         "stores": [
           "architect_queue"
         ]
@@ -3832,7 +3835,7 @@
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the work. The counters are in this work's database records and visible in the owner's interface. The limits are numbers in the project's configuration, next to the CI settings; a counter with no number is only counted, never reported.",
         "waits": "A row that waits for someone (cell `M1` waiting for items it depends on to merge, or for the owner to confirm the design card) counts nothing: what it waits for is the owner or another work, and this work is not turning; how long it waited is visible in the owner's interface.",
-        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
+        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
             "name": "asks",
@@ -3864,7 +3867,7 @@
           },
           {
             "name": "total_time",
-            "desc": "The time agents spend working on this work, plus the time of the tools they have the engine run; waiting for the owner, for a slot or for a machine's queue is recorded apart and not counted. The engine looks each time an agent's round returns, so every cell is covered; when a stretch's budget is used up, the engine has the agent pause, and the pause goes back to the agent's own loop, the only one it governs",
+            "desc": "The time agents spend working on this work, their rounds, plus the time of the tools they have the engine run (cell `X1`), in minutes, measured and counted by no row; waiting for the owner, for a slot or for a machine's queue is not counted. Its limit is the budget of one stretch, the time since the agents last handed in pause: once a stretch's budget is used up, the engine asks the agent to pause, after its next tool use or at the top of its next round, and the pause waits at cell `X3` for the owner's Start, which begins the next stretch",
             "time": true
           },
           {
@@ -4113,8 +4116,7 @@
                 "pause"
               ]
             ],
-            "to": "X3",
-            "counts": "total_time"
+            "to": "X3"
           },
           {
             "name": "answers",
@@ -8673,14 +8675,9 @@
                 ]
               ],
               "to": "A4",
-              "do": [
-                {
-                  "at": "plan",
-                  "do": "set_aside_checks"
-                }
-              ],
               "counts": "interjections",
-              "interject": true
+              "interject": true,
+              "note": "The checks just chosen are not run: the work takes the interjection to choose the way on, and if that carries on, comes back here and the engine chooses again."
             }
           ],
           "inenums": {
@@ -10059,7 +10056,7 @@
               ]
             },
             {
-              "what": "Interjections for the engineer that came while the work was in the merge queue or watching main and the deployment, not delivered yet; none if there are none",
+              "what": "What was said to the work and not handed in, as when it came while the work was in the merge queue or watching main and the deployment; none if there is none",
               "from": [
                 {
                   "db": "waiting_interjections",
@@ -10075,7 +10072,8 @@
             "queue_followup",
             "withdraw_matters",
             "end_sessions",
-            "remove_worktree"
+            "remove_worktree",
+            "tell_undelivered"
           ]
         },
         {
@@ -10102,8 +10100,8 @@
         "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. A card the owner has confirmed is not sent to the architect. Without a design card, the architect has nothing to do.",
         "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for cell `M1`.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
-        "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded, with a word to the engineer; the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
-        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `A4` to choose the way on, and cell `A4` may not carry on: to change the design, back to cell `D1` to design again; if what the item needs has changed, back to cell `R1`; if unsure, ask the owner. Cells `D1` and `D2` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `D2` must choose it for that decision. If the owner's approach changes the acceptance, the ruling states the new acceptance, which the engine records as the owner's and locks, without the engineer asking the advisor.",
+        "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded; a ruling that confirms every decision is a word to the engineer, given at its next round, and the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
+        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `A4` to choose the way on, and cell `A4` may not carry on: to change the design, back to cell `D1` to design again; if what the item needs has changed, back to cell `R1`; if unsure, ask the owner. Cells `D1` and `D2` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `D2` must choose it for that decision. If the owner's approach changes the acceptance, the design that follows the ruling (cell `D2`) writes the new acceptance, without the engineer asking the advisor: the owner's ruling is its authority, and the engine locks it after design as it locks any design's.",
         "When cell `A4` chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
         "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At cell `M1`, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
         "At cell `M1`, the engine compares the change to the design tree in the commit to be merged with the version the owner went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at cell `M1`, and the engine tells the owner that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
@@ -10115,9 +10113,9 @@
           "Who may interject is listed in the table above: for now the owner and the architect; a new role adds one row, and neither the return format nor the transition tables change. An interjection is meant for one of the work's agents: the engineer, the reviewer, the adversarial tester or the advisor; when none is named, the engineer. Rulings on the design card are interjections too: the owner's verdict on each of its decisions (confirmed, disagreed with and why, or another approach chosen); the architect does not rule on design cards, but may say what it found wrong in one. When the owner and the architect say different things, the owner's word goes.",
           "Delivery: while an agent's round runs, the session manager gives it the interjections waiting each time it finishes using a tool; those not delivered by the end of the round go at the top of the next round's input. Interjections and the agents' answers are recorded on the work and visible in the owner's interface.",
           "An agent that gets interjections returns one of two forms, answering all of this round's interjections at once. answers: when only its answer is needed, a table with one entry per speaker, whom it answers and what; the engine splits it and sends each back to its speaker (cell `X4`), and the agent goes on in the same cell and session. redirect: when what it does next might change (unsure counts), it writes only how far it got, with answers for the other speakers, and goes to cell `A4`; where to go is not thought about here but at cell `A4`, which takes the interjection as seriously as a reply brought back; only cells on the engineer's line outside asking have it. The agent decides which; a disagreement with the design card can only be a redirect; what it only needs to know, such as a confirmation, needs no answer. Interjections that arrive after the return go at the top of the next round's input.",
-          "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (cell `T7` choosing what runs next, cell `M1` judging whether it may enter the merge queue, including while it waits), it goes straight to cell `A4` to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if cell `T7` or `M1` comes next, sent to cell `A4` from there; if cell `E1` comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes, so a round on the engineer's session only answers, and any change becomes a new item.",
-          "For the reviewer, the adversarial tester or the advisor while not running: a round on its session only answers. That round is not on the graph: once answered it is over, and the work stays where it is.",
-          "Such a round does not change their last conclusion; if the owner's words must change a conclusion, they go at the top of the input the next time this work calls that agent."
+          "When an interjection for the engineer arrives while no cell is running: if the work stands at an engine step (cell `T7` choosing what runs next, cell `M1` judging whether it may enter the merge queue, including while it waits), it goes straight to cell `A4` to choose the way on; if tools are running, it waits for them to finish: if an agent's cell comes next, at the top of that round's input; if cell `T7` or `M1` comes next, sent to cell `A4` from there; if cell `E1` comes next (the merge queue and watching main and the deployment have finished), it is merged already and the way on no longer changes: it is not delivered, cell `E1` tells the owner so as the work ends, and any change becomes a new item; once the work is at cell `E1`, nothing more can be said to it.",
+          "For the reviewer, the adversarial tester or the advisor while not running: it waits for that line's next round, at the top of its input; no round runs off the graph to answer it. One still waiting when the work is done at cell `E1` is not delivered, and the owner is told so.",
+          "A word that needs no answer and changes no way on, such as the owner confirming every decision of the design card, is given to the engineer's next round the same way, and takes no work standing at an engine step to cell `A4`."
         ],
         "from": [
           {
@@ -10554,7 +10552,7 @@
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the wake. The counters are in the wake's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
         "waits": "Matters that come while the architect is awake wait in its queue, for the next pick; how long each waited is visible on the owner's interface. The rows that wait for the owner to read a study or to approve a policy count nothing: how many rounds the discussion takes is the owner's to decide.",
-        "over": "Past a limit, the engine still takes the row and tells the owner, without stopping.",
+        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
             "name": "asks",
@@ -10570,7 +10568,7 @@
           },
           {
             "name": "total_time",
-            "desc": "The time the architect spends working in a wake, plus the time of the tools it has the engine run; waiting for the owner is recorded apart. When a stretch's budget is used up, the engine has it pause",
+            "desc": "The time the architect spends working in a wake, its rounds, plus the time of the tools it has the engine run, in minutes, measured and counted by no row; waiting for the owner is not counted. Once a stretch's budget, its limit, is used up, the engine asks it to pause, and the pause waits at cell `X3` for the owner's Start",
             "time": true
           },
           {
@@ -10752,8 +10750,7 @@
                 "pause"
               ]
             ],
-            "to": "X3",
-            "counts": "total_time"
+            "to": "X3"
           }
         ],
         "inputs": [
@@ -10848,7 +10845,7 @@
           "step": "wake",
           "inputs": [
             {
-              "what": "Why you woke: the matters due in your queue (an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with nothing ready, a matter back with the owner's answer), or the owner started or stepped you",
+              "what": "Why you woke: the matters due in your queue (an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with fewer items ready than slots, a matter back with the owner's answer), or the owner started or stepped you",
               "from": [
                 {
                   "db": "architect_queue",
@@ -12054,7 +12051,7 @@
               ],
               [
                 "H10",
-                "Slots free with nothing of the project ready, or one back with the owner's answer"
+                "Slots free with fewer of the project's items ready than slots, or one back with the owner's answer"
               ]
             ]
           }
@@ -12633,6 +12630,9 @@
               ],
               "followup": [
                 "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself; tell the owner of a gap under test it names."
+              ],
+              "answer": [
+                "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
               ]
             }
           },
@@ -12645,6 +12645,10 @@
               [
                 "followup",
                 "What to do next after a report, once its work ended"
+              ],
+              [
+                "answer",
+                "An engineer's answer to what the architect said to its work"
               ]
             ]
           },
@@ -12770,6 +12774,9 @@
               ],
               "followup": [
                 "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself; tell the owner of a gap under test it names."
+              ],
+              "answer": [
+                "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
               ]
             }
           },
@@ -12782,6 +12789,10 @@
               [
                 "followup",
                 "What to do next after a report, once its work ended"
+              ],
+              [
+                "answer",
+                "An engineer's answer to what the architect said to its work"
               ]
             ]
           },
@@ -13309,7 +13320,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: slots are free and nothing of this project is ready, so what should run next. See why each queued item is not ready, and which observations the policy would have done: release or reorder what may start, make an item of observations that belong together (search first, and fold them in), or say why nothing of this project should start now."
+            "This round answers one thing only: slots are free and fewer of this project's items are ready to start than slots are free, so what should run next. See why each queued item is not ready, and which observations the policy would have done: release or reorder what may start, make an item of observations that belong together (search first, and fold them in), or say why nothing of this project should start now."
           ],
           "out": [
             {

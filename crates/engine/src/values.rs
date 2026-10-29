@@ -86,12 +86,15 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         } else {
             "waiting"
         }),
+        // An interjection waiting for the engineer; a word that needs no answer, as the owner confirming the design card,
+        // is not one that turns the work.
         "interjection" => {
             let waiting: i64 = e
                 .db
                 .conn()
                 .query_row(
-                    "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL",
+                    "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
+                       AND informs = 0",
                     [w.id],
                     |r| r.get(0),
                 )

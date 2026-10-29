@@ -487,6 +487,10 @@ CREATE TABLE interjections (
   -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
   -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
   cancelled_item INTEGER REFERENCES items(id),
+  -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
+  -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
+  -- Read by: the engine's value `interjection`.
+  informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
   FOREIGN KEY (work, delivered_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -831,8 +835,10 @@ CREATE VIEW work_history AS
   FROM rounds r;
 
 CREATE VIEW work_counters AS
-  -- How many times each work took the rows that count each counter, by the compiled flow it runs on.
-  -- Read by: cell `A1`; cell `A4`, through work_asking; the owner's interface.
+  -- How many times each work took the rows that count each counter, by the compiled flow it runs on; and its total
+  -- time, in minutes, which no row counts: the time of its agents' rounds and of the tools they had the engine run (cell
+  -- `X1`). Read by: cell `A1`; cell `A4`, through work_asking; the engine, against the project's limits; the owner's
+  -- interface.
   SELECT r.work, json_extract(row.value, '$.counts') AS counter, count(*) AS times
   FROM rounds r
   JOIN works w ON w.id = r.work
@@ -840,8 +846,13 @@ CREATE VIEW work_counters AS
   JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
   JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = r.cell
   JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = r.transition
-  WHERE json_extract(row.value, '$.counts') IS NOT NULL
-  GROUP BY r.work, counter;
+  WHERE json_extract(row.value, '$.counts') IS NOT NULL AND json_extract(row.value, '$.counts') <> 'total_time'
+  GROUP BY r.work, counter
+  UNION ALL
+  SELECT r.work, 'total_time' AS counter, sum(r.ended_at - r.started_at) / 60000 AS times
+  FROM rounds r
+  WHERE r.ended_at IS NOT NULL AND (r.session IS NOT NULL OR r.cell IN ('X1', '13', 'tools', 'TOOLS'))
+  GROUP BY r.work;
 
 CREATE VIEW work_asking AS
   -- The cell that asked, or that took up an interjection, and how many times each work has asked: what choosing the

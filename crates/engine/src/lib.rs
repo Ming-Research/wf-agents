@@ -16,6 +16,7 @@ pub mod database;
 pub mod ending;
 pub mod git;
 pub mod hub;
+pub mod limits;
 
 mod actions;
 mod arch_changes;

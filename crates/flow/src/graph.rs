@@ -957,8 +957,18 @@ impl<'s> Graph<'s> {
             .iter()
             .flat_map(|c| c.rows.iter().filter_map(|r| r.counts.as_deref()))
             .collect();
-        let idle: Vec<&&str> = counters.difference(&counted).collect();
+        // The total time is measured, not counted: no row counts it, and every other counter has a row that does.
+        let time = flow.limits.counters.iter().find(|c| c.time).map(|c| c.name.as_str());
+        let idle: Vec<&str> = counters
+            .iter()
+            .copied()
+            .filter(|c| !counted.contains(c) && Some(*c) != time)
+            .collect();
         ensure!(idle.is_empty(), "a counter no row counts: {idle:?}");
+        ensure!(
+            time.is_none_or(|t| !counted.contains(t)),
+            "a row counts the total time, which the engine measures: {time:?}"
+        );
         let used: BTreeSet<&str> = cells.iter().flat_map(|c| c.rules.iter().map(String::as_str)).collect();
         let idle: Vec<&&str> = rule_names.difference(&used).collect();
         ensure!(idle.is_empty(), "a rule no cell uses: {idle:?}");

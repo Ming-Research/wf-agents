@@ -2,8 +2,8 @@
 //! project, on no item: the engine starts one when none of the project runs and the project's queue has a matter, one
 //! at a time for each project, and a wake holds no slot. What puts a matter in a project's queue is here and in the
 //! actions: an engineer's question or failure, a side report, a report's what to do next, a design card, the owner's
-//! words and answers, another project's architect's message, slots free with nothing of the project ready, and a place
-//! the understanding found to set straight. Here too are the steps, inputs, values, checks and actions of the
+//! words and answers, an engineer's answer to the architect, another project's architect's message, slots free with
+//! fewer items of the project ready, and a place the understanding found to set straight. Here too are the steps, inputs, values, checks and actions of the
 //! architect's graph, its asks of the owner, and the batch of item changes a review looks at before they are made. A
 //! project's architect's line goes on in one CLI session across the project's wakes until a new policy ends it.
 //!
@@ -264,8 +264,8 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<i64, String>
 }
 
 /// The action of the cell an item waits at to start (`U0`), `queue_slots_free`, which the engine takes for every
-/// project as it looks for an item to start, since no work stands at that cell: for each project with nothing ready to
-/// start and no hold on its new starts, while slots are free, a matter of slots free, when none waits in its queue and
+/// project as it looks for an item to start, since no work stands at that cell: for each project with fewer items ready
+/// to start than slots free and no hold on its new starts, a matter of slots free, when none waits in its queue and
 /// the last was handled longer ago than the configuration's wait (`agents.slots_free_wait`) or never; the wait keeps
 /// one that found nothing to start from coming back at once. Nothing when the flow new works start on does not name
 /// the action.
@@ -296,7 +296,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
             "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = 'slots_free' AND handled_round IS NULL",
             &[&p],
         )?;
-        if ready > 0 || held > 0 || waiting > 0 {
+        if ready >= free || held > 0 || waiting > 0 {
             continue;
         }
         let last: Option<i64> = conn
@@ -311,11 +311,15 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
         if last.is_some_and(|t| db::now() - t <= wait) {
             continue;
         }
+        let what = match ready {
+            0 => format!("{free} slots are free, and no item of {p} is ready to start"),
+            n => format!("{free} slots are free, and only {n} items of {p} are ready to start"),
+        };
         let m = Matter {
             project: p.clone(),
             kind: "slots_free".into(),
-            what: format!("{free} slots are free, and no item of {p} is ready to start"),
-            body: json!({ "free": free }),
+            what,
+            body: json!({ "free": free, "ready": ready }),
             ..Matter::default()
         };
         e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
@@ -712,10 +716,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
                 "other_question".into()
             }
         }
-        "report" => if picked_detail(conn, w.id)?.as_deref() == Some("followup") {
-            "followup"
-        } else {
-            "side_report"
+        "report" => match picked_detail(conn, w.id)?.as_deref() {
+            Some("followup") => "followup",
+            Some("answer") => "answer",
+            _ => "side_report",
         }
         .into(),
         _ => return Ok(None),

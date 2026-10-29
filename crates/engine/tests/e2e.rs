@@ -3733,8 +3733,8 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// While slots are free and nothing of a project is ready to start, the engine queues a matter of slots free for its
-// architect, which wakes it; once one is handled, no other comes for an hour.
+// While slots are free and fewer of a project's items are ready to start than slots are free, here none, the engine
+// queues a matter of slots free for its architect, which wakes it; once one is handled, no other comes for an hour.
 #[test]
 fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
     let s = setup("slots-free");
@@ -3751,7 +3751,7 @@ fn slots_free_with_nothing_ready_wake_the_architect_at_most_once_an_hour() {
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(body, r#"{"free":1}"#);
+    assert_eq!(body, r#"{"free":1,"ready":0}"#);
     assert!(
         steps_until(&mut e, 40, |e| wake_done(e, wake)),
         "{}",

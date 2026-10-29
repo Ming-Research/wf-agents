@@ -14,7 +14,8 @@ fn sql(e: impl std::fmt::Display) -> String {
 }
 
 /// Says something to a work's line as the owner: an interjection, handed to the line's round that runs after its next
-/// tool use, or at the top of its next round. Gives the interjection.
+/// tool use, or at the top of its next round. A work at its end (`E1`) is told nothing more: its way on no longer
+/// changes. Gives the interjection.
 pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, String> {
     let text = text.trim();
     if text.is_empty() {
@@ -23,15 +24,23 @@ pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, 
     if line.trim().is_empty() {
         return Err("what is said to a work names the line it is for".into());
     }
-    let ended: Option<Option<String>> = db
+    let found: Option<(Option<String>, String, String)> = db
         .conn()
-        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .query_row("SELECT ended, graph, at FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .optional()
         .map_err(sql)?;
-    match ended {
+    match found {
         None => return Err(format!("no work {work}")),
-        Some(Some(why)) => return Err(format!("work {work} has ended: {why}")),
-        Some(None) => {}
+        Some((Some(why), _, _)) => return Err(format!("work {work} has ended: {why}")),
+        // A work at its end no longer changes its way on: what would change it is a new item.
+        Some((None, graph, at)) if graph == "engineer" && db::is_cell("engineer", "E1", &at) => {
+            return Err(format!(
+                "work {work} is at its end and its way on no longer changes: a change becomes a new item"
+            ));
+        }
+        Some(_) => {}
     }
     db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -214,8 +223,9 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
 /// Rules on a design card that is not replaced: a verdict on each of its decisions, all at once, is added to its
 /// rulings, and it is ruled. The card counts as confirmed only when every decision is. The decisions disagreed with
 /// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
-/// confirms every decision needs none. The owner alone rules on a design card; once the owner confirms every decision,
-/// the architect has nothing to look at in it: the card leaves the architect's queue, unless a wake has it in hand.
+/// confirms every decision is a word to the engineer that needs no answer and turns nothing (`informs`). The owner
+/// alone rules on a design card; once the owner confirms every decision, the architect has nothing to look at in it:
+/// the card leaves the architect's queue, unless a wake has it in hand.
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
     let found: Option<(String, i64, String)> = db
         .conn()
@@ -319,6 +329,14 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
                 params![work, text],
             )?;
         } else {
+            // A ruling that confirms every decision is a word to the engineer, which needs no answer and turns nothing.
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'owner', ?2, 1)",
+                params![
+                    work,
+                    format!("The owner confirmed every decision of design card {design_card}: nothing changes.")
+                ],
+            )?;
             tx.execute(
                 &format!(
                     "DELETE FROM architect_matters
@@ -689,8 +707,9 @@ mod tests {
         Ruling { decisions }
     }
 
-    // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a confirmation
-    // does not. Once the owner confirms every decision, the card waits no longer for the architect to look at it.
+    // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a ruling that
+    // confirms every decision reaches it as a word that needs no answer. Once the owner confirms every decision, the
+    // card waits no longer for the architect to look at it.
     #[test]
     fn the_owner_rules_on_a_design_card() {
         let mut db = setup();
@@ -734,11 +753,22 @@ mod tests {
             "Ruling on design card 1:\n- decision 1: disagree: Keep the old name."
         );
         rule(&mut db, 1, &ruling(vec![one(1, "confirm", None, None)])).unwrap();
-        let n: i64 = db
+        let said: Vec<(String, i64)> = db
             .conn()
-            .query_row("SELECT count(*) FROM interjections", [], |r| r.get(0))
+            .prepare("SELECT text, informs FROM interjections ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(
+            said[1],
+            (
+                "The owner confirmed every decision of design card 1: nothing changes.".to_string(),
+                1
+            )
+        );
         assert_eq!(looks(&db), 0);
         assert!(rule(&mut db, 1, &ruling(vec![one(1, "maybe", Some("x"), None)])).is_err());
         assert!(rule(&mut db, 1, &ruling(Vec::new())).is_err());

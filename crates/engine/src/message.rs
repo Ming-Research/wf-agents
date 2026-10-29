@@ -345,9 +345,16 @@ impl Context<'_> {
         }
         if !interjections.is_empty() {
             out.push(format!(
-                "Said to you: {}. Answer in this round.",
+                "Said to you: {}. Answer in this round what needs an answer.",
                 interjections.join(", ")
             ));
+        }
+        // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks.
+        let pauses = c.forms.iter().any(|f| f.field.as_deref() == Some("pause"));
+        if pauses
+            && let Ok(Some(minutes)) = crate::limits::used_up(&self.e.config.config, self.e.db.conn(), self.w.id, None)
+        {
+            out.push(crate::limits::ask_to_pause(minutes));
         }
         out
     }

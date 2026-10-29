@@ -234,6 +234,29 @@ fn full_checks(e: &Engine, project: &config::Project, sha: &str) -> Result<Vec<C
     Ok(out)
 }
 
+/// Whether a check of the project's full CI is red beside the change: in the project's table of known red checks, or
+/// red on main as the worktree last fetched it. What a work says its change did not cause must be one or the other.
+/// None when main's run of the check cannot be read: main is not known in the worktree, its checks cannot be fetched,
+/// or the check did not run there.
+pub(crate) fn red_beside_the_change(
+    e: &Engine,
+    name: &str,
+    project: &config::Project,
+    wt: &Path,
+    check: &str,
+) -> Result<Option<bool>, String> {
+    if known_red(e, name)?.iter().any(|k| k == check) {
+        return Ok(Some(true));
+    }
+    let Some(main) = git::resolve(wt, &format!("origin/{}", project.main)) else {
+        return Ok(None);
+    };
+    let Ok(checks) = full_checks(e, project, &main) else {
+        return Ok(None);
+    };
+    Ok(checks.iter().find(|c| c.name == check).map(|c| c.result == "red"))
+}
+
 /// Runs the red checks again on the same commit, and gives the latest run of every check.
 fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRun]) -> Result<Vec<CheckRun>, Failure> {
     let (own, _) = own_full(project);

@@ -44,6 +44,8 @@ Decision: The architect answers each of the owner's words in the owner's message
 
 Decision: `E1` wraps a wake up, writing what it learned into the state of things, and `E2` ends it, the session staying for the next wake, instead of a wake that ends when its last matter is handled, because what a wake learned is what the next wake's understanding builds on.
 
+Decision: An engineer's answer to what the architect said to its work reaches the architect's queue as a matter of the kind `report` with the detail `answer`, which `H4` and `H5` take in as they take a report, instead of a notice to the owner only, because the flow sends each answer back to its speaker, and the architect is a speaker.
+
 Rejected:
 - One architect over every project: rejected because each project has its own intent and the context of all of them is too large to judge one.
 - The owner approving each batch of item changes: rejected; a review in a new session checks them, and the owner reads them in the log.

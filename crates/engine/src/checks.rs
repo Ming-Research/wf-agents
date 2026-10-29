@@ -8,8 +8,9 @@
 //! In this version some checks look at less than the flow says, because what they would compare is not recorded
 //! yet: CI gives each job's result, not each test's, so test results are checked only against what the jobs show;
 //! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
-//! a red check said not to be caused by the change and a ruling said to be the advisor's are taken as written once
-//! the advisor was asked; and a decision copied from a parent's design card is not compared with it.
+//! a red check said not to be caused by the change is taken as written when main's checks cannot be read; a ruling
+//! said to be the advisor's is taken as written once the advisor was asked; and a decision copied from a parent's
+//! design card is not compared with it.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -112,6 +113,36 @@ fn items(v: Option<&Value>) -> Vec<Value> {
 }
 
 impl Ctx<'_> {
+    /// Whether the owner ruled on a design card of the item, disagreeing with a decision, since its acceptance was
+    /// locked: the design that follows such a ruling writes the acceptance it needs, which the engine locks after
+    /// design.
+    fn ruled_since_locked(&self) -> Result<bool, String> {
+        let item = self.item()?.id;
+        let locked_at: Option<i64> = self
+            .e
+            .db
+            .conn()
+            .query_row(
+                "SELECT r.ended_at FROM items i JOIN rounds r ON r.work = i.acceptance_work AND r.n = i.acceptance_round
+                 WHERE i.id = ?1",
+                [item],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
+        let cards = work::query_json(
+            self.e.db.conn(),
+            "SELECT c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1",
+            &[&item],
+            100,
+        )?;
+        Ok(cards.iter().flat_map(|x| items(Some(&x["rulings"]))).any(|r| {
+            r["by"] == "owner"
+                && db::ruling_disagrees(&r)
+                && locked_at.is_none_or(|l| r["at"].as_i64().is_some_and(|at| at > l))
+        }))
+    }
+
     /// The item the work is on, for a check about it.
     fn item(&self) -> Result<&Item, String> {
         self.item
@@ -428,7 +459,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     })
                     .map_err(|e| e.to_string())?;
             match work::json_col(locked) {
-                Some(l) if l != Value::Array(given) => fail(
+                Some(l) if l != Value::Array(given) && !c.ruled_since_locked()? => fail(
                     "the acceptance conditions are locked and must be handed in word for word; to change them, ask the advisor with the kind acceptance_change first",
                 ),
                 _ => Ok(()),
@@ -963,7 +994,33 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 None => Ok(()),
             }
         }
-        "not_caused_by_change" => Ok(()),
+        "not_caused_by_change" => {
+            let Some(wt) = c.w.worktree.as_deref() else {
+                return Ok(());
+            };
+            let project = c.project()?;
+            let mut not_red = Vec::new();
+            for r in items(c.unwrapped.get("rows"))
+                .iter()
+                .filter(|r| r["answer"] == "not_caused_by_change")
+            {
+                let id = r["id"].as_str().unwrap_or_default();
+                let check = known_as(c.table, id);
+                // Main's run of the check that cannot be read leaves the answer as written.
+                if crate::tools::red_beside_the_change(c.e, &c.item()?.project, project, wt, &check)? == Some(false) {
+                    not_red.push(format!("{id} ({check})"));
+                }
+            }
+            if not_red.is_empty() {
+                Ok(())
+            } else {
+                fail(format!(
+                    "{} is green on main and not a known red check: this change turned it red. Fix it, or answer \
+                     unrelated_flake if it is flaky",
+                    not_red.join(", ")
+                ))
+            }
+        }
         "ruling_matches_advisor" => {
             if v.is_none() {
                 return Ok(());
