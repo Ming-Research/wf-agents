@@ -73,6 +73,40 @@ fn a_part_several_cells_hold_alike_is_given_once() {
     );
 }
 
+// Flow feedback is a field of every agent's return that only a project asking for it is asked for: the graph as a
+// project that asks for it is asked it is the graph as compiled, and the graph as one that does not is asked it holds
+// the field in no agent's schema, does nothing at it, has no role read it and gives no format of it.
+#[test]
+fn a_field_a_project_does_not_ask_for_is_taken_out_of_every_agent_cell() {
+    let c = compiled();
+    for name in ["engineer", "architect"] {
+        let g = c.graph(name).unwrap();
+        assert_eq!(
+            g.every_needs.get("flow_feedback").map(String::as_str),
+            Some("flow_feedback")
+        );
+        let asked = g.clone().as_asked(|need| need == "flow_feedback");
+        assert_eq!(serde_json::to_value(&asked).unwrap(), serde_json::to_value(g).unwrap());
+        let off = g.clone().as_asked(|_| false);
+        assert!(off.every_needs.is_empty());
+        let field = serde_json::json!("flow_feedback");
+        let agents = g.cells.iter().zip(&off.cells).filter(|(x, _)| x.kind == "agent");
+        for (on, cell) in agents {
+            let s = on.schema.as_ref().unwrap();
+            assert!(s["properties"].get("flow_feedback").is_some(), "{}", on.id);
+            assert!(s["required"].as_array().unwrap().contains(&field), "{}", on.id);
+            assert!(on.always.iter().any(|a| a.at == "flow_feedback"), "{}", on.id);
+            let s = cell.schema.as_ref().unwrap();
+            assert!(s["properties"].get("flow_feedback").is_none(), "{}", cell.id);
+            assert!(!s["required"].as_array().unwrap().contains(&field), "{}", cell.id);
+            assert!(cell.always.iter().all(|a| a.at != "flow_feedback"), "{}", cell.id);
+            assert!(cell.read_by.iter().all(|x| x.at != "flow_feedback"), "{}", cell.id);
+        }
+        assert!(flow::formats::common_format(&asked, &[]).contains("flow_feedback"));
+        assert!(!flow::formats::common_format(&off, &[]).contains("flow_feedback"));
+    }
+}
+
 // The rounds section reaches the compiled flow with every kind of failed run, and gives every agent's cell, and only
 // an agent's, a shared row back to itself for a return sent back, for so many in a row, and for each kind; a row of
 // the flow's own cannot switch on what only those rows do, nor take one of their names.

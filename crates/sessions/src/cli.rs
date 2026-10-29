@@ -651,14 +651,21 @@ mod tests {
                 .unwrap()
                 .contains("side_reports")
         );
-        assert_eq!(s["required"], json!(["outcome", "side_reports", "tell_owner"]));
+        assert_eq!(
+            s["required"],
+            json!(["outcome", "side_reports", "tell_owner", "flow_feedback"])
+        );
         assert_eq!(
             s["properties"][&g.within]["not"],
             json!({ "anyOf": [{ "required": ["side_reports"] }, { "required": ["tell_owner"] },
-                              { "required": ["progress"] }] })
+                              { "required": ["progress"] }, { "required": ["flow_feedback"] }] })
         );
         let a = envelope(f.graph("architect").unwrap());
-        assert_eq!(a["required"], json!(["outcome", "tell_owner"]));
+        assert_eq!(a["required"], json!(["outcome", "tell_owner", "flow_feedback"]));
+        // A project that does not ask for flow feedback gives its agents no such field.
+        let off = envelope(&g.clone().as_asked(|_| false));
+        assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
+        assert_eq!(off["required"], json!(["outcome", "side_reports", "tell_owner"]));
     }
 
     #[test]

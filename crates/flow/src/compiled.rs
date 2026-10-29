@@ -67,6 +67,10 @@ pub struct CompiledGraph {
     /// not meet it is not told of the kind.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ask_needs: Vec<AskNeed>,
+    /// The fields of every agent's return that only a project meeting a need is asked for, each with the need: an
+    /// agent working on a project that does not meet it is not asked for the field.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub every_needs: BTreeMap<String, String>,
     /// How every agent's return is written, which the forms every return shares say once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub write: Vec<String>,
@@ -247,6 +251,37 @@ impl Compiled {
 impl CompiledGraph {
     pub fn cell(&self, id: &str) -> Option<&CompiledCell> {
         self.cells.iter().find(|c| c.id == id)
+    }
+
+    /// The graph as a project's agents are asked it: each field of every return whose need the project does not meet
+    /// (`meets` says which it meets) taken out of every agent's cell's schema, and out of what the cell does every
+    /// time, shows and has read outside the flow at it, so that no agent is asked for it and nothing reads it.
+    pub fn as_asked(mut self, meets: impl Fn(&str) -> bool) -> CompiledGraph {
+        let gone: Vec<String> = self
+            .every_needs
+            .iter()
+            .filter(|(_, need)| !meets(need.as_str()))
+            .map(|(field, _)| field.clone())
+            .collect();
+        if gone.is_empty() {
+            return self;
+        }
+        let at = |p: &str| gone.iter().any(|f| p == f || p.starts_with(&format!("{f}.")));
+        for c in self.cells.iter_mut().filter(|c| c.kind == CellKind::Agent.name()) {
+            if let Some(Value::Object(s)) = &mut c.schema {
+                if let Some(Value::Object(props)) = s.get_mut("properties") {
+                    props.retain(|k, _| !gone.contains(k));
+                }
+                if let Some(Value::Array(required)) = s.get_mut("required") {
+                    required.retain(|r| !r.as_str().is_some_and(|r| gone.iter().any(|f| f == r)));
+                }
+            }
+            c.always.retain(|a| !at(&a.at));
+            c.shown.retain(|p| !at(p));
+            c.read_by.retain(|x| !at(&x.at));
+        }
+        self.every_needs.retain(|field, _| !gone.contains(field));
+        self
     }
 
     /// The row a return takes: the return checked against the cell's schema, an agent's form taken out of the
@@ -949,6 +984,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 })
             })
             .collect(),
+        every_needs: f.agent_common.needs.clone(),
         write: f.agent_common.returns.write.clone(),
         once: f.agent_common.returns.once.clone(),
         rounds: match &f.rounds {

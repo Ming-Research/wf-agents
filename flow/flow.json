@@ -1091,6 +1091,11 @@
       "type": "text",
       "desc": "One sentence on what this round did; for a round that makes a judgment, with the conclusion and the reasons. For example \"Design holds: …\" or \"Review done; fixed 3 findings\""
     },
+    "flow_feedback": {
+      "name": "flow_feedback",
+      "type": "text",
+      "desc": "What was wrong with this round's cell, in the fewest words: an input unclear, unneeded or repeated; something needed and not given; a field that did not fit; a case its choices did not cover; instructions confusing or contradictory; anything unreasonable. \"none\" when nothing. The architect reads it to improve the flow; the owner does not"
+    },
     "architect_reply": {
       "name": "reply",
       "type": "obj",
@@ -2680,10 +2685,10 @@
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
-      "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue.",
+      "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text together, for a new architect to read, and records it: as the architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -2705,6 +2710,7 @@
       "wake_architect": "Queues each side report for the architect once, due at once, which wakes the architect when no wake runs; one marked urgent that comes while a wake runs is also given to that wake at the top of its next round.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's interface, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, and those a redirect carries.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
+      "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It wakes no architect; a wake takes such a matter only when it came before the wake started.",
       "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause.",
       "hold_to_set_straight": "Starts no new work of the project while its architect sets it straight; the works running go on.",
       "release_straight_hold": "New works of the project start again, if they were held to set it straight.",
@@ -2836,14 +2842,15 @@
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
       "asker": "Whether the cell that asks the owner is on a matter's path, so that the ask holds only that matter.",
       "question": "The kind of question an engineer asks, as its matter says.",
-      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, or an engineer's answer to what the architect said to its work.",
+      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, or flow feedback.",
       "start": "What holds an item back from starting, if anything.",
       "turn": "Whether the work is first in its project's merge queue.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
-      "other_projects": "The project's configuration names other projects it depends on or that depend on it."
+      "other_projects": "The project's configuration names other projects it depends on or that depend on it.",
+      "flow_feedback": "The project's configuration asks its agents what was wrong with each round's cell (`flow_feedback`, on unless set to false)."
     },
     "stores": {
       "items": {
@@ -3171,6 +3178,9 @@
       "tell_owner": [
         "owner_messages"
       ],
+      "queue_flow_feedback": [
+        "architect_queue"
+      ],
       "queue_fixes": [
         "architect_queue"
       ],
@@ -3408,7 +3418,7 @@
         ]
       },
       "report": {
-        "says": "the kind of report picked: beside a work, what to do next, or an answer",
+        "says": "the kind of report picked: beside a work, what to do next, an answer, or flow feedback",
         "stores": [
           "architect_queue"
         ]
@@ -4076,7 +4086,8 @@
           "every": [
             "side_reports",
             "tell_owner",
-            "progress"
+            "progress",
+            "flow_feedback"
           ],
           "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
           "in": {
@@ -4274,6 +4285,9 @@
             }
           },
           {
+            "$ref": "flow_feedback"
+          },
+          {
             "$ref": "progress_form"
           }
         ],
@@ -4289,6 +4303,10 @@
           {
             "at": "tell_owner",
             "do": "tell_owner"
+          },
+          {
+            "at": "flow_feedback",
+            "do": "queue_flow_feedback"
           }
         ],
         "checks": [
@@ -4318,8 +4336,15 @@
           {
             "at": "side_reports",
             "role": "architect"
+          },
+          {
+            "at": "flow_feedback",
+            "role": "architect"
           }
-        ]
+        ],
+        "needs": {
+          "flow_feedback": "flow_feedback"
+        }
       },
       "gate": {
         "tools": [
@@ -10692,7 +10717,8 @@
           ],
           "every": [
             "tell_owner",
-            "progress"
+            "progress",
+            "flow_feedback"
           ],
           "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
           "in": {
@@ -10821,6 +10847,9 @@
             }
           },
           {
+            "$ref": "flow_feedback"
+          },
+          {
             "$ref": "progress_form"
           }
         ],
@@ -10828,6 +10857,10 @@
           {
             "at": "tell_owner",
             "do": "tell_owner"
+          },
+          {
+            "at": "flow_feedback",
+            "do": "queue_flow_feedback"
           }
         ],
         "checks": [],
@@ -10835,7 +10868,10 @@
           "progress",
           "tell_owner"
         ],
-        "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original."
+        "shownSay": "Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: the owner reads it on the architect's tab. Keep technical terms in their English original.",
+        "needs": {
+          "flow_feedback": "flow_feedback"
+        }
       },
       "nodes": [
         {
@@ -12550,7 +12586,7 @@
           ],
           "inputs": [
             {
-              "what": "The report and where it came from: its text as written, the work, the item and the cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it",
+              "what": "The report and where it came from: its text as written, the work, the item and the cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents",
               "from": [
                 {
                   "engine": "matter"
@@ -12633,6 +12669,9 @@
               ],
               "answer": [
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
+              ],
+              "flow_feedback": [
+                "It is flow feedback: what agents said was wrong with their cells, by cell, each with its round. Judge, cell by cell, what holds, reading the cell in the flow and, where it matters, what the round was given."
               ]
             }
           },
@@ -12649,6 +12688,10 @@
               [
                 "answer",
                 "An engineer's answer to what the architect said to its work"
+              ],
+              [
+                "flow_feedback",
+                "What agents said was wrong with their cells, by cell"
               ]
             ]
           },
@@ -12732,6 +12775,10 @@
                       "Not recorded: a need that will certainly come hits it anyway"
                     ],
                     [
+                      "forwarded",
+                      "Another project's architect takes it: forwarded in messages"
+                    ],
+                    [
                       "nothing",
                       "Nothing to take in"
                     ]
@@ -12777,6 +12824,9 @@
               ],
               "answer": [
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
+              ],
+              "flow_feedback": [
+                "It is flow feedback, by cell. Take in as a report what belongs to this project: its items, rules or configuration. What belongs to wf-agents (the flow's cells, inputs, fields and texts) take in too when this project is wf-agents; otherwise forward it in messages to the architect of the project the matter names as wf-agents, or record it as an observation when it names none."
               ]
             }
           },
@@ -12793,6 +12843,10 @@
               [
                 "answer",
                 "An engineer's answer to what the architect said to its work"
+              ],
+              [
+                "flow_feedback",
+                "What agents said was wrong with their cells, by cell"
               ]
             ]
           },

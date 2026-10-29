@@ -649,6 +649,26 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
         }
+        "queue_flow_feedback" => {
+            // What the round said was wrong with its cell joins its project's architect's flow feedback, by cell, which
+            // wakes no architect; none is nothing to add.
+            let said = at_value.as_ref().and_then(Value::as_str).unwrap_or_default().trim();
+            if crate::architect::says_none(said) {
+                return Ok(());
+            }
+            let project = match (&ctx.item, &ctx.work.project) {
+                (Some(i), _) => i.project.clone(),
+                (None, Some(p)) => p.clone(),
+                (None, None) => return Ok(()),
+            };
+            let entry = json!({
+                "work": ctx.round.work,
+                "round": ctx.round.n,
+                "item": ctx.item.as_ref().map(|i| i.id),
+                "said": said,
+            });
+            crate::architect::add_flow_feedback(tx, &project, &ctx.work.graph, &ctx.cell.id, entry)?;
+        }
         other => return Err(format!("no such engine action: {other}")),
     }
     Ok(())

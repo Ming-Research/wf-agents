@@ -818,7 +818,9 @@ mod tests {
         }
         assert!(common.contains("leaves out `progress`"), "{common}");
         assert!(
-            common.contains(r#"`{"outcome": {…}, "side_reports": […], "tell_owner": […], "progress": "…"}`"#),
+            common.contains(
+                r#"`{"outcome": {…}, "side_reports": […], "tell_owner": […], "progress": "…", "flow_feedback": "…"}`"#
+            ),
             "{common}"
         );
         // The query tool lists each table and view with its columns.

@@ -432,6 +432,16 @@ impl<'s> Graph<'s> {
                 );
             }
         }
+        for (field, need) in &common.needs {
+            ensure!(
+                ret.every.contains(field),
+                "a need for a field that does not come every time: {field}"
+            );
+            ensure!(
+                source.engine.needs.contains_key(need),
+                "a field needs no such need: {field} {need}"
+            );
+        }
         for p in ["{forms}", "{every}", "{in}"] {
             ensure!(ret.say.contains(p), "returns.say does not hold {p}: {}", ret.say);
         }

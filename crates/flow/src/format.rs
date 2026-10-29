@@ -493,6 +493,10 @@ pub struct AgentCommon {
     /// Places of every agent's return a role reads outside this flow, through the database.
     #[serde(default, rename = "readBy")]
     pub read_by: Vec<ReadBy>,
+    /// Fields of `every` that only a project meeting a need is asked for, each with the need, one of `engine.needs`:
+    /// an agent working on a project that does not meet it is not asked for the field.
+    #[serde(default)]
+    pub needs: BTreeMap<String, String>,
 }
 
 /// A place of a return a role reads outside this flow, through the database, such as the architect reading side

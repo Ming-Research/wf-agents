@@ -379,6 +379,18 @@ pub struct Project {
     /// these only. The owner sets them; none, and observations carry no tag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observation_tags: Vec<ObservationTag>,
+    /// Whether every agent of the project hands in what was wrong with its round's cell, which the project's architect
+    /// takes in to improve the flow: on unless set to false; off, no agent is asked for it.
+    #[serde(default = "on", skip_serializing_if = "is_on")]
+    pub flow_feedback: bool,
+}
+
+fn on() -> bool {
+    true
+}
+
+fn is_on(b: &bool) -> bool {
+    *b
 }
 
 /// A tag a project's observations may carry.
@@ -424,11 +436,13 @@ impl Project {
         })
     }
 
-    /// Whether the project has what a gate needs; none for a need the configuration does not answer.
+    /// Whether the project has what a gate, a kind of question or a field of every return needs; none for a need the
+    /// configuration does not answer.
     pub fn has(&self, need: &str) -> Option<bool> {
         match need {
             "under_test" => Some(!self.under_test.is_empty()),
             "other_projects" => Some(!self.other_projects.is_empty()),
+            "flow_feedback" => Some(self.flow_feedback),
             _ => None,
         }
     }
@@ -1218,6 +1232,7 @@ asks = 9
         assert_eq!(p.setting("full_ci").unwrap()["merge_checks"][1], "lint");
         assert_eq!(p.setting("deploy"), Some(serde_json::Value::Null));
         assert_eq!(p.has("under_test"), Some(false));
+        assert_eq!(p.has("flow_feedback"), Some(true));
         assert!(p.setting("nope").is_none());
         // Agents run with a configuration directory of their own, inside the data directory unless one is set.
         let cli = &c.install.agents.clis["claude"];

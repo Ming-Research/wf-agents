@@ -8,6 +8,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
+# Where wf-agents is developed: the engine knows by it which project of a configuration is wf-agents itself.
+repository = "https://github.com/Ming-Research/wf-agents"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -34,5 +34,7 @@ Decision: When the owner's ruling disagrees with a decision of the design card a
 
 Decision: A row of an engine step that takes an interjection, as `T7`'s, sets aside what the step handed in (the checks it chose), which the step works out again if the way on comes back to it, and the compiler counts it as dropping nothing, instead of an action on the row that does nothing but read what is set aside (`set_aside_checks`), because an action that does nothing is behaviour the flow names and the engine does not have.
 
+Decision: Every agent's return holds flow feedback (`flow_feedback`): what was wrong with the round's cell, in the fewest words, or none, which the action `queue_flow_feedback` hands to the project's architect and never to the owner; it is a field of every return that needs `flow_feedback` (`agentCommon.needs`), which a project meets while its configuration leaves `flow_feedback` on, as it is by default, and the engine asks the agents of a project that turns it off without the field, in no schema or format of theirs, instead of a project rule that has every agent write it into what it tells the owner, because a trial found most of the flow's problems that way while flooding the owner's conversations, and a field of the flow shows on its chart, can stay on through other projects until it brings nothing of value, and costs nothing where it is off.
+
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.

@@ -58,6 +58,11 @@ as `constitution = "CONSTITUTION.md"`, which its architect checks the project ag
 level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
 `observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 
+Every agent hands in flow feedback, what was wrong with its round's cell, which goes to its project's architect and
+never to the owner; the architect of the project that is wf-agents itself, the one whose repository wf-agents is built
+from, takes in what of it belongs to wf-agents. A project's file turns it off with `flow_feedback = false`, and its
+agents are then not asked for it.
+
 ## The owner's page
 
 `wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with

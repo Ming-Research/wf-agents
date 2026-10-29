@@ -185,6 +185,7 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
         for grp in &g.flow.ask_kinds {
             needs.extend(grp.needs.values().cloned());
         }
+        needs.extend(g.flow.agent_common.needs.values().cloned());
         for c in &g.cells {
             steps.extend(c.step.clone());
             needs.extend(c.needs.clone());

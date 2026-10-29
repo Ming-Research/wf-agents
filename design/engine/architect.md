@@ -46,6 +46,8 @@ Decision: `E1` wraps a wake up, writing what it learned into the state of things
 
 Decision: An engineer's answer to what the architect said to its work reaches the architect's queue as a matter of the kind `report` with the detail `answer`, which `H4` and `H5` take in as they take a report, instead of a notice to the owner only, because the flow sends each answer back to its speaker, and the architect is a speaker.
 
+Decision: Flow feedback reaches the project's architect as a matter of the kind `report` with the detail `flow_feedback`, one that holds the feedback of every round by graph and cell until a wake picks it, feedback after that starting another; it wakes no architect, and a wake picks it only when it came before the wake started, so that feedback that comes during a wake waits for the next; `H4` judges what of it holds, and `H5` takes in what belongs to the project, and what belongs to wf-agents itself (the flow's cells, inputs, fields and texts) too when the project is wf-agents, the one whose repository wf-agents is built from, forwarding it otherwise in messages to that project's architect, instead of a matter for each round or a wake of its own, because nearly every round hands in feedback, which the architect judges best a cell at a time and at a wake something else needed.
+
 Rejected:
 - One architect over every project: rejected because each project has its own intent and the context of all of them is too large to judge one.
 - The owner approving each batch of item changes: rejected; a review in a new session checks them, and the owner reads them in the log.

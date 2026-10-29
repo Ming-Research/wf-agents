@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use db::{Actor, Db};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
@@ -379,12 +379,45 @@ impl Engine {
         Ok(&self.flows[&version])
     }
 
-    /// The graph a work runs on, as an owned copy, so the engine can be borrowed while it is in use.
+    /// The graph a work runs on, as its project's agents are asked it: without the fields of every return whose need
+    /// the project does not meet, such as flow feedback the project's configuration turned off. An owned copy, so the
+    /// engine can be borrowed while it is in use.
     pub fn graph_of(&mut self, w: &Work) -> Result<CompiledGraph, String> {
-        let f = self.flow(w.flow_version)?;
-        f.graph(&w.graph)
+        let g = self
+            .flow(w.flow_version)?
+            .graph(&w.graph)
             .cloned()
-            .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))
+            .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
+        let named: Option<String> = match (&w.project, w.item) {
+            (Some(p), _) => Some(p.clone()),
+            (None, Some(item)) => self
+                .db
+                .conn()
+                .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .optional()
+                .map_err(|e| format!("item {item}: {e}"))?,
+            (None, None) => None,
+        };
+        let project = named.and_then(|p| self.config.config.projects.get(&p));
+        Ok(g.as_asked(|need| project.is_some_and(|p| p.has(need).unwrap_or(false))))
+    }
+
+    /// The project of the configuration that is wf-agents itself, whose repository wf-agents is built from: its
+    /// architect takes in the flow feedback of every project that belongs to wf-agents. None when no project is.
+    pub fn wf_agents_project(&self) -> Option<String> {
+        let own = env!("CARGO_PKG_REPOSITORY")
+            .trim_end_matches('/')
+            .trim_end_matches(".git");
+        let own = own.strip_prefix("https://github.com/").unwrap_or(own);
+        if own.is_empty() {
+            return None;
+        }
+        self.config
+            .config
+            .projects
+            .iter()
+            .find(|(_, p)| p.repo.eq_ignore_ascii_case(own))
+            .map(|(name, _)| name.clone())
     }
 
     pub fn work(&mut self, id: i64) -> Result<Work, String> {

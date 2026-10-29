@@ -699,6 +699,15 @@ fn not_applicable(
     );
     output.insert("side_reports".into(), json!([]));
     output.insert("tell_owner".into(), json!([]));
+    // A project asked for flow feedback gets none from the engine's own answer.
+    let feedback = crate::architect::FLOW_FEEDBACK;
+    if cell
+        .schema
+        .as_ref()
+        .is_some_and(|s| s["properties"].get(feedback).is_some())
+    {
+        output.insert(feedback.into(), json!("none"));
+    }
     let output = Value::Object(output);
     let item = e.subject(w)?;
     let gathered = inputs::gather(e, w, g, cell, item.as_ref())?;

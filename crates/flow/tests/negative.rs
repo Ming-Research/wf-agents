@@ -512,6 +512,16 @@ case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
 case!(a_kind_that_needs_no_such_need, "no such need", |v| {
     graph(v)["askKinds"][0]["needs"] = json!({ "gap_under_test": "nothing_known" });
 });
+case!(a_field_that_needs_no_such_need, "a field needs no such need", |v| {
+    graph(v)["agentCommon"]["needs"] = json!({ "flow_feedback": "nothing_known" });
+});
+case!(
+    a_need_for_a_field_that_does_not_come_every_time,
+    "a need for a field that does not come every time",
+    |v| {
+        graph(v)["agentCommon"]["needs"] = json!({ "ask": "flow_feedback" });
+    }
+);
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
     drop_source(v, "T6", json!(["T4", "columns[findings]"]));
 });

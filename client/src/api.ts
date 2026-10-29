@@ -1901,6 +1901,11 @@ asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: 
  */
 ask_needs?: Array<AskNeed>, 
 /**
+ * The fields of every agent's return that only a project meeting a need is asked for, each with the need: an
+ * agent working on a project that does not meet it is not asked for the field.
+ */
+every_needs?: { [key in string]: string }, 
+/**
  * How every agent's return is written, which the forms every return shares say once.
  */
 write?: Array<string>, 
