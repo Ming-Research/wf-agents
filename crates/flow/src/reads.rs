@@ -15,7 +15,7 @@ use crate::bits::Bits;
 use crate::check::Analysis;
 use crate::field::{Place, PlaceKind, by_id, head};
 use crate::format::Src;
-use crate::graph::{Graph, POINTERS};
+use crate::graph::{Graph, POINTERS, Target};
 use crate::walk::State;
 
 /// A place of a cell's output: the cell, and the place's number among its places.
