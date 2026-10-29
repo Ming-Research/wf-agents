@@ -31,13 +31,13 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 
 // The architect's graph compiles with no finding, as the design the owner approved: its wake (`W0`, `W1`, `U1`, `P1`,
 // `N1`), the queue (`Q0`) and each matter's path, the review of a batch of item changes (`B1`, `B2`, `B3`, `B4`), the
-// wrap-up (`E1`, `E2`), the owner's ask (`A3`), the tools (`X1`), the observer (`X2`) and the study of a new policy
-// (`P2` to `P12`): as many cells, rows and states.
+// wrap-up (`E1`, `E2`), the owner's ask (`A3`), the tools (`X1`), the observer (`X2`), the wait for the owner's Start
+// after a pause (`X3`) and the study of a new policy (`P2` to `P12`): as many cells, rows and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (38, 133, 146));
+    assert_eq!((s.cells, s.rows, s.states), (39, 134, 208));
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
