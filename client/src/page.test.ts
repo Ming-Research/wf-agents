@@ -386,7 +386,7 @@ describe('the chart of a flow', () => {
     expect(parts.get('q')).toBe(ASKING);
     expect(parts.get('t')).toBe('t');
     expect(c.parts).toEqual([MAIN, 't', ASKING]);
-    expect(c.groups.map((g) => g.id)).toEqual(['stage:queued', 'stage:build', ASKING, 'stage:done']);
+    expect(c.groups.map((g) => g.id)).toEqual(['stage:start', 'stage:build', ASKING, 'stage:done']);
   });
 
   it('draws the rows every agent cell shares as one circle beside it, those back to itself too, with no label', () => {
