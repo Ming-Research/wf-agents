@@ -332,9 +332,14 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
 // but `d` ask `q`, and only `a` searches, which only the engineer line may; `a` and `c` lead into `b` through the
 // same actions, and `d` is reached by no row; an engine step that decides by a value of the engine's and waits through
 // an action; the tools, the search, the pause, an asking part that answers back, and the end.
-const form = (field: string | null, lines: string[] | null = null): Form => ({ field, say: '', lines });
+// A form as the compiled flow writes it: the field and the lines left out when it has none.
+const form = (field: string | null, lines: string[] | null = null): Form => ({
+  say: '',
+  ...(field !== null ? { field } : {}),
+  ...(lines !== null ? { lines } : {}),
+});
 const forms = [form(null), form('ask'), form('tools'), form('search', ['engineer']), form('pause')];
-const without = (...fields: string[]) => forms.filter((f) => f.field === null || !fields.includes(f.field));
+const without = (...fields: string[]) => forms.filter((f) => f.field == null || !fields.includes(f.field));
 const move = (name: string, to: string, extra: Partial<CompiledRow> = {}) =>
   row(name, to, { if: [['has', name]], common: true, ...extra });
 const asks = row('ask_q', 'q', { if: [['is', 'ask.to', ['q']]], common: true });

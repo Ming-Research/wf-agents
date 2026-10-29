@@ -35,8 +35,9 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
-      # now, and the last step fails when that differs from the committed file.
-      - name: Generate the page's types
+      # now, and the last step fails when that differs from the committed file. The same run writes the flow as the
+      # engine stores it, which the page's tests read.
+      - name: Generate the page's types and the flow its tests read
         run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
       - name: Install the page's dependencies
         working-directory: client

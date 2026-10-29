@@ -92,7 +92,7 @@ pub struct CompiledInterject {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CompiledInput {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
     /// the forms every return shares say what it is.
@@ -136,7 +136,7 @@ pub struct CompiledRow {
     pub sets: BTreeMap<String, String>,
     #[serde(rename = "do", default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<Do>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
     pub waits: bool,
     /// The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
@@ -154,7 +154,7 @@ pub struct CompiledRow {
     /// in no return the cell takes. No return takes it; the engine does what it says itself.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fallback: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
 
@@ -166,11 +166,11 @@ pub struct CompiledCell {
     /// Written as a gate.
     pub gate: bool,
     pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub needs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
     /// A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
     /// a work.
@@ -180,7 +180,7 @@ pub struct CompiledCell {
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
@@ -190,12 +190,12 @@ pub struct CompiledCell {
     pub rules: Vec<RuleUse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub prompt: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_by: Option<PromptBy>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forms: Vec<Form>,
     /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
     pub rows: Vec<CompiledRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

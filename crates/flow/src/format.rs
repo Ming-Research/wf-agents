@@ -542,11 +542,11 @@ pub struct InField {
 pub struct Form {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub own: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
     pub say: String,
     /// The lines whose cells outside the asking part have this form; with none, every agent's cell has it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lines: Option<Vec<String>>,
     /// Fields of `every` a return of this form does not hold. It leaves them as an earlier return wrote them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -758,9 +758,9 @@ impl Do {
 pub struct Always {
     /// The place of the return whose presence sets the action off.
     pub at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
-    #[serde(rename = "do", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "do", default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
 }
 
@@ -768,7 +768,7 @@ pub struct Always {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<String>,
     pub check: String,
 }

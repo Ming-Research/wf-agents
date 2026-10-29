@@ -2007,7 +2007,7 @@ kind: string,
 /**
  * Written as a gate.
  */
-gate: boolean, title: string, step: string | null, needs: string | null, line: string | null, 
+gate: boolean, title: string, step?: string | null, needs?: string | null, line?: string | null, 
 /**
  * A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
  * a work.
@@ -2017,15 +2017,15 @@ new_session?: boolean,
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */
-effort?: string | null, stage: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
+effort?: string | null, stage?: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
 /**
  * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
  */
-rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by: PromptBy | null, forms?: Array<Form>, 
+rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, forms?: Array<Form>, 
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, 
+schema?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, 
 /**
  * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
  */
@@ -2044,7 +2044,7 @@ shown?: Array<string>,
  */
 read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
 
-export type CompiledInput = { id: string | null, 
+export type CompiledInput = { id?: string | null, 
 /**
  * For an input every agent's cell has: what it is called. A cell's list of what its inputs are names it only;
  * the forms every return shares say what it is.
@@ -2074,17 +2074,17 @@ export type PromptBy = { by: string, cases: { [key in string]: Array<string> }, 
 /**
  * One form of an agent's return: the cell's own answer, or one of the common fields.
  */
-export type Form = { own?: boolean, field: string | null, say: string, 
+export type Form = { own?: boolean, field?: string | null, say: string, 
 /**
  * The lines whose cells outside the asking part have this form; with none, every agent's cell has it.
  */
-lines: Array<string> | null, 
+lines?: Array<string> | null, 
 /**
  * Fields of `every` a return of this form does not hold. It leaves them as an earlier return wrote them.
  */
 without?: Array<string>, };
 
-export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { [key in string]: string }, do?: Array<Do>, counts: string | null, waits: boolean, 
+export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { [key in string]: string }, do?: Array<Do>, counts?: string | null, waits: boolean, 
 /**
  * The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
  */
@@ -2102,7 +2102,7 @@ common: boolean,
  * A row of the engine's fallback, the same for every agent's cell: what the engine does with a round that ends
  * in no return the cell takes. No return takes it; the engine does what it says itself.
  */
-fallback?: boolean, note: string | null, };
+fallback?: boolean, note?: string | null, };
 
 /**
  * A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
@@ -2131,12 +2131,12 @@ export type Always = {
 /**
  * The place of the return whose presence sets the action off.
  */
-at: string, view: string | null, do: string | null, };
+at: string, view?: string | null, do?: string | null, };
 
 /**
  * A check the engine makes on a return, on a place of it or on the whole.
  */
-export type Check = { at: string | null, check: string, };
+export type Check = { at?: string | null, check: string, };
 
 /**
  * A place of a return a role reads outside this flow, through the database, such as the architect reading side

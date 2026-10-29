@@ -637,7 +637,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
     form: (i) => {
       const form = cell?.forms?.[i];
       if (form === undefined || cell === undefined) return null;
-      return form.own ? t('rp_form_own', { cell: cell.id }) : form.field !== null ? t('rp_form_common', { form: form.field }) : null;
+      return form.own ? t('rp_form_own', { cell: cell.id }) : form.field != null ? t('rp_form_common', { form: form.field }) : null;
     },
   };
   const outLabel = agent

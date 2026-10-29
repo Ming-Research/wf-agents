@@ -145,7 +145,7 @@ export function moves(g: CompiledGraph): Move[] {
   const asking = new Set(g.asking);
   const formLines = (field: string): string[] | null => {
     for (const c of agents) {
-      for (const f of c.forms ?? []) if (f.field === field) return f.lines;
+      for (const f of c.forms ?? []) if (f.field === field) return f.lines ?? null;
     }
     return null;
   };
