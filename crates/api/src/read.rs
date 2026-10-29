@@ -1404,10 +1404,16 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 return Vec::new();
             };
             let mut out: Vec<String> = Vec::new();
+            // No work stands where an item waits to start, the graph's start that waits there, nor at the end of a work
+            // cancelled, which it ends at from any cell: neither is a stage a work goes through.
+            let goes_through = |g: &CompiledGraph, x: &CompiledCell| {
+                let waits_to_start = x.id == g.start && x.rows.iter().any(|r| r.waits && r.to == x.id);
+                !waits_to_start && g.cancel.as_deref() != Some(x.id.as_str())
+            };
             for s in c
                 .graph(&w.graph)
                 .into_iter()
-                .flat_map(|g| &g.cells)
+                .flat_map(|g| g.cells.iter().filter(move |x| goes_through(g, x)))
                 .filter_map(|x| x.stage.as_ref())
             {
                 if !out.contains(s) {
