@@ -251,6 +251,12 @@ export function FlowScreen(props: FlowScreenProps) {
   const into = (c: string, keep: boolean, graph: string) =>
     window.setTimeout(() => chartRef.current?.focus(c, keep, graph), 0);
   const onPick = (p: Pick) => {
+    // A store is every graph's.
+    if (p.kind === 'store') {
+      setPicked({ store: p.store });
+      open({ kind: 'store', store: p.store });
+      return;
+    }
     const graph = p.graph;
     switch (p.kind) {
       case 'cell':
@@ -269,10 +275,6 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'action':
         setPicked({ graph, node: p.node });
         open({ kind: 'action', graph, node: p.node });
-        break;
-      case 'store':
-        setPicked({ store: p.store });
-        open({ kind: 'store', store: p.store });
         break;
       case 'out':
         pickCell(graph, p.to);
