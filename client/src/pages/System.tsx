@@ -562,8 +562,8 @@ function summed(list: WorkCount[]): { n: number; cost: number } {
   return { n: list.reduce((a, c) => a + c.n, 0), cost: list.reduce((a, c) => a + c.cost_usd, 0) };
 }
 
-/// Where a work's rounds or pings are shown: an engineer's work's page as `engineer` names it, or a wake on its
-/// architect's view.
+/// Where a work's rounds or pings are shown: an engineer's work's page as `engineer` names it, or the architect's
+/// view, its rounds there, named by no wake.
 function workPlace(c: WorkCount, engineer: string): string {
   return c.graph === 'architect' ? architectHref({ project: c.project, wake: c.work }) : engineer;
 }
@@ -646,7 +646,7 @@ function Counts({ list, head, to }: { list: WorkCount[]; head: string; to: (c: W
         {list.map((c) => (
           <tr key={c.work}>
             <td>
-              <Link to={to(c)}>#{c.work}</Link>
+              <Link to={to(c)}>{c.graph === 'architect' ? t('sys_architect_link') : `#${c.work}`}</Link>
             </td>
             <td>{c.item !== null ? <ItemRef id={c.item} title={c.title} /> : t('sys_wake_of', { project: c.project ?? '' })}</td>
             <td className="num">{c.n}</td>
@@ -735,7 +735,7 @@ function AnomalyRows({ list }: { list: Anomaly[] }) {
                   to={architectHref({ project: a.project, wake: a.work, round: a.round })}
                   className={a.round !== null ? 'round-link' : undefined}
                 >
-                  {a.round !== null ? roundName(a.work, a.round) : `#${a.work}`}
+                  {a.round !== null ? roundName(a.work, a.round) : t('sys_architect_link')}
                 </Link>
               ) : a.round !== null ? (
                 <RoundLink work={a.work} round={a.round} />

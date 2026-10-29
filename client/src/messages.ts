@@ -126,6 +126,7 @@ const messages = {
   sys_pings_by_work: 'Keep-warm pings, by work',
   sys_col_pings: 'Pings',
   sys_wake_of: 'the architect of {project}',
+  sys_architect_link: 'the architect',
   sys_anomaly_flow_anomaly: 'Flow anomalies',
   sys_anomaly_flow_anomaly_hint:
     'The way on an engineer chose did not fit the situation: a fault of the flow, to fix in wf-agents.',
@@ -615,7 +616,7 @@ const messages = {
   us_started_cell: 'at cell {cell}',
   us_started_limit: 'the one before was past the context limit',
   us_started_limit_at: 'the one before was past the context limit, at {n}',
-  us_started_wake: "the last wake's, going on",
+  us_started_wake: "its line's, going on",
   us_started_model: 'the model changed',
   us_started_owner: 'you asked for it',
   us_with_pings: 'with {n} keep-warm pings',
