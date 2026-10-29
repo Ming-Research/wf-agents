@@ -726,6 +726,60 @@ mod tests {
         db
     }
 
+    // The owner answers in a work's group a question of its engineer's that the architect holds: the answer is the
+    // matter's reply, said by the owner, and the matter leaves the queue; a question no architect holds, one of another
+    // work, and one a wake has in hand are refused.
+    #[test]
+    fn the_owner_answers_a_question_the_architect_holds() {
+        let mut db = setup();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET at = 'A2' WHERE id = 1", [])?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at)
+                 VALUES ('p', 'engineer_question', 'split', 'Work 1 asks', '{}', 1, 1, 1, 5),
+                        ('p', 'engineer_question', 'split', 'Work 1 asks again', '{}', 1, 1, 1, 6)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO blockers (work, cell, round, kind, what, holder, project, matter, at, since)
+                 VALUES (1, 'I1', 1, 'question', 'Split it?', 'architect', 'p', 1, 5, 5)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let said = |question: i64, text: &str| WorkSaid {
+            text: text.into(),
+            to: None,
+            question: Some(question),
+        };
+        assert!(say_to_work(&mut db, 1, &said(2, "No.")).is_err());
+        assert!(say_to_work(&mut db, 2, &said(1, "No.")).is_err());
+        assert!(say_to_work(&mut db, 1, &said(1, " ")).is_err());
+        say_to_work(&mut db, 1, &said(1, "Do not split it.")).unwrap();
+        let (reply, withdrawn): (String, Option<String>) = db
+            .conn()
+            .query_row("SELECT reply, withdrawn FROM architect_matters WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(
+            (reply["by"].as_str(), reply["text"].as_str()),
+            (Some("owner"), Some("Do not split it."))
+        );
+        assert!(withdrawn.is_some_and(|w| w.contains("group of work 1")));
+        let queued: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM architect_queue WHERE matter = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(queued, 0);
+        // Answered, it is no longer open to answer.
+        assert!(say_to_work(&mut db, 1, &said(1, "Again.")).is_err());
+    }
+
     // The owner lets a paused work go on; one that is not paused is refused.
     #[test]
     fn the_owner_lets_a_paused_work_go_on() {
