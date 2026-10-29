@@ -5,21 +5,23 @@
 // works from starting, the architect's Start, Pause and Step with the session they run its next round in, and the
 // switch between its wakes (when each woke, why, how many matters it handled, what it cost). Under the line, its graph
 // fills the window with the wake shown placed on it as a work is (the wake going on, else the latest, else the bare
-// graph), and the column docked at its right holds the architect's panel in its upper part, where what is open on the
-// chart takes the place of its list, and the owner's conversation with the architect under it, split by a divider
-// that drags, the conversation folding to one line. The panel's tabs, on one line: its asks of the owner, those
-// waiting first with their forms; its queue, the matters in it, then those an ask holds; its log, newest first; the
-// item changes its batches made; the project's observations; the policy in force and the one being set; where things
-// stand as it understands them; and the rounds of the wake shown. The conversation, whichever tab is open: the
-// owner's words and what the architect told the owner and asked, in time order, the newest at the bottom; whether the
-// owner's words still wait for the architect, and why; and a box that says more.
+// graph), and the column docked at its right holds the architect's panel, where what is open on the chart takes the
+// place of its list, with a way back to it. The panel's tabs, on one line: the owner's conversation with the
+// architect, first, with how many of its messages are unread and whether something in it waits for the owner (the same
+// conversation the messages view shows: what waits pinned on top, the owner's words and what the architect told the
+// owner and asked, in time order, the newest at the bottom; whether the owner's words still wait for the architect,
+// and why; and a box that says more); its asks of the owner, those waiting first with their forms; its queue, the
+// matters in it, then those an ask holds; its log, newest first; the item changes its batches made; the project's
+// observations; the policy in force and the one being set; where things stand as it understands them; and the rounds
+// of the wake shown.
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   Architect as ArchitectRead,
   Compiled,
   CompiledGraph,
+  Conversation,
   ConversationEntry,
   FlowView,
   ItemChange,
@@ -34,7 +36,6 @@ import { architectState, observationsShown, overWake, queueParts, shownWake, wor
 import { course, heldName, Loaded } from '../components';
 import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
-import { Grip, savedSize } from '../flow/Panel';
 import { cost, duration, roundName, time } from '../format';
 import { postJson } from '../http';
 import { Fold } from '../item/Shapes';
@@ -279,6 +280,7 @@ const WAITS: Record<string, Key> = {
 
 /// The name of each tab of the architect's panel.
 const TAB_NAMES: Record<ArchitectTab, Key> = {
+  conversation: 'talk_title',
   asks: 'arch_tab_asks',
   queue: 'arch_tab_queue',
   decisions: 'arch_tab_decisions',
@@ -288,64 +290,6 @@ const TAB_NAMES: Record<ArchitectTab, Key> = {
   understanding: 'arch_tab_understanding',
   rounds: 'rounds',
 };
-
-/// Where the owner's split of the architect's column and the folding of its conversation are kept in this browser.
-const SPLIT_KEY = 'wf-agents.arch-split';
-const FOLD_KEY = 'wf-agents.arch-talk-folded';
-const SPLIT_MIN = 120;
-
-/// Whether the owner folded the architect's conversation, as this browser keeps it; open where it keeps nothing.
-function savedFold(): boolean {
-  try {
-    return localStorage.getItem(FOLD_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-/// The column at the right of the architect's chart: on top its panel, or what is open on the chart in place of the
-/// panel's list; under it the owner's conversation with the architect, whichever tab is open, split from the top by a
-/// divider that drags, evenly until the owner drags it; the conversation folds to one line that shows its latest entry,
-/// how many are unread and that something waits for the owner, and opens again with a click. The split and the fold
-/// are kept in this browser.
-function Side({ a, top }: { a: ArchitectRead; top: ReactNode }) {
-  const status = useStatus();
-  const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
-  const [folded, setFolded] = useState(savedFold);
-  const fold = (f: boolean) => {
-    setFolded(f);
-    try {
-      localStorage.setItem(FOLD_KEY, f ? '1' : '0');
-    } catch {
-      // Kept only where the browser lets it be.
-    }
-  };
-  const why = (entries: ConversationEntry[]) => {
-    const waits = wordsWait(entries, architectState(a.wakes, a.queue), status, a.project);
-    return waits !== null ? t(WAITS[waits]) : null;
-  };
-  return (
-    <div className="arch-side">
-      <div
-        className="arch-upper"
-        style={!folded && split !== null ? { flex: 'none', height: split } : undefined}
-      >
-        {top}
-        {!folded ? (
-          <Grip edge="bottom" min={SPLIT_MIN} storage={SPLIT_KEY} label={t('arch_split')} onSize={setSplit} />
-        ) : null}
-      </div>
-      <section className={folded ? 'arch-talk arch-talk-folded' : 'arch-talk'} aria-label={t('talk_title')}>
-        <ConversationView
-          conversation={`architect:${a.project}`}
-          note={why}
-          folded={folded}
-          onFold={fold}
-        />
-      </section>
-    </div>
-  );
-}
 
 /// The architect's wakes over time, newest first: when each woke, why, how many matters it handled, its rounds and
 /// cost; a click shows that wake, and the one shown by default follows the wake going on again.
@@ -717,20 +661,43 @@ function Panel({ route, a, d, g, go, onRound }: {
   const waiting = a.asks.filter((x) => x.answer === null).length;
   const live = new Set(a.wakes.filter((w) => !overWake(w.work)).map((w) => w.work.id));
   const titles = new Map<string, string>(g.cells.map((c) => [c.id, c.title]));
-  const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; chip: string | null }> = [
-    { tab: 'asks', label: t('arch_tab_asks'), n: a.asks.length, chip: waiting > 0 ? t('open_asks_chip', { n: waiting }) : null },
-    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null },
-    { tab: 'decisions', label: t('arch_tab_decisions'), n: a.log.length, chip: null },
-    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null },
+  // The conversation's tab says how many of its messages are unread and how many things in it wait for the owner, as
+  // the list of conversations has them.
+  const key = `architect:${a.project}`;
+  const all = useResource<Conversation[]>('messages', '/api/v1/conversations');
+  const talk = all.data?.find((c) => c.key === key) ?? null;
+  const why = (entries: ConversationEntry[]) => {
+    const waits = wordsWait(entries, architectState(a.wakes, a.queue), status, a.project);
+    return waits !== null ? t(WAITS[waits]) : null;
+  };
+  const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; chip: string | null; hint: string }> = [
+    {
+      tab: 'conversation',
+      label: t('talk_title'),
+      n: talk !== null && talk.unread > 0 ? talk.unread : null,
+      chip: talk !== null && talk.waiting > 0 ? t('conv_waits_chip', { n: talk.waiting }) : null,
+      hint: t('conv_waits_n', { n: talk?.waiting ?? 0 }),
+    },
+    {
+      tab: 'asks',
+      label: t('arch_tab_asks'),
+      n: a.asks.length,
+      chip: waiting > 0 ? t('open_asks_chip', { n: waiting }) : null,
+      hint: t('open_asks_n', { n: waiting }),
+    },
+    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
+    { tab: 'decisions', label: t('arch_tab_decisions'), n: a.log.length, chip: null, hint: '' },
+    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null, hint: '' },
     {
       tab: 'observations',
       label: t('arch_tab_observations'),
       n: a.observations.filter((o) => o.closed === null).length,
       chip: null,
+      hint: '',
     },
-    { tab: 'policy', label: t('arch_tab_policy'), n: null, chip: null },
-    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null },
-    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null },
+    { tab: 'policy', label: t('arch_tab_policy'), n: null, chip: null, hint: '' },
+    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
+    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
   ];
   return (
     <div className="drawer">
@@ -751,7 +718,7 @@ function Panel({ route, a, d, g, go, onRound }: {
               {x.label}
               {x.n !== null ? <span className="tab-n">{x.n}</span> : null}
               {x.chip !== null ? (
-                <span className="chip warn" title={t('open_asks_n', { n: waiting })}>
+                <span className="chip warn" title={x.hint}>
                   {x.chip}
                 </span>
               ) : null}
@@ -760,6 +727,7 @@ function Panel({ route, a, d, g, go, onRound }: {
         </div>
       </div>
       <div className="drawer-body" role="tabpanel" ref={body}>
+        {route.tab === 'conversation' ? <ConversationView conversation={key} note={why} /> : null}
         {route.tab === 'asks' ? <Asks asks={a.asks} onRound={onRound} /> : null}
         {route.tab === 'queue' ? <Queue queue={a.queue} onAsk={onAsk} /> : null}
         {route.tab === 'decisions' ? (
@@ -846,7 +814,7 @@ function Chart({ route, a, wake, d, compiled, view, go }: {
       onRound={(x) => go(x !== null ? { wake: id, round: x, cell: null } : { round: null })}
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
       list={t(TAB_NAMES[route.tab])}
-      side={(open) => <Side a={a} top={open ?? <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />} />}
+      side={(open) => open ?? <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
     />
   );
 }
@@ -902,8 +870,20 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   );
 }
 
+/// What this browser kept of the split and the fold of the conversation under the architect's panel, before the
+/// conversation became a tab of the panel; cleared when the page opens. This goes once the browsers that kept them
+/// have opened the page, by the first version's review.
+const KEPT_BEFORE = ['wf-agents.arch-split', 'wf-agents.arch-talk-folded'];
+
 export function Architect({ route }: { route: ArchitectRoute }) {
   const a = useResource<ArchitectRead>('architect', forProject('/api/v1/architect', route.project));
+  useEffect(() => {
+    try {
+      for (const key of KEPT_BEFORE) localStorage.removeItem(key);
+    } catch {
+      // Nothing is kept where the browser lets nothing be.
+    }
+  }, []);
   return (
     <div className="works-screen">
       <Loaded r={a}>{(data) => <Body route={route} a={data} />}</Loaded>

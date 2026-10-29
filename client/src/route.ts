@@ -25,6 +25,7 @@ export type WorkRoute = {
 /// batches made, the project's observations, the policy, where things stand as it understands them, or the rounds of
 /// the wake shown.
 export const ARCHITECT_TABS = [
+  'conversation',
   'asks',
   'queue',
   'decisions',

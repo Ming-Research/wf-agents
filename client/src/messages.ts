@@ -877,9 +877,6 @@ const messages = {
     "The architect's wake stops at the end of the round it is in and stays paused, whatever the global state, until you start it; no other wake starts meanwhile.",
   arch_started: 'started by you',
   talk_title: 'Conversation',
-  talk_fold: 'Fold the conversation to one line',
-  talk_open: 'Open the conversation',
-  arch_split: 'Drag to share the column between the panel and the conversation; a double click shares it evenly',
   panel_to_list: 'Back to {list}',
   talk_waits_paused: 'Your words wait for the architect: its wake is paused. Start it to have them answered.',
   talk_waits_held:
