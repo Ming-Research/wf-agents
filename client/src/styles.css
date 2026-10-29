@@ -388,16 +388,18 @@ select:not([class]) {
   --fc-text: #1d1d1b;
   /* The efforts an agent's cell runs at: one violet in steps, lighter to darker from low to max, so that the order
      reads in the colour; lettered in whichever of ink and white reads at 4.5:1 or more. */
-  --fc-effort-low: #af9ee4;
-  --fc-effort-low-text: #1d1d1b;
-  --fc-effort-medium: #9578de;
-  --fc-effort-medium-text: #1d1d1b;
-  --fc-effort-high: #7d51d2;
-  --fc-effort-high-text: #ffffff;
-  --fc-effort-xhigh: #6232b2;
-  --fc-effort-xhigh-text: #ffffff;
-  --fc-effort-max: #471e86;
-  --fc-effort-max-text: #ffffff;
+  /* The effort badges: green, blue, orange, red from low to xhigh, max in purple, each with white text; Primer's
+     emphasis backgrounds, which follow light and dark themselves. */
+  --fc-effort-low: var(--bgColor-success-emphasis);
+  --fc-effort-low-text: var(--fgColor-onEmphasis);
+  --fc-effort-medium: var(--bgColor-accent-emphasis);
+  --fc-effort-medium-text: var(--fgColor-onEmphasis);
+  --fc-effort-high: var(--bgColor-severe-emphasis);
+  --fc-effort-high-text: var(--fgColor-onEmphasis);
+  --fc-effort-xhigh: var(--bgColor-danger-emphasis);
+  --fc-effort-xhigh-text: var(--fgColor-onEmphasis);
+  --fc-effort-max: var(--bgColor-done-emphasis);
+  --fc-effort-max-text: var(--fgColor-onEmphasis);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -445,16 +447,6 @@ select:not([class]) {
     --fc-label: rgb(44 44 41 / 92%);
     --fc-text: #e8e8e3;
     /* On the dark page the steps go the other way, darker to lighter from low to max, so that more stands out more. */
-    --fc-effort-low: #6342a6;
-    --fc-effort-low-text: #ffffff;
-    --fc-effort-medium: #7a55c7;
-    --fc-effort-medium-text: #ffffff;
-    --fc-effort-high: #9477dd;
-    --fc-effort-high-text: #161615;
-    --fc-effort-xhigh: #af99ed;
-    --fc-effort-xhigh-text: #161615;
-    --fc-effort-max: #cabef7;
-    --fc-effort-max-text: #161615;
   }
 }
 
