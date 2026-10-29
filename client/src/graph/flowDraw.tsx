@@ -384,7 +384,7 @@ function Lacks({ lacks, x, y }: { lacks: Lack[]; x: number; y: number }) {
 }
 
 /// The halo round the cell a round runs at, so that the eye finds it at any zoom: three arcs of colour running round
-/// the cell; still, in the same colours, for a browser that asks for less motion (the styles say how it moves).
+/// the cell (the styles say how it moves).
 /// `small` draws it for the legend.
 export function Halo({ box, round, small = false }: { box: Box; round: boolean; small?: boolean }) {
   // How far out the arcs stand from the cell (the legend draws them small).

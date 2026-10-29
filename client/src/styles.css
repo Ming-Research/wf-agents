@@ -1412,8 +1412,7 @@ svg.fc {
 }
 
 /* The cell a round runs at wears a halo, so that the eye finds it at once, at the zoom a work's chart opens at and over
-   the whole chart: three arcs of colour running round the cell. For who asks for less motion, the same arcs, still.
-   Only the running cell has it. */
+   the whole chart: three arcs of colour running round the cell. Only the running cell has it. */
 .fc-halo {
   pointer-events: none;
 }
@@ -1456,12 +1455,6 @@ svg.fc {
 
   to {
     stroke-dashoffset: -100;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-halo-arc {
-    animation: none;
   }
 }
 
@@ -1591,8 +1584,7 @@ svg.fc {
   stroke-width: 1.4;
 }
 
-/* The rows a work took: their dashes flow the way the work went, at their own width; still for who asks for less
-   motion. */
+/* The rows a work took: their dashes flow the way the work went, at their own width. */
 .fc-edge-taken {
   stroke: var(--fc-taken);
   stroke-width: 2.6;
@@ -1607,7 +1599,7 @@ svg.fc {
 }
 
 /* The arrows the round chosen in the rounds list came in by and left by: wide, their dashes flowing the way the work
-   went; still for who asks for less motion. */
+   went. */
 .fc-edge-lit {
   stroke: var(--fc-lit);
   stroke-width: 4;
@@ -1618,14 +1610,6 @@ svg.fc {
 @keyframes fc-flow {
   to {
     stroke-dashoffset: -16;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-edge-lit,
-  .fc-edge-taken {
-    animation: none;
-    stroke-dasharray: none;
   }
 }
 
