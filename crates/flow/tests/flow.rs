@@ -235,7 +235,8 @@ fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
             "effects": null
         },
         "tell_owner": [],
-        "progress": "Nothing to fix."
+        "progress": "Nothing to fix.",
+        "flow_feedback": "none"
     });
     assert!(!flow::valid(&s, &ret));
     flow::without_null_options(&s, &mut ret);
@@ -336,7 +337,7 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(required, ["outcome", "side_reports", "tell_owner"]);
+    assert_eq!(required, ["outcome", "side_reports", "tell_owner", "flow_feedback"]);
 }
 
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,
