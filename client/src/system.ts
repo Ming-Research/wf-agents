@@ -64,8 +64,7 @@ export function mergedAverages(merged: Merged[]): { took: number; cost: number }
   };
 }
 
-/// The kinds of anomaly, in the order the view shows them. The findings of the review after each wake, once that
-/// review exists, come here as one more kind.
+/// The kinds of anomaly, in the order the view shows them.
 export const ANOMALY_KINDS: ReadonlyArray<AnomalyKind['kind']> = [
   'flow_anomaly',
   'counter',

@@ -1498,8 +1498,7 @@ export type Anomaly = { work: number, graph: string, item: number | null, title:
 round: number | null, at: number, what: AnomalyKind, };
 
 /**
- * What went wrong, each kind of its own. The findings of the review after each wake, once that review exists, come as
- * one more kind.
+ * What went wrong, each kind of its own.
  */
 export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, };
 

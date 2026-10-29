@@ -240,13 +240,6 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
           none={avg === null}
           hint={t('sys_to_merge_hint')}
         />
-        <Tile
-          k={t('sys_merged_cost')}
-          v={avg !== null ? cost(avg.cost) : none()}
-          s={t('sys_on_average')}
-          none={avg === null}
-          hint={t('sys_merged_cost_hint')}
-        />
       </div>
       {s.weeks.length > 1 ? <WeekTable weeks={s.weeks} /> : null}
       {o.merged.length > 0 ? (
@@ -392,6 +385,7 @@ function WeekTable({ weeks }: { weeks: Week[] }) {
 function Spend({ s }: { s: SystemData }) {
   const spent = spentIn(s.weeks);
   const merged = s.output.merged.length;
+  const own = mergedAverages(s.output.merged);
   const lines = spendTable(s.spend.by_line_model);
   const engineers = { colour: 'var(--us-1)', label: t('sys_engineers') };
   const architects = { colour: 'var(--us-2)', label: t('sys_architects') };
@@ -404,7 +398,7 @@ function Spend({ s }: { s: SystemData }) {
         <Tile
           k={t('sys_per_merged')}
           v={merged > 0 ? cost(spent.total / merged) : none()}
-          s={t('sys_per_merged_s', { n: merged })}
+          s={own !== null ? t('sys_per_merged_s', { n: merged, own: cost(own.cost) }) : undefined}
           none={merged === 0}
           hint={t('sys_per_merged_hint')}
         />

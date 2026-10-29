@@ -1424,8 +1424,7 @@ pub struct Anomaly {
     pub what: AnomalyKind,
 }
 
-/// What went wrong, each kind of its own. The findings of the review after each wake, once that review exists, come as
-/// one more kind.
+/// What went wrong, each kind of its own.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AnomalyKind {
