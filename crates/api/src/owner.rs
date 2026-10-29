@@ -591,7 +591,7 @@ pub fn pause_wake(db: &mut Db, project: &str) -> Result<String, String> {
         .map_err(sql)?;
     match wake {
         Some(w) => pause(db, w, None),
-        None => Ok(format!("no wake of the architect of {project} goes on")),
+        None => Ok(format!("the architect of {project} has nothing running to pause")),
     }
 }
 
@@ -881,7 +881,7 @@ mod tests {
         assert!(pause(&mut db, 9, None).is_err());
         assert_eq!(
             pause_wake(&mut db, "p").unwrap(),
-            "no wake of the architect of p goes on"
+            "the architect of p has nothing running to pause"
         );
         db.write(Actor::Engine, |tx| {
             tx.execute(

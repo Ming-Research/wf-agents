@@ -64,7 +64,7 @@ pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, mo
         sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
         sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
         sessions::Start::Model => format!("the model changed to {model}"),
-        sessions::Start::Wake => "the project's last wake left one".into(),
+        sessions::Start::Wake => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
     }
 }
@@ -353,8 +353,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ));
         return Ok(Advance::Stopped);
     }
-    // A round that resumed its session within the cache's lifetime and still wrote most of it to the cache again missed
-    // the cache: a fault of wf-agents, which the owner is told of.
+    // A round that resumed its session within the cache's lifetime and whose first call still read less than half of it
+    // from the cache missed the cache: a fault of wf-agents, which the owner is told of.
     if req.resume.is_some()
         && let Some(usage) = &ended.usage
         && let Some(miss) =

@@ -131,7 +131,7 @@ pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s:
 pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
     let text = match e.subject(w)? {
         Some(item) => format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title),
-        None => format!("Work {} (a wake of the architect) is paused: {why}", w.id),
+        None => format!("Work {} ({}) is paused: {why}", w.id, w.of_architect()),
     };
     e.db.write(Actor::Engine, |tx| {
         tx.execute(

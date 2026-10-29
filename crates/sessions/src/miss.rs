@@ -1,12 +1,15 @@
 //! A round that missed its session's prompt cache. A round that resumes its session within the cache's lifetime since
-//! the session's last call reads from the cache what the session holds; one that writes most of it to the cache again
-//! instead paid for writing what it should have read. A miss is a fault of wf-agents, whichever project it came up in,
-//! so the engine tells the owner of it, with the parts of the command line that differ from the session's round before,
-//! where a cause most often shows, or that none does.
+//! the session's last call reads from the cache, at its first call, what the session holds; one whose first call reads
+//! less than half of it paid for writing the rest again, what it should have read. What the round wrote to the cache
+//! is no measure of a miss: it is also what the session gained since, the last answer of the round before and the
+//! round's own message, which after a round of tools is large. A miss is a fault of wf-agents, whichever project it
+//! came up in, so the engine tells the owner of it, with the parts of the command line and of its environment that
+//! differ from the session's round before, where a cause most often shows, or that none does.
 
 use db::rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
+use crate::cli::FIRST_CALL;
 use crate::round::{Round, RoundId};
 use crate::{choose, cost, warm};
 
@@ -32,14 +35,16 @@ pub struct Miss {
     pub before: RoundId,
     /// How long after the session's last call the round started, in milliseconds.
     pub after_ms: i64,
-    /// The tokens the round wrote to the cache again: those its first call wrote, or the whole round's when its record
-    /// does not list its calls.
+    /// The tokens the round's first call read from the cache.
+    pub read: i64,
+    /// The tokens of what the session held that the round's first call did not read from the cache, and so wrote to it
+    /// again.
     pub written: i64,
     /// The tokens the session held: the last prompt of its round before, as recorded.
     pub held: i64,
     /// What writing them again cost beyond reading them, in US dollars; none when the round's record does not tell.
     pub cost_usd: Option<f64>,
-    /// The parts of the command line that differ from the round before; empty when none does.
+    /// The parts of the command line and of its environment that differ from the round before; empty when none does.
     pub differs: Vec<Differs>,
 }
 
@@ -56,9 +61,10 @@ impl Miss {
 }
 
 /// Whether a round that resumed a CLI session missed its prompt cache: it started within the cache's lifetime since the
-/// session's last call, and wrote to the cache again at least half of what the session held. `before` are the
-/// session's rounds before it, oldest first, `call` is its call as its record keeps it, and `usage` its usage record
-/// with its own cost. None when the record cannot tell: no round before recorded its calls or its command line.
+/// session's last call, and its first call read from the cache less than half of what the session held. `before` are
+/// the session's rounds before it, oldest first, `call` is its call as its record keeps it, and `usage` its usage
+/// record with its own cost. None when the record cannot tell: no round before recorded its calls or its command line,
+/// or the round's record does not say what its first call read.
 pub fn missed(
     conn: &Connection,
     cli_session: &str,
@@ -91,15 +97,17 @@ pub fn missed(
     if after_ms >= warm::CACHE_MS {
         return Ok(None);
     }
-    let Some(written) = written(usage) else {
+    let Some(read) = usage[FIRST_CALL]["cache_read_input_tokens"].as_i64() else {
         return Ok(None);
     };
-    if written * 2 < held {
+    if read * 2 >= held {
         return Ok(None);
     }
+    let written = held - read;
     Ok(Some(Miss {
         before: prev.id,
         after_ms,
+        read,
         written,
         held,
         cost_usd: cost::rewritten(usage, written),
@@ -126,18 +134,8 @@ fn last_call(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<O
     Ok(round.max(ping))
 }
 
-/// The tokens a round wrote to the cache: its first call's when its record lists its calls, else the whole round's.
-fn written(usage: &Value) -> Option<i64> {
-    let u = usage.get("usage")?;
-    let first = u["iterations"].as_array().and_then(|xs| xs.first());
-    match first {
-        Some(call) => call["cache_creation_input_tokens"].as_i64(),
-        None => u["cache_creation_input_tokens"].as_i64(),
-    }
-}
-
-/// The parts of a call's command line that differ from those of the call before, in the order the later call has them,
-/// then those only the call before had.
+/// The parts of a call's command line and of its environment that differ from those of the call before, in the order
+/// the later call has them, then those only the call before had.
 pub fn differs(before: &Value, after: &Value) -> Vec<Differs> {
     let (was, now) = (parts(before), parts(after));
     let mut out = Vec::new();
@@ -164,9 +162,9 @@ pub fn differs(before: &Value, after: &Value) -> Vec<Differs> {
 }
 
 /// The parts of a call that shape its session's prompt, each by its name with its value: the command with the
-/// installation's arguments to it, each flag with its values, the CLI's and the engine's versions, the environment and
-/// the working directory. The flag that names the session is left out, and so are the commands of the round's hooks,
-/// which name the round; which hooks it sets is kept.
+/// installation's arguments to it, each flag with its values, the CLI's and the engine's versions, each variable of the
+/// environment as the record keeps it, and the working directory. The flag that names the session is left out, and so
+/// are the commands of the round's hooks, which name the round; which hooks it sets is kept.
 fn parts(call: &Value) -> Vec<(String, String)> {
     let words: Vec<String> = call["command"]
         .as_array()
@@ -201,7 +199,9 @@ fn parts(call: &Value) -> Vec<(String, String)> {
     let text = |v: &Value| v.as_str().map_or_else(|| v.to_string(), str::to_string);
     out.push(("the CLI's version".to_string(), text(&call["cli"])));
     out.push(("the engine's version".to_string(), text(&call["engine"])));
-    out.push(("the environment".to_string(), call["env"].to_string()));
+    if let Some(env) = call["env"].as_object() {
+        out.extend(env.iter().map(|(k, v)| (format!("the environment's {k}"), text(v))));
+    }
     out.push(("the working directory".to_string(), text(&call["cwd"])));
     out
 }
@@ -267,33 +267,42 @@ mod tests {
     }
 
     // Only what shapes the prompt is compared: the session flag and the commands of the round's hooks differ every
-    // round and are left out; a changed reasoning effort and a new CLI are named with their values.
+    // round and are left out; a changed reasoning effort, a new CLI and each variable of the environment that changed or
+    // came are named with their values.
     #[test]
     fn the_parts_that_differ_are_named_with_their_values() {
         assert!(differs(&call("high", "2.1.3", "1", false), &call("high", "2.1.3", "2", true)).is_empty());
+        let mut now = call("low", "2.1.4", "2", true);
+        now["env"]["CLAUDE_CONFIG_DIR"] = json!("/e");
+        now["env"]["CLAUDE_CODE_X"] = json!("1");
+        let named = |part: &str, before: Option<&str>, after: Option<&str>| Differs {
+            part: part.into(),
+            before: before.map(str::to_string),
+            after: after.map(str::to_string),
+        };
         assert_eq!(
-            differs(&call("high", "2.1.3", "1", true), &call("low", "2.1.4", "2", true)),
+            differs(&call("high", "2.1.3", "1", true), &now),
             [
-                Differs {
-                    part: "--effort".into(),
-                    before: Some("high".into()),
-                    after: Some("low".into()),
-                },
-                Differs {
-                    part: "the CLI's version".into(),
-                    before: Some("2.1.3".into()),
-                    after: Some("2.1.4".into()),
-                },
+                named("--effort", Some("high"), Some("low")),
+                named("the CLI's version", Some("2.1.3"), Some("2.1.4")),
+                named("the environment's CLAUDE_CONFIG_DIR", Some("/d"), Some("/e")),
+                named("the environment's CLAUDE_CODE_X", None, Some("1")),
             ]
         );
     }
 
+    /// What the CLI reports a round used: what its first call read from the cache and wrote to it, and the run's whole,
+    /// whose last call read what the first wrote and wrote a little more.
     fn used(read: i64, written: i64) -> Value {
-        json!({ "cost_usd": 1.0, "session_cost_usd": 3.0, "usage": {
-            "input_tokens": 10, "cache_read_input_tokens": read, "cache_creation_input_tokens": written,
-            "output_tokens": 100,
-            "iterations": [{ "input_tokens": 10, "cache_read_input_tokens": read, "cache_creation_input_tokens": written }],
-        } })
+        json!({ "cost_usd": 1.0, "session_cost_usd": 3.0,
+            "first_call": { "input_tokens": 10, "cache_read_input_tokens": read, "cache_creation_input_tokens": written },
+            "usage": {
+                "input_tokens": 20, "cache_read_input_tokens": 2 * read + written,
+                "cache_creation_input_tokens": written + 500, "output_tokens": 100,
+                "iterations": [{
+                    "input_tokens": 10, "cache_read_input_tokens": read + written, "cache_creation_input_tokens": 500,
+                }],
+            } })
     }
 
     fn round(n: i64, usage: Value, ended_at: i64) -> Round {
@@ -328,10 +337,12 @@ mod tests {
         .unwrap();
     }
 
-    // A round that resumed its session within the hour and wrote again at least half of what it held missed the cache,
-    // though it read a small fixed part; one that read the session, or came after the cache let it go, did not.
+    // A round that resumed its session within the hour and whose first call read less than half of what the session
+    // held missed the cache, though it read a small fixed part; one that read the session, or came after the cache let
+    // it go, did not. A round that read the session and wrote much more after it, as one does after a round of tools
+    // whose results its message gives, did not miss: what it wrote is new.
     #[test]
-    fn a_round_that_writes_again_what_its_session_held_missed_the_cache() {
+    fn a_round_whose_first_call_reads_less_than_half_its_session_missed_the_cache() {
         let mut db = Db::in_memory().unwrap();
         let before = [round(1, used(0, 400_000), 1_000_000)];
         started(&mut db, 2, 1_000_000 + 10 * 60_000);
@@ -347,21 +358,22 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(
-            (miss.before, miss.written, miss.held, miss.after_ms),
-            (RoundId::new(1, 1), 410_000, 400_010, 600_000)
+            (miss.before, miss.read, miss.written, miss.held, miss.after_ms),
+            (RoundId::new(1, 1), 6_492, 394_018, 400_510, 600_000)
         );
         assert!(miss.differs.is_empty());
         assert!(miss.cost_usd.is_some_and(|c| c > 0.0 && c < 1.0), "{:?}", miss.cost_usd);
-        let read = missed(
-            db.conn(),
-            "s1",
-            &before,
-            RoundId::new(1, 2),
-            &now,
-            &used(400_000, 2_000),
-        )
-        .unwrap();
-        assert_eq!(read, None);
+        for (read, written) in [(400_500, 2_000), (400_500, 300_000)] {
+            let hit = missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &used(read, written)).unwrap();
+            assert_eq!(hit, None, "{read} read, {written} written");
+        }
+        // A record that does not say what the first call read cannot tell.
+        let mut untold = used(6_492, 410_000);
+        untold.as_object_mut().unwrap().remove(FIRST_CALL);
+        assert_eq!(
+            missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &untold).unwrap(),
+            None
+        );
         let mut late = Db::in_memory().unwrap();
         started(&mut late, 2, 1_000_000 + warm::CACHE_MS);
         let expired = missed(

@@ -264,7 +264,7 @@ pub fn made_workdir(data: &Path, project: &str) -> Result<PathBuf, String> {
 pub fn project_of(w: &Work) -> Result<&str, String> {
     w.project
         .as_deref()
-        .ok_or_else(|| format!("work {} is a wake of no project's architect", w.id))
+        .ok_or_else(|| format!("work {} names no project for its architect", w.id))
 }
 
 // Wakes.

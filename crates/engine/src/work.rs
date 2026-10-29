@@ -119,6 +119,18 @@ impl Work {
         Ok(w)
     }
 
+    /// What a work on no item is, by its graph, as the owner is told it: the architect of its project for a work of the
+    /// architect's graph, since to the owner the architect is always there, handling one thing after another, and its
+    /// wakes are how the engine runs it; the architect's policy setting for a work of the policy's.
+    pub fn of_architect(&self) -> String {
+        let project = self.project.as_deref().unwrap_or("no project");
+        match self.graph.as_str() {
+            crate::ARCHITECT => format!("the architect of {project}"),
+            crate::POLICY => format!("the architect's policy setting for {project}"),
+            g => format!("a work of the graph {g} for {project}"),
+        }
+    }
+
     /// Writes where the work stands.
     pub fn save_position(&self, conn: &Connection) -> Result<(), String> {
         conn.execute(
@@ -389,5 +401,36 @@ pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
             Value::String(s.into_owned())
         }
         ValueRef::Blob(b) => Value::String(format!("<{} bytes>", b.len())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A work on no item is named to the owner by what it is, from its graph, and never by its wakes.
+    #[test]
+    fn a_work_on_no_item_is_named_by_its_graph() {
+        let work = |graph: &str| Work {
+            id: 11,
+            item: None,
+            flow_version: 1,
+            graph: graph.into(),
+            pos: Position::default(),
+            machine: None,
+            worktree: None,
+            branch: None,
+            pr: None,
+            pushed_head: None,
+            paused: None,
+            ended: None,
+            paused_by: None,
+            project: Some("p".into()),
+        };
+        assert_eq!(work(crate::ARCHITECT).of_architect(), "the architect of p");
+        assert_eq!(
+            work(crate::POLICY).of_architect(),
+            "the architect's policy setting for p"
+        );
     }
 }

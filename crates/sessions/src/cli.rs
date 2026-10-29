@@ -4,6 +4,8 @@
 //! configuration; the flags that shape a session's context belong here. It is a trait so that the engine's tests can
 //! script the agents; [`Claude`] runs `claude -p`.
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -198,14 +200,51 @@ fn hooks(r: &Request) -> Option<Value> {
     (!hooks.is_empty()).then(|| json!({ "hooks": hooks }))
 }
 
+/// The prefixes of the names of the variables the CLI reads, which its command line inherits from the engine's own
+/// environment besides those the engine sets.
+const READ_BY_CLI: [&str; 8] = [
+    "ANTHROPIC_",
+    "CLAUDE",
+    "DISABLE_",
+    "ENABLE_",
+    "MAX_",
+    "BASH_",
+    "MCP_",
+    "API_",
+];
+
+/// The words in a variable's name that mark its value as a secret, which a round's record keeps only by its digest:
+/// enough to see that it changed.
+const SECRET: [&str; 7] = ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSPHRASE", "AUTH", "HEADERS"];
+
+/// The variables of an environment the CLI reads, by name, each secret by its digest.
+pub fn read_by_cli(vars: impl IntoIterator<Item = (OsString, OsString)>) -> BTreeMap<String, String> {
+    vars.into_iter()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .filter(|(k, _)| READ_BY_CLI.iter().any(|p| k.starts_with(p)))
+        .map(|(k, v)| {
+            let v = if SECRET.iter().any(|s| k.contains(s)) {
+                format!("digest {}", &db::content_hash(&v)[..16])
+            } else {
+                v
+            };
+            (k, v)
+        })
+        .collect()
+}
+
 /// What a round's record says of its call: the whole command line (the structured-output schema in it), the
-/// environment the engine set, the session it started or resumed, and the engine's and the CLI's versions.
+/// environment it runs with as far as the CLI reads it, the one the engine inherited and the variables the engine sets,
+/// the session it started or resumed, and the engine's and the CLI's versions.
 pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) -> Value {
     let session = match &r.resume {
         Some(s) => json!({ "resumed": s }),
         None => json!({ "started": r.new_session }),
     };
-    let mut env = serde_json::Map::new();
+    let mut env: serde_json::Map<String, Value> = read_by_cli(std::env::vars_os())
+        .into_iter()
+        .map(|(k, v)| (k, json!(v)))
+        .collect();
     if let Some(d) = &r.config_dir {
         env.insert("CLAUDE_CONFIG_DIR".into(), json!(d.display().to_string()));
     }
@@ -620,10 +659,19 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                     reply.session = s.to_string();
                 }
             }
+            Some("assistant") if reply.usage.get(FIRST_CALL).is_none() => {
+                if let Some(first) = first_call(&v) {
+                    if !reply.usage.is_object() {
+                        reply.usage = json!({ "started": true });
+                    }
+                    reply.usage[FIRST_CALL] = first;
+                }
+            }
             Some("result") => {
                 if let Some(s) = v["session_id"].as_str() {
                     reply.session = s.to_string();
                 }
+                let first = reply.usage.get(FIRST_CALL).cloned();
                 reply.usage = json!({
                     "usage": v["usage"],
                     "session_cost_usd": v["total_cost_usd"],
@@ -631,6 +679,9 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                     "duration_ms": v["duration_ms"],
                     "models": v["modelUsage"],
                 });
+                if let Some(f) = first {
+                    reply.usage[FIRST_CALL] = f;
+                }
                 if v["is_error"] == true || v["subtype"] != "success" {
                     // A result that failed on the CLI's side, such as running out of retries, has no text: what went
                     // wrong is in its errors.
@@ -653,6 +704,35 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
             _ => {}
         }
     }
+}
+
+/// Where a run's usage record keeps what its first call to the model read from the cache and wrote to it. The result
+/// the CLI reports at the end gives the tokens of the whole run and of its last call only; whether a resumed session
+/// was read from the cache shows in its first call alone, since every later call reads what the calls before it wrote.
+pub const FIRST_CALL: &str = "first_call";
+
+/// What a message of the stream says of the call that wrote it, when it is the agent's own message from the model: its
+/// input tokens, those it read from the cache and those it wrote to it. None for a subagent's message and for a message
+/// the CLI makes itself, such as the one it puts in when it resumes a session, which called no model.
+fn first_call(v: &Value) -> Option<Value> {
+    let m = &v["message"];
+    if !v["parent_tool_use_id"].is_null() || m["model"] == "<synthetic>" {
+        return None;
+    }
+    let u = &m["usage"];
+    let n = |k: &str| u[k].as_i64();
+    let (input, read, written) = (
+        n("input_tokens")?,
+        n("cache_read_input_tokens")?,
+        n("cache_creation_input_tokens")?,
+    );
+    (input + read + written > 0).then(|| {
+        json!({
+            "input_tokens": input,
+            "cache_read_input_tokens": read,
+            "cache_creation_input_tokens": written,
+        })
+    })
 }
 
 /// The JSON object a text holds: the whole text, or the first fenced block, or from the first brace to the last.
@@ -840,6 +920,61 @@ mod tests {
         assert_eq!(r.output.unwrap()["progress"], "p");
         assert_eq!(r.usage["session_cost_usd"], 0.5);
         assert!(r.error.is_none());
+    }
+
+    // The usage record keeps what the run's first call to the model read from the cache and wrote to it, which the
+    // result does not tell: the message the CLI puts in when it resumes a session and a subagent's message are passed
+    // over, and so is every call after the first.
+    #[test]
+    fn the_usage_record_keeps_the_first_call_of_the_run() {
+        let called = |model: &str, parent: Value, read: i64, written: i64| {
+            let input = if read + written > 0 { 4 } else { 0 };
+            json!({ "type": "assistant", "parent_tool_use_id": parent, "message": { "model": model, "usage": {
+                "input_tokens": input, "cache_read_input_tokens": read, "cache_creation_input_tokens": written,
+                "output_tokens": 9,
+            } } })
+            .to_string()
+        };
+        let text = [
+            r#"{"type":"system","subtype":"init","session_id":"s1","model":"m"}"#.to_string(),
+            called("<synthetic>", Value::Null, 0, 0),
+            called("m", json!("toolu_1"), 0, 900),
+            called("m", Value::Null, 32_208, 18_304),
+            called("m", Value::Null, 50_512, 700),
+            r#"{"type":"result","subtype":"success","result":"{}","session_id":"s1","total_cost_usd":0.5,"usage":{"cache_read_input_tokens":82720,"iterations":[{"cache_read_input_tokens":50512}]}}"#.to_string(),
+        ]
+        .join("\n");
+        let mut r = Reply::default();
+        read_stream(&text, &mut r);
+        assert_eq!(
+            r.usage[FIRST_CALL],
+            json!({ "input_tokens": 4, "cache_read_input_tokens": 32_208, "cache_creation_input_tokens": 18_304 })
+        );
+        assert_eq!(r.usage["usage"]["cache_read_input_tokens"], 82_720);
+    }
+
+    // The record keeps of the engine's own environment the variables the CLI reads, and a secret only by its digest.
+    #[test]
+    fn the_record_keeps_the_inherited_variables_the_cli_reads() {
+        let vars = [
+            ("PATH", "/bin"),
+            ("CLAUDE_CODE_ENTRYPOINT", "cli"),
+            ("ANTHROPIC_API_KEY", "sk-secret"),
+            ("DISABLE_PROMPT_CACHING", "1"),
+            ("HOME", "/h"),
+        ]
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)));
+        let kept = read_by_cli(vars);
+        assert_eq!(
+            kept.keys().collect::<Vec<_>>(),
+            ["ANTHROPIC_API_KEY", "CLAUDE_CODE_ENTRYPOINT", "DISABLE_PROMPT_CACHING"]
+        );
+        assert_eq!(kept["CLAUDE_CODE_ENTRYPOINT"], "cli");
+        let key = &kept["ANTHROPIC_API_KEY"];
+        assert!(
+            key.starts_with("digest ") && !key.contains("sk-secret") && key.len() == 23,
+            "{key}"
+        );
     }
 
     // The CLI is given one schema for a whole graph: the short fields every return holds first, the field its forms are

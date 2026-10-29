@@ -552,10 +552,7 @@ impl Engine {
         });
         let text = match self.subject(&w) {
             Ok(Some(item)) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
-            Ok(None) => format!(
-                "Work {id} (a wake of the architect of {}) is paused: {why}",
-                w.project.as_deref().unwrap_or("no project")
-            ),
+            Ok(None) => format!("Work {id} ({}) is paused: {why}", w.of_architect()),
             Err(_) => format!("Work {id} is paused: {why}"),
         };
         self.db

@@ -113,11 +113,7 @@ impl Ctx {
     fn about(&self) -> String {
         match &self.item {
             Some(i) => format!("work {} (item {}: {})", self.work.id, i.id, i.title),
-            None => format!(
-                "work {} (a wake of the architect of {})",
-                self.work.id,
-                self.work.project.as_deref().unwrap_or("no project")
-            ),
+            None => format!("work {} ({})", self.work.id, self.work.of_architect()),
         }
     }
 

@@ -350,11 +350,11 @@ CREATE TABLE pings (
 
 CREATE TABLE cache_misses (
   -- Each round that missed its session's prompt cache: it resumed the session within the cache's lifetime since the
-  -- session's last call, a round's or a keep-warm ping's, and still wrote to the cache again at least half of what the
-  -- session held, the last prompt of its round before as recorded. A miss is a fault of wf-agents, whichever project
-  -- it came up in: the engine tells the owner in a notice of the fault, and a further miss with the same cause on the
-  -- same line of the same project, while that notice is unread, adds to it instead of making a new one. Written once,
-  -- never changed.
+  -- session's last call, a round's or a keep-warm ping's, and its first call still read from the cache less than half
+  -- of what the session held, the last prompt of its round before as recorded. A miss is a fault of wf-agents,
+  -- whichever project it came up in: the engine tells the owner in a notice of the fault, and a further miss with the
+  -- same cause on the same line of the same project, while that notice is unread, adds to it instead of making a new
+  -- one. Written once, never changed.
   -- Hidden from agents.
   -- Read by: the engine, which finds the notice a miss adds to; the owner's interface, which shows with each notice
   -- how many misses it holds, the tokens they wrote again and what they cost.
@@ -363,11 +363,12 @@ CREATE TABLE cache_misses (
   round INTEGER NOT NULL,
   -- The line of its session.
   line TEXT NOT NULL,
-  -- The cause as far as the record tells it, JSON: each part of the command line that differs from the session's
-  -- round before, with its value there and in this round; an empty list when none differs.
+  -- The cause as far as the record tells it, JSON: each part of the command line and each variable of its environment
+  -- that differs from the session's round before, with its value there and in this round; an empty list when none
+  -- differs.
   differs TEXT NOT NULL CHECK (json_valid(differs)),
-  -- The tokens the round wrote to the cache again: those its first call wrote, or the whole round's when its record
-  -- does not list its calls.
+  -- The tokens of what the session held that the round's first call did not read from the cache, and so wrote to it
+  -- again.
   written INTEGER NOT NULL CHECK (written >= 0),
   -- The tokens the session held: the last prompt of its round before, as recorded.
   held INTEGER NOT NULL CHECK (held > 0),

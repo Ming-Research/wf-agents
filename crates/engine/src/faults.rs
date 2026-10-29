@@ -48,13 +48,16 @@ const QUOTED: usize = 80;
 pub fn cache_miss(e: &mut Engine, w: &Work, round: RoundId, cell: &str, line: &str, m: &Miss) -> Result<(), String> {
     let item = e.subject(w)?;
     let (project, about) = match &item {
-        Some(i) => (i.project.clone(), format!("work {} (item {}: {})", w.id, i.id, i.title)),
+        Some(i) => (
+            i.project.clone(),
+            format!("work {} (item {}: {}) in project {}", w.id, i.id, i.title, i.project),
+        ),
         None => (
             w.project.clone().unwrap_or_default(),
-            format!("work {} (a wake of the architect)", w.id),
+            format!("work {} ({})", w.id, w.of_architect()),
         ),
     };
-    let text = told(&project, &about, round, cell, line, m);
+    let text = told(&about, round, cell, line, m);
     let kept = Kept {
         round,
         line,
@@ -120,34 +123,35 @@ fn keep(tx: &Transaction<'_>, k: &Kept<'_>) -> db::Result<bool> {
     Ok(open.is_some())
 }
 
-/// What the owner is told of a cache miss: where it came up, what it wrote again and cost, and what differs in the
-/// command line from the session's round before.
-fn told(project: &str, about: &str, round: RoundId, cell: &str, line: &str, m: &Miss) -> String {
+/// What the owner is told of a cache miss: where it came up, what it read of what the session held, what it wrote again
+/// and cost, and what differs in the command line and its environment from the session's round before.
+fn told(about: &str, round: RoundId, cell: &str, line: &str, m: &Miss) -> String {
     let cost = match m.cost_usd {
         Some(c) => format!(", which cost about ${c:.2} more than reading them"),
         None => String::new(),
     };
     let differs = if m.differs.is_empty() {
         format!(
-            "No part of the command line differs from the session's round before, {}.",
+            "No part of the command line or its environment differs from the session's round before, {}.",
             m.before
         )
     } else {
         let parts: Vec<String> = m.differs.iter().map(differ).collect();
         format!(
-            "The command line differs from the session's round before, {}, in: {}.",
+            "The command line or its environment differs from the session's round before, {}, in: {}.",
             m.before,
             parts.join("; ")
         )
     };
     format!(
-        "A fault of wf-agents, to be fixed in wf-agents: {round} of {about} in project {project}, at cell {cell} on \
-         the {line} line, missed its session's prompt cache. It resumed the session {} minutes after the session's \
-         last call, within the cache's hour, and wrote {} tokens to the cache again of the {} the session held{cost}. \
-         {differs}",
+        "A fault of wf-agents, to be fixed in wf-agents: {round} of {about}, at cell {cell} on the {line} line, missed \
+         its session's prompt cache. It resumed the session {} minutes after the session's last call, within the \
+         cache's hour, and its first call read {} tokens from the cache of the {} the session held: it wrote the other \
+         {} to the cache again{cost}. {differs}",
         m.after_ms / 60_000,
-        thousands(m.written),
+        thousands(m.read),
         thousands(m.held),
+        thousands(m.written),
     )
 }
 
@@ -222,36 +226,43 @@ mod tests {
         let mut m = Miss {
             before: RoundId::new(7, 4),
             after_ms: 14 * 60_000 + 5_000,
+            read: 5_655,
             written: 412_345,
             held: 418_000,
             cost_usd: Some(1.234),
             differs: Vec::new(),
         };
-        let text = told(
-            "p",
-            "work 7 (a wake of the architect)",
-            RoundId::new(7, 5),
-            "B4",
-            "architect",
-            &m,
-        );
+        let text = told("work 7 (the architect of p)", RoundId::new(7, 5), "B4", "architect", &m);
         assert!(
-            text.contains("R7-5 of work 7 (a wake of the architect) in project p, at cell B4 on the architect line")
+            text.contains("R7-5 of work 7 (the architect of p), at cell B4 on the architect line")
                 && text.contains("14 minutes after")
                 && text.contains(
-                    "wrote 412,345 tokens to the cache again of the 418,000 the session held, which cost about $1.23"
+                    "its first call read 5,655 tokens from the cache of the 418,000 the session held: it wrote the \
+                     other 412,345 to the cache again, which cost about $1.23"
                 )
-                && text.ends_with("No part of the command line differs from the session's round before, R7-4."),
+                && text.ends_with(
+                    "No part of the command line or its environment differs from the session's round before, R7-4."
+                ),
             "{text}"
         );
-        m.differs = vec![Differs {
-            part: "the CLI's version".into(),
-            before: Some("2.1.3".into()),
-            after: Some("2.1.4".into()),
-        }];
-        let text = told("p", "work 7", RoundId::new(7, 5), "B4", "architect", &m);
+        m.differs = vec![
+            Differs {
+                part: "the CLI's version".into(),
+                before: Some("2.1.3".into()),
+                after: Some("2.1.4".into()),
+            },
+            Differs {
+                part: "the environment's CLAUDE_CODE_X".into(),
+                before: None,
+                after: Some("1".into()),
+            },
+        ];
+        let text = told("work 7", RoundId::new(7, 5), "B4", "architect", &m);
         assert!(
-            text.ends_with("differs from the session's round before, R7-4, in: the CLI's version (2.1.3 → 2.1.4)."),
+            text.ends_with(
+                "differs from the session's round before, R7-4, in: the CLI's version (2.1.3 → 2.1.4); the \
+                 environment's CLAUDE_CODE_X (none → 1)."
+            ),
             "{text}"
         );
         assert_eq!(
@@ -283,6 +294,7 @@ mod tests {
         let mut m = Miss {
             before: RoundId::new(1, 1),
             after_ms: 60_000,
+            read: 10_000,
             written: 400_000,
             held: 410_000,
             cost_usd: Some(1.5),
