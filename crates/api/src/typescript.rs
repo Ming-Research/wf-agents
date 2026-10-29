@@ -151,6 +151,8 @@ pub fn typescript() -> String {
         decl::<flow::AskNeed>(&cfg),
         decl::<flow::format::Named>(&cfg),
         decl::<flow::format::Rounds>(&cfg),
+        decl::<flow::format::Blockers>(&cfg),
+        decl::<flow::format::BlockerCell>(&cfg),
         decl::<flow::format::SentBack>(&cfg),
         decl::<flow::format::Failed>(&cfg),
         decl::<flow::format::Failure>(&cfg),

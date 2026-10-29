@@ -1980,6 +1980,36 @@ environment: Array<string>,
  */
 engine?: Array<EngineCase>, };
 
+/**
+ * What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by
+ * one holder at a time, at whose cell the task stands. Every move of a blocker is a row: the rows into a holder's cell
+ * raise it, the rows between holders' cells hand it on, and the rows out of them resolve or withdraw it.
+ */
+export type Blockers = { desc: string, 
+/**
+ * The cells a stopped task stands at, each with whom it is held by there.
+ */
+cells: Array<BlockerCell>, };
+
+/**
+ * A cell a stopped task stands at while its blocker is held there.
+ */
+export type BlockerCell = { cell: string, 
+/**
+ * Who may hold the blocker while the task stands here: advisor, architect, owner or items.
+ */
+holders: Array<string>, 
+/**
+ * The rows that take the task on when its holder fails it, each named after the way it fails, such as an item it
+ * waits for cancelled.
+ */
+fails?: Array<string>, 
+/**
+ * The task stands here on its blocker only once it took the cell's row that waits, which raises it; without, from
+ * the row that brought it here.
+ */
+waits?: boolean, };
+
 export type SentBack = { desc: string, 
 /**
  * How many returns of one cell in a row may be sent back before the engine pauses the work.
