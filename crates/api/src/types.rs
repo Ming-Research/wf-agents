@@ -183,6 +183,8 @@ pub enum Waits {
     Answer { ask: i64 },
     /// The owner's ruling on a design card.
     Ruling { design_card: i64 },
+    /// The architect's reply to the matter it queued at the cell that asks the architect.
+    Architect { matter: i64 },
     /// The items its item depends on, until each is merged.
     Items { items: Vec<i64> },
     /// What the row it took waits for, when it is none of these: the cell and the row.

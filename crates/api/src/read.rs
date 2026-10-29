@@ -267,10 +267,10 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 }
 
 /// What a work waits for, as the engine judges it, read from the database alone, never from the kind of cell it is
-/// at: the owner's answer to the ask it put, at a cell that asks; at a row that waits, the items its item depends on
-/// that are not merged, then the owner's ruling on its design card waiting for one, else the row. A paused work is
-/// said to wait too, so that the owner sees both. Beside it, the ask whose answer came at the cell that asked, which
-/// the work's next step takes in.
+/// at: the owner's answer to the ask it put, at a cell that asks, or else the architect's reply to the matter it
+/// queued; at a row that waits, the items its item depends on that are not merged, then the owner's ruling on its
+/// design card waiting for one, else the row. A paused work is said to wait too, so that the owner sees both. Beside
+/// it, the ask whose answer came at the cell that asked, which the work's next step takes in.
 fn waits(
     conn: &Connection,
     w: &WorkRow,
@@ -297,7 +297,10 @@ fn waits(
         return Ok(match ask {
             Some((ask, false)) => (Some(Waits::Answer { ask }), None),
             Some((ask, true)) => (None, Some(ask)),
-            None => (None, None),
+            None => (
+                asked_architect(conn, r)?.map(|matter| Waits::Architect { matter }),
+                None,
+            ),
         });
     }
     let Some(row) = waiting_row(cell, rounds) else {
@@ -325,6 +328,18 @@ fn waits(
         },
     };
     Ok((Some(waits), None))
+}
+
+/// The matter a round queued for the architect, while the architect has not replied to it.
+fn asked_architect(conn: &Connection, r: &Light) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT id FROM architect_matters WHERE work = ?1 AND round = ?2 AND reply IS NULL AND withdrawn IS NULL
+             ORDER BY id DESC LIMIT 1",
+            [r.work, r.n],
+            |x| x.get(0),
+        )
+        .optional()?)
 }
 
 fn summary(
@@ -2646,6 +2661,54 @@ mod tests {
             (ws[2].paused_by, ws[2].paused.as_deref()),
             (Some(PausedBy::Architect), Some("it waits for the parser"))
         );
+    }
+
+    // A work at the cell that asks the architect waits for the architect's reply to the matter its round queued, and
+    // is ready once the reply has come.
+    #[test]
+    fn a_work_asking_the_architect_waits_for_its_reply() {
+        let mut s = setup("architect-reply");
+        let g = s.compiled.graph("engineer").unwrap();
+        let asking = g
+            .cells
+            .iter()
+            .find(|c| c.step.as_deref() == Some("ask_architect"))
+            .unwrap()
+            .id
+            .clone();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (2, 1, 'engineer', ?1)",
+                [&asking],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 1, ?1, '{}', 'c', 60)",
+                [&asking],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
+                 VALUES ('p', 'engineer_question', 'Work 2 asks', '{}', 2, 2, 1, 60)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let cache = Flows::default();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!(
+            (ws[1].state, &ws[1].waits),
+            (WorkState::Asking, &Some(Waits::Architect { matter: 1 }))
+        );
+        s.db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET reply = '{\"text\": \"go on\"}' WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let ws = works(s.db.conn(), &cache).unwrap();
+        assert_eq!((ws[1].state, &ws[1].waits), (WorkState::Ready, &None));
     }
 
     // A round recorded with its message gives each conditional input, given or referred to, and the call; a step's inputs,

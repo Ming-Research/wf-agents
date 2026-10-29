@@ -186,6 +186,7 @@ const messages = {
     'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
   waits_answer: 'waiting for your answer to ask {id}',
   waits_ruling: 'waiting for your ruling on design card {id}',
+  waits_architect: "waiting for the architect's reply to matter {id}",
   waits_items: 'waiting for items {items} to be merged',
   waits_row: 'waiting at cell {cell} ({row}); its next round says for what',
   work_start: 'Start',

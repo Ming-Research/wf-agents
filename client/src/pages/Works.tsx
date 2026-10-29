@@ -15,7 +15,7 @@ import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { ItemRef } from '../parts';
-import { Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
+import { architectHref, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
 
@@ -75,9 +75,11 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
         ? workHref(w.id, { tab: 'messages' })
         : waits.kind === 'ruling'
           ? workHref(w.id, { tab: 'cards' })
-          : waits.kind === 'items' && waits.items.length > 0
-            ? `/items/${waits.items[0]}`
-            : workHref(w.id);
+          : waits.kind === 'architect'
+            ? architectHref({ project: w.project, tab: 'queue' })
+            : waits.kind === 'items' && waits.items.length > 0
+              ? `/items/${waits.items[0]}`
+              : workHref(w.id);
     parts.push(
       <Link key="waits" to={to} className="chip waits" title={waitsWords(waits)}>
         {waitsWords(waits)}

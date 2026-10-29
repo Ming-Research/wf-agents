@@ -18,6 +18,8 @@ export function waitsWords(w: Waits): string {
       return t('waits_answer', { id: w.ask });
     case 'ruling':
       return t('waits_ruling', { id: w.design_card });
+    case 'architect':
+      return t('waits_architect', { id: w.matter });
     case 'items':
       return t('waits_items', { items: w.items.map((i) => `#${i}`).join(', ') });
     default:
