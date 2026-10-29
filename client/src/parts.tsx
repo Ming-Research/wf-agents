@@ -148,6 +148,51 @@ export function Section({ title, n, open = false, by, id, children }: {
   );
 }
 
+/// A small fold inside what a section holds (what an input holds, a long condition, earlier text): its chevron and
+/// what it is on one line, what it holds under it, set in by the chevron's width; folded unless `open`.
+export function Fold({ summary, open = false, className, children }: {
+  summary: ReactNode;
+  open?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className={className !== undefined ? `fold ${className}` : 'fold'} open={open}>
+      <summary>
+        <ChevronRightIcon className="fold-closed" />
+        <ChevronDownIcon className="fold-open" />
+        <span className="fold-summary">{summary}</span>
+      </summary>
+      <div className="fold-body">{children}</div>
+    </details>
+  );
+}
+
+/// An action inside a line of text that opens something on the page, drawn as Primer's Link (`muted` in small text).
+export function LinkButton({ onClick, title, muted, className, children }: {
+  onClick: () => void;
+  title?: string;
+  muted?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <PrimerLink
+      as="button"
+      type="button"
+      className={className !== undefined ? `link-button ${className}` : 'link-button'}
+      title={title}
+      muted={muted}
+      onClick={(e: { stopPropagation: () => void }) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      {children}
+    </PrimerLink>
+  );
+}
+
 /// An item, by its number and its title, leading to its page; `hint` says more on hovering.
 export function ItemRef({ id, title, hint }: { id: number; title?: string | null; hint?: string }) {
   return (

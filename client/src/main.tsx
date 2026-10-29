@@ -15,6 +15,8 @@ import './styles/shell.css';
 import './styles/parts.css';
 import './styles/cards.css';
 import './styles/item.css';
+import './styles/screen.css';
+import './styles/flow.css';
 import './styles.css';
 
 const root = document.getElementById('root');

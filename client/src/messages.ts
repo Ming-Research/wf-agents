@@ -783,8 +783,10 @@ const messages = {
 
   // Which flow the flow page shows, and what it is compared with.
   flow_version_pick: 'Flow version',
-  flow_version_short: 'v{id} · {digest}',
-  flow_digest: 'Digest {digest}',
+  flow_menu: 'Flow v{id}',
+  flow_version_short: 'v{id}',
+  flow_version_in_use: 'v{id} (in use)',
+  flow_in_use: 'in use',
   flow_works: '{n} works pinned to it',
   flow_current: 'new works start on it',
   flow_at_ref: 'flow/flow.json at {project} {ref}',
@@ -794,6 +796,7 @@ const messages = {
   compare_older: 'Older flow: version',
   compare_with_version: 'Newer flow: version',
   compare_with_ref: 'Newer flow: flow/flow.json at a git ref of',
+  compare_project: 'Project',
   compare_ref_hint: 'branch, tag or commit',
   compare_show: 'Compare',
   compare_stop: 'Stop comparing',
@@ -824,6 +827,7 @@ const messages = {
   store_by_step: 'the step {name}, at',
   tab_rounds: 'Rounds',
   tab_route: 'From and to',
+  cell_tabs: "The cell's parts",
   sec_changes: 'Changes',
   sec_step: 'What the step does',
   sec_step_reads: 'What it reads',

@@ -70,6 +70,12 @@ button.link:hover {
   text-decoration: underline;
 }
 
+/* What floats over the page (a menu, a tooltip), which Primer puts in a root of its own: over the bar and over what a
+   chart floats over itself. */
+#__primerPortalRoot__ {
+  z-index: var(--zIndex-dropdown);
+}
+
 .app {
   min-height: 100vh;
   display: flex;

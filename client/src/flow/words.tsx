@@ -6,6 +6,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import type { Atom, CompiledCell, Src, Use } from '../api';
 import { actionWords } from '../graph/flowModel';
+import { LinkButton } from '../parts';
 import { type Key, t } from '../text';
 import { useFlow } from './context';
 
@@ -94,10 +95,10 @@ export function CellLink({ id, extra }: { id: string; extra?: string }) {
   const f = useFlow();
   const c = f.cell(id);
   return (
-    <button type="button" className="go" onClick={() => f.open({ kind: 'cell', cell: id })}>
-      <strong>{id}</strong> {c?.title ?? ''}
+    <LinkButton onClick={() => f.open({ kind: 'cell', cell: id })}>
+      <span className="cell-id">{id}</span> {c?.title ?? ''}
       {extra ? <span className="go-extra"> · {extra}</span> : null}
-    </button>
+    </LinkButton>
   );
 }
 

@@ -1,0 +1,130 @@
+/* The flow page: over the chart's top left corner, on one floating surface, the menu of the flow's versions (or the git
+   ref it was read at), what it is compared with, and Compare, which opens the choice of what to compare; the map of the
+   chart under them; and the panel that lists what changed from one flow to the other. */
+
+.flow-tools {
+  position: absolute;
+  top: var(--base-size-8);
+  left: var(--base-size-8);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  padding: var(--base-size-4);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  white-space: nowrap;
+}
+
+.flow-at {
+  padding: 0 var(--base-size-8);
+}
+
+.flow-compared {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  padding-left: var(--base-size-8);
+  color: var(--fgColor-muted);
+}
+
+/* The map sits under the tools, as tall as their row of small controls with the surface's room round it. */
+.screen > .flow-tools ~ .flow-screen .fc-map {
+  top: calc(2 * var(--base-size-8) + var(--control-small-size) + 2 * var(--base-size-4) + 2 * var(--borderWidth-thin));
+}
+
+/* The choice of what to compare the flow shown with, floating under the tools. */
+.compare-box {
+  position: absolute;
+  top: calc(100% + var(--base-size-8));
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: var(--base-size-12);
+  min-width: var(--overlay-width-medium);
+  padding: var(--base-size-16);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  white-space: normal;
+}
+
+.compare-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.compare-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.compare-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--base-size-8);
+}
+
+/* What changed from one flow to another: each graph under its name, the changes to it and to its cells as a list,
+   each change its kind as a Label and its part, what it was in the danger colour and what it is in the success
+   colour. */
+.diff-graph {
+  padding-bottom: var(--base-size-8);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.diff-part {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.chg-list {
+  display: grid;
+  gap: var(--base-size-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chg {
+  display: grid;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+
+.chg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.chg-side {
+  padding: var(--base-size-4) var(--base-size-8);
+  border-radius: var(--borderRadius-medium);
+  font-size: var(--text-body-size-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chg-before {
+  background: var(--bgColor-danger-muted);
+}
+
+.chg-after {
+  background: var(--bgColor-success-muted);
+}
+
+.chg-long .fold-summary {
+  overflow: hidden;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

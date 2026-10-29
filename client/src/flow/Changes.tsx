@@ -2,7 +2,10 @@
 // action done every time and handoff added, removed or changed, with what it was and what it is; in the whole, every
 // cell added, removed or changed, and what changed in each graph apart from its cells.
 
+import { Label, type LabelColorOptions } from '@primer/react';
+
 import type { CellDiff, Change, CompiledInput, CompiledRow, FlowDiff, JsonValue, Part } from '../api';
+import { Fold } from '../parts';
 import { type Key, srcText, t } from '../text';
 import { useFlow } from './context';
 import { CellLink, conditionsWords, inline, targetWords } from './words';
@@ -74,12 +77,21 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   return [JSON.stringify(v, null, 1)];
 }
 
-/// One side of a change; a long one is folded, with its first line in sight.
+/// The colour of a change, as the UI spec gives each state its meaning: added is new and done, removed is gone, changed
+/// is to check.
+const TONE: Record<'added' | 'removed' | 'changed', LabelColorOptions> = {
+  added: 'success',
+  removed: 'danger',
+  changed: 'attention',
+};
+
+/// One side of a change, in the colour of the side, each line marked; a long one is folded, with its first line in
+/// sight.
 function Side({ lines: ls, cls, mark }: { lines: string[]; cls: string; mark: string }) {
   if (ls.length === 0) return null;
   const long = ls.join('\n').length > 400;
   const body = (
-    <div className={cls}>
+    <div className={`chg-side ${cls}`}>
       {ls.map((l, i) => (
         <div key={i}>
           {mark} {inline(l)}
@@ -89,12 +101,9 @@ function Side({ lines: ls, cls, mark }: { lines: string[]; cls: string; mark: st
   );
   if (!long) return body;
   return (
-    <details className="chg-long">
-      <summary>
-        {mark} {ls[0].slice(0, 120)}…
-      </summary>
+    <Fold className="chg-long" summary={`${mark} ${ls[0].slice(0, 120)}…`}>
       {body}
-    </details>
+    </Fold>
   );
 }
 
@@ -110,10 +119,10 @@ function ChangeLine({ c }: { c: Change }) {
       ? { before: before.filter((l) => !after.includes(l)), after: after.filter((l) => !before.includes(l)) }
       : { before, after };
   return (
-    <li className={`chg chg-${kind}`}>
-      <div>
-        <span className={`tag tag-${kind}`}>{t(`change_${kind}`)}</span> <strong>{t(PART[c.part])}</strong>
-        {c.key !== '' ? <span> {inline(`\`${c.key}\``)}</span> : null}
+    <li className="chg">
+      <div className="chg-head">
+        <Label variant={TONE[kind]}>{t(`change_${kind}`)}</Label> <strong>{t(PART[c.part])}</strong>
+        {c.key !== '' ? <span>{inline(`\`${c.key}\``)}</span> : null}
       </div>
       <Side lines={shown.before} cls="chg-before" mark="−" />
       <Side lines={shown.after} cls="chg-after" mark="+" />
@@ -123,9 +132,9 @@ function ChangeLine({ c }: { c: Change }) {
 
 /// What changed in one cell.
 export function Changes({ d }: { d: CellDiff }) {
-  if (d.status !== 'changed') return <p className="fmt">{t(d.status === 'added' ? 'cell_added' : 'cell_removed')}</p>;
+  if (d.status !== 'changed') return <p className="muted">{t(d.status === 'added' ? 'cell_added' : 'cell_removed')}</p>;
   return (
-    <ul className="bl chg-list">
+    <ul className="chg-list">
       {d.changes.map((c, i) => (
         <ChangeLine key={i} c={c} />
       ))}
@@ -133,42 +142,40 @@ export function Changes({ d }: { d: CellDiff }) {
   );
 }
 
-/// Every change from one flow to another, for the graph shown.
+/// Every change from one flow to another, for the graph shown: what changed in the graph apart from its cells, then
+/// each cell added, removed or changed, with the parts of it that changed.
 export function DiffPanel({ diff, graph }: { diff: FlowDiff; graph: string }) {
   const f = useFlow();
   const g = diff.graphs.find((x) => x.name === graph);
-  if (!g) return <p className="fmt">{t('diff_none')}</p>;
+  if (!g) return <p className="muted">{t('diff_none')}</p>;
   return (
     <>
       {g.changes.length > 0 ? (
-        <section className="ds">
-          <h4>{t('diff_graph')}</h4>
-          <ul className="bl chg-list">
+        <section className="diff-part">
+          <h4 className="sub-heading">{t('diff_graph')}</h4>
+          <ul className="chg-list">
             {g.changes.map((c, i) => (
               <ChangeLine key={i} c={c} />
             ))}
           </ul>
         </section>
       ) : null}
-      <section className="ds">
-        <h4>{t('diff_cells')}</h4>
-        {g.cells.length === 0 ? <p className="fmt">{t('diff_no_cells')}</p> : null}
-        <ul className="bl">
+      <section className="diff-part">
+        <h4 className="sub-heading">{t('diff_cells')}</h4>
+        {g.cells.length === 0 ? <p className="muted">{t('diff_no_cells')}</p> : null}
+        <ul className="chg-list">
           {g.cells.map((c) => (
-            <li key={c.id}>
-              <span className={`tag tag-${c.status}`}>{t(`change_${c.status}`)}</span>{' '}
+            <li key={c.id} className="chg-head">
+              <Label variant={TONE[c.status]}>{t(`change_${c.status}`)}</Label>
               {f.cell(c.id) ? (
                 <CellLink id={c.id} />
               ) : (
                 <span>
-                  <strong>{c.id}</strong> {c.title}
+                  <span className="cell-id">{c.id}</span> {c.title}
                 </span>
               )}
               {c.status === 'changed' ? (
-                <span className="fw">
-                  {' '}
-                  · {[...new Set(c.changes.map((x) => t(PART[x.part])))].join(', ')}
-                </span>
+                <span className="muted">· {[...new Set(c.changes.map((x) => t(PART[x.part])))].join(', ')}</span>
               ) : null}
             </li>
           ))}

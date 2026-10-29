@@ -9,6 +9,7 @@
 // For an engine step, a tool or the owner: what the step does and what it reads, which never goes into any agent's
 // context, and the same after. A work's chart adds its rounds at the cell; a comparison, what changed.
 
+import { UnderlinePanels } from '@primer/react/experimental';
 import { type ReactNode, useEffect, useRef } from 'react';
 
 import type {
@@ -845,16 +846,9 @@ export function CellPanel(props: {
     bar.current?.parentElement?.scrollTo({ top: 0 });
   }, [c.id, tab]);
   const checked = (c.checks ?? []).length > 0;
-  return (
+  // Only the tab shown is drawn: the others hold nothing until they are chosen.
+  const shown = (
     <>
-      <div className="tabs cell-tabs" role="tablist" ref={bar}>
-        {tabs.map((x) => (
-          <button key={x} type="button" role="tab" className="tab" aria-selected={x === tab} onClick={() => onTab(x)}>
-            {t(TAB_NAMES[x])}
-            {x === 'rounds' ? <span className="tab-n">{rounds?.length ?? 0}</span> : null}
-          </button>
-        ))}
-      </div>
       {tab === 'changes' && diff ? <Changes d={diff} /> : null}
       {tab === 'rounds' && work !== undefined && rounds && onRound ? (
         <RoundsHere work={work} rounds={rounds} onRound={onRound} />
@@ -889,5 +883,26 @@ export function CellPanel(props: {
       ) : null}
       {tab === 'route' ? <Route c={c} highlight={rows} onReturns={() => onTab('returns')} /> : null}
     </>
+  );
+  return (
+    <div className="cell-panel" ref={bar}>
+      <UnderlinePanels
+        aria-label={t('cell_tabs')}
+        className="cell-tabs"
+        value={tab}
+        onChange={({ value }) => onTab(value as CellTab)}
+      >
+        {tabs.map((x) => (
+          <UnderlinePanels.Tab key={x} value={x} counter={x === 'rounds' ? (rounds?.length ?? 0) : undefined}>
+            {t(TAB_NAMES[x])}
+          </UnderlinePanels.Tab>
+        ))}
+        {tabs.map((x) => (
+          <UnderlinePanels.Panel key={x} value={x} className="cell-tab">
+            {x === tab ? shown : null}
+          </UnderlinePanels.Panel>
+        ))}
+      </UnderlinePanels>
+    </div>
   );
 }

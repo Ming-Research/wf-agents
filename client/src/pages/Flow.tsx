@@ -3,6 +3,7 @@
 // moves and zooms as one. Over its top left corner, which flow is shown and, to review a change, which one it is
 // compared with; a comparison marks the cells added and changed in every graph and lists what changed.
 
+import { ActionList, ActionMenu, Button, Flash, Heading, Label, Radio, Select, TextInput } from '@primer/react';
 import { useMemo, useState } from 'react';
 
 import type { Compiled, FlowAt, FlowDiff, FlowSource, FlowVersion, FlowView } from '../api';
@@ -17,15 +18,17 @@ type FlowRoute = Extract<Route, { page: 'flow' }>;
 
 const go = (r: FlowRoute, replace = false) => navigate(href(r), replace);
 
-function versionLabel(v: FlowVersion): string {
-  return t('flow_version_short', { id: v.id, digest: v.digest.slice(0, 8) });
+/// A version by its number, and whether new works start on it, as the comparison's choices say it.
+function versionLabel(v: FlowVersion, current: number | null): string {
+  return v.id === current ? t('flow_version_in_use', { id: v.id }) : t('flow_version_short', { id: v.id });
 }
 
 /// What to compare the shown flow with: another stored version, or the flow at a ref of a project's checkout.
-function CompareBox({ r, versions, shown, onClose }: {
+function CompareBox({ r, versions, shown, current, onClose }: {
   r: FlowRoute;
   versions: FlowVersion[];
   shown: number | null;
+  current: number | null;
   onClose: () => void;
 }) {
   const sources = useResource<FlowSource[]>(null, '/api/v1/flows/sources');
@@ -43,40 +46,47 @@ function CompareBox({ r, versions, shown, onClose }: {
     }
     onClose();
   };
+  const options = versions.map((v) => (
+    <option key={v.id} value={v.id}>
+      {versionLabel(v, current)}
+    </option>
+  ));
   return (
-    <div className="bar-pop" role="dialog" aria-label={t('compare_title')}>
-      <div className="bar-pop-h">{t('compare_title')}</div>
-      <label>
-        {t('compare_older')}{' '}
-        <select value={from} onChange={(e) => setFrom(Number(e.target.value))}>
-          {versions.map((v) => (
-            <option key={v.id} value={v.id}>
-              {versionLabel(v)}
-            </option>
-          ))}
-        </select>
+    <div className="compare-box" role="dialog" aria-labelledby="compare-title">
+      <Heading as="h2" variant="small" id="compare-title">
+        {t('compare_title')}
+      </Heading>
+      <label className="compare-row">
+        <span>{t('compare_older')}</span>
+        <Select size="small" value={String(from)} onChange={(e) => setFrom(Number(e.target.value))}>
+          {options}
+        </Select>
       </label>
-      <div className="bar-pop-row">
-        <label>
-          <input type="radio" checked={against === 'version'} onChange={() => setAgainst('version')} />{' '}
+      <div className="compare-row">
+        <label className="compare-choice">
+          <Radio name="compare-against" value="version" checked={against === 'version'} onChange={() => setAgainst('version')} />
           {t('compare_with_version')}
         </label>
-        <select value={to} disabled={against !== 'version'} onChange={(e) => setTo(Number(e.target.value))}>
-          {versions.map((v) => (
-            <option key={v.id} value={v.id}>
-              {versionLabel(v)}
-            </option>
-          ))}
-        </select>
+        <Select
+          size="small"
+          value={String(to)}
+          disabled={against !== 'version'}
+          aria-label={t('compare_with_version')}
+          onChange={(e) => setTo(Number(e.target.value))}
+        >
+          {options}
+        </Select>
       </div>
-      <div className="bar-pop-row">
-        <label>
-          <input type="radio" checked={against === 'ref'} onChange={() => setAgainst('ref')} />{' '}
+      <div className="compare-row">
+        <label className="compare-choice">
+          <Radio name="compare-against" value="ref" checked={against === 'ref'} onChange={() => setAgainst('ref')} />
           {t('compare_with_ref')}
         </label>
-        <select
+        <Select
+          size="small"
           value={chosen?.project ?? ''}
           disabled={against !== 'ref'}
+          aria-label={t('compare_project')}
           onChange={(e) => setProject(e.target.value)}
         >
           {list.map((s) => (
@@ -84,12 +94,14 @@ function CompareBox({ r, versions, shown, onClose }: {
               {s.project}
             </option>
           ))}
-        </select>
-        <input
+        </Select>
+        <TextInput
+          size="small"
           list="flow-refs"
           value={ref}
           disabled={against !== 'ref'}
           placeholder={t('compare_ref_hint')}
+          aria-label={t('compare_ref_hint')}
           onChange={(e) => setRef(e.target.value)}
         />
         <datalist id="flow-refs">
@@ -98,19 +110,22 @@ function CompareBox({ r, versions, shown, onClose }: {
           ))}
         </datalist>
       </div>
-      {sources.error !== null ? <div className="error">{t('error', { error: sources.error })}</div> : null}
-      <div className="bar-pop-row">
-        <button type="button" className="tog-btn" onClick={show}>
-          {t('compare_show')}
-        </button>
-        <button type="button" className="tog-btn" onClick={onClose}>
+      {sources.error !== null ? <Flash variant="danger">{t('error', { error: sources.error })}</Flash> : null}
+      <div className="compare-actions">
+        <Button size="small" onClick={onClose}>
           {t('close')}
-        </button>
+        </Button>
+        <Button size="small" variant="primary" onClick={show}>
+          {t('compare_show')}
+        </Button>
       </div>
     </div>
   );
 }
 
+/// Over the chart's top left corner, on one surface: which flow is shown, as a menu of the stored versions (the one new
+/// works start on marked in use, each with its digest and how many works are pinned to it), or the git ref it was read
+/// at; what it is compared with; and Compare, which opens the choice of what to compare it with.
 function Bar({ r, versions, current, at }: {
   r: FlowRoute;
   versions: FlowVersion[];
@@ -119,63 +134,61 @@ function Bar({ r, versions, current, at }: {
 }) {
   const [comparing, setComparing] = useState(false);
   const shown = r.version ?? current;
-  const picked = versions.find((v) => v.id === shown);
-  const title = picked
-    ? [
-        t('flow_digest', { digest: picked.digest }),
-        t('flow_works', { n: picked.works }),
-        picked.id === current ? t('flow_current') : null,
-      ]
-        .filter((x) => x !== null)
-        .join('\n')
-    : '';
   return (
     <div className="flow-tools">
-      <div className="bar-flow">
-        {r.project !== null ? (
-          <span className="bar-at" title={at?.data?.commit ?? ''}>
-            {t('flow_at_ref', { project: r.project, ref: r.ref ?? '' })}
-            {at?.data?.version != null ? ` = ${t('flow_version_short', { id: at.data.version, digest: at.data.digest.slice(0, 8) })}` : ''}
-          </span>
-        ) : (
-          <select
-            className="bar-version"
-            value={shown ?? ''}
-            title={title}
-            aria-label={t('flow_version_pick')}
-            onChange={(e) => go({ ...r, version: Number(e.target.value), graph: null, cell: null })}
+      {r.project !== null ? (
+        <span className="flow-at" title={at?.data?.commit ?? ''}>
+          {t('flow_at_ref', { project: r.project, ref: r.ref ?? '' })}
+          {at?.data?.version != null ? ` = ${t('flow_version_short', { id: at.data.version })}` : ''}
+        </span>
+      ) : (
+        <ActionMenu>
+          <ActionMenu.Button size="small" aria-label={t('flow_version_pick')}>
+            {t('flow_menu', { id: shown ?? '' })}
+          </ActionMenu.Button>
+          <ActionMenu.Overlay width="medium">
+            <ActionList selectionVariant="single" aria-label={t('flow_version_pick')}>
+              {versions.map((v) => (
+                <ActionList.Item
+                  key={v.id}
+                  selected={v.id === shown}
+                  onSelect={() => go({ ...r, version: v.id, graph: null, cell: null })}
+                >
+                  {t('flow_version_short', { id: v.id })}
+                  <ActionList.Description>
+                    <span className="cell-id">{v.digest.slice(0, 8)}</span> · {t('flow_works', { n: v.works })}
+                  </ActionList.Description>
+                  {v.id === current ? (
+                    <ActionList.TrailingVisual>
+                      <Label variant="success" title={t('flow_current')}>
+                        {t('flow_in_use')}
+                      </Label>
+                    </ActionList.TrailingVisual>
+                  ) : null}
+                </ActionList.Item>
+              ))}
+            </ActionList>
+          </ActionMenu.Overlay>
+        </ActionMenu>
+      )}
+      {r.from !== null ? (
+        <span className="flow-compared">
+          {t('flow_compared', { id: r.from })}
+          <Button
+            size="small"
+            variant="invisible"
+            onClick={() => go({ ...r, from: null, project: null, ref: null, version: r.project !== null ? null : r.version })}
           >
-            {versions.map((v) => (
-              <option
-                key={v.id}
-                value={v.id}
-                title={`${t('flow_works', { n: v.works })}${v.id === current ? ` · ${t('flow_current')}` : ''}`}
-              >
-                {versionLabel(v)}
-                {v.id === current ? ' ●' : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        {r.from !== null ? (
-          <span className="bar-compare">
-            {t('flow_compared', { id: r.from })}
-            <button
-              type="button"
-              className="link"
-              onClick={() => go({ ...r, from: null, project: null, ref: null, version: r.project !== null ? null : r.version })}
-            >
-              {t('compare_stop')}
-            </button>
-          </span>
-        ) : null}
-        <button type="button" className="bar-btn" onClick={() => setComparing((c) => !c)}>
-          {t('compare_open')}
-        </button>
-        {comparing ? (
-          <CompareBox r={r} versions={versions} shown={shown} onClose={() => setComparing(false)} />
-        ) : null}
-      </div>
+            {t('compare_stop')}
+          </Button>
+        </span>
+      ) : null}
+      <Button size="small" onClick={() => setComparing((c) => !c)} aria-expanded={comparing}>
+        {t('compare_open')}
+      </Button>
+      {comparing ? (
+        <CompareBox r={r} versions={versions} shown={shown} current={current} onClose={() => setComparing(false)} />
+      ) : null}
     </div>
   );
 }

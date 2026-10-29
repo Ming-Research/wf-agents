@@ -1,0 +1,234 @@
+/* A view that fills the window under the bar with a chart (the flow, a work, an architect), and the column docked at
+   the chart's right: what is open on the chart as a panel (its way back, its title, who does it, its close), under a
+   work's panel on a work's page, split from it by a divider. The column's edge and the divider are drawn as Primer's
+   PageLayout draws its divider: a line that turns the accent under the pointer. */
+
+.app-screen {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-screen main {
+  position: relative;
+  min-height: 0;
+}
+
+.screen,
+.flow-screen {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.screen > .muted {
+  padding: var(--base-size-16);
+}
+
+.flow-screen {
+  flex-direction: row;
+}
+
+.flow-chart-area {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dock {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  min-width: 320px;
+  max-width: calc(100% - 160px);
+  min-height: 0;
+  border-left: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-default);
+}
+
+/* On a work's page and the architect's the column and the chart share the width evenly until the owner drags it: the
+   owner reads where the work went on the chart and what it said in the column. */
+.dock.dock-half {
+  width: 50%;
+}
+
+.dock-top {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dock-top-split {
+  flex: none;
+  max-height: calc(100% - 120px);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.dock > .panel {
+  flex: 1;
+}
+
+/* The left edge of the column, which drags its width: the column's line, the accent under the pointer. */
+.width-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--base-size-4));
+  z-index: 1;
+  width: var(--base-size-8);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.width-grip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--base-size-4) - var(--borderWidth-thin));
+  width: var(--borderWidth-thick);
+}
+
+/* The divider between a work's panel and what is open, which drags its share of the column. */
+.height-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * var(--base-size-4));
+  z-index: 1;
+  height: var(--base-size-8);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.height-grip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--base-size-4) - var(--borderWidth-thin));
+  height: var(--borderWidth-thick);
+}
+
+.width-grip:hover::after,
+.height-grip:hover::after {
+  background: var(--borderColor-accent-emphasis);
+}
+
+@media (max-width: 600px) {
+  .flow-screen {
+    flex-direction: column;
+  }
+
+  .dock {
+    width: auto !important;
+    max-width: none;
+    height: 55%;
+    border-top: var(--borderWidth-thin) solid var(--borderColor-default);
+    border-left: 0;
+  }
+
+  .width-grip {
+    display: none;
+  }
+}
+
+/* The panel of what is open: its head (the way back, the title and who does it, the close), what it holds under it. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bgColor-default);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--base-size-4) var(--base-size-8);
+  padding: var(--base-size-12) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.panel-back {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  min-width: 0;
+  font-size: var(--text-body-size-small);
+}
+
+.panel-back > svg {
+  flex: none;
+}
+
+.panel-back-to {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-name {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.panel-title {
+  overflow-wrap: anywhere;
+}
+
+/* Where a cell stands, after its title: a fact about it, in the title's line. */
+.panel-where {
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
+.panel-who {
+  margin: var(--base-size-4) 0 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.panel-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--base-size-24);
+  padding: var(--base-size-16);
+  overflow: auto;
+}
+
+/* A cell's tabs stay at the top of its panel while it scrolls; only the tab shown holds anything. */
+.cell-panel {
+  min-width: 0;
+}
+
+.cell-tabs {
+  position: sticky;
+  top: calc(-1 * var(--base-size-16));
+  z-index: 2;
+  margin: calc(-1 * var(--base-size-16)) calc(-1 * var(--base-size-16)) 0;
+  background: var(--bgColor-default);
+}
+
+.cell-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-24);
+  min-width: 0;
+  padding-top: var(--base-size-16);
+}
+
+.cell-tab[hidden] {
+  display: none;
+}

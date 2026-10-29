@@ -2,8 +2,11 @@
 // back to what it showed before, a close button (Escape closes it too), which in place of a list goes back to it. The edges that drag the column's width and
 // the share of it a work's panel takes are here too, kept in this browser.
 
+import { ArrowLeftIcon, XIcon } from '@primer/octicons-react';
+import { Button, Heading, IconButton } from '@primer/react';
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
+import { LinkButton } from '../parts';
 import { t } from '../text';
 
 /// A floating window's width or height as the owner dragged it, kept in this browser where it lets the page keep it;
@@ -101,8 +104,10 @@ export function Panel(props: {
     body.current?.scrollTo({ top: 0 });
   }, [shown]);
   useEffect(() => {
+    // Escape pressed in a menu floating over the page closes the menu and leaves the panel open.
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      const floating = document.getElementById('__primerPortalRoot__');
+      if (e.key === 'Escape' && !(e.target instanceof Node && floating?.contains(e.target))) onClose();
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
@@ -111,22 +116,22 @@ export function Panel(props: {
     <section className="panel" ref={ref}>
       <div className="panel-head">
         {back !== null ? (
-          <button type="button" className="panel-back" onClick={onBack}>
-            ← <span className="panel-back-to">{t('panel_back', { title: back })}</span>
-          </button>
+          <LinkButton className="panel-back" onClick={onBack}>
+            <ArrowLeftIcon /> <span className="panel-back-to">{t('panel_back', { title: back })}</span>
+          </LinkButton>
         ) : null}
         <div className="panel-name">
-          <h3 className="panel-title">{title}</h3>
+          <Heading as="h2" variant="small" className="panel-title">
+            {title}
+          </Heading>
           {who ? <p className="panel-who">{who}</p> : null}
         </div>
         {list !== undefined ? (
-          <button type="button" className="panel-back panel-to-list" onClick={onClose}>
+          <Button size="small" variant="invisible" leadingVisual={ArrowLeftIcon} onClick={onClose}>
             {t('panel_to_list', { list })}
-          </button>
+          </Button>
         ) : (
-          <button type="button" className="panel-close" aria-label={t('close')} onClick={onClose}>
-            ×
-          </button>
+          <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
         )}
       </div>
       <div className="panel-body" ref={body}>

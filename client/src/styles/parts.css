@@ -65,6 +65,47 @@
   padding-left: var(--base-size-24);
 }
 
+/* A small fold inside a section: its chevron and what it is on one line, what it holds set in by the chevron's
+   width. */
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  list-style: none;
+  cursor: pointer;
+}
+
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.fold[open] > summary > .fold-closed,
+.fold:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+.fold-summary {
+  min-width: 0;
+}
+
+.fold-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-8) 0 0 var(--base-size-24);
+}
+
+/* An action inside a line of text, drawn as a link: it sits in the line as its words do. */
+.link-button {
+  text-align: left;
+}
+
 /* What an agent wrote, as a block: a line above it, its head (chips, a title, who wrote it), its text under it. */
 .block {
   padding: var(--base-size-8) 0;

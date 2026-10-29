@@ -13,6 +13,7 @@ import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph
 import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
+import { LinkButton } from '../parts';
 import { t } from '../text';
 import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
@@ -327,7 +328,7 @@ export function FlowScreen(props: FlowScreenProps) {
           flow: flowFor(x.g.name),
           title: (
             <>
-              <strong>{c.id}</strong> {c.title}
+              <span className="cell-id">{c.id}</span> {c.title}
               {where !== null ? <span className="panel-where"> ({where})</span> : null}
             </>
           ),
@@ -391,7 +392,7 @@ export function FlowScreen(props: FlowScreenProps) {
           body: diff
             ? graphs.map((x) => (
                 <FlowContext.Provider key={x.g.name} value={flowFor(x.g.name)}>
-                  {several ? <h3 className="diff-graph">{t('chart_graph', { graph: x.g.name })}</h3> : null}
+                  {several ? <h3 className="sub-heading diff-graph">{t('chart_graph', { graph: x.g.name })}</h3> : null}
                   <DiffPanel diff={diff} graph={x.g.name} />
                 </FlowContext.Provider>
               ))
@@ -405,18 +406,13 @@ export function FlowScreen(props: FlowScreenProps) {
           flow: flowFor(undefined),
           title: (
             <>
-              <strong>{nameOf(now.round)}</strong>
+              {nameOf(now.round)}
               {c !== undefined ? (
                 <>
                   {' · '}
-                  <button
-                    type="button"
-                    className="link panel-cell"
-                    title={t('rp_open_cell')}
-                    onClick={() => open({ kind: 'cell', cell: c.id })}
-                  >
-                    <strong>{c.id}</strong> {c.title}
-                  </button>
+                  <LinkButton title={t('rp_open_cell')} onClick={() => open({ kind: 'cell', cell: c.id })}>
+                    <span className="cell-id">{c.id}</span> {c.title}
+                  </LinkButton>
                 </>
               ) : null}
             </>

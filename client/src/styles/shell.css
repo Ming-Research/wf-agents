@@ -6,7 +6,7 @@
   position: sticky;
   top: 0;
   /* Above the chart, which moves under it. */
-  z-index: 40;
+  z-index: var(--zIndex-sticky);
   display: flex;
   align-items: stretch;
   background: var(--bgColor-inset);

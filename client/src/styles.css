@@ -979,34 +979,12 @@ svg.fc {
   stroke: rgb(255 255 255 / 60%);
 }
 
-
-/* A view that fills the window under the bar: the flow's chart, or a work on it. */
-
-.app-screen {
-  height: 100vh;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.app-screen main {
-  min-height: 0;
-  position: relative;
-}
-
-.screen,
-.flow-screen,
 .flowchart {
   position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.screen > .muted,
-.screen > .error {
-  padding: 16px;
 }
 
 .flowchart-note {
@@ -1042,8 +1020,8 @@ svg.fc {
 
 .legend {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
+  left: var(--base-size-8);
+  bottom: var(--base-size-8);
   z-index: 5;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1119,8 +1097,8 @@ svg.fc {
    the part in view framed. It shows only while some of the chart is out of view. */
 .fc-map {
   position: absolute;
-  left: 10px;
-  top: 10px;
+  left: var(--base-size-8);
+  top: var(--base-size-8);
   z-index: 4;
   visibility: hidden;
   background: var(--panel);
@@ -1142,10 +1120,6 @@ svg.fc {
 
 .fc-map svg {
   display: block;
-}
-
-.screen > .flow-tools ~ .flow-screen .fc-map {
-  top: 54px;
 }
 
 .fc-map-box {
@@ -1180,42 +1154,6 @@ svg.fc {
   fill: color-mix(in srgb, var(--accent) 12%, transparent);
   stroke: var(--accent);
   stroke-width: 1.5;
-}
-
-/* Which flow is shown and what it is compared with, over the chart's top left corner. */
-
-.flow-tools {
-  position: absolute;
-  z-index: 6;
-  top: 10px;
-  left: 10px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px 8px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
-}
-
-.bar-flow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  position: relative;
-  white-space: nowrap;
-}
-
-.bar-version {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12.5px;
-}
-
-.bar-at,
-.bar-compare {
-  font-size: 12.5px;
-  color: var(--muted);
-  display: inline-flex;
-  gap: 8px;
 }
 
 .bar-btn {
@@ -1263,58 +1201,6 @@ svg.fc {
   background: var(--panel);
   color: var(--text);
   min-width: 16ch;
-}
-
-/* A flow's chart, and the column docked at its right: on a work's page the work's panel on top and what is open on
-   the chart under it, split by a divider that drags; on the flow page what is open alone. */
-
-.flow-screen {
-  flex-direction: row;
-}
-
-.flow-chart-area {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.dock {
-  position: relative;
-  flex: none;
-  width: 560px;
-  min-width: 320px;
-  max-width: calc(100% - 160px);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-}
-
-/* On a work's page and the architect's the column and the chart share the width evenly until the owner drags it: the
-   owner reads where the work went on the chart and what it said in the column. */
-.dock.dock-half {
-  width: 50%;
-}
-
-.dock-top {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.dock-top-split {
-  flex: none;
-  max-height: calc(100% - 120px);
-  border-bottom: 1px solid var(--line);
-}
-
-.dock > .panel {
-  flex: 1;
 }
 
 /* A work's rounds, design cards and messages, in tabs on top of the column. */
@@ -1446,161 +1332,6 @@ table.list.mini td.nowrap {
   white-space: nowrap;
 }
 
-/* The panel of what is open on the chart, in the docked column. */
-
-.panel {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-}
-
-@media (max-width: 600px) {
-  .flow-screen {
-    flex-direction: column;
-  }
-
-  .dock {
-    width: auto !important;
-    max-width: none;
-    height: 55%;
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .width-grip {
-    display: none;
-  }
-}
-
-/* The bottom edge of a part that drags its height: the divider between a work's panel and what is open. */
-
-.height-grip {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -6px;
-  height: 12px;
-  cursor: ns-resize;
-  touch-action: none;
-  z-index: 1;
-}
-
-.height-grip::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  width: 40px;
-  height: 4px;
-  margin-left: -20px;
-  border-radius: 2px;
-  background: var(--line);
-}
-
-.height-grip:hover::after {
-  background: var(--accent);
-}
-
-/* The left edge of the docked column, which drags its width. */
-
-.width-grip {
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  width: 12px;
-  cursor: ew-resize;
-  touch-action: none;
-  z-index: 1;
-}
-
-.width-grip-left {
-  left: -6px;
-}
-
-.width-grip::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 50%;
-  width: 4px;
-  height: 40px;
-  margin-top: -20px;
-  border-radius: 2px;
-  background: var(--line);
-}
-
-.width-grip:hover::after {
-  background: var(--accent);
-}
-
-.panel-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: flex-start;
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.panel-back {
-  flex: 0 0 100%;
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  font-size: 13px;
-  color: var(--accent);
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-.panel-back-to {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.panel-name {
-  flex: 1 1 12em;
-  min-width: 0;
-}
-
-.panel-title {
-  font-size: 17px;
-  font-weight: 500;
-  margin: 0;
-}
-
-.panel-who {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 2px 0 0;
-}
-
-.panel-close {
-  margin-left: auto;
-  font-size: 20px;
-  line-height: 1;
-  background: var(--code);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 2px 10px;
-  cursor: pointer;
-}
-
-.panel-body {
-  overflow: auto;
-  padding: 12px 14px 24px;
-  display: grid;
-  gap: 18px;
-  align-content: start;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
 .ds {
   display: grid;
   gap: 6px;
@@ -1710,17 +1441,6 @@ ul.bl {
   scroll-margin-top: 44px;
 }
 
-/* The tabs of a cell's panel stay at the top while it scrolls. */
-.cell-tabs {
-  position: sticky;
-  top: -12px;
-  z-index: 2;
-  margin: -12px -14px 0;
-  padding: 4px 10px 0;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-
 .prompt-by {
   display: grid;
   gap: 6px;
@@ -1800,21 +1520,6 @@ code.addr {
 
 .tag-main {
   color: var(--accent);
-}
-
-.tag-added {
-  color: var(--good);
-  margin-left: 0;
-}
-
-.tag-removed {
-  color: var(--bad);
-  margin-left: 0;
-}
-
-.tag-changed {
-  color: var(--warn);
-  margin-left: 0;
 }
 
 /* A cell's return, as the approved page showed it. */
@@ -2012,45 +1717,6 @@ ol.tt .no {
   flex-wrap: wrap;
   gap: 2px 6px;
   align-items: baseline;
-}
-
-/* Changes from one flow to another. */
-
-.chg-list {
-  list-style: none;
-  padding-left: 0;
-}
-
-.chg-before,
-.chg-after {
-  font-size: 13px;
-  white-space: pre-wrap;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-top: 2px;
-}
-
-.chg-before {
-  background: color-mix(in srgb, var(--bad) 10%, transparent);
-}
-
-.chg-after {
-  background: color-mix(in srgb, var(--good) 10%, transparent);
-}
-
-.rule-text summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 13px;
-}
-
-.chg-long summary {
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* The works: the lists at the top, each in an area that scrolls and whose height is dragged, and the work picked
@@ -2512,10 +2178,6 @@ p.rp-note {
   cursor: pointer;
 }
 
-.panel-cell {
-  text-align: left;
-}
-
 /* Where an agent's round spent its cost, beside its cost in the rounds list: the shares read again from the cache,
    newly cached and output as a small bar, and its steps; the same three colours wherever the page shows these shares,
    so that their key in the chart's "?" holds everywhere. */
@@ -2604,12 +2266,6 @@ p.rp-note {
 
 .holds-project summary {
   cursor: pointer;
-}
-
-/* Where a cell stands, after its title. */
-.panel-where {
-  color: var(--muted);
-  font-size: 14px;
 }
 
 /* A part of a section, and a check beside the field it checks. */
@@ -3242,11 +2898,6 @@ details.fallback > summary {
   transform: translateY(-50%);
 }
 
-.diff-graph {
-  margin: 12px 0 4px;
-  font-size: 14px;
-}
-
 /* The architect's page: its line, the chart under it, and what opens from the line over the chart's top right. */
 
 .arch-screen {
@@ -3266,13 +2917,6 @@ details.fallback > summary {
   left: auto;
   right: 12px;
   max-width: calc(100% - 24px);
-}
-
-/* A panel that takes the place of a list goes back to it from where a panel closes. */
-.panel-back.panel-to-list {
-  flex: none;
-  margin-left: auto;
-  white-space: nowrap;
 }
 
 /* The owner's conversations: their list on the left, the one open on the right. */
