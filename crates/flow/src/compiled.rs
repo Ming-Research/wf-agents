@@ -761,17 +761,23 @@ impl Schemas<'_> {
             }
             alts.push(a);
         }
+        // The short fields every return holds come first and the field its forms are under last, so that the model
+        // writes them before its long answer, after which only closing brackets are left to write.
         let every: Vec<Field> = g.every.iter().filter_map(|n| com(n)).collect();
-        let mut s = self.object(
-            vec![(
+        let mut s = self.object(Vec::new(), &every);
+        if let Some(props) = s["properties"].as_object_mut() {
+            props.insert(
                 ret.within.name.clone(),
                 json!({ "description": ret.within.desc, "anyOf": alts }),
-            )],
-            &every,
-        );
+            );
+        }
         let left_out = |n: &String| c.forms.iter().any(|f| f.without.contains(n));
-        let required: Vec<Value> = std::iter::once(ret.within.name.clone())
-            .chain(g.every.iter().filter(|n| !left_out(n)).cloned())
+        let required: Vec<Value> = g
+            .every
+            .iter()
+            .filter(|n| !left_out(n))
+            .cloned()
+            .chain(std::iter::once(ret.within.name.clone()))
             .map(Value::String)
             .collect();
         s["required"] = Value::Array(required);
@@ -1074,7 +1080,7 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     for k in &r.failed.kinds {
         out.push(CompiledRow {
             waits: k.handle == Handle::Wait,
-            pauses: k.handle == Handle::Pause,
+            pauses: matches!(k.handle, Handle::Pause | Handle::Repair),
             ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
         });
     }

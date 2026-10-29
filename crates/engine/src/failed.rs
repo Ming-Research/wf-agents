@@ -224,7 +224,9 @@ impl Failed<'_> {
             }
             // The cell runs again once its wait is over, until it passes.
             Handle::Retry => Ok(Advance::Moved),
-            Handle::Pause => {
+            // A return to repair is repaired within its round (`unparsed`); one that comes here was not, and waits for
+            // the owner as a pause does.
+            Handle::Pause | Handle::Repair => {
                 let why = format!(
                     "cell {}: the agent's run ended without a return ({}): {what}",
                     self.cell.id, kind.name

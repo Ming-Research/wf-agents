@@ -362,7 +362,117 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     {
         crate::faults::cache_miss(e, w, round, &cell.id, &line, &miss)?;
     }
-    let Some(mut output) = reply.output.clone() else {
+    let mut reply = reply;
+    let mut ended = ended;
+    // A return whose JSON the command line could not parse is repaired within the round, or handed in again by the
+    // agent, as the flow's kind of failed run says; the round never runs again from its start.
+    let repairs = section
+        .failed
+        .kinds
+        .iter()
+        .any(|k| k.name == crate::unparsed::KIND && k.handle == flow::format::Handle::Repair);
+    if reply.output.is_none()
+        && repairs
+        && agent::failure_kind(reply.error.as_deref().unwrap_or_default()) == crate::unparsed::KIND
+    {
+        let accepts = |e: &Engine, candidate: &Value| -> Result<Value, String> {
+            let mut out = crate::unparsed::lifted(g, cell, candidate.clone());
+            if let Some(s) = &cell.schema {
+                flow::without_null_options(s, &mut out);
+            }
+            g.take(&cell.id, &out, &given)?;
+            let ctx = checks::Ctx {
+                e,
+                w,
+                g,
+                cell,
+                item: item.as_ref(),
+                project: project.as_ref(),
+                output: &out,
+                unwrapped: g.unwrap(&out),
+                head_start: head.clone(),
+                columns: &columns,
+                table: &table,
+                interjections: &interjections,
+            };
+            checks::run(&ctx)?;
+            Ok(out)
+        };
+        let r = crate::unparsed::recover(e, &req, &reply, round, g, cell, &accepts);
+        let mut record = r.record;
+        if let Some(again) = r.again {
+            // The hand-in again resumed the round's session: it cost what the session grew by since the first run.
+            let was = reply.usage["session_cost_usd"].as_f64();
+            let cost = match (again.usage["session_cost_usd"].as_f64(), was) {
+                (Some(a), Some(b)) if a >= b => a - b,
+                (Some(a), _) => a,
+                _ => 0.0,
+            };
+            record["again"]["cost_usd"] = json!(cost);
+            let compactions = reply.compactions + again.compactions;
+            reply = again;
+            reply.compactions = compactions;
+        }
+        let mut usage = sessions::cost::own_cost(reply.usage.clone(), before);
+        if let Some(c) = usage["cost_usd"].as_f64() {
+            usage["cost_usd"] = json!(c + r.repair_cost);
+        }
+        ended = Ended {
+            usage: Some(usage).filter(|u| !u.is_null()),
+            model: reply.model.clone().or(ended.model),
+            compactions: reply.compactions,
+            ..ended
+        };
+        // The record keeps each attempt's whole text once, in `contents`.
+        let mut kept = Vec::new();
+        for a in record["attempts"].as_array_mut().into_iter().flatten() {
+            if let Some(text) = a["text"].as_str().filter(|t| t.len() >= db::STORED).map(str::to_string) {
+                let h = db::content_hash(&text);
+                a["text"] = json!({ "content": h });
+                kept.push((h, text));
+            }
+        }
+        let recorded = record.to_string();
+        e.db.write(Actor::Engine, |tx| {
+            db::keep(tx, &kept)?;
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.unparsed', json(?3))
+                 WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                params![round.work, round.n, recorded],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)?;
+        match r.output {
+            Some(v) => {
+                (e.say)(&format!("{round}: its return was repaired or handed in again"));
+                reply.output = Some(v);
+            }
+            // The agent's hand-in again failed for another cause, which is handled as that kind of failed run.
+            None if reply
+                .error
+                .as_deref()
+                .is_some_and(|x| agent::failure_kind(x) != crate::unparsed::KIND) => {}
+            None => {
+                let why = format!(
+                    "cell {}: the agent's return could not be parsed as JSON, and neither a repair nor handing it in \
+                     again gave one",
+                    cell.id
+                );
+                let ended = Ended {
+                    rejected: Some(json!({ "failed": { "kind": crate::unparsed::KIND, "what": why } })),
+                    transition: None,
+                    ..ended
+                };
+                e.db.write(Actor::Engine, |tx| {
+                    work::finish_round(tx, round, &ended).map_err(db::Error::Abort)
+                })
+                .map_err(sql)?;
+                return failed::pause(e, w, &why);
+            }
+        }
+    }
+    let Some(output) = reply.output.clone() else {
         let f = Failed {
             w,
             cell,
@@ -372,7 +482,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return f.handle(e, ended, &reply);
     };
     e.returned();
-    // A field the flow lets the return leave out that the agent wrote as null is left out.
+    // A field every return holds that the agent wrote inside the field its forms are under is moved up beside it,
+    // which the command line no longer refuses; a field the flow lets the return leave out that the agent wrote as
+    // null is left out.
+    let mut output = crate::unparsed::lifted(g, cell, output);
     if let Some(s) = &cell.schema {
         flow::without_null_options(s, &mut output);
     }
@@ -488,6 +601,7 @@ pub fn cell_request(
         replay: None,
         regive: None,
         deliver: None,
+        bare: false,
         line,
     })
 }

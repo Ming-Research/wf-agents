@@ -835,7 +835,7 @@ mod tests {
         assert!(common.contains("leaves out `progress`"), "{common}");
         assert!(
             common.contains(
-                r#"`{"outcome": {…}, "side_reports": […], "tell_owner": […], "progress": "…", "flow_feedback": "…"}`"#
+                r#"`{"tell_owner": […], "progress": "…", "side_reports": […], "flow_feedback": "…", "outcome": {…}}`"#
             ),
             "{common}"
         );

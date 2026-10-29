@@ -4094,9 +4094,9 @@
             }
           ],
           "every": [
-            "side_reports",
             "tell_owner",
             "progress",
+            "side_reports",
             "flow_feedback"
           ],
           "say": "A return holds exactly one of these, in {in}: {forms}. Every return also holds {every}. Write every field in English, and so everything that goes into the repository, such as commit messages and the PR's title and description; only a field whose description says so is written in the owner's language.",
@@ -10202,14 +10202,22 @@
               "when": "The prompt is too long for the model",
               "handle": "pause",
               "desc": "Running again cannot help: it is a defect of the engine's to fix. The engine pauses the work and tells the owner; once the owner lets the work go on, the same cell runs again."
+            },
+            {
+              "name": "unparsed",
+              "when": "The command line gave up on the agent's return after its attempts at it: the JSON the agent wrote could not be parsed",
+              "handle": "repair",
+              "desc": "Not a passing failure: the round never runs again from its start. The engine repairs the return within the round. First itself, when the text only lacks brackets that close it at its end: it adds exactly those. Then, for any other fault of the JSON's syntax, by the installation's lowest level, once, in a new session with no tools, which may change only the syntax: its repair is taken only when it parses, passes the cell's checks and keeps every other character of the text as it was, and never of a text cut off, one shorter than the command line reported it or that does not end in a closing brace. Then by the agent itself: its session is resumed and told that its JSON could not be parsed and that a quote or a newline inside a text must be escaped, and it hands its return in again. What is repaired or handed in again is taken as any return, and sent back when it does not fit. When none gives a return, the engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again."
             }
           ]
         },
         "record": [
-          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
+          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
+          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes."
         ],
         "environment": [
-          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
+          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
+          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole."
         ],
         "engine": [
           {
@@ -15696,14 +15704,22 @@
               "when": "The prompt is too long for the model",
               "handle": "pause",
               "desc": "Running again cannot help: it is a defect of the engine's to fix. The engine pauses the work and tells the owner; once the owner lets the work go on, the same cell runs again."
+            },
+            {
+              "name": "unparsed",
+              "when": "The command line gave up on the agent's return after its attempts at it: the JSON the agent wrote could not be parsed",
+              "handle": "repair",
+              "desc": "Not a passing failure: the round never runs again from its start. The engine repairs the return within the round. First itself, when the text only lacks brackets that close it at its end: it adds exactly those. Then, for any other fault of the JSON's syntax, by the installation's lowest level, once, in a new session with no tools, which may change only the syntax: its repair is taken only when it parses, passes the cell's checks and keeps every other character of the text as it was, and never of a text cut off, one shorter than the command line reported it or that does not end in a closing brace. Then by the agent itself: its session is resumed and told that its JSON could not be parsed and that a quote or a newline inside a text must be escaped, and it hands its return in again. What is repaired or handed in again is taken as any return, and sent back when it does not fit. When none gives a return, the engine pauses the work and tells the owner; once the owner lets it go on, the cell runs again."
             }
           ]
         },
         "record": [
-          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing."
+          "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
+          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes."
         ],
         "environment": [
-          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration."
+          "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
+          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole."
         ],
         "engine": [
           {

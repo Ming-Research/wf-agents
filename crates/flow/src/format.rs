@@ -323,6 +323,9 @@ pub enum Handle {
     Retry,
     /// The work pauses, and the owner is told; once the owner lets it go on, the same round runs again.
     Pause,
+    /// The return is repaired, or the agent hands it in again, within the same round; when neither gives a return,
+    /// the work pauses, and the owner is told.
+    Repair,
 }
 
 #[derive(Debug, Clone, Deserialize)]

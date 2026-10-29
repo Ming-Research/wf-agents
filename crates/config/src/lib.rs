@@ -900,6 +900,15 @@ impl Config {
         names
     }
 
+    /// The lowest level, the cheapest the installation has: it repairs the JSON of a return the command line could not
+    /// parse.
+    pub fn lowest_level(&self) -> String {
+        self.levels_in_order()
+            .first()
+            .map(|n| n.to_string())
+            .unwrap_or_default()
+    }
+
     /// The level the architect runs at, with the review of its item changes and the new architects that read a
     /// policy: the one the installation names, or else the top level.
     pub fn architect_level(&self) -> String {

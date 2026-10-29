@@ -37,7 +37,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (39, 134, 208));
+    assert_eq!((s.cells, s.rows, s.states), (39, 138, 212));
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
@@ -119,7 +119,14 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
     assert_eq!(
         kinds,
-        ["usage_limit", "offline", "transient", "cannot_run", "prompt_too_long"]
+        [
+            "usage_limit",
+            "offline",
+            "transient",
+            "cannot_run",
+            "prompt_too_long",
+            "unparsed"
+        ]
     );
     for cell in &g.cells {
         let shared: Vec<&flow::CompiledRow> = cell
@@ -142,6 +149,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "transient",
                 "cannot_run",
                 "prompt_too_long",
+                "unparsed",
                 "cut_off",
                 "cannot_step",
                 "repeats",
@@ -158,7 +166,13 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
         assert_eq!(
             pauses,
-            ["sent_back_too_often", "prompt_too_long", "cannot_step", "repeats"]
+            [
+                "sent_back_too_often",
+                "prompt_too_long",
+                "unparsed",
+                "cannot_step",
+                "repeats"
+            ]
         );
         let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
         assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
@@ -337,7 +351,13 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(required, ["outcome", "side_reports", "tell_owner", "flow_feedback"]);
+    assert_eq!(required, ["tell_owner", "side_reports", "flow_feedback", "outcome"]);
+    // The short fields every return holds come first, and the field the forms are under last.
+    let order: Vec<&String> = s["properties"].as_object().unwrap().keys().collect();
+    assert_eq!(
+        order,
+        ["tell_owner", "progress", "side_reports", "flow_feedback", "outcome"]
+    );
 }
 
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,

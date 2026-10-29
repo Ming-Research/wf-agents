@@ -1992,7 +1992,7 @@ export type Failure = { name: string,
  */
 when: string, handle: Handle, desc: string, };
 
-export type Handle = "wait" | "retry" | "pause";
+export type Handle = "wait" | "retry" | "pause" | "repair";
 
 /**
  * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does

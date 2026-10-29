@@ -241,6 +241,7 @@ pub fn ping(
         replay: Some(line),
         regive: None,
         deliver: None,
+        bare: false,
     };
     let session = due.session;
     let id = db

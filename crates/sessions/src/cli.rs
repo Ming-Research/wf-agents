@@ -46,6 +46,35 @@ pub struct Request {
     /// The shell command the command line's hook runs after each tool use, which hands in the interjections waiting
     /// for the round's line; none to hand in none during the round.
     pub deliver: Option<String>,
+    /// A call apart from an agent's round, such as the repair of a return whose JSON the command line could not parse:
+    /// it is offered no tools and given no structured output, and what it answers is its text.
+    pub bare: bool,
+}
+
+/// The environment every agent's command line starts with, besides its configuration directory: each tool input
+/// streamed whole, not in pieces, so that the service checks its JSON; and three attempts at a return, not five, since
+/// each attempt writes the whole return again.
+pub const ENVIRONMENT: [(&str, &str); 2] = [
+    ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
+    ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
+];
+
+/// The tool the command line hands a return in with, under `--json-schema`.
+pub const STRUCTURED_OUTPUT: &str = "StructuredOutput";
+
+/// An attempt at a return that the command line could not parse as JSON: the input the model gave its
+/// StructuredOutput tool, whole, rebuilt from the stream's partial messages.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Unparsed {
+    /// The tool use's id.
+    pub id: String,
+    /// The input as the model wrote it.
+    pub raw: String,
+    /// Its length as the command line reported it ("first 200 of N bytes", N counting characters); none when it did
+    /// not.
+    pub length: Option<usize>,
+    /// Why the command line refused it, as it said, without the part of the input it quoted.
+    pub why: Option<String>,
 }
 
 /// What a round came to.
@@ -64,6 +93,11 @@ pub struct Reply {
     pub error: Option<String>,
     /// The command line the round ran with in the end; empty when it is the one the request gives.
     pub command: Vec<String>,
+    /// The text the run answered with, as the command line gave it; none when it gave none.
+    pub result: Option<String>,
+    /// Each attempt at a return the command line could not parse as JSON, in the order made; empty when every attempt
+    /// parsed.
+    pub unparsed: Vec<Unparsed>,
 }
 
 pub trait Agents {
@@ -88,6 +122,9 @@ pub fn command_line(r: &Request) -> Vec<String> {
             "--output-format",
             "stream-json",
             "--verbose",
+            // The stream carries each tool input in pieces as it is written, which rebuild an attempt at a return the
+            // command line could not parse.
+            "--include-partial-messages",
             "--setting-sources",
             "user",
             "--model",
@@ -97,9 +134,14 @@ pub fn command_line(r: &Request) -> Vec<String> {
         .map(|s| s.to_string()),
     );
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
-    // next would leave nothing of the session's prompt cache: it is the graph's envelope, the same for every cell.
-    out.push("--json-schema".into());
-    out.push(r.envelope.to_string());
+    // next would leave nothing of the session's prompt cache: it is the graph's envelope, the same for every cell. A
+    // bare call is given no schema and no tools.
+    if r.bare {
+        out.extend(["--tools".to_string(), String::new()]);
+    } else {
+        out.push("--json-schema".into());
+        out.push(r.envelope.to_string());
+    }
     if let Some(e) = &r.effort {
         out.extend(["--effort".to_string(), e.clone()]);
     }
@@ -163,10 +205,13 @@ pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) ->
         Some(s) => json!({ "resumed": s }),
         None => json!({ "started": r.new_session }),
     };
-    let env = match &r.config_dir {
-        Some(d) => json!({ "CLAUDE_CONFIG_DIR": d.display().to_string() }),
-        None => json!({}),
-    };
+    let mut env = serde_json::Map::new();
+    if let Some(d) = &r.config_dir {
+        env.insert("CLAUDE_CONFIG_DIR".into(), json!(d.display().to_string()));
+    }
+    for (k, v) in ENVIRONMENT {
+        env.insert(k.into(), json!(v));
+    }
     json!({
         "command": command,
         "env": env,
@@ -202,6 +247,7 @@ impl Claude {
         if let Some(d) = &r.config_dir {
             c.env("CLAUDE_CONFIG_DIR", d);
         }
+        c.envs(ENVIRONMENT);
         c.current_dir(&r.worktree);
         c
     }
@@ -272,19 +318,17 @@ impl Claude {
                 s
             })
         });
-        let mut stream = String::new();
+        let mut stream = Stream::default();
         if let Some(out) = child.stdout.take() {
             for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
-                if let Some(what) = activity_of(&line) {
+                if let Some(what) = stream.line(&line) {
                     activity(&what);
                 }
-                stream.push_str(&line);
-                stream.push('\n');
             }
         }
         let status = child.wait();
         let err = stderr.and_then(|t| t.join().ok()).unwrap_or_default();
-        read_stream(&stream, &mut reply);
+        stream.end(&mut reply);
         if reply.output.is_none() && reply.error.is_none() {
             let status = status.map_or_else(|e| e.to_string(), |s| s.to_string());
             reply.error = Some(format!(
@@ -297,10 +341,187 @@ impl Claude {
     }
 }
 
+/// What the command line's stream gave as it came: its lines kept for the end but for its partial messages, which are
+/// passed over once the StructuredOutput inputs are rebuilt from them.
+#[derive(Debug, Default)]
+pub struct Stream {
+    kept: String,
+    partials: Partials,
+}
+
+impl Stream {
+    /// Takes one line of the stream; what it says the agent does, if anything.
+    pub fn line(&mut self, line: &str) -> Option<String> {
+        if self.partials.take(line) {
+            return None;
+        }
+        let parsed: Option<Value> = serde_json::from_str(line).ok();
+        if let Some(v) = &parsed
+            && v["type"] == "stream_event"
+        {
+            self.partials.event(v);
+            return None;
+        }
+        self.kept.push_str(line);
+        self.kept.push('\n');
+        activity_of_value(&parsed?)
+    }
+
+    /// What the run came to, from the lines kept: [`read_stream`], with each attempt at a return the command line could
+    /// not parse.
+    pub fn end(self, reply: &mut Reply) {
+        read_stream(&self.kept, reply);
+        reply.unparsed = self.partials.unparsed(&refusals(&self.kept));
+    }
+}
+
+/// The inputs the model gave the command line's StructuredOutput tool, rebuilt whole from the stream's partial
+/// messages (`input_json_delta`), the only tool inputs rebuilt; every other piece is passed over unread.
+#[derive(Debug, Default)]
+struct Partials {
+    /// The StructuredOutput block being written: its index in its message, its tool use's id and its input so far.
+    open: Option<(i64, String, String)>,
+    /// Each input written, by its tool use's id, in order.
+    done: Vec<(String, String)>,
+}
+
+impl Partials {
+    /// Takes a line that is a partial message as the command line writes it, its type first; whether it was one. Only
+    /// the lines that start, add to or end a StructuredOutput input are parsed.
+    fn take(&mut self, line: &str) -> bool {
+        if !line.starts_with(r#"{"type":"stream_event""#) {
+            return false;
+        }
+        let wanted = line.contains("content_block_start")
+            || line.contains("message_start")
+            || (self.open.is_some() && (line.contains("input_json_delta") || line.contains("content_block_stop")));
+        if wanted && let Ok(v) = serde_json::from_str::<Value>(line) {
+            self.event(&v);
+        }
+        true
+    }
+
+    /// Takes a partial message: the agent's own, not a subagent's.
+    fn event(&mut self, v: &Value) {
+        if !v["parent_tool_use_id"].is_null() {
+            return;
+        }
+        let ev = &v["event"];
+        let index = ev["index"].as_i64();
+        match ev["type"].as_str() {
+            // A new message numbers its blocks afresh: an input left open was cut off, and is kept as it came.
+            Some("message_start") => self.close(None),
+            Some("content_block_start") => {
+                let b = &ev["content_block"];
+                if b["type"] == "tool_use" && b["name"] == STRUCTURED_OUTPUT {
+                    self.close(None);
+                    if let Some(i) = index {
+                        self.open = Some((i, b["id"].as_str().unwrap_or_default().to_string(), String::new()));
+                    }
+                }
+            }
+            Some("content_block_delta") if ev["delta"]["type"] == "input_json_delta" => {
+                if let Some((i, _, raw)) = &mut self.open
+                    && Some(*i) == index
+                    && let Some(piece) = ev["delta"]["partial_json"].as_str()
+                {
+                    raw.push_str(piece);
+                }
+            }
+            Some("content_block_stop") => self.close(index),
+            _ => {}
+        }
+    }
+
+    /// Ends the input being written: at the stop of its block, or whatever block it is at for none.
+    fn close(&mut self, index: Option<i64>) {
+        if let Some((i, id, raw)) = self.open.take() {
+            if index.is_some_and(|x| x != i) {
+                self.open = Some((i, id, raw));
+                return;
+            }
+            self.done.push((id, raw));
+        }
+    }
+
+    /// The inputs that are attempts the command line could not parse: those it said it could not parse, and any that
+    /// is no JSON, each with the length it reported and why it refused it.
+    fn unparsed(mut self, refusals: &[(String, String)]) -> Vec<Unparsed> {
+        self.close(None);
+        self.done
+            .into_iter()
+            .filter_map(|(id, raw)| {
+                let said = refusals.iter().find(|(r, _)| *r == id).map(|(_, why)| why.as_str());
+                let unparsable = said.is_some_and(|w| w.contains("could not be parsed as JSON"))
+                    || serde_json::from_str::<Value>(&raw).is_err();
+                unparsable.then(|| Unparsed {
+                    length: said.and_then(reported_length),
+                    why: said.map(without_quote),
+                    id,
+                    raw,
+                })
+            })
+            .collect()
+    }
+}
+
+/// The tool uses the command line refused, each by its id with what it said: the tool results of the agent's own
+/// messages that are errors.
+fn refusals(stream: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in stream.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if v["type"] != "user" || !v["parent_tool_use_id"].is_null() {
+            continue;
+        }
+        for c in v["message"]["content"].as_array().into_iter().flatten() {
+            if c["type"] != "tool_result" || c["is_error"] != true {
+                continue;
+            }
+            let text = match &c["content"] {
+                Value::String(s) => s.clone(),
+                Value::Array(xs) => xs
+                    .iter()
+                    .filter_map(|x| x["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => String::new(),
+            };
+            out.push((c["tool_use_id"].as_str().unwrap_or_default().to_string(), text));
+        }
+    }
+    out
+}
+
+/// The length the command line reports of an input it could not parse, "first 200 of N bytes": N, which counts
+/// characters.
+fn reported_length(said: &str) -> Option<usize> {
+    let rest = &said[said.find("first ")?..];
+    let of = rest.find(" of ")?;
+    let digits: String = rest[of + 4..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// What the command line said of an input it refused, without the part of the input it quotes after the colon of
+/// "You sent (first 200 of N bytes):", which is the agent's own return.
+fn without_quote(said: &str) -> String {
+    let said = said.trim().trim_start_matches("<tool_use_error>");
+    match said.find("bytes):") {
+        Some(at) => said[..at + "bytes)".len()].to_string(),
+        None => said.trim_end_matches("</tool_use_error>").to_string(),
+    }
+}
+
 /// What a line of the CLI's stream says the agent is doing: a tool it uses with what it uses it on, the start of
 /// what it says, or a compaction; none for anything else.
 pub fn activity_of(line: &str) -> Option<String> {
-    let v: Value = serde_json::from_str(line).ok()?;
+    activity_of_value(&serde_json::from_str(line).ok()?)
+}
+
+/// What a parsed line of the CLI's stream says the agent is doing.
+fn activity_of_value(v: &Value) -> Option<String> {
     let cut = |s: &str| -> String {
         let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
         if one.chars().count() > 160 {
@@ -341,10 +562,12 @@ pub fn activity_of(line: &str) -> Option<String> {
 
 /// The schema the CLI is given for every round of a graph's agents, the same for every cell, since a schema that changed
 /// from one round to the next leaves nothing of the session's prompt cache: a return's top-level fields, each with only
-/// its type; the field an agent's forms are under is an object that holds none of the fields beside it. Required are
-/// that field and those beside it that no form of any cell leaves out. Without the types the model hands in each field
-/// as the JSON text of its value; the cell's own answer is a conditional input of the message, and the engine checks the
-/// return against the cell's whole schema.
+/// its type, the short fields every return holds first and the field an agent's forms are under last, so that only
+/// closing brackets come after the long answer. Only that field is required, and the fields beside it are not refused
+/// inside it: the command line would retry a return for either, rewriting it whole each time, while the engine moves a
+/// field it finds inside up beside it (`unparsed::lifted` in the engine) and sends back a return that lacks one. Without
+/// the types the model hands in each field as the JSON text of its value; the cell's own answer is a conditional input
+/// of the message, and the engine checks the return against the cell's whole schema.
 pub fn envelope(g: &flow::CompiledGraph) -> Value {
     let cells: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
     let empty = serde_json::Map::new();
@@ -353,39 +576,26 @@ pub fn envelope(g: &flow::CompiledGraph) -> Value {
         .find_map(|c| c.schema.as_ref()?.get("properties")?.as_object())
         .unwrap_or(&empty);
     let beside: Vec<&str> = ps.keys().filter(|k| **k != g.within).map(String::as_str).collect();
-    let props: serde_json::Map<String, Value> = ps
+    let mut props: serde_json::Map<String, Value> = ps
         .iter()
+        .filter(|(k, _)| **k != g.within)
         .map(|(k, v)| {
-            if *k != g.within {
-                return (
-                    k.clone(),
-                    json!({ "type": v.get("type").cloned().unwrap_or(Value::Null) }),
-                );
-            }
-            let desc = format!(
-                "Exactly one of the forms the prompt's schema lists under {k}; {} sit beside it, not inside it",
-                beside.join(" and ")
-            );
-            let not_inside: Vec<Value> = beside.iter().map(|b| json!({ "required": [b] })).collect();
             (
                 k.clone(),
-                json!({ "type": "object", "description": desc, "not": { "anyOf": not_inside } }),
+                json!({ "type": v.get("type").cloned().unwrap_or(Value::Null) }),
             )
         })
         .collect();
-    let left_out: std::collections::BTreeSet<&str> = cells
-        .iter()
-        .flat_map(|c| &c.forms)
-        .flat_map(|f| &f.without)
-        .map(String::as_str)
-        .collect();
-    let required: Vec<&str> = std::iter::once(g.within.as_str())
-        .chain(beside.iter().copied().filter(|b| !left_out.contains(b)))
-        .collect();
+    let desc = format!(
+        "Exactly one of the forms the prompt's schema lists under {}; {} sit beside it, not inside it",
+        g.within,
+        beside.join(" and ")
+    );
+    props.insert(g.within.clone(), json!({ "type": "object", "description": desc }));
     json!({
         "type": "object",
         "properties": props,
-        "required": required,
+        "required": [g.within],
         "additionalProperties": false,
     })
 }
@@ -436,6 +646,7 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                         .unwrap_or_else(|| "the CLI gave no reason".to_string());
                     reply.error = Some(format!("{}: {why}", v["subtype"].as_str().unwrap_or("error")));
                 }
+                reply.result = v["result"].as_str().map(str::to_string);
                 let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
                 reply.output = structured.or_else(|| v["result"].as_str().and_then(json_in));
             }
@@ -466,7 +677,9 @@ fn json_in(text: &str) -> Option<Value> {
 /// The kinds of run that end without a return, as the flow's rounds section names them, and what tells each apart in
 /// what the CLI reports. The first kind whose words the report holds is the kind; a report that holds none of them is
 /// a passing failure.
-const KINDS: [(&str, &[&str]); 4] = [
+const KINDS: [(&str, &[&str]); 5] = [
+    // First, since what the command line reports of it may quote the agent's return, which may hold any words.
+    ("unparsed", &["max_structured_output_retries"]),
     (
         "usage_limit",
         &[
@@ -629,8 +842,8 @@ mod tests {
         assert!(r.error.is_none());
     }
 
-    // The CLI is given one schema for a whole graph: its form's field holds none of the fields beside it, and a field
-    // beside it that some form leaves out, such as progress, is not required.
+    // The CLI is given one schema for a whole graph: the short fields every return holds first, the field its forms are
+    // under last and alone required, and a field beside it written inside it not refused, which the engine moves.
     #[test]
     fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
         let relations = db::relations(db::SCHEMA).unwrap();
@@ -644,6 +857,11 @@ mod tests {
         .unwrap();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g);
+        let keys = |s: &Value| -> Vec<String> { s["properties"].as_object().unwrap().keys().cloned().collect() };
+        assert_eq!(
+            keys(&s),
+            ["tell_owner", "progress", "side_reports", "flow_feedback", "outcome"]
+        );
         assert_eq!(s["properties"][&g.within]["type"], "object");
         assert!(
             s["properties"][&g.within]["description"]
@@ -651,21 +869,91 @@ mod tests {
                 .unwrap()
                 .contains("side_reports")
         );
-        assert_eq!(
-            s["required"],
-            json!(["outcome", "side_reports", "tell_owner", "flow_feedback"])
-        );
-        assert_eq!(
-            s["properties"][&g.within]["not"],
-            json!({ "anyOf": [{ "required": ["side_reports"] }, { "required": ["tell_owner"] },
-                              { "required": ["progress"] }, { "required": ["flow_feedback"] }] })
-        );
+        assert!(s["properties"][&g.within].get("not").is_none(), "{s}");
+        assert_eq!(s["required"], json!(["outcome"]));
         let a = envelope(f.graph("architect").unwrap());
-        assert_eq!(a["required"], json!(["outcome", "tell_owner", "flow_feedback"]));
+        assert_eq!(keys(&a), ["tell_owner", "progress", "flow_feedback", "outcome"]);
+        assert_eq!(a["required"], json!(["outcome"]));
         // A project that does not ask for flow feedback gives its agents no such field.
         let off = envelope(&g.clone().as_asked(|_| false));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
-        assert_eq!(off["required"], json!(["outcome", "side_reports", "tell_owner"]));
+        assert_eq!(off["required"], json!(["outcome"]));
+    }
+
+    // The input of each attempt at a return is rebuilt whole from the pieces the stream's partial messages carry, and
+    // kept only when the command line could not parse it, with the length it reported and why, without the part of
+    // the return it quoted; a partial message is not kept with the stream, and another tool's input is not rebuilt.
+    #[test]
+    fn an_attempt_the_command_line_could_not_parse_is_rebuilt_from_the_stream() {
+        let event = |e: Value| json!({ "type": "stream_event", "event": e, "parent_tool_use_id": null }).to_string();
+        let start = |i: i64, id: &str, name: &str| {
+            event(json!({ "type": "content_block_start", "index": i,
+                          "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } }))
+        };
+        let piece = |i: i64, p: &str| {
+            event(json!({ "type": "content_block_delta", "index": i,
+                          "delta": { "type": "input_json_delta", "partial_json": p } }))
+        };
+        let stop = |i: i64| event(json!({ "type": "content_block_stop", "index": i }));
+        let refused = |id: &str, text: &str| {
+            json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [
+                { "type": "tool_result", "tool_use_id": id, "is_error": true, "content": text }] } })
+            .to_string()
+        };
+        // A bare quote inside text in the owner's language, which the model wrote unescaped.
+        let broken =
+            "{\"outcome\": {\"answer\": {\"why\": \"\u{4ed6}\u{8bf4}\"\u{4e0d}\u{884c}\"\"}}, \"progress\": \"p\"}";
+        let whole = r#"{"outcome": {"answer": {"why": "w"}}, "progress": "p"}"#;
+        let mut lines = vec![
+            json!({ "type": "system", "subtype": "init", "session_id": "s1", "model": "m" }).to_string(),
+            event(json!({ "type": "message_start", "message": {} })),
+            start(0, "read-1", "Read"),
+            piece(0, r#"{"file_path": "/w/a"}"#),
+            stop(0),
+            start(1, "so-1", STRUCTURED_OUTPUT),
+        ];
+        let cut = broken
+            .char_indices()
+            .map(|(i, _)| i)
+            .filter(|i| i % 7 == 0)
+            .collect::<Vec<_>>();
+        let mut from = 0;
+        for at in cut.into_iter().skip(1).chain([broken.len()]) {
+            lines.push(piece(1, &broken[from..at]));
+            from = at;
+        }
+        lines.push(stop(1));
+        let said = format!(
+            "<tool_use_error>InputValidationError: StructuredOutput was called with input that could not be parsed as \
+             JSON.\nYou sent (first 200 of {} bytes): {}</tool_use_error>",
+            broken.chars().count(),
+            broken
+        );
+        lines.push(refused("so-1", &said));
+        lines.push(event(json!({ "type": "message_start", "message": {} })));
+        lines.push(start(0, "so-2", STRUCTURED_OUTPUT));
+        lines.push(piece(0, whole));
+        lines.push(stop(0));
+        lines.push(
+            json!({ "type": "result", "subtype": "success", "session_id": "s1",
+                    "structured_output": serde_json::from_str::<Value>(whole).unwrap() })
+            .to_string(),
+        );
+        let mut stream = Stream::default();
+        for l in &lines {
+            stream.line(l);
+        }
+        assert!(!stream.kept.contains("stream_event"), "{}", stream.kept);
+        let mut r = Reply::default();
+        stream.end(&mut r);
+        assert_eq!(r.unparsed.len(), 1, "{:?}", r.unparsed);
+        let u = &r.unparsed[0];
+        assert_eq!(u.id, "so-1");
+        assert_eq!(u.raw, broken);
+        assert_eq!(u.length, Some(broken.chars().count()));
+        let why = u.why.clone().unwrap();
+        assert!(why.ends_with("bytes)") && !why.contains("\u{4e0d}\u{884c}"), "{why}");
+        assert_eq!(r.output.unwrap()["progress"], "p");
     }
 
     #[test]
@@ -717,6 +1005,14 @@ mod tests {
 
     #[test]
     fn a_failed_run_is_told_apart_by_what_the_cli_reports() {
+        // What the command line reports of a return it could not parse may quote any words of the return.
+        assert_eq!(
+            failure_kind(
+                "error_max_structured_output_retries: Failed to provide valid structured output after 3 attempts \
+                 (first 200 of 900 bytes): please run /login"
+            ),
+            "unparsed"
+        );
         assert_eq!(failure_kind("Claude AI usage limit reached|1760000000"), "usage_limit");
         assert_eq!(failure_kind("You've hit your limit · resets 5pm"), "usage_limit");
         assert_eq!(failure_kind("Invalid API key · Please run /login"), "cannot_run");
@@ -785,8 +1081,11 @@ mod tests {
             replay: None,
             regive: Some(PathBuf::from("/tmp/given it.md")),
             deliver: Some("wf-agents deliver --work 1".into()),
+            bare: false,
         };
         let line = command_line(&r);
+        // The stream carries each tool input in pieces, which rebuild an attempt the command line could not parse.
+        assert!(line.iter().any(|a| a == "--include-partial-messages"), "{line:?}");
         // The engine's saved tool output is readable and not editable.
         assert!(
             line.windows(2).any(|w| w == ["--add-dir", "/data/tool-output"]),
@@ -829,6 +1128,8 @@ mod tests {
         let c = call(&r, &line, "2.1.0 (Claude Code)", "e1");
         assert_eq!(c["session"]["resumed"], "s1");
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");
+        assert_eq!(c["env"]["CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING"], "0");
+        assert_eq!(c["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"], "3");
         // The structured-output schema is in the command line, and not recorded again beside it.
         assert!(c.get("schema").is_none());
         assert!(
@@ -838,13 +1139,31 @@ mod tests {
         assert_eq!(c["cli"], "2.1.0 (Claude Code)");
         assert_eq!(c["engine"], "e1");
         let cmd = Claude::command(&r);
-        let env: Vec<_> = cmd.get_envs().collect();
-        assert_eq!(
-            env,
-            [(
-                std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"),
-                Some(std::ffi::OsStr::new("/data/agents/claude"))
-            )]
+        let env: Vec<(String, String)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let want = |k: &str, v: &str| env.iter().any(|(a, b)| a == k && b == v);
+        assert!(
+            want("CLAUDE_CONFIG_DIR", "/data/agents/claude")
+                && want("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0")
+                && want("MAX_STRUCTURED_OUTPUT_RETRIES", "3")
+                && env.len() == 3,
+            "{env:?}"
+        );
+        // A bare call, as a repair, is offered no tools and given no structured output.
+        let bare = command_line(&Request {
+            bare: true,
+            ..r.clone()
+        });
+        assert!(
+            bare.windows(2).any(|w| w[0] == "--tools" && w[1].is_empty()) && !bare.iter().any(|a| a == "--json-schema"),
+            "{bare:?}"
         );
         // A keep-warm ping runs the command line it replays, as it is.
         let replayed: Vec<String> = ["claude", "-p", "--resume", "s1"]

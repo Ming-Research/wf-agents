@@ -293,16 +293,20 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
         Some("string") => "\"…\"",
         _ => "…",
     };
-    let shape: Vec<String> = std::iter::once(format!("\"{}\": {{…}}", g.within))
-        .chain(every.iter().map(|(k, v)| format!("\"{k}\": {}", stand_in(v))))
+    // The short fields first and the forms' field last, as the model is to write them: after the long answer, only
+    // closing brackets are left.
+    let shape: Vec<String> = every
+        .iter()
+        .map(|(k, v)| format!("\"{k}\": {}", stand_in(v)))
+        .chain(std::iter::once(format!("\"{}\": {{…}}", g.within)))
         .collect();
+    let every_names: Vec<String> = every.keys().cloned().collect();
     let mut schema = Map::new();
+    schema.extend(every);
     schema.insert(
         g.within.clone(),
         json!({ "description": within, "anyOf": forms.iter().map(|x| x.1.clone()).collect::<Vec<_>>() }),
     );
-    let every_names: Vec<String> = every.keys().cloned().collect();
-    schema.extend(every);
     let names: Vec<String> = forms.iter().map(|x| x.0.clone()).collect();
     let leaves: Vec<String> = without
         .iter()

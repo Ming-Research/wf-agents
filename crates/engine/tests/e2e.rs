@@ -156,6 +156,9 @@ impl Agents for Scripted {
         if r.replay.is_some() {
             return self.ping(r);
         }
+        if r.bare {
+            return self.repair(r);
+        }
         let n = {
             let mut rounds = self.rounds.borrow_mut();
             let n = rounds.entry(r.cell.clone()).or_default();
@@ -184,14 +187,34 @@ impl Agents for Scripted {
         set.entry("flow_feedback".into()).or_insert(json!("none"));
         set.entry("progress".into())
             .or_insert(json!(format!("round {n} at {}", r.cell)));
+        let fault = set.remove("@unparsed");
+        let output = example(&r.schema, "", &pick, &set);
+        if let Some(fault) = fault.as_ref().and_then(Value::as_str) {
+            let raw = broken(&output, fault);
+            return Reply {
+                session,
+                model: Some(r.model.clone()),
+                usage,
+                error: Some(
+                    "error_max_structured_output_retries: Failed to provide valid structured output after 3 attempts"
+                        .into(),
+                ),
+                unparsed: vec![engine::agent::Unparsed {
+                    id: "toolu_1".into(),
+                    length: Some(raw.chars().count()),
+                    why: Some("StructuredOutput was called with input that could not be parsed as JSON.".into()),
+                    raw,
+                }],
+                ..Reply::default()
+            };
+        }
         Reply {
-            output: Some(example(&r.schema, "", &pick, &set)),
+            output: Some(output),
             session,
             model: Some(r.model.clone()),
             usage,
             compactions,
-            error: None,
-            command: Vec::new(),
+            ..Reply::default()
         }
     }
 
@@ -200,7 +223,62 @@ impl Agents for Scripted {
     }
 }
 
+/// A return as an agent would have broken it writing it by hand: `drop_last_brace`, with the fields every return holds
+/// inside `outcome` and its last brace left out; `unescaped_quote`, with a bare quote in its progress; `cut_off`, half
+/// of it; `whole`, as it is.
+fn broken(output: &Value, fault: &str) -> String {
+    match fault {
+        "drop_last_brace" => {
+            let mut v = output.clone();
+            let o = v.as_object_mut().unwrap();
+            let moved: Vec<(String, Value)> = ["tell_owner", "progress"]
+                .iter()
+                .filter_map(|k| o.shift_remove(*k).map(|x| (k.to_string(), x)))
+                .collect();
+            o["outcome"].as_object_mut().unwrap().extend(moved);
+            let t = v.to_string();
+            t[..t.len() - 1].to_string()
+        }
+        "unescaped_quote" => output.to_string().replacen(" at ", " \"at\" ", 1),
+        "cut_off" => {
+            let t = output.to_string();
+            t.chars().take(t.chars().count() / 2).collect()
+        }
+        _ => output.to_string(),
+    }
+}
+
 impl Scripted {
+    /// A repair of a broken return, the command line's bare call: the script `@repair` answers it, under `@result` with
+    /// its text and `@usage` what it cost; with no script, the text given back as it was.
+    fn repair(&self, r: &Request) -> Reply {
+        let n = {
+            let mut rounds = self.rounds.borrow_mut();
+            let n = rounds.entry("@repair".to_string()).or_default();
+            *n += 1;
+            *n
+        };
+        let (_, set) = self.scripts.get("@repair").map(|f| f(r, n)).unwrap_or_default();
+        let set: BTreeMap<&str, Value> = set.into_iter().collect();
+        let text = r
+            .prompt
+            .split("The text:\n")
+            .nth(1)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        Reply {
+            session: r.new_session.clone(),
+            model: Some(r.model.clone()),
+            usage: set
+                .get("@usage")
+                .cloned()
+                .unwrap_or_else(|| json!({ "session_cost_usd": 0.002 })),
+            result: Some(set.get("@result").and_then(Value::as_str).map_or(text, str::to_string)),
+            ..Reply::default()
+        }
+    }
+
     /// A keep-warm ping: what the script `@ping` says it used, or a read of the session's cache.
     fn ping(&self, r: &Request) -> Reply {
         let n = {
@@ -2290,6 +2368,170 @@ fn a_passing_failure_runs_again_until_it_passes() {
         again.contains("ended without a return (transient)") && !again.contains("529"),
         "{again}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A work whose cell `R1` breaks its first return as `fault` says, the script `@repair` answering a repair of it as
+/// `repair` says, if given, and every later return of `R1` as `later` says, if given.
+fn unparsed_at_r1(
+    name: &str,
+    fault: &'static str,
+    repair: Option<Script>,
+    later: Option<&'static str>,
+) -> (Setup, Engine, Rc<RefCell<Vec<String>>>, i64) {
+    let s = setup(name);
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| match (n, later) {
+            (1, _) => (Vec::new(), vec![("@unparsed", json!(fault))]),
+            (_, Some(f)) => (Vec::new(), vec![("@unparsed", json!(f))]),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    if let Some(r) = repair {
+        agents.insert("@repair", r);
+    }
+    let (e, said, item) = start(&s, agents);
+    (s, e, said, item)
+}
+
+/// What the record of a work's first round at `R1` keeps of the repair of its return, with its contents put back.
+fn repair_record(e: &Engine, work: i64) -> (Value, Value) {
+    let (input, usage): (String, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT input, usage FROM rounds WHERE work = ?1 AND cell = 'R1' ORDER BY n LIMIT 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+    let usage = usage.map(|u| serde_json::from_str(&u).unwrap()).unwrap_or(Value::Null);
+    (input["engine"]["unparsed"].clone(), usage)
+}
+
+/// Takes steps until the work on the item has left `R1` or paused.
+fn past_r1(e: &mut Engine, item: i64) {
+    for _ in 0..6 {
+        e.step(None).unwrap();
+        if state(e, item).is_some_and(|(_, at, paused)| at != "R1" || paused.is_some()) {
+            break;
+        }
+    }
+}
+
+// A return that lacks only its last brace, its fields every return holds written inside `outcome`, is closed by the
+// engine within its round, with those fields moved up beside `outcome`: the round takes its row, nothing is run again,
+// and no repair is asked of a model.
+#[test]
+fn a_return_that_lacks_only_its_last_brace_is_closed_within_its_round() {
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-close", "drop_last_brace", None, None);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert_eq!(record["closed"]["added"], "}", "{record}");
+    assert!(
+        record.get("repair").is_none() && record.get("again").is_none(),
+        "{record}"
+    );
+    assert!(
+        record["attempts"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("\"tell_owner\"")),
+        "{record}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return with a bare quote in a text is repaired by the lowest level, once, and the repair is taken when it parses,
+// fits and keeps every other character; the round's cost holds the repair's.
+#[test]
+fn a_repair_that_keeps_the_content_is_taken_within_the_round() {
+    let escapes: Script = Box::new(|r: &Request, _: usize| {
+        let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
+        let fixed = text.replacen(" \"at\" ", " \\\"at\\\" ", 1);
+        (
+            Vec::new(),
+            vec![
+                ("@result", json!(fixed)),
+                ("@usage", json!({ "session_cost_usd": 0.002 })),
+            ],
+        )
+    });
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-repair", "unescaped_quote", Some(escapes), None);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R2", "{log}");
+    let (record, usage) = repair_record(&e, work);
+    assert_eq!(record["repair"]["taken"], true, "{record}");
+    assert_eq!(record["repair"]["cost_usd"], 0.002, "{record}");
+    assert!(record.get("again").is_none(), "{record}");
+    // The scripted round costs 0.01, and the repair beside it.
+    let cost = usage["cost_usd"].as_f64().unwrap_or_default();
+    assert!((cost - 0.012).abs() < 1e-9, "{usage}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A repair that changes the content is refused, and the agent hands its return in again in its own session, which is
+// taken as any return; the round records both.
+#[test]
+fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again() {
+    let rewords: Script = Box::new(|r: &Request, _: usize| {
+        let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
+        (
+            Vec::new(),
+            vec![("@result", json!(text.replacen(" \"at\" ", " in ", 1)))],
+        )
+    });
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-again", "unescaped_quote", Some(rewords), None);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R2", "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert!(
+        record["repair"]["refused"]
+            .as_str()
+            .is_some_and(|w| w.contains("changed")),
+        "{record}"
+    );
+    assert_eq!(record["again"]["handed_in"], true, "{record}");
+    assert!(
+        record["again"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("could not be parsed as JSON")),
+        "{record}"
+    );
+    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return cut off is never repaired: the agent is asked to hand it in again, and when that cannot be parsed either,
+// the work pauses, the owner is told, and the round is closed as a failed run of its kind.
+#[test]
+fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-pause", "cut_off", None, Some("cut_off"));
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused.is_some_and(|p| p.contains("could not be parsed as JSON")),
+        "{log}"
+    );
+    assert_eq!(failed_kinds(&e), ["unparsed"], "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert_eq!(
+        record["repair"]["not_tried"], "the last attempt's text was cut off",
+        "{record}"
+    );
+    assert_eq!(record["again"]["handed_in"], false, "{record}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
