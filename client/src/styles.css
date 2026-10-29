@@ -1701,11 +1701,12 @@ p.rp-note {
 }
 
 /* A part of a section, and a check beside the field it checks. */
+/* A part's name heads what follows it: a sub-heading, never small, grey and bold at once. */
 .ds-sub {
   margin: 6px 0 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--muted);
+  color: var(--fgColor-default);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
 }
 
 .use-check {
