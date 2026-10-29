@@ -1,13 +1,15 @@
 // Lays a flow's chart out with elkjs: each part of the chart on its own, top to bottom, its stage boxes as boxes that
-// hold their cells, arrows routed at right angles around the boxes with room for their labels, each with a last
-// straight piece long enough for its head; then the main part on top and the other parts in a row below it. Each
-// arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a small arch
-// there.
+// hold their cells, each cell with what is drawn beside it as one node laid out on its own (`units.ts`), arrows
+// routed at right angles around the boxes with room for their labels and meeting each cell in the lane of its edge,
+// each with a last straight piece long enough for its head; then the main part on top and the other parts in a row
+// below it. Each arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a
+// small arch there.
 
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
 
-import { type Chart, MAIN } from './flowModel';
+import { type Chart, type ChartEdge, MAIN } from './flowModel';
+import { attachments, landings, layUnit, type Unit } from './units';
 
 const elk = new ELK();
 
@@ -33,6 +35,10 @@ const BELOW = 110;
 const BESIDE = 90;
 /// Room at the top of a box for its title.
 const TITLE = 34;
+/// The room between arrows side by side, and how hard the layout tries to order each layer for fewer crossings
+/// (elkjs's own is 7).
+const EDGE_EDGE = 10;
+const THOROUGH = 40;
 
 const options: Record<string, string> = {
   'elk.algorithm': 'layered',
@@ -44,19 +50,26 @@ const options: Record<string, string> = {
   'elk.edgeLabels.placement': 'CENTER',
   'elk.spacing.nodeNode': '44',
   'elk.spacing.edgeNode': '26',
-  'elk.spacing.edgeEdge': '16',
+  'elk.spacing.edgeEdge': String(EDGE_EDGE),
   'elk.spacing.edgeLabel': '4',
   'elk.spacing.labelNode': '8',
   'elk.spacing.componentComponent': '60',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '56',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '40',
   'elk.layered.spacing.edgeNodeBetweenLayers': '26',
-  'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': String(EDGE_EDGE),
+  'elk.layered.thoroughness': String(THOROUGH),
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   // A loop is broken where a row goes back to a cell written earlier, so the cells keep the order the flow writes
   // them in from top to bottom.
   'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   'elk.layered.mergeEdges': 'false',
+  // The layers drawn as close together as their arrows let them, and a cell with many rows out, such as the step that
+  // routes a matter to its handler, given room for what its rows lead to beside it, rather than spreading its layer
+  // and making long level runs to its far ends.
+  'elk.layered.compaction.postCompaction.strategy': 'EDGE_LENGTH',
+  'elk.layered.highDegreeNodes.treatment': 'true',
+  'elk.layered.highDegreeNodes.threshold': '8',
 };
 
 /// The shortest first and last straight piece of an arrow: room for its head, and for the ring around the cell a work
@@ -68,9 +81,33 @@ export const STRAIGHT = 16;
 // cell there were placed toward the cells the line leaves, away from the cell they lead into.
 const groupOptions: Record<string, string> = {
   'elk.layered.spacing.edgeNodeBetweenLayers': String(STRAIGHT),
+  'elk.layered.spacing.nodeNodeBetweenLayers': '12',
+  'elk.spacing.edgeEdge': String(EDGE_EDGE),
+  'elk.layered.spacing.edgeEdgeBetweenLayers': String(EDGE_EDGE),
+  'elk.layered.thoroughness': String(THOROUGH),
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+  'elk.layered.compaction.postCompaction.strategy': 'EDGE_LENGTH',
+  'elk.layered.highDegreeNodes.treatment': 'true',
+  'elk.layered.highDegreeNodes.threshold': '8',
   'elk.padding': `[top=${TITLE},left=20,bottom=20,right=20]`,
 };
+
+/// Lays a graph out; elkjs fails at drawing the layers closer together on some graphs, which are then laid out
+/// without that.
+async function lay(g: ElkNode): Promise<ElkNode> {
+  try {
+    return await elk.layout(g);
+  } catch {
+    const loose = (n: ElkNode): ElkNode => ({
+      ...n,
+      layoutOptions: n.layoutOptions
+        ? Object.fromEntries(Object.entries(n.layoutOptions).filter(([k]) => !k.endsWith('postCompaction.strategy')))
+        : undefined,
+      children: n.children?.map(loose),
+    });
+    return elk.layout(loose(g));
+  }
+}
 
 // The arrow out of the actions on a line points down, is short and straight: the actions are laid out just above the
 // cell they lead into, or the circle that names it, on the way in, rather than anywhere between the cells their lines
@@ -81,6 +118,28 @@ const WAY_IN: Record<string, string> = {
   'elk.layered.priority.straightness': '20',
 };
 
+/// Where an arrow meets a cell: on its top edge or its bottom edge, and where along it from the unit's left.
+type Side = 'NORTH' | 'SOUTH';
+type Port = { id: string; side: Side; x: number };
+
+/// Where a layout put each node and box, and the points of each arrow's route.
+function placement(out: ElkNode): { boxes: Map<string, Box>; routes: Map<string, Point[]> } {
+  const boxes = new Map<string, Box>();
+  const routes = new Map<string, Point[]>();
+  const walk = (n: ElkNode) => {
+    for (const e of n.edges ?? []) {
+      const s = e.sections?.[0];
+      if (s) routes.set(e.id, [s.startPoint, ...(s.bendPoints ?? []), s.endPoint]);
+    }
+    for (const k of n.children ?? []) {
+      boxes.set(k.id, { x: k.x ?? 0, y: k.y ?? 0, width: k.width ?? 0, height: k.height ?? 0 });
+      walk(k);
+    }
+  };
+  walk(out);
+  return { boxes, routes };
+}
+
 async function layPart(
   c: Chart,
   part: string,
@@ -89,62 +148,181 @@ async function layPart(
 ): Promise<{ nodes: Map<string, Box>; groups: Map<string, Box>; edges: Map<string, Route>; box: Box }> {
   const members = c.nodes.filter((n) => n.part === part);
   const ids = new Set(members.map((n) => n.id));
-  const child = (id: string): ElkNode => ({ id, ...size(id) });
-  const children: ElkNode[] = [];
-  const placed = new Set<string>();
+  const inPart = c.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+  // Each cell with what is beside it is one node of the layout; the lines among them, and a row from a cell back to
+  // itself, are drawn by the unit.
+  const byId = new Map(members.map((n) => [n.id, n]));
+  const owner = attachments(members, inPart);
+  const unitOf = (id: string) => owner.get(id) ?? id;
+  const inside = (e: ChartEdge) =>
+    unitOf(e.source) === unitOf(e.target) && (owner.has(e.source) || owner.has(e.target) || e.source === e.target);
+  const external = inPart.filter((e) => !inside(e));
+  const laidOut = members.filter((n) => !owner.has(n.id));
   // Each node and box in the order the flow writes the cells, a box where its first cell comes.
-  for (const n of members) {
+  const top: Array<{ id: string } | { group: string; ids: string[] }> = [];
+  const placed = new Set<string>();
+  for (const n of laidOut) {
     if (placed.has(n.id)) continue;
     if (n.group === null) {
-      children.push(child(n.id));
+      top.push({ id: n.id });
       placed.add(n.id);
       continue;
     }
-    if (placed.has(`g:${n.group}`)) continue;
-    placed.add(`g:${n.group}`);
-    const inside = members.filter((m) => m.group === n.group);
-    inside.forEach((m) => placed.add(m.id));
-    children.push({ id: `g:${n.group}`, layoutOptions: groupOptions, children: inside.map((m) => child(m.id)) });
+    const group = n.group;
+    const all = laidOut.filter((m) => m.group === group);
+    all.forEach((m) => placed.add(m.id));
+    top.push({ group, ids: all.map((m) => m.id) });
   }
-  const byId = new Map(members.map((n) => [n.id, n]));
-  const edges: ElkExtendedEdge[] = c.edges
-    .filter((e) => ids.has(e.source) && ids.has(e.target))
-    .map((e) => {
+  const unitsWith = (ports: (cell: string) => { top: number; bottom: number }) =>
+    new Map(
+      laidOut
+        .filter((n) => n.kind === 'cell')
+        .map((n) => [
+          n.id,
+          layUnit(
+            n,
+            members.filter((m) => owner.get(m.id) === n.id),
+            inPart.filter((e) => inside(e) && unitOf(e.source) === n.id),
+            size,
+            labelSize,
+            ports(n.id),
+          ),
+        ]),
+    );
+  const ends = (cell: string) => external.filter((e) => e.source === cell || e.target === cell).length;
+  // Laid out twice: first with the arrows free to meet each unit anywhere, for which edge of its cell each meets, the
+  // top or the bottom as the layout turns the rows of a loop, and in which order; then with each where that order puts
+  // it in the cell's lane.
+  const graph = (units: Map<string, Unit>, ports: Map<string, Port[]> | null) => {
+    const child = (id: string): ElkNode => {
+      const u = units.get(id);
+      if (u === undefined) return { id, ...size(id) };
+      if (ports === null) return { id, ...u.size };
+      return {
+        id,
+        ...u.size,
+        layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
+        ports: (ports.get(id) ?? []).map((p) => ({
+          id: p.id,
+          width: 0,
+          height: 0,
+          x: p.x,
+          y: p.side === 'NORTH' ? 0 : u.size.height,
+          layoutOptions: { 'elk.port.side': p.side },
+        })),
+      };
+    };
+    const children = top.map((t) =>
+      'id' in t ? child(t.id) : { id: `g:${t.group}`, layoutOptions: groupOptions, children: t.ids.map(child) },
+    );
+    const edges: ElkExtendedEdge[] = external.map((e) => {
       const l = labelSize(e.id);
+      const end = (id: string, which: 'source' | 'target') =>
+        ports !== null && units.has(id) ? `${e.id}|${which}` : id;
       return {
         id: e.id,
-        sources: [e.source],
-        targets: [e.target],
+        sources: [end(e.source, 'source')],
+        targets: [end(e.target, 'target')],
         labels: l ? [{ id: `l:${e.id}`, text: e.label, ...l }] : undefined,
         layoutOptions: byId.get(e.source)?.kind === 'action' ? WAY_IN : undefined,
       };
     });
-  const out: ElkNode = await elk.layout({ id: `part:${part}`, layoutOptions: options, children, edges });
+    return { id: `part:${part}`, layoutOptions: options, children, edges };
+  };
+  const rough = unitsWith((cell) => ({ top: ends(cell), bottom: ends(cell) }));
+  const free = placement(await lay(graph(rough, null)));
+  // Where each arrow met each cell's unit: its top or its bottom, or for one that met a side, the way it turned from
+  // there; and where along the cell from its left edge.
+  const meets = new Map<string, Array<{ id: string; side: Side; at: number }>>();
+  for (const e of external) {
+    const ps = free.routes.get(e.id);
+    if (ps === undefined) continue;
+    for (const end of ['source', 'target'] as const) {
+      const unit = free.boxes.get(e[end]);
+      const cell = rough.get(e[end])?.boxes.get(e[end]);
+      if (unit === undefined || cell === undefined) continue;
+      const way = end === 'source' ? ps : [...ps].reverse();
+      const p = way[0];
+      const turn = way.find((q) => Math.abs(q.y - p.y) > 0.5);
+      const side: Side =
+        Math.abs(p.y - unit.y) < 1 || (Math.abs(p.y - unit.y - unit.height) >= 1 && turn !== undefined && turn.y < p.y)
+          ? 'NORTH'
+          : 'SOUTH';
+      meets.set(e[end], [...(meets.get(e[end]) ?? []), { id: `${e.id}|${end}`, side, at: p.x - unit.x - cell.x }]);
+    }
+  }
+  const count = (cell: string, side: Side) => (meets.get(cell) ?? []).filter((p) => p.side === side).length;
+  const units = unitsWith((cell) => ({ top: count(cell, 'NORTH'), bottom: count(cell, 'SOUTH') }));
+  const portsOf = new Map<string, Port[]>();
+  for (const [cell, ms] of meets) {
+    const u = units.get(cell);
+    const x0 = u?.boxes.get(cell)?.x;
+    if (u === undefined || x0 === undefined) continue;
+    const placed: Port[] = [];
+    for (const side of ['NORTH', 'SOUTH'] as const) {
+      const lane = side === 'NORTH' ? u.top : u.bottom;
+      const mine = ms.filter((p) => p.side === side).sort((p, q) => p.at - q.at);
+      const xs = landings(
+        mine.map((p) => x0 + p.at),
+        lane.from + 4,
+        lane.to - 4,
+        8,
+      );
+      mine.forEach((p, i) => placed.push({ id: p.id, side, x: xs[i] }));
+    }
+    portsOf.set(cell, placed);
+  }
+  const out: ElkNode = await lay(graph(units, portsOf));
   const nodes = new Map<string, Box>();
   const boxes = new Map<string, Box>();
+  const routes = new Map<string, Route>();
+  // Where each cell is, for the arrows that meet it.
+  const cells = new Map<string, Box>();
   const walk = (n: ElkNode) => {
     for (const k of n.children ?? []) {
       const b = { x: k.x ?? 0, y: k.y ?? 0, width: k.width ?? 0, height: k.height ?? 0 };
+      const u = units.get(k.id);
       if (k.id.startsWith('g:')) boxes.set(k.id.slice(2), b);
-      else nodes.set(k.id, b);
+      else if (u === undefined) nodes.set(k.id, b);
+      else {
+        for (const [id, x] of u.boxes) nodes.set(id, shift(x, b.x, b.y));
+        for (const [id, r] of u.links) {
+          routes.set(id, {
+            points: r.points.map((p) => ({ x: p.x + b.x, y: p.y + b.y })),
+            label: r.label ? shift(r.label, b.x, b.y) : null,
+            hops: [],
+          });
+        }
+        cells.set(k.id, nodes.get(k.id) ?? b);
+      }
       walk(k);
     }
   };
   walk(out);
-  const routes = new Map<string, Route>();
+  const sideOf = new Map([...portsOf.values()].flat().map((p) => [p.id, p.side]));
+  // An arrow that meets a unit at its edge goes on straight to the cell's own edge.
+  const reach = (p: Point, port: string, cell: string): Point => {
+    const b = cells.get(cell);
+    const side = sideOf.get(port);
+    if (b === undefined || side === undefined) return p;
+    return { x: p.x, y: side === 'NORTH' ? b.y : b.y + b.height };
+  };
+  const chartEdges = new Map(external.map((e) => [e.id, e]));
   const collect = (n: ElkNode) => {
     for (const e of n.edges ?? []) {
       const s = e.sections?.[0];
-      if (!s) continue;
+      const ce = chartEdges.get(e.id);
+      if (!s || !ce) continue;
       const l = e.labels?.[0];
+      const ps = [s.startPoint, ...(s.bendPoints ?? []), s.endPoint].map((p) => ({ x: p.x, y: p.y }));
+      ps[0] = reach(ps[0], e.sources[0], ce.source);
+      ps[ps.length - 1] = reach(ps[ps.length - 1], e.targets[0], ce.target);
       const route = {
-        points: [s.startPoint, ...(s.bendPoints ?? []), s.endPoint].map((p) => ({ x: p.x, y: p.y })),
+        points: ps,
         label: l ? { x: l.x ?? 0, y: l.y ?? 0, width: l.width ?? 0, height: l.height ?? 0 } : null,
         hops: [],
       };
-      // A loop back to its own cell is given room for both its ends to show beside the ring.
-      const loop = e.sources[0] === e.targets[0];
-      routes.set(e.id, lengthenLast(onLine(route), loop ? 2 * STRAIGHT : STRAIGHT));
+      routes.set(e.id, lengthenLast(onLine(route), STRAIGHT));
     }
     for (const k of n.children ?? []) collect(k);
   };

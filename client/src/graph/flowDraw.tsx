@@ -49,8 +49,8 @@ export function measure(text: string, font = FONT): number {
 const WRAP = 240;
 const LINE = 20;
 const SMALL_LINE = 17;
-const PAD_X = 10;
-const PAD_Y = 6;
+const PAD_X = 12;
+const PAD_Y = 9;
 /// The height of the row of marks of the moves a cell lacks.
 const MARKS = 22;
 
@@ -280,7 +280,9 @@ function CellShape({ n, cell, box, lines, note, marks }: {
   ]
     .filter((x) => x !== '')
     .join(' ');
-  const textTop = box.y + PAD_Y + 13;
+  // Each line is placed by its middle, so that the room above the first line is the room below the last.
+  const titleAt = box.y + PAD_Y + LINE / 2;
+  const readsAt = box.y + PAD_Y + lines.length * LINE + SMALL_LINE / 2;
   const badges: ReactNode[] = [];
   if (o) {
     const items: Array<[string, string, string]> = [];
@@ -326,7 +328,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
         </rect>
       ) : null}
       <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={round ? box.height / 2 : 3} />
-      <text x={box.x + box.width / 2} y={textTop} textAnchor="middle">
+      <text x={box.x + box.width / 2} y={titleAt} textAnchor="middle" dominantBaseline="central">
         {lines.map((l, i) => (
           <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : LINE}>
             {i === 0 ? <tspan className="fc-id">{`${cell.id} `}</tspan> : null}
@@ -335,7 +337,13 @@ function CellShape({ n, cell, box, lines, note, marks }: {
         ))}
       </text>
       {note !== undefined && note.reads.length > 0 ? (
-        <text className="fc-reads" x={box.x + box.width / 2} y={textTop + lines.length * LINE - 2} textAnchor="middle">
+        <text
+          className="fc-reads"
+          x={box.x + box.width / 2}
+          y={readsAt}
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
           <title>{t('chart_reads_title')}</title>
           {note.reads.map((l, i) => (
             <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : SMALL_LINE}>
@@ -427,7 +435,7 @@ function Circle({ n, box, title, text, cls }: { n: ChartNode; box: Box; title: s
     <g className={`fc-circle ${cls}`} data-node={n.id}>
       <title>{title}</title>
       <ellipse cx={cx} cy={cy} rx={box.width / 2} ry={box.height / 2} />
-      <text x={cx} y={cy + 4 - ((text.length - 1) * 13) / 2} textAnchor="middle">
+      <text x={cx} y={cy - ((text.length - 1) * 13) / 2} textAnchor="middle" dominantBaseline="central">
         {text.map((l, i) => (
           <tspan key={i} x={cx} dy={i === 0 ? 0 : 13}>
             {l}
@@ -450,12 +458,12 @@ function Actions({ n, box, lines, title, selected }: { n: ChartNode; box: Box; l
     [box.x + p, box.y + box.height],
     [box.x, box.y + box.height / 2],
   ];
-  const top = box.y + box.height / 2 - ((lines.length - 1) * SMALL_LINE) / 2 + 4;
+  const top = box.y + box.height / 2 - ((lines.length - 1) * SMALL_LINE) / 2;
   return (
     <g className={`fc-act${n.kind === 'does' ? ' fc-does' : ''}${selected ? ' fc-selected' : ''}`} data-node={n.id}>
       <title>{title}</title>
       <polygon points={pts.map((q) => q.join(',')).join(' ')} />
-      <text x={box.x + box.width / 2} y={top} textAnchor="middle">
+      <text x={box.x + box.width / 2} y={top} textAnchor="middle" dominantBaseline="central">
         {lines.map((l, i) => (
           <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : SMALL_LINE}>
             {l}
@@ -471,7 +479,7 @@ function RowBadge({ x, y, row }: { x: number; y: number; row: number }) {
   return (
     <g className="fc-no">
       <circle cx={x} cy={y} r={BADGE / 2} />
-      <text x={x} y={y + 3.5} textAnchor="middle">
+      <text x={x} y={y} textAnchor="middle" dominantBaseline="central">
         {row + 1}
       </text>
     </g>
@@ -617,7 +625,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           <g key={n.id} className={`fc-rule${marks.selected === n.id ? ' fc-selected' : ''}`} data-node={n.id}>
             <title>{t('chart_rule_title', { rule: n.other ?? '' })}</title>
             <polygon points={pts.map((p) => p.join(',')).join(' ')} />
-            <text x={box.x + box.width / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
+            <text x={box.x + box.width / 2} y={box.y + box.height / 2} textAnchor="middle" dominantBaseline="central">
               {`rule:${n.other ?? ''}`}
             </text>
           </g>
@@ -640,7 +648,12 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
           >
             <title>{t('chart_interjection_title')}</title>
             <polygon points={pts.map((p) => p.join(',')).join(' ')} />
-            <text x={box.x + box.width / 2 + notch / 2} y={box.y + box.height / 2 + 4} textAnchor="middle">
+            <text
+              x={box.x + box.width / 2 + notch / 2}
+              y={box.y + box.height / 2}
+              textAnchor="middle"
+              dominantBaseline="central"
+            >
               {g.interject?.name ?? ''}
             </text>
           </g>
@@ -713,11 +726,6 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
         return (
           <g key={gr.id} className="fc-group">
             <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={4} />
-            <text x={box.x + 12} y={box.y + 21}>
-              {gr.id === 'asking'
-                ? t(gr.letter ? 'chart_asking_part_letter' : 'chart_asking_part', { letter: gr.letter })
-                : t(gr.letter ? 'chart_stage_letter' : 'chart_stage', { stage: gr.label, letter: gr.letter })}
-            </text>
           </g>
         );
       })}
@@ -765,7 +773,14 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
             <rect x={l.x + (l.width - w) / 2} y={l.y} width={w} height={l.height} rx={3} />
             {nos.items.map((it, i) =>
               it.row === null ? (
-                <text key={i} className="fc-no-dash" x={left + it.x} y={mid + 4} textAnchor="middle">
+                <text
+                  key={i}
+                  className="fc-no-dash"
+                  x={left + it.x}
+                  y={mid}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
                   –
                 </text>
               ) : (
@@ -773,14 +788,35 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, numbered,
               ),
             )}
             {text !== '' ? (
-              <text x={left + inner - names} y={mid + 4}>
+              <text x={left + inner - names} y={mid} dominantBaseline="central">
                 {text}
               </text>
             ) : null}
           </g>
         );
       })}
-      {chart.nodes.map((n) => {
+      {/* Each box's name over the arrows that pass under it, on its box's colour, so that it reads whatever the layout
+          routes there. */}
+      {chart.groups.map((gr) => {
+        const box = laid.groups.get(gr.id);
+        if (!box) return null;
+        const name =
+          gr.id === 'asking'
+            ? t(gr.letter ? 'chart_asking_part_letter' : 'chart_asking_part', { letter: gr.letter })
+            : t(gr.letter ? 'chart_stage_letter' : 'chart_stage', { stage: gr.label, letter: gr.letter });
+        // The name is drawn at 16 px, a fifteenth wider than the bold title font measures it.
+        const width = Math.ceil((measure(name, BOLD) * 16) / 15) + 8;
+        return (
+          <g key={`name:${gr.id}`} className="fc-group-name">
+            <rect x={box.x + 8} y={box.y + 6} width={width} height={22} rx={3} />
+            <text x={box.x + 12} y={box.y + 17} dominantBaseline="central">
+              {name}
+            </text>
+          </g>
+        );
+      })}
+      {/* The cells last, so that the tag beside a cell's corner shows over a rule beside it. */}
+      {[...chart.nodes.filter((n) => n.kind !== 'cell'), ...chart.nodes.filter((n) => n.kind === 'cell')].map((n) => {
         const drawn = drawNode(n);
         return drawn !== null && quietNode(n) ? (
           <g key={n.id} className="fc-unvisited">
