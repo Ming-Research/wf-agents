@@ -1,9 +1,10 @@
 // A flow's chart filling the window under the bar, its graphs side by side, and a column docked at its right, whose
-// width drags at its left edge: on a work's page the work's panel on top, at the column's full height, and while a
-// cell, a rule, the interjection, a comparison or a round is open, its panel in the lower part, split from the top by
-// a divider that drags; on the architect's page what is open takes the place of the list it was opened from, in the
-// upper part of a column that holds the conversation below, with a way back to the list; on the flow page that panel
-// alone, while something is open. The flow page, a work's page and the architect's page all show a flow this way.
+// width drags at its left edge, sharing the width evenly with the chart at first on a work's page and the architect's.
+// On a work's page the work's panel is on top, at the column's full height, and while a cell, a rule, the
+// interjection, a comparison or a round is open, its panel is in the lower part, split from the top by a divider that
+// drags; on the architect's page what is open takes the place of the panel's list, with a way back to it; on the flow
+// page that panel is alone, while something is open. The flow page, a work's page and the architect's page all show a
+// flow this way.
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -441,7 +442,7 @@ export function FlowScreen(props: FlowScreenProps) {
           />
         </div>
         {side !== undefined || shown ? (
-          <aside className="dock" style={width !== null ? { width } : undefined}>
+          <aside className={side !== undefined ? 'dock dock-half' : 'dock'} style={width !== null ? { width } : undefined}>
             <Grip edge="left" min={DOCK_MIN} storage={DOCK_KEY} label={t('dock_grip')} onSize={setWidth} />
             {typeof side === 'function' ? (
               <div className="dock-top">{side(opened)}</div>

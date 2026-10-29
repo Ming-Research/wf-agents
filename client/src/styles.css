@@ -1708,6 +1708,12 @@ svg.fc {
   border-left: 1px solid var(--line);
 }
 
+/* On a work's page and the architect's the column and the chart share the width evenly until the owner drags it: the
+   owner reads where the work went on the chart and what it said in the column. */
+.dock.dock-half {
+  width: 50%;
+}
+
 .dock-top {
   position: relative;
   flex: 1;
