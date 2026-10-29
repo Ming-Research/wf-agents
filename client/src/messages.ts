@@ -1074,7 +1074,6 @@ const messages = {
   arch_tab_changes: 'Item changes',
   arch_tab_observations: 'Observations',
   arch_tab_policy: 'Policy',
-  arch_tab_understanding: 'Understanding',
   arch_tab_next: 'Next',
   arch_queue_none: 'The queue is empty.',
   arch_queue_none_waiting: 'No matter waits for the architect now.',

@@ -78,7 +78,6 @@ import {
   ProbesView,
   ReadingView,
   StudyView,
-  UnderstandingView,
 } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
@@ -312,7 +311,6 @@ const TAB_NAMES: Record<ArchitectTab, Key> = {
   changes: 'arch_tab_changes',
   observations: 'arch_tab_observations',
   policy: 'arch_tab_policy',
-  understanding: 'arch_tab_understanding',
   next: 'arch_tab_next',
   rounds: 'rounds',
 };
@@ -768,7 +766,6 @@ function Panel({ route, a, d, g, go, onRound }: {
       chip: policyWaiting > 0 ? t('open_asks_chip', { n: policyWaiting }) : null,
       hint: t('open_asks_n', { n: policyWaiting }),
     },
-    { tab: 'understanding', label: t('arch_tab_understanding'), n: null, chip: null, hint: '' },
     {
       tab: 'conversation',
       label: t('talk_title'),
@@ -813,7 +810,6 @@ function Panel({ route, a, d, g, go, onRound }: {
         {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
         {route.tab === 'observations' ? <Observations a={a} /> : null}
         {route.tab === 'policy' ? <Policy a={a} asks={policyAsks} onRound={onRound} /> : null}
-        {route.tab === 'understanding' ? <UnderstandingView u={a.understanding} onRound={onRound} /> : null}
         {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
         {route.tab === 'rounds' ? (
           d === null ? (

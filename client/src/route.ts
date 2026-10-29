@@ -30,7 +30,6 @@ export const ARCHITECT_TABS = [
   'observations',
   'next',
   'policy',
-  'understanding',
   'conversation',
   'queue',
 ] as const;
