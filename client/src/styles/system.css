@@ -1,0 +1,29 @@
+/* The System view, over the window's width: its five parts as the page's sections, each saying after its heading what
+   it is for; the period the parts after Now count over; their tiles, tables and columns. */
+
+.page.sys {
+  max-width: none;
+}
+
+.sys-for {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* The period: its name, then each period a link, the one counted over in the text's colour and semibold. */
+.sys-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-16);
+  margin-top: var(--base-size-24);
+}
+
+.sys-period .sys-period-on {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.sys .us-tiles + .us-tiles {
+  margin-top: var(--base-size-8);
+}

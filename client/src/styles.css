@@ -1752,51 +1752,6 @@ details.fallback > summary {
   text-decoration: none;
 }
 
-/* The System view: its five parts, each saying on its title what it is for; the period the parts after Now count
-   over; their tiles and tables. */
-/* The System view takes the whole width: its parts are rows of tiles and wide tables. */
-.page.sys {
-  max-width: none;
-}
-
-.sys-for {
-  color: var(--muted);
-  font-size: 12.5px;
-}
-
-.sys-period {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  align-items: baseline;
-  margin: 16px 0 0;
-}
-
-.sys-period .sys-period-on {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.sys .us-tiles {
-  margin: 4px 0 10px;
-}
-
-.sys-table {
-  margin: 4px 0 8px;
-}
-
-.sys-table th {
-  text-align: left;
-}
-
-.sys-table th.num {
-  text-align: right;
-}
-
-.ask-tried {
-  margin-top: 4px;
-}
-
 /* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's
    top edge at the left, so that the name plainly belongs to its graph. */
 

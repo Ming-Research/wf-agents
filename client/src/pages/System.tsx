@@ -5,6 +5,8 @@
 // first, in tiles; a tile's number leads to the list it counts, folded under the tiles or on a view of its own; a trend
 // is drawn, to scale, where the period holds more than one week.
 
+import { Flash, Link as PrimerLink } from '@primer/react';
+
 import type {
   Anomaly,
   ArchitectNow,
@@ -33,7 +35,13 @@ export function System({ period }: { period: Period }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   const r = useResource<SystemData>('system', systemPath(period, zone()));
   const tip = useTip();
-  if (r.error !== null) return <p className="page bad">{t('error', { error: r.error })}</p>;
+  if (r.error !== null) {
+    return (
+      <div className="page">
+        <Flash variant="danger">{t('error', { error: r.error })}</Flash>
+      </div>
+    );
+  }
   if (r.data === undefined) return <p className="page muted">{t('loading')}</p>;
   const s = r.data;
   const part = (title: string, purpose: string) => ({
@@ -303,9 +311,9 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
                   <tr key={`${p.project ?? ''}-${p.pr}`}>
                     <td>
                       {repo !== undefined ? (
-                        <a href={`https://github.com/${repo}/pull/${p.pr}`} target="_blank" rel="noreferrer">
+                        <PrimerLink href={`https://github.com/${repo}/pull/${p.pr}`} target="_blank" rel="noreferrer">
                           {t('work_pr', { n: p.pr })}
-                        </a>
+                        </PrimerLink>
                       ) : (
                         t('work_pr', { n: p.pr })
                       )}
@@ -445,7 +453,7 @@ function Spend({ s }: { s: SystemData }) {
               {lines.lines.map((l) => (
                 <tr key={l.key}>
                   <td>
-                    <b>{l.key}</b>
+                    {l.key}
                   </td>
                   {lines.models.map((m) => (
                     <td key={m} className="num">
@@ -453,7 +461,7 @@ function Spend({ s }: { s: SystemData }) {
                     </td>
                   ))}
                   <td className="num">
-                    <b>{cost(l.total)}</b>
+                    {cost(l.total)}
                   </td>
                 </tr>
               ))}
@@ -461,11 +469,11 @@ function Spend({ s }: { s: SystemData }) {
                 <td>{t('sys_col_total')}</td>
                 {lines.models.map((m) => (
                   <td key={m} className="num">
-                    <b>{cost(lines.byModel[m])}</b>
+                    {cost(lines.byModel[m])}
                   </td>
                 ))}
                 <td className="num">
-                  <b>{cost(lines.total)}</b>
+                  {cost(lines.total)}
                 </td>
               </tr>
             </tbody>
