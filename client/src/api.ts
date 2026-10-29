@@ -33,45 +33,6 @@ asked: number, work: number,
 rounds: Array<number>, cell: string | null, };
 
 /**
- * What a work's next round would be, as the engine would take it now, with nothing run or recorded.
- */
-export type NextRound = { work: number, cell: string, title: string, 
-/**
- * agent, engine, tool or owner: an agent's round, a step of the engine's own, a run of tools, or an ask of the
- * owner.
- */
-kind: string, 
-/**
- * For an agent's round: the line it runs on, and the message the agent would be sent.
- */
-line: string | null, message: string | null, 
-/**
- * For a step of the engine's own: which.
- */
-step: string | null, 
-/**
- * For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
- * itself, and there is no message.
- */
-not_asked: string | null, 
-/**
- * For a tool cell: what each tool the last round asked for will do, one line each.
- */
-tools: Array<string>, 
-/**
- * For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
- */
-waits: string | null, 
-/**
- * The design card it waits for the owner's ruling on, when it does.
- */
-design_card: number | null, 
-/**
- * The ask of the owner it waits for an answer to, when it does.
- */
-ask: number | null, };
-
-/**
  * The engine as it runs now, and what the page needs of the installation.
  */
 export type Status = { 

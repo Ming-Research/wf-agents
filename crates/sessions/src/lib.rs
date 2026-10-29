@@ -96,12 +96,6 @@ impl Manager {
         choose::plan(conn, work, cell, limit, on)
     }
 
-    /// Withdraws the owner's ask of a new session for a work's next round, as what the round would be is shown with one
-    /// and without.
-    pub fn forget(&mut self, work: i64) {
-        self.asked.remove(&work);
-    }
-
     /// The new session the owner asked for started: the work's next rounds go on in it.
     pub fn met(&mut self, work: i64, wake: Option<&str>) {
         self.asked.remove(&work);

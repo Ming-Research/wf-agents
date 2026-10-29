@@ -24,7 +24,6 @@ pub fn typescript() -> String {
         decl::<RunAsk>(&cfg),
         decl::<KeepWarm>(&cfg),
         decl::<StepTaken>(&cfg),
-        decl::<NextRound>(&cfg),
         decl::<Status>(&cfg),
         decl::<Halt>(&cfg),
         decl::<Event>(&cfg),

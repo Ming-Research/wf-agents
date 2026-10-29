@@ -381,45 +381,6 @@ pub fn asked(gathered: &[Gathered]) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// What running one tool asked for will do, in a line, for the owner to see before it runs.
-pub fn describe(req: &Value) -> String {
-    let text = |k: &str| req[k].as_str().unwrap_or_default().to_string();
-    let short = |h: String| h.chars().take(7).collect::<String>();
-    let list = |k: &str| {
-        req[k]
-            .as_array()
-            .map(|xs| xs.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
-            .unwrap_or_default()
-    };
-    match req["tool"].as_str().unwrap_or_default() {
-        "ci" => {
-            let pr = if req.get("pr").is_some() {
-                "; sets the PR's title and description"
-            } else {
-                ""
-            };
-            format!(
-                "ci: pushes {} and runs the fast CI (tests: {}){pr}",
-                short(text("head")),
-                list("tests")
-            )
-        }
-        "ci_before" => format!(
-            "ci_before: runs the fast CI on {} with these files from it on main: {}",
-            short(text("head")),
-            list("files")
-        ),
-        "gh" => format!("gh {}", text("command").trim_start_matches("gh ")),
-        "query" => {
-            let sql: String = text("sql").split_whitespace().collect::<Vec<_>>().join(" ");
-            let cut: String = sql.chars().take(160).collect();
-            format!("query: {cut}{}", if cut.len() < sql.len() { "…" } else { "" })
-        }
-        "measure" => "measure: does not run in this version of the engine".to_string(),
-        other => other.to_string(),
-    }
-}
-
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
 /// and merges in what ran before. A wake of an architect is on no item: it runs what reads.
 pub fn run_tools(

@@ -703,66 +703,6 @@ fn building_a_message_writes_nothing() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// While the merge gate waits for the owner's ruling on the design card, the next round offers no round: it says what
-// the work waits for, and which design card. The owner's confirmation alone lets the work through.
-#[test]
-fn the_merge_gate_waiting_for_a_ruling_offers_no_round() {
-    let s = setup("gate-wait");
-    let (mut e, said, item) = start(&s, scripts());
-    for _ in 0..2 {
-        e.step(None).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    let (work, _, _) = state(&e, item).unwrap();
-    let wt: String =
-        e.db.conn()
-            .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
-            .unwrap();
-    let wt = PathBuf::from(wt);
-    write(&wt, "design/engine.md", "Decision: a new one.\n");
-    git(&wt, &["add", "-A"]);
-    git(&wt, &["commit", "-q", "-m", "A decision"]);
-    let head = git(&wt, &["rev-parse", "HEAD"]);
-    let card =
-        e.db.write(Actor::Engine, |tx| {
-            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
-            // The round that handed the card in left the head with the decision.
-            tx.execute(
-                "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?3) WHERE work = ?1 AND n = ?2",
-                params![work, round, head],
-            )?;
-            tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
-                [work, round],
-            )?;
-            let card = tx.last_insert_rowid();
-            tx.execute("UPDATE works SET at = 'M1' WHERE id = ?1", [work])?;
-            Ok(card)
-        })
-        .unwrap();
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!(next.cell, "M1", "{log}");
-    assert_eq!(
-        next.waits.as_deref(),
-        Some(format!("the owner's ruling on design card {card}").as_str()),
-        "{log}"
-    );
-    assert_eq!(next.design_card, Some(card));
-    // The owner confirms, and the gate waits no longer.
-    let confirm = api::Ruling {
-        decisions: vec![api::DecisionRuling {
-            decision: 1,
-            verdict: "confirm".into(),
-            text: None,
-            option: None,
-        }],
-    };
-    api::rule(&mut e.db, card, &confirm).unwrap();
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!((next.waits, next.design_card), (None, None), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // A cell that may not change the design paths is sent back for a change an earlier attempt of it made and left on the
 // branch, with a reason that names that commit and says to revert it; once reverted, the cell's return is taken.
 #[test]
@@ -1150,48 +1090,6 @@ fn the_advisor_runs_one_level_above_the_item() {
             )
             .unwrap();
     assert_eq!(engineer, "m", "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// While a work waits for the owner's answer to an ask, its next round offers no round: it says which ask; once the
-// ask is answered, the round that takes the answer is offered.
-#[test]
-fn an_ask_waiting_for_its_answer_offers_no_round() {
-    let s = setup("ask-wait");
-    let (mut e, _, item) = start(&s, scripts());
-    e.step(None).unwrap();
-    let (work, _, _) = state(&e, item).unwrap();
-    let ask =
-        e.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE works SET at = 'A3' WHERE id = ?1", [work])?;
-            let round = next_round(tx, work)?;
-            tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'A3', '{}', 'c', 1)",
-                [work, round],
-            )?;
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
-                [work, round],
-            )?;
-            Ok(tx.last_insert_rowid())
-        })
-        .unwrap();
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!(
-        next.waits.as_deref(),
-        Some(format!("your answer to ask {ask}").as_str())
-    );
-    assert_eq!(next.ask, Some(ask));
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE owner_asks SET answer = '{\"by\":\"owner\",\"text\":\"done\"}' WHERE id = ?1",
-            [ask],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!((next.waits, next.ask), (None, None));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1634,10 +1532,10 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The next round of a work at a gate whose need the project does not answer is the engine's own answer, as the round
-// then is: the preview says why no agent is asked, and builds no message.
+// The round of a work at a gate whose need the project does not answer is the engine's own answer: it says why no
+// agent is asked, and no agent runs.
 #[test]
-fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
+fn a_gate_the_project_cannot_meet_is_the_engines_answer() {
     let s = setup("gate-preview");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..40 {
@@ -1649,13 +1547,6 @@ fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
     let log = said.borrow().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "D4", "{log}");
-    let next = engine::next_round(&mut e, work).unwrap();
-    assert_eq!((next.kind.as_str(), &next.message, &next.line), ("agent", &None, &None));
-    let why = next.not_asked.unwrap_or_default();
-    assert!(
-        why.starts_with("Not asked: this question needs what this project does not have."),
-        "{why}"
-    );
     e.step(None).unwrap();
     let (output, input): (String, String) =
         e.db.conn()
@@ -1666,7 +1557,11 @@ fn the_next_round_at_a_gate_the_project_cannot_meet_is_the_engines_answer() {
             )
             .unwrap();
     let output: Value = serde_json::from_str(&output).unwrap();
-    assert_eq!(output["outcome"]["answer"]["why"], json!(why), "{output}");
+    let why = output["outcome"]["answer"]["why"].as_str().unwrap_or_default();
+    assert!(
+        why.starts_with("Not asked: this question needs what this project does not have."),
+        "{output}"
+    );
     let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
     assert_eq!(input, json!({ "engine": { "not_applicable": "under_test" } }));
     let _ = std::fs::remove_dir_all(&s.root);

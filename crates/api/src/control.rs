@@ -10,11 +10,10 @@
 //! Each project's architect's wakes are taken the same way.
 
 use std::collections::BTreeSet;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
-use crate::{NextRound, Status};
+use crate::Status;
 
 pub use sessions::Fresh;
 
@@ -43,8 +42,6 @@ pub struct Asked {
     /// The project whose architect's round the owner asked for, until the loop has taken it: the next round of its wake
     /// that runs, or a wake started paused and its first round when its queue would wake it.
     pub architect: Option<String>,
-    /// How many times the owner asked what a work's next round would be: each ask wakes the loop.
-    pub previews: u64,
     /// How many times the owner decided something the engine reads, such as an answer or a ruling: each wakes the
     /// loop, so that works that go on go on at once.
     pub woken: u64,
@@ -83,13 +80,9 @@ impl Asked {
     }
 }
 
-/// An ask of what a work's next round would be, in a new session or not, with where the loop answers it.
-type Preview = (i64, bool, Sender<Result<NextRound, String>>);
-
 pub struct Control {
     asked: Mutex<Asked>,
     changed: Condvar,
-    previews: Mutex<Vec<Preview>>,
     /// The new sessions the owner asked for with a Start or a round, until the loop has handed them to the session
     /// manager: a work's, or a project's architect's.
     fresh: Mutex<Vec<Fresh>>,
@@ -114,11 +107,9 @@ impl Default for Control {
                 architects_releasing: BTreeSet::new(),
                 step: None,
                 architect: None,
-                previews: 0,
                 woken: 0,
             }),
             changed: Condvar::new(),
-            previews: Mutex::new(Vec::new()),
             fresh: Mutex::new(Vec::new()),
             running: Mutex::new(None),
         }
@@ -285,25 +276,10 @@ impl Control {
         s
     }
 
-    /// Asks what a work's next round would be, in a new session when `new_session`; the loop answers on the channel
-    /// given back.
-    pub fn ask_preview(&self, work: i64, new_session: bool) -> Receiver<Result<NextRound, String>> {
-        let (tx, rx) = channel();
-        lock(&self.previews).push((work, new_session, tx));
-        lock(&self.asked).previews += 1;
-        self.changed.notify_all();
-        rx
-    }
-
     /// Wakes the loop: the owner decided something the engine reads.
     pub fn wake(&self) {
         lock(&self.asked).woken += 1;
         self.changed.notify_all();
-    }
-
-    /// The asks of what a work's next round would be that wait for an answer.
-    pub fn take_previews(&self) -> Vec<Preview> {
-        std::mem::take(&mut *lock(&self.previews))
     }
 
     /// Waits until what is asked differs from `seen`, or `idle` has passed.
@@ -451,17 +427,7 @@ mod tests {
         let started = std::time::Instant::now();
         c.wait(&seen, Duration::from_secs(30));
         assert!(started.elapsed() < Duration::from_secs(10));
-        // Asking what a round would be wakes it too, and the ask waits to be answered.
-        let seen = c.asked();
-        let rx = c.ask_preview(2, true);
-        let started = std::time::Instant::now();
-        c.wait(&seen, Duration::from_secs(30));
-        assert!(started.elapsed() < Duration::from_secs(10));
-        let asks = c.take_previews();
-        assert_eq!((asks.len(), asks[0].1), (1, true));
-        asks[0].2.send(Err("none".into())).unwrap();
-        assert_eq!(rx.recv().unwrap(), Err("none".into()));
-        // So do what the owner decided, letting every work go on, starting or pausing one, and the switch that keeps
+        // So does what the owner decided, letting every work go on, starting or pausing one, and the switch that keeps
         // sessions warm.
         let asks: [fn(&Control); 5] = [
             |c| c.wake(),

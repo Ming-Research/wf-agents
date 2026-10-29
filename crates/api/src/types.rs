@@ -37,33 +37,6 @@ pub struct StepTaken {
     pub cell: Option<String>,
 }
 
-/// What a work's next round would be, as the engine would take it now, with nothing run or recorded.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct NextRound {
-    pub work: i64,
-    pub cell: String,
-    pub title: String,
-    /// agent, engine, tool or owner: an agent's round, a step of the engine's own, a run of tools, or an ask of the
-    /// owner.
-    pub kind: String,
-    /// For an agent's round: the line it runs on, and the message the agent would be sent.
-    pub line: Option<String>,
-    pub message: Option<String>,
-    /// For a step of the engine's own: which.
-    pub step: Option<String>,
-    /// For an agent's cell whose need the project does not answer: why no agent is asked; the engine answers the cell
-    /// itself, and there is no message.
-    pub not_asked: Option<String>,
-    /// For a tool cell: what each tool the last round asked for will do, one line each.
-    pub tools: Vec<String>,
-    /// For a cell whose judgment now takes a row that waits: what it waits for; no round is offered until it comes.
-    pub waits: Option<String>,
-    /// The design card it waits for the owner's ruling on, when it does.
-    pub design_card: Option<i64>,
-    /// The ask of the owner it waits for an answer to, when it does.
-    pub ask: Option<i64>,
-}
-
 /// The engine as it runs now, and what the page needs of the installation.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Status {
@@ -212,7 +185,7 @@ pub enum Waits {
     Ruling { design_card: i64 },
     /// The items its item depends on, until each is merged.
     Items { items: Vec<i64> },
-    /// What the row it took waits for, when it is none of these: the cell and the row, which its next round explains.
+    /// What the row it took waits for, when it is none of these: the cell and the row.
     Row { cell: String, row: String },
 }
 

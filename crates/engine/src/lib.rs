@@ -45,7 +45,7 @@ pub use sessions::cli as agent;
 
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
-pub use steps::{NextRound, cell_request, next_message, next_round};
+pub use steps::{cell_request, next_message};
 pub use warm::GlobalPause;
 pub use work::{Item, Round, RoundId, Work, json_col, query_json};
 

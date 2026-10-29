@@ -654,32 +654,6 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     // The work the last step took, from which the next step goes round the works.
     let mut after: Option<i64> = None;
     while !stop.exists() {
-        // What a work's next round would be, for the page that asked: built between steps, nothing run.
-        for (work, fresh, answer) in control.take_previews() {
-            // Shown in a new session, the round is composed as the owner's ask of one would have it.
-            let asked_before = e.sessions.asked_new(work, None);
-            if fresh && !asked_before {
-                e.sessions.ask_new(api::Fresh::Work(work));
-            }
-            let next = engine::next_round(&mut e, work).map(|n| api::NextRound {
-                work,
-                cell: n.cell,
-                title: n.title,
-                kind: n.kind,
-                line: n.line,
-                message: n.message,
-                step: n.step,
-                not_asked: n.not_asked,
-                tools: n.tools,
-                waits: n.waits,
-                design_card: n.design_card,
-                ask: n.ask,
-            });
-            if fresh && !asked_before {
-                e.sessions.forget(work);
-            }
-            let _ = answer.send(next);
-        }
         let asked = control.asked();
         for work in control.take_new_sessions() {
             e.sessions.ask_new(work);

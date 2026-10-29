@@ -278,22 +278,6 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     assert_eq!(post(s.port, "/api/v1/engine/pause", "{}", "application/json").0, 204);
     assert!(s.control.asked().paused);
     assert!(s.bus.status().is_some_and(|x| x.paused));
-    // What a work's next round would be is answered by the engine's loop, which this test plays.
-    let control = std::sync::Arc::clone(&s.control);
-    let loop_ = std::thread::spawn(move || {
-        for _ in 0..100 {
-            if let Some((work, _, answer)) = control.take_previews().pop() {
-                let _ = answer.send(Err(format!("work {work} has no next round")));
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    });
-    let here = format!("127.0.0.1:{}", s.port);
-    let (status, body) = get(s.port, "/api/v1/works/9/next", &here, "");
-    loop_.join().unwrap();
-    assert_eq!(status, 422, "{body}");
-    assert!(body.contains("work 9 has no next round"), "{body}");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
