@@ -446,7 +446,7 @@ case!(
 );
 case!(
     the_design_never_asked_about_other_projects,
-    "unreached cross_project",
+    "unreached design.cross_project",
     |v| {
         node(v, "design.cost")["to"] = json!("design.split");
     }
@@ -590,7 +590,7 @@ case!(
 );
 case!(
     a_text_that_names_a_cell_of_the_other_graph,
-    "architect: flows.architect.nodes.correct.prompt[0] names cell `ask.way_on`, which its graph has not",
+    "architect: flows.architect.nodes.policy.correct.prompt[0] names cell `ask.way_on`, which its graph has not",
     |v| {
         let correct = v["flows"][1]["nodes"]
             .as_array_mut()
