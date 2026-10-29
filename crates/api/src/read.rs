@@ -2356,7 +2356,12 @@ mod tests {
     fn the_running_round_says_whether_its_tool_is_under_way() {
         let mut s = setup("tool");
         let cache = Flows::default();
-        let tool = |s: &Setup| works(s.db.conn(), &cache).unwrap()[0].running.as_ref().map(|r| (r.n, r.tool));
+        let tool = |s: &Setup| {
+            works(s.db.conn(), &cache).unwrap()[0]
+                .running
+                .as_ref()
+                .map(|r| (r.n, r.tool))
+        };
         assert_eq!(tool(&s), Some((3, false)));
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
