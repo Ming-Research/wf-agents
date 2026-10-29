@@ -1033,6 +1033,21 @@ pub struct Matter {
     pub waited_ms: Option<i64>,
     /// Whether the report it holds was marked urgent.
     pub urgent: bool,
+    /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+    /// steps to set it straight); none for a matter of another kind.
+    pub fix: Option<Value>,
+    /// For a design card to look at: how the card stands.
+    pub card: Option<MatterCard>,
+}
+
+/// How the design card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
+/// architect's alike; and the card that replaced it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MatterCard {
+    pub id: i64,
+    pub status: String,
+    pub rulings: Value,
+    pub replaced_by: Option<i64>,
 }
 
 /// What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its

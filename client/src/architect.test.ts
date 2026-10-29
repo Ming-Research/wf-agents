@@ -17,9 +17,13 @@ import {
   againstInOrder,
   architectState,
   askTab,
+  cardWords,
   choicesOf,
   observationsShown,
   outcomes,
+  matterKind,
+  matterSentence,
+  matterSteps,
   queueParts,
   rulingAnswer,
   shownWake,
@@ -86,6 +90,8 @@ const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
   waits: 'owner',
   waited_ms: 0,
   urgent: false,
+  fix: null,
+  card: null,
   ...extra,
 });
 
@@ -102,6 +108,47 @@ const observation = (id: number, extra: Partial<Observation> = {}): Observation 
   created: id,
   updated: id,
   ...extra,
+});
+
+describe('a matter in words', () => {
+  it('names its kind as what is to be done, and what more the kind says only where that helps', () => {
+    expect(matterKind('set_straight', 'off_policy')).toBe('Set straight: does not follow the policy');
+    expect(matterKind('set_straight', 'dependencies')).toBe('Set straight: dependencies');
+    expect(matterKind('design_card', null)).toBe('Look at a design card');
+    expect(matterKind('report', 'followup')).toBe('Go through side reports');
+    expect(matterKind('owner_words', 'said')).toBe('Your words');
+    expect(matterKind('failure', 'tool_failed')).toBe('Have a failure fixed: a tool failed');
+    expect(matterKind('new_kind', null)).toBe('new kind');
+  });
+
+  it('says first what is to be done, a place to set straight by where it is and what is wrong there', () => {
+    const fix = { where: 'item 12', wrong: 'It waits for item 15, which is done.', steps: ['Drop the link.', '', 'Note it.'] };
+    expect(matterSentence(matter(1, { kind: 'set_straight', fix }))).toBe('item 12: It waits for item 15, which is done.');
+    expect(matterSteps(matter(1, { kind: 'set_straight', fix }))).toEqual(['Drop the link.', 'Note it.']);
+    expect(matterSentence(matter(2))).toBe('matter 2');
+    expect(matterSteps(matter(2))).toEqual([]);
+  });
+
+  it('says where the design card it is about stands', () => {
+    const card = (status: string, rulings: unknown[] = [], replaced_by: number | null = null) => ({
+      id: 7,
+      status,
+      rulings: rulings as never,
+      replaced_by,
+    });
+    expect(cardWords(card('open'))).toBe('Design card 7 waits for a ruling.');
+    expect(cardWords(card('replaced', [], 9))).toBe('Design card 7 was replaced by design card 9.');
+    const confirmed = { by: 'owner', decisions: [{ decision: 1, verdict: 'confirm' }] };
+    expect(cardWords(card('ruled', [confirmed]))).toBe('Design card 7: you confirmed it.');
+    const against = {
+      by: 'architect',
+      decisions: [
+        { decision: 1, verdict: 'confirm' },
+        { decision: 2, verdict: 'disagree', text: 'too wide' },
+      ],
+    };
+    expect(cardWords(card('ruled', [confirmed, against]))).toBe('Design card 7: architect disagreed with decision 2: too wide.');
+  });
 });
 
 describe("the architect's page", () => {

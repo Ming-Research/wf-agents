@@ -17,11 +17,11 @@ use crate::view;
 use crate::{
     Architect, AskKind, Conversation, ConversationDetail, ConversationEntry, DesignCard, DispatchHold, Draft,
     FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
-    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, Misses, NamedText, Observation, OwnerAsk,
-    OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement,
-    RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session,
-    Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession, WorkState,
-    WorkSummary,
+    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, Misses, NamedText,
+    Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce, PolicySetting, ProjectNow, Queued, Reading,
+    Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
+    Said, Session, Shown, Spend, StateVersion, Tag, ToolRun, Understanding, Waits, Wake, WorkDetail, WorkSession,
+    WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1940,7 +1940,8 @@ fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
 }
 
 /// The matters a project's architect has not handled: those in its queue, in the order they came; then those an ask of
-/// the owner holds.
+/// the owner holds. A place to set straight comes with the place, and a design card to look at with how the card
+/// stands.
 fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
     let mut st = conn.prepare(
         "SELECT m.id, m.kind, m.detail, m.what,
@@ -1948,9 +1949,12 @@ fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
                 WHEN m.kind = 'owner_words' THEN 'owner' ELSE 'engine' END,
            m.item, i.title, m.work, m.round, m.at, m.asked, m.resume_cell,
            m.asked IS NOT NULL AND EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
-           q.waits, q.waited_ms, coalesce(json_extract(m.body, '$.urgent'), 0)
+           q.waits, q.waited_ms, coalesce(json_extract(m.body, '$.urgent'), 0),
+           CASE WHEN m.kind = 'set_straight' THEN json_extract(m.body, '$.fix') END,
+           d.id, d.status, d.rulings, d.replaced_by
          FROM architect_matters m LEFT JOIN architect_queue q ON q.matter = m.id
          LEFT JOIN items i ON i.id = m.item LEFT JOIN works w ON w.id = m.work
+         LEFT JOIN design_cards d ON m.kind = 'design_card' AND d.id = json_extract(m.body, '$.design_card')
          WHERE m.project = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL
          ORDER BY CASE WHEN q.matter IS NOT NULL THEN 0 ELSE 1 END, m.id",
     )?;
@@ -1972,6 +1976,16 @@ fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
             waits: r.get(13)?,
             waited_ms: r.get(14)?,
             urgent: r.get::<_, i64>(15)? != 0,
+            fix: json(r.get(16)?),
+            card: match r.get::<_, Option<i64>>(17)? {
+                Some(id) => Some(MatterCard {
+                    id,
+                    status: r.get(18)?,
+                    rulings: json(r.get(19)?).unwrap_or(Value::Null),
+                    replaced_by: r.get(20)?,
+                }),
+                None => None,
+            },
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -3158,6 +3172,53 @@ mod tests {
         assert!(
             sources.contains(&("message", false)) && sources.contains(&("question", true)),
             "{sources:?}"
+        );
+    }
+
+    // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card
+    // to look at with how the card stands; every other matter with neither.
+    #[test]
+    fn the_queue_says_the_place_to_set_straight_and_how_a_card_stands() {
+        let mut s = architect_setup("queue_words");
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run(
+                "INSERT INTO design_cards (work, round, body, status, rulings)
+                 VALUES (1, 1, '{}', 'ruled', '[{\"by\":\"owner\",\"decisions\":[{\"decision\":1,\"verdict\":\"confirm\"}]}]')",
+                &[],
+            )?;
+            run(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at) VALUES
+                 ('p', 'set_straight', 'dependencies', 'Set #1 straight',
+                  '{\"fix\":{\"where\":\"#1\",\"wrong\":\"It waits for #2.\",\"steps\":[\"Drop the link.\"]}}', 240),
+                 ('p', 'design_card', NULL, 'Look at card 1', '{\"design_card\":1}', 250)",
+                &[],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let q = queue(s.db.conn(), "p").unwrap();
+        let fix = q.iter().find(|m| m.kind == "set_straight").unwrap();
+        assert_eq!(
+            fix.fix,
+            Some(json!({ "where": "#1", "wrong": "It waits for #2.", "steps": ["Drop the link."] }))
+        );
+        assert_eq!(fix.card, None);
+        let card = q.iter().find(|m| m.kind == "design_card").unwrap();
+        assert_eq!(card.fix, None);
+        assert_eq!(
+            card.card,
+            Some(MatterCard {
+                id: 1,
+                status: "ruled".into(),
+                rulings: json!([{ "by": "owner", "decisions": [{ "decision": 1, "verdict": "confirm" }] }]),
+                replaced_by: None,
+            })
+        );
+        assert!(
+            q.iter()
+                .filter(|m| m.kind == "owner_words")
+                .all(|m| m.fix.is_none() && m.card.is_none())
         );
     }
 

@@ -79,6 +79,7 @@ pub fn typescript() -> String {
         decl::<Wake>(&cfg),
         decl::<Queued>(&cfg),
         decl::<Matter>(&cfg),
+        decl::<MatterCard>(&cfg),
         decl::<DispatchHold>(&cfg),
         decl::<Said>(&cfg),
         decl::<Handled>(&cfg),

@@ -1118,7 +1118,22 @@ waits: string | null, waited_ms: number | null,
 /**
  * Whether the report it holds was marked urgent.
  */
-urgent: boolean, };
+urgent: boolean, 
+/**
+ * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+ * steps to set it straight); none for a matter of another kind.
+ */
+fix: JsonValue | null, 
+/**
+ * For a design card to look at: how the card stands.
+ */
+card: MatterCard | null, };
+
+/**
+ * How the design card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
+ * architect's alike; and the card that replaced it.
+ */
+export type MatterCard = { id: number, status: string, rulings: JsonValue, replaced_by: number | null, };
 
 /**
  * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its

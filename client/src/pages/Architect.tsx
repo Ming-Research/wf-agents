@@ -37,6 +37,10 @@ import type {
 import {
   architectState,
   askTab,
+  cardWords,
+  matterKind,
+  matterSentence,
+  matterSteps,
   observationsShown,
   outcomes,
   overWake,
@@ -50,7 +54,7 @@ import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
 import { Labelled, words } from '../labelled';
-import { Markdown } from '../markdown';
+import { Markdown, MarkdownInline } from '../markdown';
 import { reread, useResource, useStatus } from '../live';
 import {
   type ArchitectRoute,
@@ -327,8 +331,8 @@ function WakeList({ a, shown, tab, project, onClose }: {
           </thead>
           <tbody>
             {a.wakes.map((x) => {
-              const why = [...new Set(x.woke_for.map((m) => words(m.kind)))].join(', ');
-              const whyAll = x.woke_for.map((m) => `${words(m.kind)}${m.detail !== null ? ` (${words(m.detail)})` : ''}: ${m.what}`);
+              const why = [...new Set(x.woke_for.map((m) => matterKind(m.kind, null)))].join(', ');
+              const whyAll = x.woke_for.map((m) => `${matterKind(m.kind, m.detail)}: ${m.what}`);
               return (
                 <tr
                   key={x.work.id}
@@ -371,35 +375,49 @@ const SOURCES: Record<string, Key> = {
   engine: 'source_engine',
 };
 
-/// One matter in an architect's queue, as a block: its kind, and what more its kind says, as a chip coloured by who
-/// raised it; what it is; whether it is urgent; then its item; and who waits for it and how long; or the ask that holds
-/// it, or that the owner answered, so that it goes back to the cell that asked.
+/// One matter in an architect's queue, as a block: first, in one sentence, what is to be done; its kind in words, and
+/// what more its kind says where that helps, as a chip coloured by who raised it; whether it is urgent; then, for a
+/// place to set straight, its steps one per line, whole; for a design card, where the card stands; its item; who waits
+/// for it and how long, only while someone does (an engineer stopped for its question, or the owner, for the owner's
+/// words); and the ask that holds it, or that the owner answered, so that it goes back to the cell that asked.
 function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: number) => void }) {
   const since = duration(Math.max(0, now - m.at));
+  const steps = matterSteps(m);
   const head = (
     <>
+      <span className="arch-matter-what">
+        <MarkdownInline text={matterSentence(m)} />
+      </span>
       <span
         className={`badge kind src-${m.source}`}
         title={SOURCES[m.source] !== undefined ? t(SOURCES[m.source]) : undefined}
       >
-        {words(m.kind)}
-        {m.detail !== null ? ` · ${words(m.detail)}` : ''}
+        {matterKind(m.kind, m.detail)}
       </span>
       {m.urgent ? <span className="badge verdict-bad">{t('matter_urgent')}</span> : null}
-      <span className="arch-matter-what">{m.what}</span>
     </>
   );
   return (
     <Block id={`matter-${m.id}`} head={head}>
+      {steps.length > 0 ? (
+        <ol className="arch-list">
+          {steps.map((x, i) => (
+            <li key={i}>
+              <MarkdownInline text={x} />
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {m.card !== null ? <p className="block-field">{cardWords(m.card)}</p> : null}
       <div className="block-meta">
         {m.item !== null ? <ItemRef id={m.item} title={m.title} /> : null}
         {m.waits === 'agent' && m.work !== null ? (
           <span>
-            <Link to={workHref(m.work)}>{t('work_title', { id: m.work })}</Link> {t('matter_waits_agent', { for: since })}
+            <Link to={workHref(m.work)}>{t('matter_engineer_of', { id: m.work })}</Link>{' '}
+            {t('matter_has_waited', { for: since })}
           </span>
         ) : null}
-        {m.waits === 'owner' ? <span>{t('matter_waits_owner', { for: since })}</span> : null}
-        {m.waits === 'none' ? <span>{t('matter_waits_none', { for: since })}</span> : null}
+        {m.waits === 'owner' ? <span>{t('matter_you_waited', { for: since })}</span> : null}
         {m.asked !== null ? (
           <button type="button" className="link" onClick={() => onAsk(m.asked ?? 0)}>
             {t(m.answered ? 'matter_answered' : 'matter_held_ask', { id: m.asked, cell: m.resume_cell ?? '' })}
@@ -415,11 +433,8 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
 function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; onTab: (tab: ArchitectTab) => void }) {
   const head = (
     <>
-      <span className="badge">
-        {words(h.kind)}
-        {h.detail !== null ? ` · ${words(h.detail)}` : ''}
-      </span>
       <span className="arch-matter-what">{h.what}</span>
+      <span className="badge">{matterKind(h.kind, h.detail)}</span>
     </>
   );
   return (

@@ -1,5 +1,6 @@
 // What an architect's page works out from what the interface reads, apart from drawing it: the wake it shows, how the
-// architect stands, its queue in parts, what became of each matter handled, why the owner's words still wait for it,
+// architect stands, its queue in parts, each matter in words the owner reads at a glance, what became of each matter
+// handled, why the owner's words still wait for it,
 // the observations the owner looks for, the articles of the constitution in the order the owner reads them, and what
 // an answer to an ask of the architect's sends.
 
@@ -8,13 +9,14 @@ import type {
   Handled,
   JsonValue,
   Matter,
+  MatterCard,
   Observation,
   OwnerAsk,
   Status,
   Wake,
   WorkSummary,
 } from './api';
-import { isObj, str, type Obj } from './labelled';
+import { isObj, str, words, type Obj } from './labelled';
 import { type Key, t } from './messages';
 import type { ArchitectTab } from './route';
 
@@ -32,6 +34,91 @@ export function shownWake(wakes: Wake[], named: number | null): Wake | null {
 export function queueParts(queue: Matter[]): { waiting: Matter[]; held: Matter[] } {
   const held = (m: Matter) => m.asked !== null && !m.answered;
   return { waiting: queue.filter((m) => !held(m)), held: queue.filter(held) };
+}
+
+/// The kinds of matter, as what is to be done.
+const MATTER_KINDS: Record<string, Key> = {
+  set_straight: 'matter_kind_set_straight',
+  engineer_question: 'matter_kind_engineer_question',
+  report: 'matter_kind_report',
+  design_card: 'matter_kind_design_card',
+  failure: 'matter_kind_failure',
+  owner_words: 'matter_kind_owner_words',
+  other_architect: 'matter_kind_other_architect',
+  slots_free: 'matter_kind_slots_free',
+};
+
+/// The kinds of a place to set straight, as the flow means them.
+const STRAIGHT: Record<string, Key> = {
+  off_policy: 'straight_off_policy',
+  drifted: 'straight_drifted',
+  split: 'straight_split',
+  dependencies: 'straight_dependencies',
+  duplicate: 'straight_duplicate',
+  order: 'straight_order',
+  missing: 'straight_missing',
+  mismatch: 'straight_mismatch',
+};
+
+/// The kinds of a failure.
+const FAILURES: Record<string, Key> = {
+  tool_failed: 'failure_tool_failed',
+  environment_changed: 'failure_environment_changed',
+};
+
+/// The kind of a matter in words, as what is to be done, and what more its kind says where that helps: the kind of a
+/// place to set straight, of a failure and of an engineer's question.
+export function matterKind(kind: string, detail: string | null): string {
+  const key = MATTER_KINDS[kind];
+  const name = key !== undefined ? t(key) : words(kind);
+  if (detail === null) return name;
+  const of = (keys: Record<string, Key>) => (keys[detail] !== undefined ? t(keys[detail]) : words(detail));
+  const more =
+    kind === 'set_straight' ? of(STRAIGHT) : kind === 'failure' ? of(FAILURES) : kind === 'engineer_question' ? words(detail) : null;
+  return more !== null ? t('matter_kind_more', { kind: name, more }) : name;
+}
+
+/// What a matter asks to be done, in one sentence: for a place to set straight, where it is and what is wrong there, as
+/// the check of what runs found it; for every other, what the engine wrote of it.
+export function matterSentence(m: Matter): string {
+  const fix = isObj(m.fix) ? m.fix : null;
+  const where = fix !== null ? str(fix.where) : '';
+  if (fix === null || where === '') return m.what;
+  const wrong = str(fix.wrong);
+  return wrong !== '' ? `${where}: ${wrong}` : where;
+}
+
+/// The steps a place to set straight is to be set straight by, in order, each whole.
+export function matterSteps(m: Matter): string[] {
+  const fix = isObj(m.fix) ? m.fix : null;
+  return fix !== null && Array.isArray(fix.steps) ? fix.steps.map((x) => str(x)).filter((x) => x !== '') : [];
+}
+
+/// Where the design card a matter is about stands, in words: waiting for a ruling; replaced, by which card; or ruled,
+/// confirmed, or disagreed with, by whom and on which decisions and why.
+export function cardWords(c: MatterCard): string {
+  if (c.status === 'open') return t('matter_card_waits', { id: c.id });
+  if (c.status === 'replaced') {
+    return c.replaced_by !== null
+      ? t('matter_card_replaced', { id: c.id, by: c.replaced_by })
+      : t('matter_card_replaced_none', { id: c.id });
+  }
+  const rulings = Array.isArray(c.rulings) ? c.rulings.filter(isObj) : [];
+  const last = rulings[rulings.length - 1];
+  if (last === undefined) return t('matter_card_ruled', { id: c.id });
+  const who = str(last.by) === 'owner' ? t('matter_card_you') : str(last.by);
+  const each = Array.isArray(last.decisions) ? last.decisions.filter(isObj) : null;
+  const why = (text: string) => (text !== '' ? `: ${text}` : '');
+  const against =
+    each !== null
+      ? each
+          .filter((d) => str(d.verdict) === 'disagree')
+          .map((d) => `${t('matter_card_decision', { n: str(d.decision) })}${why(str(d.text))}`)
+      : str(last.verdict) === 'disagree'
+        ? [t('matter_card_whole') + why(str(last.text))]
+        : [];
+  if (against.length === 0) return t('matter_card_confirmed', { id: c.id, who });
+  return t('matter_card_disagreed', { id: c.id, who, what: against.join('; ') });
 }
 
 export type ArchitectState =
