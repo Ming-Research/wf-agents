@@ -2282,6 +2282,14 @@ fn a_passing_failure_runs_again_until_it_passes() {
     assert_eq!(paused, None, "{log}");
     assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
     assert_eq!(sent_back(&e), 0);
+    // The round after a failed run is told its kind only, never what the command line reported, which may quote the
+    // run's own return.
+    let (work, _, _) = state(&e, item).unwrap();
+    let again = message_at(&e, work, "R1", true);
+    assert!(
+        again.contains("ended without a return (transient)") && !again.contains("529"),
+        "{again}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -5089,6 +5097,251 @@ fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     .collect();
     assert_eq!(rejected.len(), 1, "{rejected:?}");
     assert!(rejected[0].contains("not used again: y, z"), "{rejected:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The scripted writing of a policy whose one principle has one probe, `x`, which a scripted reader answers.
+fn writes_a_policy() -> Script {
+    Box::new(|_: &Request, _: usize| {
+        let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
+                             "principles": [{ "no": 1, "text": "Parse before checking." }],
+                             "signals": [{ "what": "Speed", "how": "merged" }] });
+        let probes = json!([{ "id": "x", "ask": "What comes first?", "principles": [1], "expect": "Principle 1." }]);
+        (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
+    })
+}
+
+/// The rows a work's rounds at a cell took, oldest first; a round that took none is left out.
+fn rows_at(e: &Engine, work: i64, cell: &str) -> Vec<String> {
+    cells_of(e, work)
+        .into_iter()
+        .filter(|c| c.0 == cell)
+        .filter_map(|c| c.1)
+        .collect()
+}
+
+/// The ask of the owner to approve a policy a wake put, not answered yet.
+fn approval_asked(e: &Engine, wake: i64) -> Option<i64> {
+    e.db.conn()
+        .query_row(
+            "SELECT id FROM owner_asks WHERE work = ?1 AND answer IS NULL
+               AND json_extract(body, '$.kind') = 'policy_approval'",
+            [wake],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+// A reading that answers every probe rightly passes, though wording should change that the reader read rightly anyway:
+// the engine puts the minor fix into the text without a new reading, and the reading counts towards the two passes.
+#[test]
+fn a_minor_fix_a_reading_finds_is_put_in_without_a_new_reading() {
+    let s = setup("minor-fix");
+    let mut agents = scripts();
+    agents.insert("P4", writes_a_policy());
+    agents.insert(
+        "P7",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let edits = json!([{ "old": "Ship the parser.", "new": "Ship the parser first." }]);
+            (
+                vec![("outcome.verdict", "minor_fix")],
+                vec![("outcome.verdict.edits", edits), ("outcome.verdict.gaps", json!([]))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "P4");
+    for _ in 0..20 {
+        if e.work(wake).unwrap().pos.at == "P11" {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(e.work(wake).unwrap().pos.at, "P11", "{log}\n{:?}", cells_of(&e, wake));
+    assert_eq!(rows_at(&e, wake, "P7"), ["minor_fix", "understood"], "{log}");
+    assert_eq!(
+        rows_at(&e, wake, "P5"),
+        ["new_session", "fixed", "new_session"],
+        "{log}"
+    );
+    assert_eq!(rows_at(&e, wake, "P9"), ["one_more", "two_passed"], "{log}");
+    assert_eq!(rows_at(&e, wake, "P6").len(), 2, "{log}");
+    let text: Vec<Value> = engine::query_json(
+        e.db.conn(),
+        "SELECT policy FROM policy_text WHERE work = ?1",
+        &[&wake],
+        1,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["policy"]["direction"].clone())
+    .collect();
+    assert_eq!(text, [json!("Ship the parser first.")]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Once the text was corrected three times since it was written, a reading that leaves gaps goes on with them to the
+// check of the draft and to the owner, who may send the text back for one more correction without a new study; the
+// correction is given the owner's words, and the next reading that leaves gaps goes to the owner again.
+#[test]
+fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
+    let s = setup("text-limit");
+    let mut agents = scripts();
+    agents.insert("P4", writes_a_policy());
+    agents.insert(
+        "P7",
+        Box::new(|_: &Request, _: usize| {
+            let gaps = json!([{ "what": "Principle 1", "seen": "Two readers asked what it weighs.",
+                               "missing": "What it weighs." }]);
+            (
+                vec![("outcome.verdict", "gaps")],
+                vec![
+                    ("outcome.verdict.gaps", gaps),
+                    ("outcome.verdict.wrong_probes", json!(["y"])),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "P8",
+        Box::new(|_: &Request, n: usize| {
+            let old = if n == 1 {
+                "Parse before checking.".to_string()
+            } else {
+                format!("Parse before checking, {}.", n - 1)
+            };
+            let edits = json!([{ "kind": "change", "old": old, "new": format!("Parse before checking, {n}.") }]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.revision.edits", edits),
+                    ("outcome.revision.kept", json!(["x"])),
+                    ("outcome.revision.probes", json!([])),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "P4");
+    for _ in 0..40 {
+        if approval_asked(&e, wake).is_some() {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let ask = approval_asked(&e, wake).unwrap_or_else(|| panic!("{log}\n{:?}", cells_of(&e, wake)));
+    assert_eq!(rows_at(&e, wake, "P7"), ["gaps", "gaps", "gaps", "gaps_left"], "{log}");
+    assert_eq!(
+        rows_at(&e, wake, "P8"),
+        ["corrected", "corrected", "corrected"],
+        "{log}"
+    );
+    assert_eq!(rows_at(&e, wake, "P10"), ["holds"], "{log}");
+    // The probe kept by name stays the version's.
+    let probes: Vec<Value> = engine::query_json(
+        e.db.conn(),
+        "SELECT probes FROM policy_draft WHERE work = ?1",
+        &[&wake],
+        1,
+    )
+    .unwrap()
+    .iter()
+    .flat_map(|r| r["probes"].as_array().cloned().unwrap_or_default())
+    .map(|p| p["id"].clone())
+    .collect();
+    assert_eq!(probes, [json!("x")]);
+    let fix = api::Answer {
+        text: "Say what principle 1 weighs.".into(),
+        why: None,
+        reply: None,
+        choice: Some("fix_text".into()),
+    };
+    api::answer(&mut e.db, ask, &fix).unwrap();
+    for _ in 0..20 {
+        if approval_asked(&e, wake).is_some() {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert!(approval_asked(&e, wake).is_some(), "{log}\n{:?}", cells_of(&e, wake));
+    assert_eq!(rows_at(&e, wake, "P11"), ["fix_text"], "{log}");
+    assert_eq!(rows_at(&e, wake, "P8").len(), 4, "{log}");
+    assert_eq!(
+        rows_at(&e, wake, "P7").last().map(String::as_str),
+        Some("gaps_left"),
+        "{log}"
+    );
+    let corrected = message_at(&e, wake, "P8", true);
+    assert!(corrected.contains("Say what principle 1 weighs."), "{corrected}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return sent back at a cell on no line, whose every round is a new session, is given the whole message again, and
+// why the return before it was sent back.
+#[test]
+fn a_new_session_after_a_return_sent_back_is_told_why() {
+    let s = setup("sent-back-anew");
+    let mut agents = scripts();
+    agents.insert("P4", writes_a_policy());
+    agents.insert(
+        "P6",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return (Vec::new(), vec![("outcome.reading.answers", json!([]))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "P4");
+    for _ in 0..10 {
+        if rows_at(&e, wake, "P6").len() == 1 {
+            break;
+        }
+        e.step_work(wake).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, wake, "P6").len(), 1, "{log}\n{:?}", cells_of(&e, wake));
+    let again = message_at(&e, wake, "P6", true);
+    assert!(
+        again.contains("was sent back: ") && again.contains("## Work from"),
+        "{again}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The study of a new policy is given the project's design goal, the owner's own words on where it goes, beside the
+// constitution, as a wake of the architect is given its project's settings.
+#[test]
+fn the_study_of_a_new_policy_is_given_the_design_goal() {
+    let s = setup("study-goal");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "P2");
+    let state = json!({ "outcome": { "state": [{ "line": "l", "where": "w", "stuck": "no", "recent": "r",
+                                                 "grounds": "g" }], "changed": "c", "unclear": [] },
+                        "progress": "Understood.", "tell_owner": [] });
+    let again = json!({ "outcome": { "against": [], "verdict": { "verdict": "set_again",
+                        "reasons": [{ "kind": "no_policy", "seen": "s", "why": "w" }] } },
+                        "progress": "Set again.", "tell_owner": [] });
+    e.db.write(Actor::Engine, |tx| {
+        record_round(tx, wake, 1, "U1", &state, "understood")?;
+        record_round(tx, wake, 2, "P1", &again, "set_again")
+    })
+    .unwrap();
+    let m = engine::next_message(&mut e, wake).unwrap().text;
+    let goal = work_from(&m).into_iter().nth(2).unwrap_or_default();
+    assert!(goal.starts_with("3. ") && !goal.ends_with("none"), "{goal}\n{m}");
+    assert!(m.contains("simple"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -234,6 +234,11 @@ impl Context<'_> {
         if r.cell.as_deref() != Some(self.cell.id.as_str()) || r.transition.is_some() || self.held.rounds.is_empty() {
             return None;
         }
+        self.reason_sent_back(r)
+    }
+
+    /// Why a round's return was sent back; none for a round that was not, cut off or ended without a return included.
+    fn reason_sent_back(&self, r: &Round) -> Option<(RoundId, String)> {
         let rej = r.rejected.as_ref()?;
         if ["interrupted", "failed", "error"].iter().any(|k| rej.get(k).is_some()) {
             return None;
@@ -269,9 +274,20 @@ impl Context<'_> {
                         "{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
-                } else if let Some(f) = rej.get("failed").or(rej.get("error")) {
-                    let what = f.get("what").and_then(Value::as_str).or(f.as_str()).unwrap_or_default();
-                    out.push(format!("{} ended without a return ({what}): do its work again.", r.id));
+                } else if let Some(f) = rej.get("failed") {
+                    // Only the kind: what the command line reported may quote the run's own return, which a new
+                    // session, such as a reader that must see only the text, is never shown.
+                    let kind = f.get("kind").and_then(Value::as_str).unwrap_or("failed");
+                    out.push(format!("{} ended without a return ({kind}): do its work again.", r.id));
+                } else if let Some(why) = rej.get("error").and_then(Value::as_str) {
+                    out.push(format!("{} ended without a return ({why}): do its work again.", r.id));
+                } else if let Some((_, reason)) = self.reason_sent_back(r) {
+                    // A return sent back whose session does not go on, as a cell on no line's: the new session is
+                    // given the whole message, and why the return before was sent back.
+                    out.push(format!(
+                        "The return of {} was sent back: {reason} Hand in this round's so that it fits.",
+                        r.id
+                    ));
                 }
             }
             Some(r) => {

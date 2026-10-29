@@ -258,6 +258,31 @@ pub fn gather(
     Ok(out)
 }
 
+/// The cell `@from` points at for a place `path`: the cell the work came from, unless that is one of the cells every
+/// agent's cell shares that answer the cell that went to them (the tools, the search, the owner asked, the wait for the
+/// owner's Start) and its returns hold nothing at the path, when it is the cell before them, as the work's rounds have
+/// it, which the row that brought the work to its cell came from: a round after the tools still reads what that cell
+/// handed in, and the tools' results are still read from the tools.
+fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Option<String>, String> {
+    let shared = |id: &str| g.cells.iter().any(|c| c.rows.iter().any(|r| r.common && r.to == id)) && g.is_called(id);
+    let Some(from) = w.pos.from.as_deref() else {
+        return Ok(None);
+    };
+    let holds = returns_holding(e, w, g, from, path)?
+        .iter()
+        .any(|(_, ret)| at_path(ret, path).is_some());
+    if !shared(from) || holds {
+        return Ok(Some(from.to_string()));
+    }
+    let at = w.pos.at.as_str();
+    Ok(work::rounds(e.db.conn(), w.id)?
+        .iter()
+        .rev()
+        .filter_map(|r| r.cell.as_deref())
+        .find(|c| *c != at && !shared(c))
+        .map(str::to_string))
+}
+
 /// What one source of an input gives: none when it has nothing.
 fn source(
     e: &Engine,
@@ -269,10 +294,10 @@ fn source(
 ) -> Result<Option<Part>, String> {
     Ok(match s {
         Src::Place(c, p) => {
-            let id = if c.starts_with('@') {
-                w.pos.pointer(c).map(str::to_string)
-            } else {
-                Some(c.clone())
+            let id = match c.as_str() {
+                "@from" => came_from(e, w, g, p)?,
+                _ if c.starts_with('@') => w.pos.pointer(c).map(str::to_string),
+                _ => Some(c.clone()),
             };
             let Some(id) = id else { return Ok(None) };
             let held = returns_holding(e, w, g, &id, p)?;
@@ -302,8 +327,10 @@ fn source(
             })
         }
         Src::Itself => None,
+        // A setting of the item's project, or for a wake of an architect, of the wake's.
         Src::Config(n) => {
-            let project = item.and_then(|i| e.config.config.projects.get(&i.project));
+            let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+            let project = named.and_then(|p| e.config.config.projects.get(p));
             project
                 .and_then(|p| p.setting(n))
                 .filter(|v| !v.is_null())
@@ -327,12 +354,20 @@ fn source(
         Src::Db { relation, by } => {
             let rows = db_rows(e, w, item, relation, by.as_deref())?;
             // The interjections an agent is given are those for its own line.
-            let rows: Vec<Value> = match (relation.as_str(), &cell.line) {
+            let mut rows: Vec<Value> = match (relation.as_str(), &cell.line) {
                 ("waiting_interjections", Some(line)) => {
                     rows.into_iter().filter(|r| r["line"] == line.as_str()).collect()
                 }
                 _ => rows,
             };
+            // Rows read for the work are its own: the work they are read by is the engine's bookkeeping, not given.
+            if by.as_deref() == Some("work") {
+                for r in &mut rows {
+                    if let Some(o) = r.as_object_mut() {
+                        o.remove("work");
+                    }
+                }
+            }
             if rows.is_empty() && relation == "waiting_interjections" {
                 None
             } else {

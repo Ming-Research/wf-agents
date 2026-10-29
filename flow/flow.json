@@ -2686,8 +2686,8 @@
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
       "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
-      "count_trials": "Counts how many new sessions in a row read this version of the policy's text and were judged to understand it: two pass it, one asks for another.",
-      "put_draft_together": "Puts this version of the policy's text together, for a new architect to read, and records it: as the architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.",
+      "count_trials": "Counts how many new sessions in a row read this version of the policy's text and answered every probe rightly, a minor fix found in between included: two pass it, one asks for another.",
+      "put_draft_together": "Puts this version of the policy's text and probes together, for a new architect to read, and records them: as the architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with the fix's edits applied.",
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
@@ -2775,9 +2775,9 @@
       "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card, the return is a redirect, not answers.",
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
-      "edits_apply": "Each passage a correction changes is in the text, as the edits before it leave it, exactly once, and each principle or signal it removes is there; the engine applies none until all apply.",
+      "edits_apply": "Each passage a correction or a minor fix changes is in the text, as the edits before it leave it, exactly once, and each principle or signal it removes is there; the engine applies none until all apply.",
       "policy_text_clean": "The policy, as a correction's edits leave it, quotes none of the owner's words, and holds none of the probes; it names no cell of the flow, no item and no date the owner said something.",
-      "failed_probes_gone": "No probe a new architect answered wrongly, as the judgment of its reading lists them, is among the probes.",
+      "failed_probes_gone": "No probe a new architect answered wrongly, as the judgment of its reading lists them, is among the probes a correction keeps or writes.",
       "reading_complete": "Every principle of the policy is restated, and every probe is answered.",
       "picked_pickable": "The matter picked is one of those that can be picked now.",
       "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
@@ -2786,7 +2786,8 @@
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
       "rethink_when_asked": "When the owner asked in this batch to rethink the policy, the answer is think_again.",
-      "probes_cover_principles": "Every probe names principles the text has, and every principle has a probe."
+      "probes_cover_principles": "Every probe names principles the text has, and every principle has a probe; of a correction, the probes it keeps with those it writes.",
+      "probes_kept": "Every probe a correction keeps is a probe of this version, and none it keeps is written out again."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -2817,7 +2818,7 @@
       "state_of_things": "The state of things as the architect last wrote it, with what it learned and noted since: when the wake's understanding wrote it, as that round handed it in.",
       "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the wake said the policy in force stays.",
       "draft_text": "The text of the policy being set, as the round that wrote it handed it in, or as the engine put it together with the corrections since.",
-      "draft_probes": "The probes of the policy being set, with the answers held right, as the round that last wrote or corrected them handed them in.",
+      "draft_probes": "The probes of the policy being set, with the answers held right: as the round that wrote them handed them in, or as the engine put them together with the corrections since.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
@@ -2845,7 +2846,9 @@
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, or flow feedback.",
       "start": "What holds an item back from starting, if anything.",
       "turn": "Whether the work is first in its project's merge queue.",
-      "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet."
+      "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet.",
+      "corrections": "How many times the text of the policy being set was corrected since it was written: fewer than three, or three, the flow's own limit, at which the gaps a reading leaves go on with the draft to the owner.",
+      "next_reading": "Whether a new architect reads the text put together, or it was put together for a minor fix a reading found, and the reading just judged counts."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
@@ -2930,7 +2933,8 @@
           "policy_draft",
           "policy_text",
           "policy_probes_asked",
-          "policy_trials"
+          "policy_trials",
+          "policy_readings"
         ],
         "inputs": [
           "policy",
@@ -3453,6 +3457,18 @@
       "look_at_queue": {
         "stores": [
           "architect_queue"
+        ]
+      },
+      "corrections": {
+        "says": "the corrections since the text was written",
+        "stores": [
+          "policy"
+        ]
+      },
+      "next_reading": {
+        "says": "the cell the text is put together after",
+        "stores": [
+          "place"
         ]
       }
     }
@@ -10608,7 +10624,11 @@
           },
           {
             "name": "text_revisions",
-            "desc": "The times a new architect did not understand through, and the text was corrected and read again"
+            "desc": "The times the text was corrected and read again: after a reading that answered a probe wrongly, the check that it would need setting again at once, or the owner's word to fix it; once it was corrected three times since it was written, a reading that leaves gaps goes on with them to the owner instead"
+          },
+          {
+            "name": "minor_fixes",
+            "desc": "The times a reading answered every probe rightly and found wording to fix, which the engine put into the text without a new reading"
           },
           {
             "name": "trial_reads",
@@ -14266,6 +14286,15 @@
               "maybe": true
             },
             {
+              "what": "The project's design goal, as its configuration says it: the owner's own words on where the project goes and what it values",
+              "from": [
+                {
+                  "config": "design_goal"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
               "from": [
                 {
@@ -14314,7 +14343,7 @@
           ],
           "prompt": [
             "This round studies the direction of a new policy: every other matter of this project waits until the policy is set. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
-            "First find out which direction the owner wants and what for; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. Answer: how the things concerned stand now, with numbers where there are numbers; what a new direction touches, and how; at least three directions to choose from, each with where it takes the project and what follows from it, never an order of work; which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
+            "First find out which direction the owner wants and what for, starting from the owner's own words in the project's design goal and from the constitution; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. Answer: how the things concerned stand now, with numbers where there are numbers; what a new direction touches, and how; at least three directions to choose from, each with where it takes the project and what follows from it, never an order of work; which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
             "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions.",
             "Questions for the owner go in the study's questions, which the owner answers as it reads the study; hand in ask only for what the study cannot go on without."
           ],
@@ -14472,6 +14501,15 @@
                   "ruling"
                 ]
               ]
+            },
+            {
+              "what": "The project's constitution: its lasting values, from which every decision in it comes, which the text rests on; none when the project has none",
+              "from": [
+                {
+                  "engine": "constitution"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -14536,10 +14574,13 @@
             {
               "name": "draft",
               "type": "obj",
-              "desc": "This version of the text, as a new architect reads it",
+              "desc": "This version of the text and its probes, as a new architect reads them",
               "fields": [
                 {
                   "$ref": "policy"
+                },
+                {
+                  "$ref": "policy_probes"
                 }
               ]
             }
@@ -14549,7 +14590,11 @@
               "name": "new_session",
               "if": [
                 [
-                  "all"
+                  "inp",
+                  "next_reading",
+                  [
+                    "new_reader"
+                  ]
                 ]
               ],
               "to": "P6",
@@ -14558,7 +14603,36 @@
               "do": [
                 "open_session"
               ]
+            },
+            {
+              "name": "fixed",
+              "if": [
+                [
+                  "inp",
+                  "next_reading",
+                  [
+                    "no_new_reading"
+                  ]
+                ]
+              ],
+              "to": "P9",
+              "note": "A minor fix a reading found is put into the text, and the reading just judged counts: no new architect reads the text for it."
             }
+          ],
+          "inenums": {
+            "next_reading": [
+              [
+                "new_reader",
+                "A new architect reads the text: it was written or corrected, or another reading is needed"
+              ],
+              [
+                "no_new_reading",
+                "The text was put together for a minor fix a reading found: that reading counts as passed"
+              ]
+            ]
+          },
+          "shown": [
+            "draft"
           ]
         },
         {
@@ -14698,12 +14772,21 @@
           ],
           "inputs": [
             {
-              "what": "What the new architect handed in: the restatement, the questions and the answers to the probes",
+              "what": "The reading to judge: what the new architect just handed in, its restatement, its questions and its answers to the probes",
               "from": [
                 [
                   "P6",
                   "reading"
                 ]
+              ]
+            },
+            {
+              "what": "Every reading of this version so far by a new architect, oldest first, each with its restatement, questions and answers, and your judgment of each before this one",
+              "from": [
+                {
+                  "db": "policy_readings",
+                  "by": "work"
+                }
               ]
             },
             {
@@ -14719,46 +14802,130 @@
             }
           ],
           "prompt": [
-            "A new architect who took no part in the study or the discussion read only the text. Look at three things: whether its restatement says what you understand; whether the text answers what it asked, and if not, the text left it out; whether its answers to the probes are whole and judge rightly, and when they judge rightly, for the right reason. Where it said something off, left something out or judged wrongly, or asked what the text does not answer, something is missing: say where, what it said, and what the text lacks; list in wrong_probes only the probes it answered wrongly. A question the constitution or the architect's rules answer, or that the policy rightly leaves to the architect's judgment, is no gap. A text that oversteps what a policy governs, or names items, an order of work, holds or numbers the owner did not give, has a gap there too, however the reading went."
+            "A new architect who took no part in the study or the discussion read only the text. A reading passes when it answers every probe rightly, and for the right reason; it fails only when it answers a probe wrongly or could not answer one. Its restatement and its questions do not fail it: look at whether the restatement says what you understand, and at its questions beside those of every reading of this version.",
+            "A question is a gap of the text when two or more readers of this version asked it, or when it led a reader to a wrong answer; one that a single reader asked, or that the constitution, the architect's rules or the policy rightly leaves to the architect's judgment, is none. A text that oversteps what a policy governs, or names items, an order of work, holds or numbers the owner did not give, has a gap there too.",
+            "Hand in understood when every probe is answered rightly, with the gaps the questions show, which the next correction fixes: they neither fail the reading nor undo the readings passed before it. Hand in minor_fix instead when some wording should also change that the reader read rightly anyway, such as a bare number that does not say whether it is a principle's or an article's: give the edits, which the engine puts into the text, and the reading still counts as passed. Hand in gaps when a probe was answered wrongly or not answered: where the text lacks something, and which probes, which are not used again."
           ],
           "out": [
             {
               "name": "verdict",
               "type": "union",
               "by": "verdict",
-              "desc": "Whether the new architect understood",
+              "desc": "Whether the reading passes, and what of the text to fix",
               "branches": [
                 {
                   "value": "understood",
-                  "desc": "The restatement is right, the text answers all it asked, and every probe is judged rightly",
+                  "desc": "Every probe is answered rightly, for the right reason: the reading passes",
                   "fields": [
                     {
                       "name": "why",
                       "type": "text",
                       "desc": "On what grounds you say it understood"
-                    }
-                  ]
-                },
-                {
-                  "value": "gaps",
-                  "desc": "Something was said off, left out or judged wrongly, or the text does not answer what it asked",
-                  "fields": [
+                    },
                     {
                       "name": "gaps",
                       "type": "list",
-                      "desc": "One per row",
+                      "desc": "The gaps of the text the questions show, which do not fail the reading: each question two or more readers of this version asked, or one that led a reader wrong; the next correction fixes them; an empty list when there are none",
                       "item": {
                         "type": "obj",
                         "fields": [
                           {
                             "name": "what",
                             "type": "text",
-                            "desc": "Which part of the text, which principle, which probe, or which of its questions"
+                            "desc": "Which part of the text, which principle, which probe, or which question"
                           },
                           {
                             "name": "seen",
                             "type": "text",
-                            "desc": "What the new architect said"
+                            "desc": "What the new architects said, and how many of this version's readers asked it"
+                          },
+                          {
+                            "name": "missing",
+                            "type": "text",
+                            "desc": "What the text lacks, or where it is vague"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": "minor_fix",
+                  "desc": "Every probe is answered rightly, and some wording the reader read rightly anyway should change: the engine puts the edits into the text, and the reading passes without a new one",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "On what grounds you say it understood, and why the wording should change"
+                    },
+                    {
+                      "name": "edits",
+                      "type": "list",
+                      "min": 1,
+                      "desc": "The wording to change, one passage per row, applied in order",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "old",
+                            "type": "text",
+                            "desc": "The passage as the text has it, word for word, long enough to be in it once"
+                          },
+                          {
+                            "name": "new",
+                            "type": "text",
+                            "desc": "What it becomes"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "gaps",
+                      "type": "list",
+                      "desc": "The gaps of the text the questions show, which do not fail the reading: each question two or more readers of this version asked, or one that led a reader wrong; the next correction fixes them; an empty list when there are none",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "what",
+                            "type": "text",
+                            "desc": "Which part of the text, which principle, which probe, or which question"
+                          },
+                          {
+                            "name": "seen",
+                            "type": "text",
+                            "desc": "What the new architects said, and how many of this version's readers asked it"
+                          },
+                          {
+                            "name": "missing",
+                            "type": "text",
+                            "desc": "What the text lacks, or where it is vague"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": "gaps",
+                  "desc": "A probe was answered wrongly, or could not be answered: the reading fails",
+                  "fields": [
+                    {
+                      "name": "gaps",
+                      "type": "list",
+                      "desc": "Where the text lacks something or is vague, one per row: what led to each probe answered wrongly, and the gaps the questions show",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "what",
+                            "type": "text",
+                            "desc": "Which part of the text, which principle, which probe, or which question"
+                          },
+                          {
+                            "name": "seen",
+                            "type": "text",
+                            "desc": "What the new architects said, and how many of this version's readers asked it"
                           },
                           {
                             "name": "missing",
@@ -14772,7 +14939,8 @@
                     {
                       "name": "wrong_probes",
                       "type": "list",
-                      "desc": "The probes the new architect answered wrongly, by id; an empty list if none",
+                      "min": 1,
+                      "desc": "The probes the new architect answered wrongly or could not answer, by id",
                       "item": {
                         "type": "text",
                         "desc": "A probe's id"
@@ -14799,6 +14967,20 @@
               "main": true
             },
             {
+              "name": "minor_fix",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "minor_fix"
+                  ]
+                ]
+              ],
+              "to": "P5",
+              "counts": "minor_fixes"
+            },
+            {
               "name": "gaps",
               "if": [
                 [
@@ -14807,9 +14989,37 @@
                   [
                     "gaps"
                   ]
+                ],
+                [
+                  "inp",
+                  "corrections",
+                  [
+                    "fewer"
+                  ]
                 ]
               ],
               "to": "P8"
+            },
+            {
+              "name": "gaps_left",
+              "if": [
+                [
+                  "is",
+                  "verdict.verdict",
+                  [
+                    "gaps"
+                  ]
+                ],
+                [
+                  "inp",
+                  "corrections",
+                  [
+                    "three"
+                  ]
+                ]
+              ],
+              "to": "P10",
+              "note": "The text was corrected three times since it was written: the gaps this reading leaves go on with the draft to the owner, who approves this version or sends it back for one more correction."
             }
           ],
           "shown": [
@@ -14820,6 +15030,28 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "inenums": {
+            "corrections": [
+              [
+                "fewer",
+                "The text was corrected fewer than three times since it was written"
+              ],
+              [
+                "three",
+                "The text was corrected three times since it was written: the flow's limit"
+              ]
+            ]
+          },
+          "checks": [
+            {
+              "at": "verdict[minor_fix].edits",
+              "check": "edits_apply"
+            },
+            {
+              "at": "verdict[minor_fix].edits",
+              "check": "policy_text_clean"
+            }
           ]
         },
         {
@@ -14854,6 +15086,25 @@
               "maybe": true
             },
             {
+              "what": "What the owner said to fix in the text, when the owner sent it back for a fix; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "ruling"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "what": "Every reading of this version and your judgment of each: the gaps the readings that passed left are yours to fix too",
+              "from": [
+                {
+                  "db": "policy_readings",
+                  "by": "work"
+                }
+              ]
+            },
+            {
               "what": "This version's text and probes",
               "from": [
                 {
@@ -14866,14 +15117,14 @@
             }
           ],
           "prompt": [
-            "Coming from the readings, by this version's text the new architect understands differently from you. First find why: where the text lacks something, is vague, or reads off. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for the probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every principle still has a probe. Coming from cell `P10`, the draft would need setting again at once: correct the text for what it found. A text that oversteps what a policy governs is corrected back within it.",
-            "Hand in only what you change, in edits the engine applies in order: each passage changed, quoted word for word and long enough to be in the text once, with what it becomes; a principle or signal added or removed. Hand in the probes whole."
+            "Coming from the readings, by this version's text a new architect understood differently from you: first find why, where the text lacks something, is vague, or reads off; fix as well the gaps the readings that passed left. Coming from cell `P10`, the draft would need setting again at once: correct the text for what it found. Coming from the owner, fix what the owner said. What you correct is the text, so that someone who was not in the study reads it rightly too; do not add a sentence just for a probe answered wrongly, since then it no longer tests whether the text is understood. A probe once answered wrongly is not used again: set new ones, and every principle still has a probe. A text that oversteps what a policy governs is corrected back within it.",
+            "Hand in only what you change, in edits the engine applies in order: each passage changed, quoted word for word and long enough to be in the text once, with what it becomes; a principle or signal added or removed. Name the probes you keep unchanged by their ids, and write out whole only the probes you add or change; a probe neither kept nor written out is removed."
           ],
           "out": [
             {
               "name": "revision",
               "type": "obj",
-              "desc": "What you change in the text, and the probes",
+              "desc": "What you change in the text and its probes",
               "fields": [
                 {
                   "name": "why",
@@ -14962,7 +15213,49 @@
                   }
                 },
                 {
-                  "$ref": "policy_probes"
+                  "name": "kept",
+                  "type": "list",
+                  "desc": "The probes of this version you keep unchanged, by id; an empty list when you keep none",
+                  "item": {
+                    "type": "text",
+                    "desc": "A probe's id"
+                  }
+                },
+                {
+                  "name": "probes",
+                  "type": "list",
+                  "min": 0,
+                  "desc": "The probes you add or change, whole, one per row, a changed one under its id; an empty list when you add and change none",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "text",
+                        "desc": "The probe's name, a few words, not used twice"
+                      },
+                      {
+                        "name": "ask",
+                        "type": "text",
+                        "desc": "A situation written out in full, asking which way the policy leans and why"
+                      },
+                      {
+                        "name": "principles",
+                        "type": "list",
+                        "desc": "Which principles it probes",
+                        "item": {
+                          "type": "int",
+                          "desc": "A principle's number"
+                        },
+                        "min": 1
+                      },
+                      {
+                        "name": "expect",
+                        "type": "text",
+                        "desc": "The answer you hold right: which way the policy leans, by which principles, and why"
+                      }
+                    ]
+                  }
                 }
               ]
             }
@@ -14987,6 +15280,10 @@
             {
               "at": "revision.edits",
               "check": "policy_text_clean"
+            },
+            {
+              "at": "revision.kept",
+              "check": "probes_kept"
             },
             {
               "at": "revision.probes",
@@ -15230,6 +15527,16 @@
                   "report"
                 ]
               ]
+            },
+            {
+              "what": "The gaps the readings left open: what the last reading's judgment found, once the text had been corrected three times; none otherwise",
+              "from": [
+                [
+                  "P7",
+                  "verdict[gaps]"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "out": [
@@ -15241,11 +15548,15 @@
                 {
                   "name": "choice",
                   "type": "enum",
-                  "desc": "Approved, or not good enough",
+                  "desc": "Approved, the text to fix, or not good enough",
                   "values": [
                     [
                       "approved",
                       "Act by this version"
+                    ],
+                    [
+                      "fix_text",
+                      "The direction holds, and the text needs another correction: say what to fix"
                     ],
                     [
                       "not_good_enough",
@@ -15256,7 +15567,7 @@
                 {
                   "name": "text",
                   "type": "text",
-                  "desc": "What is not good enough; it may be empty when approved"
+                  "desc": "What to fix in the text, or what is not good enough; it may be empty when approved"
                 }
               ]
             }
@@ -15275,6 +15586,21 @@
               ],
               "to": "P12",
               "main": true
+            },
+            {
+              "name": "fix_text",
+              "if": [
+                [
+                  "is",
+                  "ruling.choice",
+                  [
+                    "fix_text"
+                  ]
+                ]
+              ],
+              "to": "P8",
+              "waits": true,
+              "note": "A fault of the text only: the architect corrects it, and new architects read it again, without a new study."
             },
             {
               "name": "not_good_enough",

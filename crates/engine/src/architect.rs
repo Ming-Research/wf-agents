@@ -83,19 +83,34 @@ pub fn policy_stays(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, Str
 
 /// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the wake's
 /// round that wrote it (`P4`) handed it in, or as the engine put it together (`P5`) from a
-/// correction (`P8`), which hands in only its edits; and its probes, as the round that last wrote or
-/// corrected them handed them in. Each is addressed as the oldest of those places that holds it as it is now, so that
-/// the session that wrote it, or was given it once, is only referred to it.
-const DRAFT: [(&str, [(&str, &str); 2]); 2] = [
-    ("draft_text", [("P4", "policy"), ("P5", "draft.policy")]),
-    ("draft_probes", [("P4", "probes"), ("P8", "revision.probes")]),
+/// correction (`P8`) or a minor fix a reading found (`P7`), which hand in only their edits; and its probes, as the
+/// round that wrote them handed them in, or as the engine put them together from a correction, which hands in only those
+/// it adds or changes beside those it keeps. Each is addressed as the oldest of those places that holds it as it is
+/// now, so that the session that wrote it, or was given it once, is only referred to it.
+const DRAFT: [(&str, &[(&str, &str)]); 2] = [
+    ("draft_text", &[("P4", "policy"), ("P5", "draft.policy")]),
+    (
+        "draft_probes",
+        &[("P4", "probes"), ("P8", "revision.probes"), ("P5", "draft.probes")],
+    ),
 ];
 
 /// The places of the returns an input of the policy being set is taken from, the newest of them; none for another
 /// input.
-pub fn draft_places(name: &str) -> Option<&'static [(&'static str, &'static str); 2]> {
-    DRAFT.iter().find(|d| d.0 == name).map(|d| &d.1)
+pub fn draft_places(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
+    DRAFT.iter().find(|d| d.0 == name).map(|d| d.1)
 }
+
+/// The cells of the policy's reading loop the engine knows by their names: the writing of the text, its putting
+/// together, the judgment of a reading and the correction.
+const WRITE: &str = "P4";
+const PUT_TOGETHER: &str = "P5";
+const JUDGE: &str = "P7";
+const CORRECT: &str = "P8";
+
+/// How many times the text of a policy being set may be corrected since it was written before a reading that leaves
+/// gaps goes on with them to the owner, as the flow's values `corrections` says it.
+const CORRECTIONS: i64 = 3;
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
@@ -418,9 +433,14 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
         if last.is_some_and(|t| db::now() - t <= wait) {
             continue;
         }
+        let slots = match free {
+            1 => "1 slot is free".to_string(),
+            n => format!("{n} slots are free"),
+        };
         let what = match ready {
-            0 => format!("{free} slots are free, and no item of {p} is ready to start"),
-            n => format!("{free} slots are free, and only {n} items of {p} are ready to start"),
+            0 => format!("{slots}, and no item of {p} is ready to start"),
+            1 => format!("{slots}, and only 1 item of {p} is ready to start"),
+            n => format!("{slots}, and only {n} items of {p} are ready to start"),
         };
         let m = Matter {
             project: p.clone(),
@@ -711,6 +731,30 @@ fn next_in_batch(e: &Engine, w: &Work) -> Result<&'static str, String> {
 }
 
 /// How many reviews of a wake's batch found something to fix.
+/// How many times a wake corrected the text of the policy it sets since the text was last written.
+fn corrections(conn: &Connection, work: i64) -> Result<i64, String> {
+    count(
+        conn,
+        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition = 'corrected'
+           AND n > (SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND cell = ?3 AND transition IS NOT NULL)",
+        &[&work, &CORRECT, &WRITE],
+    )
+}
+
+/// Whether a wake's last round that ended is the judgment of a reading that found a minor fix, which the text is put
+/// together for without a new reading.
+fn minor_fix_last(conn: &Connection, work: i64) -> Result<bool, String> {
+    let last: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT cell, transition FROM rounds WHERE work = ?1 AND ended_at IS NOT NULL ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    Ok(last.is_some_and(|(c, t)| c.as_deref() == Some(JUDGE) && t.as_deref() == Some("minor_fix")))
+}
+
 fn fixes_found(conn: &Connection, work: i64) -> Result<i64, String> {
     let from = batch_start(conn, work)?;
     count(
@@ -822,6 +866,18 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "route" => route(e, w)?,
         "next_in_batch" => next_in_batch(e, w)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
+        "corrections" => if corrections(conn, w.id)? >= CORRECTIONS {
+            "three"
+        } else {
+            "fewer"
+        }
+        .into(),
+        "next_reading" => if minor_fix_last(conn, w.id)? {
+            "no_new_reading"
+        } else {
+            "new_reader"
+        }
+        .into(),
         "asker" => {
             let path = path_cells(g);
             let on_path = w.pos.callers.last().is_some_and(|c| path.contains(c));
@@ -1037,12 +1093,12 @@ pub fn ask_owner(
         body["probes"] = t["probes"].clone();
         body["readings"] = t["readings"].clone();
         body["choices"] = Value::Array(choices(cell));
-        format!("The architect of {project}'s new policy, read by new architects, waits for your approval")
+        format!("The new policy the architect of {project} wrote, read by new architects, waits for your approval")
     } else if !choices(cell).is_empty() {
         body["kind"] = json!("study");
         body["study"] = gathered.iter().find_map(|x| x.value.clone()).unwrap_or(Value::Null);
         body["choices"] = Value::Array(choices(cell));
-        format!("The architect of {project}'s study of a new policy is ready for you to read")
+        format!("The study of a new policy by the architect of {project} is ready for you to read")
     } else {
         let asked = asked_of(&gathered);
         let about = what_is_asked(&asked);
@@ -1231,7 +1287,7 @@ pub fn count_trials(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let passed = readings
         .iter()
         .rev()
-        .take_while(|r| r["verdict"]["verdict"] == "understood")
+        .take_while(|r| matches!(r["verdict"]["verdict"].as_str(), Some("understood" | "minor_fix")))
         .count();
     let verdict = if passed >= 2 { "two_passed" } else { "one_more" };
     Ok(json!({ "count": { "verdict": verdict } }))
@@ -1973,26 +2029,94 @@ fn draft_now(conn: &Connection, work: i64) -> Result<Option<(i64, Value)>, Strin
         .map(|r| (r["n"].as_i64().unwrap_or_default(), r["policy"].clone())))
 }
 
-/// Cell `P5`: this version of the policy's text, put together for a new architect to read: as the
-/// architect wrote it, or, after a correction, the text before with each of the correction's edits applied in order.
+/// Cell `P5`: this version of the policy's text and probes, put together for a new architect to read: as the
+/// architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and
+/// the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with its edits
+/// applied.
 pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
     let conn = e.db.conn();
     let (round, text) =
         draft_now(conn, w.id)?.ok_or_else(|| format!("work {}: no text of a policy is written", w.id))?;
-    let correction = query_json(
+    let change = query_json(
         conn,
-        "SELECT json_extract(output, '$.outcome.revision.edits') AS edits FROM rounds
-         WHERE work = ?1 AND cell = 'P8' AND transition IS NOT NULL AND n > ?2
-           AND json_extract(output, '$.outcome.revision.edits') IS NOT NULL
+        "SELECT cell, coalesce(json_extract(output, '$.outcome.revision'), json_extract(output, '$.outcome.verdict'))
+           AS change
+         FROM rounds
+         WHERE work = ?1 AND n > ?2 AND transition IS NOT NULL
+           AND ((cell = ?3 AND json_extract(output, '$.outcome.revision.edits') IS NOT NULL)
+             OR (cell = ?4 AND transition = 'minor_fix'))
          ORDER BY n DESC LIMIT 1",
-        &[&w.id, &round],
+        &[&w.id, &round, &CORRECT, &JUDGE],
         1,
     )?;
-    let text = match correction.first() {
-        Some(r) => applied(&text, &items(r.get("edits")))?,
+    let change = change.first().map(|r| r["change"].clone());
+    let text = match &change {
+        Some(c) => applied(&text, &items(c.get("edits")))?,
         None => text,
     };
-    Ok(json!({ "draft": { "policy": text } }))
+    let probes = match change.filter(|c| c.get("kept").is_some() || c.get("probes").is_some()) {
+        Some(c) => assembled_probes(&probes_now(conn, w.id)?, &c)?,
+        None => probes_now(conn, w.id)?,
+    };
+    Ok(json!({ "draft": { "policy": text, "probes": probes } }))
+}
+
+/// The probes of the policy a wake is setting as they stand: as the engine last put them together (`P5`), or as the
+/// round that wrote them handed them in (`P4`), whichever came last; none before any is written.
+fn probes_now(conn: &Connection, work: i64) -> Result<Vec<Value>, String> {
+    let rows = query_json(
+        conn,
+        "SELECT coalesce(json_extract(output, '$.draft.probes'), json_extract(output, '$.outcome.probes')) AS probes
+         FROM rounds WHERE work = ?1 AND cell IN (?2, ?3) AND transition IS NOT NULL
+           AND coalesce(json_extract(output, '$.draft.probes'), json_extract(output, '$.outcome.probes')) IS NOT NULL
+         ORDER BY n DESC LIMIT 1",
+        &[&work, &WRITE, &PUT_TOGETHER],
+        1,
+    )?;
+    Ok(rows.first().map(|r| items(r.get("probes"))).unwrap_or_default())
+}
+
+/// The probes a correction leaves: those of `current` it keeps, by id and in their order, then those it writes out,
+/// a changed one under its id. A correction that keeps none by name, as one of a flow version before held them all,
+/// leaves those it writes out. Refused when it keeps a probe there is not, or keeps one it writes out again.
+fn assembled_probes(current: &[Value], revision: &Value) -> Result<Vec<Value>, String> {
+    let written = items(revision.get("probes"));
+    let Some(kept) = revision.get("kept") else {
+        return Ok(written);
+    };
+    let kept = texts(kept);
+    let id = |p: &Value| p["id"].as_str().map(str::trim).unwrap_or_default().to_string();
+    let mut problems = Vec::new();
+    for k in &kept {
+        if !current.iter().any(|p| id(p) == *k) {
+            problems.push(format!("{k} is no probe of this version"));
+        }
+        if written.iter().any(|p| id(p) == *k) {
+            problems.push(format!(
+                "{k} is kept and written out again: keep it or write it, not both"
+            ));
+        }
+    }
+    if !problems.is_empty() {
+        return Err(problems.join("; "));
+    }
+    let mut out: Vec<Value> = current.iter().filter(|&p| kept.contains(&id(p))).cloned().collect();
+    out.extend(written);
+    Ok(out)
+}
+
+/// The probes a correction's return leaves, for the checks of them: the probes of this version it keeps with those it
+/// writes out, from the place checked and the list of those it keeps beside it; the place's probes alone when nothing is
+/// kept beside them.
+fn probes_left(c: &checks::Ctx<'_>, at: Option<&str>, v: Option<&Value>) -> Result<Vec<Value>, String> {
+    let kept = at
+        .and_then(|a| a.rsplit_once('.'))
+        .and_then(|(head, _)| at_path(&c.unwrapped, &format!("{head}.kept")));
+    let Some(kept) = kept else {
+        return Ok(items(v));
+    };
+    let revision = json!({ "kept": kept, "probes": v.cloned().unwrap_or_else(|| json!([])) });
+    assembled_probes(&probes_now(c.e.db.conn(), c.w.id)?, &revision)
 }
 
 /// A policy with a correction's edits applied in order: each passage changed is in its texts, as the edits before
@@ -2005,7 +2129,8 @@ pub fn applied(policy: &Value, edits: &[Value]) -> Result<Value, String> {
     for (i, x) in edits.iter().enumerate() {
         let n = i + 1;
         match text(&x["kind"]) {
-            "change" => {
+            // A minor fix a reading found changes passages only, and names no kind.
+            "change" | "" => {
                 let old = text(&x["old"]);
                 let times = if old.is_empty() { 0 } else { occurrences(&p, old) };
                 if times == 1 {
@@ -2417,8 +2542,12 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "probes_kept" => {
+            let revision = json!({ "kept": v.cloned().unwrap_or_else(|| json!([])), "probes": [] });
+            assembled_probes(&probes_now(conn, c.w.id)?, &revision).map(|_| ())
+        }
         "probes_cover_principles" => {
-            let probes = items(v);
+            let probes = probes_left(c, at, v)?;
             let Some(policy) = revised(c, at)? else { return Ok(()) };
             let numbers = principle_numbers(&policy);
             for p in &probes {
@@ -2444,7 +2573,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "failed_probes_gone" => {
             let gaps = query_json(
                 conn,
-                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'P7' AND transition = 'gaps'",
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'P7' AND transition IN ('gaps', 'gaps_left')",
                 &[&c.w.id],
                 ROWS,
             )?;
@@ -2452,7 +2581,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 .iter()
                 .flat_map(|r| texts(&at_path(&c.g.unwrap(&r["output"]), "verdict.wrong_probes").unwrap_or_default()))
                 .collect();
-            let still: Vec<String> = items(v)
+            let still: Vec<String> = probes_left(c, at, v)?
                 .iter()
                 .filter_map(|p| p["id"].as_str().map(str::trim))
                 .filter(|id| wrong.contains(*id))
