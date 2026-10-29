@@ -16,6 +16,19 @@
 // and approve it; where things stand as it understands them; and the rounds of the wake shown. Each part names the cell
 // that wrote it, and every tab draws its blocks, sections, items, rounds and forms with the page's shared parts.
 
+import { SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
+import {
+  Button,
+  Checkbox,
+  CounterLabel,
+  Flash,
+  FormControl,
+  Heading,
+  Label,
+  Select,
+  TextInput,
+  UnderlineNav,
+} from '@primer/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -68,7 +81,7 @@ import {
   workHref,
 } from '../route';
 import { t, type Key } from '../text';
-import { Block, By, CellTitles, ItemRef, type OpenRound, Section } from '../parts';
+import { Block, By, CellTitles, ItemRef, LabelLink, LinkButton, type OpenRound, Section, SubHeading } from '../parts';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import {
   ChangeBlock,
@@ -160,21 +173,21 @@ function Awake({ w, project, handling, onAsk, onRound }: {
   const cell = `${w.at} ${w.at_title ?? ''}`;
   return (
     <>
-      <span className="work-state" title={why ?? undefined}>
-        <strong>{t('arch_awake', { id: w.id })}</strong>{' '}
+      <span className="work-state course" title={why ?? undefined}>
+        <strong>{t('arch_awake', { id: w.id })}</strong>
         {c.running !== null ? (
           <>
-            <span className="badge state-running">{runningWords(c)}</span>
-            {w.running ? <span className="muted"> {duration(Math.max(0, now - w.running.started_at))}</span> : null}
+            <Label variant="accent">{runningWords(c)}</Label>
+            {w.running ? <span className="muted">{duration(Math.max(0, now - w.running.started_at))}</span> : null}
           </>
         ) : why !== null ? (
-          <span className={`badge ${heldName(c).problem ? 'state-stopped' : 'state-paused'}`}>{heldName(c).name}</span>
+          <Label variant={heldName(c).problem ? 'danger' : 'attention'}>{heldName(c).name}</Label>
         ) : null}
       </span>
       {waits?.kind === 'answer' ? (
-        <button type="button" className="chip waits chip-button" onClick={() => onAsk(waits.ask)}>
+        <LabelLink onClick={() => onAsk(waits.ask)} variant="attention">
           {t('arch_waits_answer', { id: waits.ask })}
-        </button>
+        </LabelLink>
       ) : null}
       <span className="work-where" title={`${cell}${stage ? ` · ${stage}` : ''}`}>
         <span className="cell-id">{w.at}</span> {w.at_title}
@@ -192,7 +205,7 @@ function Awake({ w, project, handling, onAsk, onRound }: {
         onStep={() => s.step(t('arch_step_confirm', { id: w.id, cell }))}
       />
       {a.error !== null || s.error !== null ? (
-        <span className="bad why" title={a.error ?? s.error ?? ''}>
+        <span className="error" title={a.error ?? s.error ?? ''}>
           {t('request_failed', { error: a.error ?? s.error ?? '' })}
         </span>
       ) : null}
@@ -238,18 +251,20 @@ function Line({ a, shown, current, onTab, onAsk, onRound, pop, setPop }: {
   return (
     <div className="work-line arch-line">
       {a.projects.length > 1 ? (
-        <select
+        <Select
+          size="small"
           className="arch-project"
           value={a.project}
           title={t('arch_project_hint')}
+          aria-label={t('arch_project_hint')}
           onChange={(e) => navigate(architectHref({ project: e.target.value }))}
         >
           {a.projects.map((p) => (
-            <option key={p} value={p}>
+            <Select.Option key={p} value={p}>
               {t('arch_of_project', { project: p })}
-            </option>
+            </Select.Option>
           ))}
-        </select>
+        </Select>
       ) : null}
       {state.kind === 'awake' && current !== null ? (
         <Awake w={current} project={a.project} handling={handling} onAsk={onAsk} onRound={onRound} />
@@ -259,17 +274,15 @@ function Line({ a, shown, current, onTab, onAsk, onRound, pop, setPop }: {
         </span>
       )}
       {state.waiting > 0 ? (
-        <button type="button" className="link" onClick={() => onTab('queue')}>
-          {t('arch_matters_wait', { n: state.waiting })}
-        </button>
+        <LinkButton onClick={() => onTab('queue')}>{t('arch_matters_wait', { n: state.waiting })}</LinkButton>
       ) : null}
       {a.holds.map((h) => (
-        <span key={h.reason} className="chip warn" title={t('hold_since', { at: time(h.since) })}>
+        <Label key={h.reason} variant="attention" title={t('hold_since', { at: time(h.since) })}>
           {HOLDS[h.reason] !== undefined ? t(HOLDS[h.reason]) : t('hold_other', { reason: words(h.reason) })}
           {h.why !== null ? `: ${h.why}` : null}
-        </span>
+        </Label>
       ))}
-      {canPause ? <span className="badge state-running">{t('arch_started')}</span> : null}
+      {canPause ? <Label variant="accent">{t('arch_started')}</Label> : null}
       {canStart ? <Control icon="start" hint={t('arch_start_hint')} onClick={s.start} disabled={s.busy} /> : null}
       {canPause ? <Control icon="pause" hint={t('arch_pause_hint')} onClick={s.pause} disabled={s.busy} /> : null}
       {asleep ? (
@@ -281,17 +294,18 @@ function Line({ a, shown, current, onTab, onAsk, onRound, pop, setPop }: {
         />
       ) : null}
       {asleep ? <SessionChoice on={s.newSession} set={s.setNewSession} disabled={s.busy || !canStart} /> : null}
-      {s.error !== null ? <span className="bad why">{t('request_failed', { error: s.error })}</span> : null}
+      {s.error !== null ? <span className="error">{t('request_failed', { error: s.error })}</span> : null}
       {shown !== null ? (
-        <button
-          type="button"
-          className="bar-btn arch-wake-switch"
+        <Button
+          size="small"
+          className="arch-wake-switch"
+          trailingAction={TriangleDownIcon}
           aria-expanded={pop === 'wakes'}
           title={t('arch_wakes_hint')}
           onClick={() => setPop(pop === 'wakes' ? null : 'wakes')}
         >
-          {t('arch_wake_shown', { id: shown.work.id, at: time(shown.work.started_at), n: a.wakes.length })} ▾
-        </button>
+          {t('arch_wake_shown', { id: shown.work.id, at: time(shown.work.started_at), n: a.wakes.length })}
+        </Button>
       ) : null}
     </div>
   );
@@ -327,10 +341,12 @@ function WakeList({ a, shown, tab, project, onClose }: {
 }) {
   const followed = shownWake(a.wakes, null)?.work.id ?? null;
   return (
-    <div className="bar-pop arch-pop arch-wakes" role="dialog" aria-label={t('arch_wakes', { n: a.wakes.length })}>
-      <div className="bar-pop-h">{t('arch_wakes', { n: a.wakes.length })}</div>
+    <div className="arch-wakes" role="dialog" aria-labelledby="arch-wakes-title">
+      <Heading as="h2" variant="small" id="arch-wakes-title">
+        {t('arch_wakes', { n: a.wakes.length })}
+      </Heading>
       <div className="arch-wakes-list">
-        <table className="list mini">
+        <table className="list">
           <thead>
             <tr>
               <th>{t('arch_col_wake')}</th>
@@ -355,8 +371,8 @@ function WakeList({ a, shown, tab, project, onClose }: {
                   }}
                 >
                   <td className="nowrap">
-                    #{x.work.id}
-                    {!overWake(x.work) ? <span className="badge state-running">{t('arch_wake_going')}</span> : null}
+                    #{x.work.id}{' '}
+                    {!overWake(x.work) ? <Label variant="accent">{t('arch_wake_going')}</Label> : null}
                   </td>
                   <td className="nowrap">{time(x.work.started_at)}</td>
                   <td className="clip" title={whyAll.join('\n')}>
@@ -371,10 +387,10 @@ function WakeList({ a, shown, tab, project, onClose }: {
           </tbody>
         </table>
       </div>
-      <div className="bar-pop-row">
-        <button type="button" className="tog-btn" onClick={onClose}>
+      <div className="arch-wakes-actions">
+        <Button size="small" onClick={onClose}>
           {t('close')}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -400,13 +416,13 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
       <span className="arch-matter-what">
         <MarkdownInline text={matterSentence(m)} />
       </span>
-      <span
-        className={`badge kind src-${m.source}`}
+      <Label
+        className={`kind src-${m.source}`}
         title={SOURCES[m.source] !== undefined ? t(SOURCES[m.source]) : undefined}
       >
         {matterKind(m.kind, m.detail)}
-      </span>
-      {m.urgent ? <span className="badge verdict-bad">{t('matter_urgent')}</span> : null}
+      </Label>
+      {m.urgent ? <Label variant="danger">{t('matter_urgent')}</Label> : null}
     </>
   );
   return (
@@ -431,9 +447,9 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
         ) : null}
         {m.waits === 'owner' ? <span>{t('matter_you_waited', { for: since })}</span> : null}
         {m.asked !== null ? (
-          <button type="button" className="link" onClick={() => onAsk(m.asked ?? 0)}>
+          <LinkButton onClick={() => onAsk(m.asked ?? 0)}>
             {t(m.answered ? 'matter_answered' : 'matter_held_ask', { id: m.asked, cell: m.resume_cell ?? '' })}
-          </button>
+          </LinkButton>
         ) : null}
       </div>
     </Block>
@@ -446,7 +462,7 @@ function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; o
   const head = (
     <>
       <span className="arch-matter-what">{h.what}</span>
-      <span className="badge">{matterKind(h.kind, h.detail)}</span>
+      <Label variant="secondary">{matterKind(h.kind, h.detail)}</Label>
     </>
   );
   return (
@@ -454,9 +470,7 @@ function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; o
       {outcomes(h).map((o) => (
         <p key={o.key} className="arch-outcome" title={o.text !== '' ? o.text : undefined}>
           {o.tab !== null ? (
-            <button type="button" className="link" onClick={() => onTab(o.tab ?? 'queue')}>
-              {o.label}
-            </button>
+            <LinkButton onClick={() => onTab(o.tab ?? 'queue')}>{o.label}</LinkButton>
           ) : (
             <span className="block-label">{o.label}</span>
           )}{' '}
@@ -511,7 +525,7 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
           value={c.change}
           before={
             <>
-              <span className={`badge ${c.state === 'made' ? 'verdict-good' : 'verdict-bad'}`}>{words(c.state)}</span>
+              <Label variant={c.state === 'made' ? 'success' : 'danger'}>{words(c.state)}</Label>
               <span className="muted">{t('change_matter', { n: c.matter })}</span>
             </>
           }
@@ -519,7 +533,7 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
         >
           {c.outcome !== null ? (
             <div className="field">
-              <span className="decision-label">{t(c.state === 'made' ? 'change_made' : 'change_dropped')}</span>
+              <SubHeading>{t(c.state === 'made' ? 'change_made' : 'change_dropped')}</SubHeading>
               <Labelled value={c.outcome} />
             </div>
           ) : null}
@@ -551,17 +565,17 @@ function ObservationRow({ o }: { o: Observation }) {
     <>
       <strong>{t('observation_head', { id: o.id })}</strong>
       {o.tags.map((x) => (
-        <span key={x} className="badge">
+        <Label key={x} variant="secondary">
           {x}
-        </span>
+        </Label>
       ))}
       <span className="muted">{t('observation_reported', { n: o.times_reported })}</span>
       {o.closed !== null ? (
-        <span className="badge">{t('observation_closed', { why: words(o.closed) })}</span>
+        <Label variant="secondary">{t('observation_closed', { why: words(o.closed) })}</Label>
       ) : (
-        <button type="button" className="link" disabled={busy} onClick={close}>
+        <Button size="small" variant="invisible" disabled={busy} onClick={close}>
           {t('observation_close')}
-        </button>
+        </Button>
       )}
     </>
   );
@@ -579,7 +593,7 @@ function ObservationRow({ o }: { o: Observation }) {
         {o.created !== null ? <span>{t('observation_at', { at: time(o.created) })}</span> : null}
       </div>
       {o.closed_why !== null ? <p className="muted">{o.closed_why}</p> : null}
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
     </Block>
   );
 }
@@ -594,25 +608,34 @@ function Observations({ a }: { a: ArchitectRead }) {
   const covers = a.tags.find((x) => x.name === tag)?.desc ?? '';
   return (
     <>
-      <div className="bar-pop-row">
-        <select value={tag} onChange={(e) => setTag(e.target.value)} title={covers}>
-          <option value="">{t('observation_every_tag')}</option>
+      <div className="arch-filters">
+        <Select
+          size="small"
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+          title={covers}
+          aria-label={t('observation_tag')}
+        >
+          <Select.Option value="">{t('observation_every_tag')}</Select.Option>
           {a.tags.map((x) => (
-            <option key={x.name} value={x.name} title={x.desc}>
+            <Select.Option key={x.name} value={x.name}>
               {x.name}
-            </option>
+            </Select.Option>
           ))}
-        </select>
-        <input
+        </Select>
+        <TextInput
+          size="small"
           type="search"
+          leadingVisual={SearchIcon}
           value={search}
           placeholder={t('observation_search')}
+          aria-label={t('observation_search')}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <label>
-          <input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} />{' '}
-          {t('observation_show_closed')}
-        </label>
+        <FormControl layout="horizontal">
+          <Checkbox checked={closed} onChange={(e) => setClosed(e.target.checked)} />
+          <FormControl.Label>{t('observation_show_closed')}</FormControl.Label>
+        </FormControl>
       </div>
       {covers !== '' ? <p className="muted">{covers}</p> : null}
       {shown.length === 0 ? (
@@ -748,61 +771,61 @@ function Panel({ route, a, d, g, go, onRound }: {
     const waits = wordsWait(entries, architectState(a.wakes, a.queue), status, a.project);
     return waits !== null ? t(WAITS[waits]) : null;
   };
-  const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; chip: string | null; hint: string }> = [
-    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, chip: null, hint: '' },
-    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, chip: null, hint: '' },
+  // Each tab's count, and what in it waits for the owner as a count of its own.
+  const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; waiting: number; hint: string }> = [
+    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, waiting: 0, hint: '' },
+    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, waiting: 0, hint: '' },
     {
       tab: 'observations',
       label: t('arch_tab_observations'),
       n: a.observations.filter((o) => o.closed === null).length,
-      chip: null,
+      waiting: 0,
       hint: '',
     },
-    { tab: 'next', label: t('arch_tab_next'), n: null, chip: null, hint: '' },
+    { tab: 'next', label: t('arch_tab_next'), n: null, waiting: 0, hint: '' },
     {
       tab: 'policy',
       label: t('arch_tab_policy'),
       n: null,
-      chip: policyWaiting > 0 ? t('open_asks_chip', { n: policyWaiting }) : null,
+      waiting: policyWaiting,
       hint: t('open_asks_n', { n: policyWaiting }),
     },
     {
       tab: 'conversation',
       label: t('talk_title'),
       n: talk !== null && talk.unread > 0 ? talk.unread : null,
-      chip: talk !== null && talk.waiting > 0 ? t('conv_waits_chip', { n: talk.waiting }) : null,
+      waiting: talk?.waiting ?? 0,
       hint: t('conv_waits_n', { n: talk?.waiting ?? 0 }),
     },
-    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, chip: null, hint: '' },
+    { tab: 'queue', label: t('arch_tab_queue'), n: queueParts(a.queue).waiting.length, waiting: 0, hint: '' },
   ];
   return (
     <div className="drawer">
-      <div className="drawer-head">
-        <div className="tabs" role="tablist">
-          {tabs.map((x) => (
-            <button
-              key={x.tab}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={x.tab === route.tab}
-              onClick={() => {
-                want.current = null;
-                go({ tab: x.tab });
-              }}
-            >
-              {x.label}
-              {x.n !== null ? <span className="tab-n">{x.n}</span> : null}
-              {x.chip !== null ? (
-                <span className="chip warn" title={x.hint}>
-                  {x.chip}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="drawer-body" role="tabpanel" ref={body}>
+      <UnderlineNav aria-label={t('arch_tabs')} className="drawer-tabs">
+        {tabs.map((x) => (
+          <UnderlineNav.Item
+            key={x.tab}
+            href={href({ ...route, tab: x.tab })}
+            aria-current={x.tab === route.tab ? 'page' : undefined}
+            onSelect={(e) => {
+              // A click with a modifier key opens the tab as the browser would.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              want.current = null;
+              go({ tab: x.tab });
+            }}
+          >
+            {x.label}
+            {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
+            {x.waiting > 0 ? (
+              <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
+                {x.waiting}
+              </CounterLabel>
+            ) : null}
+          </UnderlineNav.Item>
+        ))}
+      </UnderlineNav>
+      <div className="drawer-body" ref={body}>
         {route.tab === 'conversation' ? <ConversationView conversation={key} note={why} /> : null}
         {route.tab === 'queue' ? (
           <Queue queue={a.queue} handled={a.handled} onAsk={onAsk} onRound={onRound} onTab={(tab) => go({ tab })} />

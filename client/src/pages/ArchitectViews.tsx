@@ -4,6 +4,7 @@
 // its versions; and the plan of what to do next. A value not of the shape expected is shown as labelled text, never as
 // a tree of JSON.
 
+import { Button, Checkbox, FormControl, Label, type LabelColorOptions } from '@primer/react';
 import { type ReactNode, useState } from 'react';
 
 import type { JsonValue, NextPlan, Said, Understanding } from '../api';
@@ -11,7 +12,7 @@ import { againstInOrder, type LineChange, stateChanges } from '../architect';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Block, BlockField, By, type OpenRound, Section } from '../parts';
+import { Block, BlockField, By, LinkButton, type OpenRound, Section, SubHeading } from '../parts';
 import { t } from '../text';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
@@ -28,7 +29,7 @@ function Texts({ label, value, ordered = false }: { label: string; value: JsonVa
   ));
   return (
     <div className="field">
-      <span className="decision-label">{label}</span>
+      <SubHeading>{label}</SubHeading>
       {ordered ? <ol className="arch-list">{items}</ol> : <ul className="arch-list">{items}</ul>}
     </div>
   );
@@ -50,7 +51,7 @@ export function PolicyText({ value }: { value: JsonValue }) {
       <Field label={t('policy_why')} value={value.why} />
       {principles.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('policy_principles')}</span>
+          <SubHeading>{t('policy_principles')}</SubHeading>
           <ol className="arch-list arch-numbered">
             {principles.map((p, i) => (
               <li key={i} value={typeof p.no === 'number' ? p.no : i + 1}>
@@ -62,7 +63,7 @@ export function PolicyText({ value }: { value: JsonValue }) {
       ) : null}
       {signals.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('policy_signals')}</span>
+          <SubHeading>{t('policy_signals')}</SubHeading>
           <ul className="arch-list">
             {signals.map((s, i) => (
               <li key={i}>
@@ -92,7 +93,7 @@ export function StudyView({ value }: { value: JsonValue }) {
       <Field label={t('study_now')} value={value.now} />
       {impact.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('study_impact')}</span>
+          <SubHeading>{t('study_impact')}</SubHeading>
           <ul className="arch-list">
             {impact.map((x, i) => (
               <li key={i}>
@@ -107,7 +108,7 @@ export function StudyView({ value }: { value: JsonValue }) {
       ) : null}
       {options.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('study_options')}</span>
+          <SubHeading>{t('study_options')}</SubHeading>
           <div className="option-boxes">
             {options.map((o, i) => (
               <div key={i} className="option-box">
@@ -124,9 +125,7 @@ export function StudyView({ value }: { value: JsonValue }) {
           <ul className="grounds">
             {basis.map((b, i) => (
               <li key={i}>
-                <span className={`badge ${str(b.kind) === 'checked' ? 'ground-verified' : 'ground-inferred'}`}>
-                  {words(str(b.kind))}
-                </span>{' '}
+                <Label variant={str(b.kind) === 'checked' ? 'success' : 'attention'}>{words(str(b.kind))}</Label>{' '}
                 <MarkdownInline text={str(b.claim)} />
                 <Field label={t('study_where')} value={b.where} />
               </li>
@@ -166,14 +165,12 @@ export function ProbesView({ value }: { value: JsonValue }) {
 /// The architect's verdict on a new architect's reading: passed, as understood or with a minor fix, or the gaps it
 /// found.
 function ReadingVerdict({ value }: { value: JsonValue }) {
-  if (!isObj(value)) return <span className="badge">{t('reading_not_judged')}</span>;
+  if (!isObj(value)) return <Label variant="secondary">{t('reading_not_judged')}</Label>;
   const gaps = objs(value.gaps);
   const passed = value.verdict === 'understood' || value.verdict === 'minor_fix';
   return (
     <>
-      <span className={`badge ${passed ? 'verdict-good' : 'verdict-bad'}`}>
-        {words(str(value.verdict))}
-      </span>
+      <Label variant={passed ? 'success' : 'danger'}>{words(str(value.verdict))}</Label>
       <Field label={t('reading_why')} value={value.why} />
       {gaps.length > 0 ? (
         <ul className="arch-list">
@@ -215,7 +212,7 @@ export function ReadingView({ by, reading, verdict }: { by: ReactNode; reading: 
         <Texts label={t('reading_asks')} value={r.asks} />
         {answers.length > 0 ? (
           <div className="field">
-            <span className="decision-label">{t('reading_answers')}</span>
+            <SubHeading>{t('reading_answers')}</SubHeading>
             <ul className="arch-list">
               {answers.map((a, i) => (
                 <li key={i}>
@@ -273,7 +270,7 @@ export function ChangeBlock({ value, before, by, children }: {
   const head = (
     <>
       {before}
-      <span className="badge">{words(value.kind)}</span>
+      <Label variant="secondary">{words(value.kind)}</Label>
       {str(value.title) !== '' ? (
         <strong>
           <MarkdownInline text={str(value.title)} />
@@ -300,6 +297,12 @@ export function ChangeBlock({ value, before, by, children }: {
     </Block>
   );
 }
+
+/// The colour of a line of work compared with the version before: new, changed, gone.
+const LINE_TONE: Record<string, LabelColorOptions> = { added: 'success', changed: 'attention', removed: 'danger' };
+
+/// The colour of where the policy stands against an article of the constitution.
+const AGAINST_TONE: Record<string, LabelColorOptions> = { kept: 'success', at_risk: 'attention', broken: 'danger' };
 
 /// The fields of a line of work under its name, in the order they read, and the one folded under them.
 const LINE_PARTS = ['serves', 'approach', 'where', 'stuck', 'recent'] as const;
@@ -332,7 +335,7 @@ function LineBlock({ l, compare }: { l: LineChange; compare: boolean }) {
   const grounds = field('grounds');
   const head = (
     <>
-      {marked ? <span className={`badge arch-chip-${l.kind}`}>{chip}</span> : null}
+      {marked ? <Label variant={LINE_TONE[l.kind]}>{chip}</Label> : null}
       <strong>{said(field('line'))}</strong>
     </>
   );
@@ -370,19 +373,19 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
   return (
     <Section title={t('understanding_state')} open by={from}>
       <span className="arch-versions">
-        <button type="button" className="link" disabled={k === 0} onClick={() => setAt(k - 1)}>
+        <Button size="small" variant="invisible" disabled={k === 0} onClick={() => setAt(k - 1)}>
           {t('understanding_newer')}
-        </button>
+        </Button>
         <span className="muted">{t('understanding_version', { k: versions.length - k, n: versions.length })}</span>
-        <button type="button" className="link" disabled={k === versions.length - 1} onClick={() => setAt(k + 1)}>
+        <Button size="small" variant="invisible" disabled={k === versions.length - 1} onClick={() => setAt(k + 1)}>
           {t('understanding_older')}
-        </button>
+        </Button>
       </span>
       {before !== undefined ? (
-        <label className="arch-compare">
-          <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} />{' '}
-          {t('understanding_compare')}
-        </label>
+        <FormControl layout="horizontal">
+          <Checkbox checked={compare} onChange={(e) => setCompare(e.target.checked)} />
+          <FormControl.Label>{t('understanding_compare')}</FormControl.Label>
+        </FormControl>
       ) : null}
       {comparing ? (
         <p className="muted arch-since">{t('understanding_since', { round: `R${before.work}-${before.round}` })}</p>
@@ -405,15 +408,13 @@ function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefi
   const steps = texts(fix.steps);
   const head = (
     <>
-      <span className="badge">{words(str(fix.kind))}</span>
+      <Label variant="secondary">{words(str(fix.kind))}</Label>
       <strong>
         <MarkdownInline text={str(fix.where)} />
       </strong>
-      {fix.pause_now === true ? <span className="badge verdict-bad">{t('fit_paused')}</span> : null}
+      {fix.pause_now === true ? <Label variant="danger">{t('fit_paused')}</Label> : null}
       {matter !== undefined ? (
-        <button type="button" className="link" onClick={() => onMatter(matter)}>
-          {t('fit_matter', { id: matter })}
-        </button>
+        <LinkButton onClick={() => onMatter(matter)}>{t('fit_matter', { id: matter })}</LinkButton>
       ) : null}
     </>
   );
@@ -490,7 +491,7 @@ export function PolicyCheck({ check, onRound }: { check: Said; onRound: OpenRoun
           key={i}
           head={
             <>
-              <span className="badge">{words(str(r.kind))}</span>
+              <Label variant="secondary">{words(str(r.kind))}</Label>
               <strong>
                 <MarkdownInline text={str(r.seen)} />
               </strong>
@@ -506,7 +507,7 @@ export function PolicyCheck({ check, onRound }: { check: Said; onRound: OpenRoun
             key={i}
             head={
               <>
-                <span className={`badge arch-${str(r.status)}`}>{words(str(r.status))}</span>
+                <Label variant={AGAINST_TONE[str(r.status)] ?? 'secondary'}>{words(str(r.status))}</Label>
                 <strong>{str(r.article)}</strong>
               </>
             }

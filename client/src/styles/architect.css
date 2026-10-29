@@ -1,0 +1,134 @@
+/* An architect's page, laid out as a work's: its line over its chart (whose architect, how it stands, what holds the
+   project's new works, its controls, and the switch between its wakes, which opens the list of them floating under the
+   line at its right), and its panel in the docked column, in the tabs a work's panel has. */
+
+.arch-screen {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.arch-wake-switch {
+  margin-left: auto;
+}
+
+/* The architect's wakes, floating under the line at its right, as the flow's choice of comparison floats. */
+.arch-wakes {
+  position: absolute;
+  top: calc(var(--control-small-size) + 2 * var(--base-size-8) + var(--base-size-4));
+  right: var(--base-size-12);
+  z-index: 30;
+  display: grid;
+  gap: var(--base-size-12);
+  min-width: 560px;
+  max-width: calc(100% - 2 * var(--base-size-12));
+  padding: var(--base-size-16);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+}
+
+.arch-wakes-list {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.arch-wakes-list td.clip {
+  max-width: 260px;
+}
+
+.arch-wakes-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Who raised a matter, as the colour of its kind, from Primer's display colours as an ask's kind is. */
+.src-work {
+  --kind: var(--display-teal-fgColor);
+}
+
+.src-architect {
+  --kind: var(--display-indigo-fgColor);
+}
+
+.src-owner {
+  --kind: var(--display-coral-fgColor);
+}
+
+.src-engine {
+  --kind: var(--display-yellow-fgColor);
+}
+
+/* A list in what the architect wrote: its items apart by the rhythm, a numbered one's numbers in the text's colour. */
+.arch-list {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+/* One kind of outcome of a matter handled, on one line; the whole of it on hovering. */
+.arch-outcome {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The observations' tag, search and whether to show those closed, on one line. */
+.arch-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8) var(--base-size-12);
+}
+
+/* A version of the architect's state of things: the way to the newer and older ones; compared with the one before, a
+   line of work new, changed or gone, and in a changed line what a field was, struck through, beside what it is now. */
+.arch-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  margin-left: auto;
+}
+
+.arch-since {
+  margin: 0;
+  font-size: var(--text-body-size-small);
+}
+
+.arch-line-added {
+  background: var(--bgColor-success-muted);
+}
+
+.arch-line-changed {
+  background: var(--bgColor-attention-muted);
+}
+
+.arch-line-removed {
+  color: var(--fgColor-muted);
+  text-decoration: line-through;
+}
+
+.arch-was {
+  color: var(--fgColor-muted);
+}
+
+.arch-now {
+  background: var(--bgColor-attention-muted);
+  text-decoration: none;
+}
+
+/* An ask of the architect's by its kind: its parts apart by the rhythm, the question it asks heading them. */
+.card-view {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.ask-question {
+  margin: 0;
+  font-weight: var(--base-text-weight-semibold);
+}

@@ -21,6 +21,7 @@ import './styles/settings.css';
 import './styles/charts.css';
 import './styles/works.css';
 import './styles/usage.css';
+import './styles/architect.css';
 import './styles.css';
 
 const root = document.getElementById('root');

@@ -210,13 +210,22 @@ export function LinkButton({ onClick, title, muted, className, children }: {
   );
 }
 
-/// A state or a kind that leads where the owner acts on it, such as what a work waits for: its Label inside a link.
-export function LabelLink({ to, variant, title, children }: {
-  to: string;
+/// A state or a kind that leads where the owner acts on it, such as what a work waits for: its Label inside a link to
+/// another place (`to`), or inside a button that opens it on this page (`onClick`).
+export function LabelLink({ to, onClick, variant, title, children }: {
+  to?: string;
+  onClick?: () => void;
   variant: LabelColorOptions;
   title?: string;
   children: ReactNode;
 }) {
+  if (to === undefined) {
+    return (
+      <button type="button" className="label-link label-button" title={title} onClick={onClick}>
+        <Label variant={variant}>{children}</Label>
+      </button>
+    );
+  }
   return (
     <Link to={to} className="label-link" title={title}>
       <Label variant={variant}>{children}</Label>

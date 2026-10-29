@@ -6,6 +6,8 @@
 // change; approved or not good enough) and words, needed unless the owner agrees. Each answer goes to the interface's
 // answer of an ask, and the engine goes on.
 
+import { CheckIcon } from '@primer/octicons-react';
+import { Button, ButtonGroup, Label } from '@primer/react';
 import { useState } from 'react';
 
 import type { JsonValue, OwnerAsk } from '../api';
@@ -15,7 +17,7 @@ import { postJson } from '../http';
 import { Field, OptionBoxes } from '../item/Shapes';
 import { isObj, label, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Block, By, type OpenRound, RoundLink, Section, SendForm } from '../parts';
+import { Block, By, type OpenRound, RoundLink, Section, SendForm, SubHeading } from '../parts';
 import { t, type Key } from '../text';
 import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
 import { AnswerForm, AskView, decided } from './Decide';
@@ -56,11 +58,11 @@ function Answered({ a }: { a: OwnerAsk }) {
   const ans = isObj(a.answer) ? a.answer : {};
   const choice = str(ans.choice);
   return (
-    <div className="decision-fact">
-      <span className="decision-label">
+    <div className="field">
+      <SubHeading>
         {t('ask_answer_by', { by: str(ans.by) })}
         {typeof ans.at === 'number' ? ` · ${time(ans.at)}` : ''}
-      </span>
+      </SubHeading>
       {choice !== '' ? (
         <p className="prose">
           <strong>{label(choice)}</strong>
@@ -99,7 +101,7 @@ function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
       ) : null}
       {affects.length > 0 ? (
         <div className="field">
-          <span className="decision-label">{t('ask_affects')}</span>
+          <SubHeading>{t('ask_affects')}</SubHeading>
           <ul className="arch-list">
             {affects.map((x, i) => (
               <li key={i}>
@@ -128,21 +130,21 @@ function RulingForm({ a }: { a: OwnerAsk }) {
     <SendForm
       above={
         <>
-          <div className="decide-row">
+          <ButtonGroup>
             {choices.map(([v, m]) => (
-              <button
+              <Button
                 key={v}
-                type="button"
-                className={`decide-button${choice === v ? ' on' : ''}`}
+                size="small"
+                leadingVisual={choice === v ? CheckIcon : undefined}
                 aria-pressed={choice === v}
                 title={m}
                 onClick={() => setChoice((c) => (c === v ? null : v))}
                 disabled={busy}
               >
                 {label(v)}
-              </button>
+              </Button>
             ))}
-          </div>
+          </ButtonGroup>
           {meaning !== '' ? <p className="muted pick-hint">{meaning}</p> : null}
         </>
       }
@@ -221,7 +223,7 @@ export function ArchitectAskBlock({ a, onRound }: { a: OwnerAsk; onRound?: OpenR
   const head = (
     <>
       <strong>{t('ask_head', { id: a.id })}</strong>
-      <span className="badge">{askKindWords(a)}</span>
+      <Label variant="secondary">{askKindWords(a)}</Label>
       <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
     </>
   );

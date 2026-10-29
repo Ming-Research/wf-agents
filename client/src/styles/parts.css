@@ -116,6 +116,13 @@
   text-decoration: underline;
 }
 
+.label-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
 /* What an agent wrote, as a block: a line above it, its head (chips, a title, who wrote it), its text under it. */
 .block {
   padding: var(--base-size-8) 0;
