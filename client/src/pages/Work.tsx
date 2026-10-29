@@ -27,7 +27,8 @@ import { cost, duration, roundName } from '../format';
 import { overlays, roundArrows, taken, chart } from '../graph/flowModel';
 import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
-import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
+import { ItemRef, RoundLink } from '../parts';
+import { href, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
 import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
 import { ConversationView } from './Messages';
@@ -190,9 +191,7 @@ function Going({ d, onCard, onAsk }: {
       {waits?.kind === 'items' ? (
         <p>
           {waits.items.map((i) => (
-            <Link key={i} to={`/items/${i}`} className="chip">
-              #{i}
-            </Link>
+            <ItemRef key={i} id={i} />
           ))}
         </p>
       ) : null}
@@ -211,15 +210,6 @@ function Going({ d, onCard, onAsk }: {
   );
 }
 
-/// The link to a round of the work, by its number in the work, which opens it in the panel.
-function RoundLink({ work, round, onRound }: { work: number; round: number; onRound: (r: number) => void }) {
-  return (
-    <button type="button" className="link" onClick={() => onRound(round)}>
-      {roundName(work, round)}
-    </button>
-  );
-}
-
 /// The work's design cards, in the card every card shares: the one waiting for the owner's ruling first, then the
 /// others, newest first; the current one (the one waiting, else the newest not replaced) open, every other folded to
 /// its one line.
@@ -235,7 +225,7 @@ function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) =
         <DesignCardView
           key={c.id}
           c={c}
-          round={<RoundLink work={c.work} round={c.round} onRound={onRound} />}
+          round={<RoundLink work={c.work} round={c.round} onRound={(_, r) => onRound(r)} />}
           folded={c.id !== current}
         />
       ))}

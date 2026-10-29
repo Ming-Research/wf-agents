@@ -4,12 +4,12 @@
 
 import type { Compiled, CompiledGraph, ItemDetail, RoundSummary, WorkDetail, WorkSummary } from '../api';
 import { liveState, Loaded, OutcomeBadge } from '../components';
-import { roundName } from '../format';
 import { words } from '../labelled';
 import { useResource, useStatus } from '../live';
 import { MarkdownInline } from '../markdown';
+import { RoundLink } from '../parts';
 import { bringIntoView } from '../pages/Decide';
-import { Link, workHref } from '../route';
+import { Link } from '../route';
 import { t } from '../text';
 import { byStage, progress, type Step } from './checklist';
 
@@ -55,9 +55,7 @@ function Note({ r, work }: { r: RoundSummary; work: number }) {
   if (r.progress === null && !bad) return null;
   return (
     <li>
-      <Link to={workHref(work, { round: r.n })} className="shown-from">
-        {roundName(work, r.n)}
-      </Link>{' '}
+      <RoundLink work={work} round={r.n} />{' '}
       {bad ? (
         <>
           <OutcomeBadge outcome={r.outcome} /> <span className="muted">{r.why ?? ''}</span>

@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import type { JsonValue } from '../api';
 import { empty, isObj, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
+import { Section } from '../parts';
 import { t, type Key } from '../text';
 
 /// A labelled text, when there is any.
@@ -17,16 +18,6 @@ export function Field({ label, value }: { label: string; value: JsonValue | unde
       <span className="decision-label">{label}</span>
       {typeof value === 'string' ? <Markdown text={value} /> : <Labelled value={value} />}
     </div>
-  );
-}
-
-/// A part folded under a line, when it has anything.
-export function Fold({ title, children, open = false }: { title: ReactNode; children: ReactNode; open?: boolean }) {
-  return (
-    <details className="fold" open={open}>
-      <summary>{title}</summary>
-      <div className="fold-body">{children}</div>
-    </details>
   );
 }
 
@@ -60,9 +51,9 @@ export function Understanding({ value }: { value: JsonValue }) {
       <Field label={t('problem_cause')} value={value.cause} />
       <Field label={t('problem_vs_item')} value={value.vs_item} />
       {grounds.length > 0 ? (
-        <Fold title={t('problem_grounds', { n: grounds.length })}>
+        <Section title={t('problem_grounds')} n={grounds.length}>
           <Grounds value={value.grounds} />
-        </Fold>
+        </Section>
       ) : null}
     </div>
   );
@@ -98,9 +89,9 @@ export function Design({ value, after }: { value: JsonValue; after: ReactNode })
       {after}
       {folded.map(([key, v]) =>
         empty(v) ? null : (
-          <Fold key={key} title={t(key)}>
+          <Section key={key} title={t(key)}>
             <Labelled value={v} />
-          </Fold>
+          </Section>
         ),
       )}
     </div>

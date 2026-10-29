@@ -20,6 +20,7 @@ import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
+import { SendForm } from '../parts';
 import { navigate } from '../route';
 import { t } from '../text';
 
@@ -355,28 +356,26 @@ function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
     });
   };
   return (
-    <div className="decide rule-summary">
-      <span className="decision-label">{t('rule_summary_title')}</span>
-      <ul>
-        {verdicts.map((v, i) => (
-          <li key={i} className={verdictReady(v) ? undefined : 'muted'}>
-            {verdictLine(i + 1, v.verdict, v.option, v.text)}
-          </li>
-        ))}
-      </ul>
-      <div className="decide-row">
-        <button
-          type="button"
-          className="decide-button"
-          onClick={send}
-          disabled={busy || !ready}
-          title={ready ? undefined : t('rule_not_ready')}
-        >
-          {t('rule_send')}
-        </button>
-      </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
+    <SendForm
+      above={
+        <div className="rule-summary">
+          <span className="decision-label">{t('rule_summary_title')}</span>
+          <ul>
+            {verdicts.map((v, i) => (
+              <li key={i} className={verdictReady(v) ? undefined : 'muted'}>
+                {verdictLine(i + 1, v.verdict, v.option, v.text)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      }
+      label={t('rule_send')}
+      ready={ready}
+      busy={busy}
+      why={t('rule_not_ready')}
+      onSend={send}
+      error={error}
+    />
   );
 }
 
@@ -503,26 +502,21 @@ export function AnswerForm({ a, picked, options }: { a: OwnerAsk; picked: string
     });
   };
   return (
-    <div className="decide">
-      {options ? (
-        <p className="muted pick-hint">
-          {picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}
-        </p>
-      ) : null}
-      <textarea
-        value={text}
-        rows={3}
-        placeholder={t(options ? 'answer_more_hint' : 'answer_text_hint')}
-        onChange={(e) => setText(e.target.value)}
-        disabled={busy}
-      />
-      <div className="decide-row">
-        <button type="button" className="decide-button" onClick={send} disabled={busy || answer === ''}>
-          {t('answer_send')}
-        </button>
-      </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
+    <SendForm
+      above={
+        options ? (
+          <p className="muted pick-hint">
+            {picked === '' ? t('answer_pick_hint') : t('answer_picked', { option: picked })}
+          </p>
+        ) : null
+      }
+      words={{ text, set: setText, placeholder: t(options ? 'answer_more_hint' : 'answer_text_hint') }}
+      label={t('answer_send')}
+      ready={answer !== ''}
+      busy={busy}
+      onSend={send}
+      error={error}
+    />
   );
 }
 

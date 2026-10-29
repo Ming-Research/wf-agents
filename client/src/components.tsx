@@ -35,19 +35,6 @@ export function Json({ value, depth = 0, open = 2 }: { value: JsonValue | undefi
   );
 }
 
-/// A part of a view that folds; open by default.
-export function Section(props: { title: ReactNode; open?: boolean; extra?: ReactNode; children: ReactNode }) {
-  return (
-    <details className="section" open={props.open ?? true}>
-      <summary>
-        <span className="section-title">{props.title}</span>
-        {props.extra}
-      </summary>
-      <div className="section-body">{props.children}</div>
-    </details>
-  );
-}
-
 /// Label and value pairs.
 export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | false> }) {
   return (

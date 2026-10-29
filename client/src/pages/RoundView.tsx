@@ -17,10 +17,11 @@ import type { CompiledCell, JsonValue, RoundDetail, RoundSummary, ToolRun } from
 import { Loaded } from '../components';
 import { numbered } from '../flow/CellPanel';
 import { type Flow, FlowContext } from '../flow/context';
-import { cost, duration, roundName, time } from '../format';
+import { cost, duration, time } from '../format';
 import { getJson, getText } from '../http';
 import { isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
+import { RoundLink } from '../parts';
 import {
   brief,
   chars,
@@ -363,14 +364,9 @@ function CellLink({ f, id }: { f: Flow | null; id: string }) {
   );
 }
 
-/// A round, as a link that opens it.
-function RoundLink({ f, work, n }: { f: Flow | null; work: number; n: number }) {
-  if (f === null) return <span>{roundName(work, n)}</span>;
-  return (
-    <button type="button" className="link" onClick={() => f.open({ kind: 'round', round: n })}>
-      {roundName(work, n)}
-    </button>
-  );
+/// A round of the work, as a round link that opens it on the chart, or on the work's page where no chart is.
+function Round({ f, work, n }: { f: Flow | null; work: number; n: number }) {
+  return <RoundLink work={work} round={n} onRound={f !== null ? (_, r) => f.open({ kind: 'round', round: r }) : undefined} />;
 }
 
 /// Why a round started a new session, in a few words; none for a round that went on in its line's session.
@@ -664,7 +660,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
           <h4 className="rp-h">{t('rp_input')}</h4>
           {tool && before !== undefined ? (
             <p className="rp-note">
-              {t('rp_asked_by')} <RoundLink f={f} work={d.work} n={before.n} />
+              {t('rp_asked_by')} <Round f={f} work={d.work} n={before.n} />
               {before.cell !== null ? (
                 <>
                   {' '}
@@ -712,7 +708,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
         ) : null}
         {agent && after !== undefined && after.cell !== null && f?.cell(after.cell)?.kind === 'tool' ? (
           <p className="rp-note">
-            {t('rp_tools_ran_in')} <RoundLink f={f} work={d.work} n={after.n} />
+            {t('rp_tools_ran_in')} <Round f={f} work={d.work} n={after.n} />
           </p>
         ) : null}
         {!agent ? d.asks.map((a) => <AskView key={a.id} a={a} />) : null}

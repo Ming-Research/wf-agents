@@ -421,25 +421,159 @@ td.clip {
 
 /* Folding parts and facts */
 
+/* The parts the page shows like things with (parts.tsx), one look wherever they are. A section: a line above it, its
+   title, how many it holds and who wrote it on the line that folds it, what it holds under it. */
 .section {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  padding: 5px 0;
 }
 
 .section > summary {
   cursor: pointer;
-  font-weight: 600;
+  list-style: none;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.section > summary::before {
+  content: '▸';
+  color: var(--muted);
+}
+
+.section[open] > summary::before {
+  content: '▾';
+}
+
+.section-title {
+  font-weight: 600;
+}
+
+.section-n {
+  color: var(--muted);
 }
 
 .section-body {
-  padding-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 0 2px;
   overflow-x: auto;
+}
+
+/* A page's own sections, one under another, are boxes. */
+.page > .section,
+.two > .section {
+  margin: 10px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+/* What an agent wrote, as a block: a line above it, its head (chips, a title, who wrote it), its text under it. */
+.block {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.block-h {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.block-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.block-field {
+  margin: 0;
+}
+
+.block-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The facts under a block's text, on one line as room allows. */
+.block-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Who wrote something: who to whom, or the cell; when; the round. */
+.by {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.by-who {
+  font-weight: 600;
+}
+
+.round-link {
+  white-space: nowrap;
+}
+
+/* An item, by its number and title: its title in the colour of the text it is in. */
+.item-ref {
+  color: inherit;
+  text-decoration: none;
+}
+
+.item-ref:hover {
+  text-decoration: underline;
+}
+
+.item-ref-n {
+  color: var(--muted);
+}
+
+/* The form that answers or says something: what goes above, the words, the button that sends them on the right. */
+.send-form {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.send-form textarea,
+.decide textarea {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--panel);
+  color: var(--text);
+  resize: vertical;
+}
+
+.send-form-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .facts {
@@ -461,11 +595,6 @@ td.clip {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.boxed {
-  border-top: 1px solid var(--line);
-  padding: 6px 0;
 }
 
 .nav-count {
@@ -687,10 +816,6 @@ td.clip {
   max-width: 1080px;
 }
 
-.item-page > .section {
-  margin: 10px 0;
-}
-
 .shown-from {
   color: var(--muted);
   font-size: 12px;
@@ -712,23 +837,6 @@ td.clip {
   display: grid;
   gap: 2px;
   margin-top: 4px;
-}
-
-.fold {
-  border-top: 1px solid var(--line);
-  padding: 4px 0;
-  margin-top: 6px;
-}
-
-.fold > summary {
-  cursor: pointer;
-  color: var(--muted);
-}
-
-.fold-body {
-  padding: 6px 0 2px;
-  display: grid;
-  gap: 6px;
 }
 
 .design-chosen {
@@ -946,10 +1054,6 @@ select {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin: 10px 0;
-}
-
-.page > .section {
   margin: 10px 0;
 }
 
@@ -1812,10 +1916,6 @@ svg.fc {
   flex-wrap: wrap;
 }
 
-details.work-old > summary {
-  cursor: pointer;
-}
-
 .rounds-mark:hover {
   text-decoration: underline;
 }
@@ -2547,15 +2647,6 @@ summary.works-label {
 .col-grip:hover {
   background: var(--accent-soft);
   box-shadow: inset -2px 0 0 var(--accent);
-}
-
-.row-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.row-link:hover {
-  text-decoration: underline;
 }
 
 .works-none {
@@ -3448,16 +3539,6 @@ details.dc[open] > summary::before,
   padding-top: 8px;
 }
 
-.decide textarea {
-  font: inherit;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
-  background: var(--panel);
-  color: var(--text);
-  resize: vertical;
-}
-
 .decide-row {
   display: flex;
   gap: 8px;
@@ -3808,34 +3889,6 @@ details.dc[open] > summary::before,
   font-size: 12px;
 }
 
-/* A line of work of the state of things, or another part of the understanding, as a block: its name as the heading,
-   its fields as short labelled paragraphs under it. */
-.arch-block {
-  border-top: 1px solid var(--line);
-  padding: 6px 0;
-  overflow-wrap: anywhere;
-}
-
-.arch-block-h {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: baseline;
-}
-
-.arch-block-field {
-  margin: 3px 0;
-}
-
-.arch-block-label {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.arch-block-from {
-  margin-bottom: 4px;
-}
-
 /* One kind of outcome of a matter handled, on one line; the whole of it on hovering. */
 .arch-outcome {
   margin: 2px 0;
@@ -3882,18 +3935,6 @@ details.dc[open] > summary::before,
 .arch-now {
   background: color-mix(in srgb, var(--warn) 22%, transparent);
   text-decoration: none;
-}
-
-/* The head of a block of a work or of the architect: its name and what is said of it, on one line. */
-.work-item-head {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-
-summary > .work-item-head {
-  display: inline-flex;
 }
 
 .card-view {
@@ -4122,18 +4163,6 @@ summary > .work-item-head {
   align-self: stretch;
 }
 
-.talk-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
-  font-size: 12px;
-}
-
-.talk-who {
-  font-weight: 600;
-}
-
 .talk-text {
   margin: 4px 0;
 }
@@ -4151,29 +4180,7 @@ summary > .work-item-head {
 
 .talk-say {
   flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: flex-end;
-  padding: 8px;
-  border-top: 1px solid var(--line);
-}
-
-.talk-say textarea {
-  flex: 1;
-  min-width: 160px;
-  font: inherit;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
-  background: var(--panel);
-  color: var(--text);
-  resize: vertical;
-}
-
-.talk-error {
-  flex-basis: 100%;
-  margin: 0;
+  padding: 0 8px 8px;
 }
 
 .arch-wakes {
@@ -4232,27 +4239,6 @@ summary > .work-item-head {
   }
 }
 
-.arch-matters {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.arch-matter {
-  border-top: 1px solid var(--line);
-  padding: 5px 0;
-}
-
-.arch-matter-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 2px;
-  font-size: 12.5px;
-}
-
 .arch-list {
   margin: 0;
   padding-left: 18px;
@@ -4264,41 +4250,6 @@ summary > .work-item-head {
   font-weight: 600;
 }
 
-.arch-part {
-  display: grid;
-  gap: 6px;
-  border-top: 1px solid var(--line);
-  padding-top: 6px;
-}
-
-.arch-setting {
-  border-top: 2px solid var(--warn);
-}
-
-.arch-from {
-  font-size: 12.5px;
-}
-
-.arch-entry > summary {
-  cursor: pointer;
-}
-
-/* The entry's line stays beside the fold's marker, wrapping within itself. */
-.arch-entry > summary > .work-item-head {
-  max-width: calc(100% - 1.5em);
-  vertical-align: top;
-}
-
-.arch-entry-body {
-  display: grid;
-  gap: 8px;
-  padding-top: 6px;
-}
-
-.arch-change-for {
-  font-size: 12.5px;
-}
-
 .arch-changes > li {
   padding: 4px 0;
 }
@@ -4307,11 +4258,6 @@ summary > .work-item-head {
   display: inline-block;
   margin-right: 8px;
   font-weight: 600;
-}
-
-.arch-reading {
-  border-top: 1px solid var(--line);
-  padding-top: 4px;
 }
 
 .verdict-good,

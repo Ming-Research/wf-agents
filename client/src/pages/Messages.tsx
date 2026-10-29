@@ -8,7 +8,8 @@
 // each with how many things wait and how many are unread. In a conversation, what waits for the owner is pinned above
 // the stream, where a flood cannot bury it, and answered there; once answered it takes its place in the stream at its
 // time. The stream runs oldest first, the newest at the bottom and scrolled to; each entry says who it is from and to,
-// and what passes between agents is folded until the owner opens it. Opening a conversation marks its messages and
+// when and the round it came with, in the parts the page says who wrote anything with, and what passes between agents
+// is folded until the owner opens it. Opening a conversation marks its messages and
 // notices read; a fault is marked read where it is pinned. The box at the bottom says something: in an architect's
 // conversation to that architect; in a work's to its engineer, or to the architect about the work. The same view shows
 // a conversation wherever the page shows one: here, under the architect's panel and in a work's panel.
@@ -29,9 +30,10 @@ import { cost, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Markdown } from '../markdown';
+import { By, RoundLink, SendForm } from '../parts';
 import { architectHref, href, Link, workHref } from '../route';
 import { t } from '../text';
-import { ArchitectAsk } from './ArchitectAsk';
+import { ArchitectAskBlock } from './ArchitectAsk';
 import { AskView, DesignCardView } from './Decide';
 
 /// Marks messages read: agents' messages and the engine's notices, or every one unread.
@@ -82,21 +84,21 @@ function Said({ e }: { e: ConversationEntry }) {
 function Entry({ e }: { e: ConversationEntry }) {
   const own = e.sender === 'owner';
   const look = ['talk', own ? 'talk-owner' : 'talk-other', e.agents ? 'talk-agents' : null, e.fault !== null ? 'talk-fault' : null];
+  const round = e.source !== 'between';
   return (
     <div className={look.filter((x) => x !== null).join(' ')}>
-      <div className="talk-head muted">
-        <span className="talk-who">
-          {party(e, e.sender)} → {party(e, e.recipient)}
-        </span>
-        <span>{time(e.at)}</span>
-        {e.work !== null && e.round !== null && e.source !== 'between' ? (
-          <Link to={workHref(e.work, { round: e.round })}>
-            R{e.work}-{e.round}
-          </Link>
-        ) : null}
+      <div className="block-h">
+        <By
+          who={`${party(e, e.sender)} → ${party(e, e.recipient)}`}
+          at={e.at}
+          work={round ? e.work : null}
+          round={round ? e.round : null}
+        />
         {e.pending && own ? <span className="chip waits">{t('conv_pending')}</span> : null}
       </div>
-      <Said e={e} />
+      <div className="block-body">
+        <Said e={e} />
+      </div>
     </div>
   );
 }
@@ -106,11 +108,11 @@ function PinnedFault({ e }: { e: ConversationEntry }) {
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="talk talk-fault talk-pinned">
-      <div className="talk-head muted">
+      <div className="block-h">
         <span className="badge verdict-bad" title={t('message_fault_hint')}>
           {t('message_fault', { kind: t(e.fault === 'flow_anomaly' ? 'fault_flow_anomaly' : 'fault_cache_miss') })}
         </span>
-        <span>{time(e.at)}</span>
+        <By at={e.at} />
         <button
           type="button"
           className="link"
@@ -121,8 +123,10 @@ function PinnedFault({ e }: { e: ConversationEntry }) {
           {t('message_mark_read')}
         </button>
       </div>
-      <Said e={e} />
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+      <div className="block-body">
+        <Said e={e} />
+        {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
+      </div>
     </div>
   );
 }
@@ -171,7 +175,6 @@ function SayBox({ conversation }: { conversation: string }) {
   const kind = conversation.slice(0, at);
   const subject = conversation.slice(at + 1);
   if (at < 0 || (kind !== 'architect' && kind !== 'work')) return null;
-  const ready = !busy && text.trim() !== '';
   const send = () => {
     setBusy(true);
     setError(null);
@@ -193,30 +196,29 @@ function SayBox({ conversation }: { conversation: string }) {
   };
   return (
     <div className="talk-say">
-      {kind === 'work' ? (
-        <select value={to} onChange={(e) => setTo(e.target.value === 'architect' ? 'architect' : 'engineer')}>
-          <option value="engineer">{t('conv_to_engineer')}</option>
-          <option value="architect">{t('conv_to_architect')}</option>
-        </select>
-      ) : null}
-      <textarea
-        value={text}
-        rows={2}
-        placeholder={t(kind === 'architect' ? 'conv_say_architect' : to === 'engineer' ? 'conv_say_engineer' : 'conv_say_architect_work')}
-        title={t('conv_send_hint')}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ready) {
-            e.preventDefault();
-            send();
-          }
+      <SendForm
+        above={
+          kind === 'work' ? (
+            <select value={to} onChange={(e) => setTo(e.target.value === 'architect' ? 'architect' : 'engineer')}>
+              <option value="engineer">{t('conv_to_engineer')}</option>
+              <option value="architect">{t('conv_to_architect')}</option>
+            </select>
+          ) : null
+        }
+        words={{
+          text,
+          set: setText,
+          rows: 2,
+          placeholder: t(
+            kind === 'architect' ? 'conv_say_architect' : to === 'engineer' ? 'conv_say_engineer' : 'conv_say_architect_work',
+          ),
         }}
-        disabled={busy}
+        label={t('conv_send')}
+        ready={text.trim() !== ''}
+        busy={busy}
+        onSend={send}
+        error={error}
       />
-      <button type="button" className="decide-button" onClick={send} disabled={!ready}>
-        {t('conv_send')}
-      </button>
-      {error !== null ? <p className="bad talk-error">{t('request_failed', { error })}</p> : null}
     </div>
   );
 }
@@ -263,23 +265,13 @@ export function ConversationView({ conversation, note }: {
           ))}
           {d.asks.map((a) =>
             conversation.startsWith('architect:') ? (
-              <div key={a.id} id={`ask-${a.id}`} className="boxed">
-                <ArchitectAsk a={a} />
-              </div>
+              <ArchitectAskBlock key={a.id} a={a} />
             ) : (
-              <AskView key={a.id} a={a} />
+              <AskView key={a.id} a={a} round={<RoundLink work={a.work} round={a.round} />} />
             ),
           )}
           {d.design_cards.map((c) => (
-            <DesignCardView
-              key={c.id}
-              c={c}
-              round={
-                <Link to={workHref(c.work, { round: c.round })}>
-                  R{c.work}-{c.round}
-                </Link>
-              }
-            />
+            <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} />
           ))}
         </div>
       ) : null}

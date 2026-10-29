@@ -14,7 +14,7 @@
 // matters in it, then those an ask holds, then, folded, those it handled with what became of each; the item changes
 // its batches made; the project's observations; the policy in force and the one being set, with the asks that read
 // and approve it; where things stand as it understands them; and the rounds of the wake shown. Each part names the cell
-// that wrote it.
+// that wrote it, and every tab draws its blocks, sections, items, rounds and forms with the page's shared parts.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -47,10 +47,9 @@ import {
 import { course, heldName, Loaded } from '../components';
 import { Control, Controls, held, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration, roundName, time } from '../format';
+import { cost, duration, time } from '../format';
 import { postJson } from '../http';
-import { Fold } from '../item/Shapes';
-import { isObj, Labelled, str, words } from '../labelled';
+import { Labelled, words } from '../labelled';
 import { Markdown } from '../markdown';
 import { reread, useResource, useStatus } from '../live';
 import {
@@ -64,17 +63,9 @@ import {
   workHref,
 } from '../route';
 import { t, type Key } from '../text';
-import { ArchitectAsk, askKindWords } from './ArchitectAsk';
-import {
-  ChangeView,
-  type OpenRound,
-  PolicyText,
-  ProbesView,
-  ReadingView,
-  StudyView,
-  UnderstandingView,
-  Wrote,
-} from './ArchitectViews';
+import { Block, By, ItemRef, type OpenRound, Section } from '../parts';
+import { ArchitectAskBlock } from './ArchitectAsk';
+import { ChangeBlock, PolicyText, ProbesView, ReadingView, StudyView, UnderstandingView } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { ConversationView } from './Messages';
 import { RoundView } from './RoundView';
@@ -380,30 +371,28 @@ const SOURCES: Record<string, Key> = {
   engine: 'source_engine',
 };
 
-/// One matter in an architect's queue: its kind, and what more its kind says, as a chip coloured by who raised it;
-/// what it is; whether it is urgent; its item; and who waits for it and how long; or the ask that holds it, or that the
-/// owner answered, so that it goes back to the cell that asked.
+/// One matter in an architect's queue, as a block: its kind, and what more its kind says, as a chip coloured by who
+/// raised it; what it is; whether it is urgent; then its item; and who waits for it and how long; or the ask that holds
+/// it, or that the owner answered, so that it goes back to the cell that asked.
 function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: number) => void }) {
   const since = duration(Math.max(0, now - m.at));
+  const head = (
+    <>
+      <span
+        className={`badge kind src-${m.source}`}
+        title={SOURCES[m.source] !== undefined ? t(SOURCES[m.source]) : undefined}
+      >
+        {words(m.kind)}
+        {m.detail !== null ? ` · ${words(m.detail)}` : ''}
+      </span>
+      {m.urgent ? <span className="badge verdict-bad">{t('matter_urgent')}</span> : null}
+      <span className="arch-matter-what">{m.what}</span>
+    </>
+  );
   return (
-    <li className="arch-matter" id={`matter-${m.id}`}>
-      <div className="work-item-head">
-        <span
-          className={`badge kind src-${m.source}`}
-          title={SOURCES[m.source] !== undefined ? t(SOURCES[m.source]) : undefined}
-        >
-          {words(m.kind)}
-          {m.detail !== null ? ` · ${words(m.detail)}` : ''}
-        </span>
-        {m.urgent ? <span className="badge verdict-bad">{t('matter_urgent')}</span> : null}
-        <span className="arch-matter-what">{m.what}</span>
-      </div>
-      <div className="muted arch-matter-meta">
-        {m.item !== null ? (
-          <Link to={`/items/${m.item}`}>
-            #{m.item} {m.title ?? ''}
-          </Link>
-        ) : null}
+    <Block id={`matter-${m.id}`} head={head}>
+      <div className="block-meta">
+        {m.item !== null ? <ItemRef id={m.item} title={m.title} /> : null}
         {m.waits === 'agent' && m.work !== null ? (
           <span>
             <Link to={workHref(m.work)}>{t('work_title', { id: m.work })}</Link> {t('matter_waits_agent', { for: since })}
@@ -417,23 +406,24 @@ function MatterRow({ m, now, onAsk }: { m: Matter; now: number; onAsk: (id: numb
           </button>
         ) : null}
       </div>
-    </li>
+    </Block>
   );
 }
 
 /// A matter handled, as a block: its kind and what it was, the cell and round that closed it, and one line for each
 /// kind of outcome it had, each leading to the tab that holds the rest of it.
 function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; onTab: (tab: ArchitectTab) => void }) {
+  const head = (
+    <>
+      <span className="badge">
+        {words(h.kind)}
+        {h.detail !== null ? ` · ${words(h.detail)}` : ''}
+      </span>
+      <span className="arch-matter-what">{h.what}</span>
+    </>
+  );
   return (
-    <li className="arch-block" id={`matter-${h.matter}`}>
-      <div className="arch-block-h">
-        <span className="badge">
-          {words(h.kind)}
-          {h.detail !== null ? ` · ${words(h.detail)}` : ''}
-        </span>
-        <span className="arch-matter-what">{h.what}</span>
-        <Wrote cell={h.cell} work={h.work} round={h.round} onRound={onRound} />
-      </div>
+    <Block id={`matter-${h.matter}`} head={head} by={<By cell={h.cell} work={h.work} round={h.round} onRound={onRound} />}>
       {outcomes(h).map((o) => (
         <p key={o.key} className="arch-outcome" title={o.text !== '' ? o.text : undefined}>
           {o.tab !== null ? (
@@ -441,12 +431,12 @@ function HandledBlock({ h, onRound, onTab }: { h: Handled; onRound: OpenRound; o
               {o.label}
             </button>
           ) : (
-            <span className="arch-block-label">{o.label}</span>
+            <span className="block-label">{o.label}</span>
           )}{' '}
           {o.text}
         </p>
       ))}
-    </li>
+    </Block>
   );
 }
 
@@ -461,33 +451,23 @@ function Queue({ queue, handled, onAsk, onRound, onTab }: {
 }) {
   const now = useNow(false);
   const { waiting, held: holding } = queueParts(queue);
-  const list = (ms: Matter[]) => (
-    <ul className="arch-matters">
-      {ms.map((m) => (
-        <MatterRow key={m.id} m={m} now={now} onAsk={onAsk} />
-      ))}
-    </ul>
-  );
   return (
     <>
       {queue.length === 0 ? <p className="muted">{t('arch_queue_none')}</p> : null}
       {queue.length > 0 && waiting.length === 0 ? <p className="muted">{t('arch_queue_none_waiting')}</p> : null}
-      {waiting.length > 0 ? list(waiting) : null}
-      {holding.length > 0 ? (
-        <section>
-          <div className="works-label">{t('arch_queue_held', { n: holding.length })}</div>
-          {list(holding)}
-        </section>
-      ) : null}
-      {handled.length > 0 ? (
-        <Fold title={t('handled_title', { n: handled.length })}>
-          <ul className="arch-matters">
-            {handled.map((h) => (
-              <HandledBlock key={h.matter} h={h} onRound={onRound} onTab={onTab} />
-            ))}
-          </ul>
-        </Fold>
-      ) : null}
+      {waiting.map((m) => (
+        <MatterRow key={m.id} m={m} now={now} onAsk={onAsk} />
+      ))}
+      <Section title={t('arch_queue_held')} n={holding.length} open>
+        {holding.map((m) => (
+          <MatterRow key={m.id} m={m} now={now} onAsk={onAsk} />
+        ))}
+      </Section>
+      <Section title={t('handled_title')} n={handled.length}>
+        {handled.map((h) => (
+          <HandledBlock key={h.matter} h={h} onRound={onRound} onTab={onTab} />
+        ))}
+      </Section>
     </>
   );
 }
@@ -497,29 +477,33 @@ function Queue({ queue, handled, onAsk, onRound, onTab }: {
 function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRound }) {
   if (changes.length === 0) return <p className="muted">{t('arch_changes_none')}</p>;
   return (
-    <ul className="arch-matters">
+    <>
       {changes.map((c) => (
-        <li key={c.id} className="boxed">
-          <div className="work-item-head">
-            <span className={`badge ${c.state === 'made' ? 'verdict-good' : 'verdict-bad'}`}>{words(c.state)}</span>
-            <span className="muted">{t('change_matter', { n: c.matter })}</span>
-            <Wrote cell={c.cell} work={c.work} round={c.round} onRound={onRound} />
-          </div>
-          <ChangeView value={c.change} />
+        <ChangeBlock
+          key={c.id}
+          value={c.change}
+          before={
+            <>
+              <span className={`badge ${c.state === 'made' ? 'verdict-good' : 'verdict-bad'}`}>{words(c.state)}</span>
+              <span className="muted">{t('change_matter', { n: c.matter })}</span>
+            </>
+          }
+          by={<By cell={c.cell} work={c.work} round={c.round} onRound={onRound} />}
+        >
           {c.outcome !== null ? (
             <div className="field">
               <span className="decision-label">{t(c.state === 'made' ? 'change_made' : 'change_dropped')}</span>
               <Labelled value={c.outcome} />
             </div>
           ) : null}
-        </li>
+        </ChangeBlock>
       ))}
-    </ul>
+    </>
   );
 }
 
-/// One observation: what it is; its tags; where it came from and how many times it was reported; what it refers to;
-/// the item that took it in; and, closed, why; open, the owner's Close, which asks why.
+/// One observation, as a block: what it is; its tags; how many times it was reported; and, closed, why, open, the
+/// owner's Close, which asks why; then where it came from, what it refers to, the item that took it in and when.
 function ObservationRow({ o }: { o: Observation }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -536,36 +520,40 @@ function ObservationRow({ o }: { o: Observation }) {
       },
     );
   };
+  const head = (
+    <>
+      <strong>{t('observation_head', { id: o.id })}</strong>
+      {o.tags.map((x) => (
+        <span key={x} className="badge">
+          {x}
+        </span>
+      ))}
+      <span className="muted">{t('observation_reported', { n: o.times_reported })}</span>
+      {o.closed !== null ? (
+        <span className="badge">{t('observation_closed', { why: words(o.closed) })}</span>
+      ) : (
+        <button type="button" className="link" disabled={busy} onClick={close}>
+          {t('observation_close')}
+        </button>
+      )}
+    </>
+  );
   return (
-    <li className="boxed">
-      <div className="work-item-head">
-        <strong>{t('observation_head', { id: o.id })}</strong>
-        {o.tags.map((x) => (
-          <span key={x} className="badge">
-            {x}
-          </span>
-        ))}
-        <span className="muted">{t('observation_reported', { n: o.times_reported })}</span>
-        {o.closed !== null ? (
-          <span className="badge">{t('observation_closed', { why: words(o.closed) })}</span>
-        ) : (
-          <button type="button" className="link" disabled={busy} onClick={close}>
-            {t('observation_close')}
-          </button>
-        )}
-      </div>
+    <Block head={head}>
       <Markdown text={o.what} />
-      <div className="muted arch-matter-meta">
+      <div className="block-meta">
         <span>{t('observation_source', { source: o.source })}</span>
         {o.refs.length > 0 ? <span>{t('observation_refs', { refs: o.refs.join(', ') })}</span> : null}
         {o.folded_into !== null ? (
-          <Link to={`/items/${o.folded_into}`}>{t('observation_folded', { item: o.folded_into })}</Link>
+          <span>
+            {t('observation_folded')} <ItemRef id={o.folded_into} />
+          </span>
         ) : null}
         {o.created !== null ? <span>{t('observation_at', { at: time(o.created) })}</span> : null}
       </div>
       {o.closed_why !== null ? <p className="muted">{o.closed_why}</p> : null}
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </li>
+    </Block>
   );
 }
 
@@ -603,11 +591,7 @@ function Observations({ a }: { a: ArchitectRead }) {
       {shown.length === 0 ? (
         <p className="muted">{t('observation_none')}</p>
       ) : (
-        <ul className="arch-matters">
-          {shown.map((o) => (
-            <ObservationRow key={o.id} o={o} />
-          ))}
-        </ul>
+        shown.map((o) => <ObservationRow key={o.id} o={o} />)
       )}
     </>
   );
@@ -617,29 +601,18 @@ function Observations({ a }: { a: ArchitectRead }) {
 /// first, with their forms, each under the cell that put it; those answered folded under them. Every other ask of the
 /// architect's is pinned in the conversation, with its form.
 function PolicyAsks({ asks, onRound }: { asks: OwnerAsk[]; onRound: OpenRound }) {
-  if (asks.length === 0) return null;
   const waiting = asks.filter((x) => x.answer === null);
   const answered = asks.filter((x) => x.answer !== null).reverse();
-  const one = (x: OwnerAsk) => (
-    <div key={x.id} id={`ask-${x.id}`} className="boxed">
-      <span className="work-item-head">
-        <strong>{t('ask_head', { id: x.id })}</strong>
-        <span className="badge">{askKindWords(x)}</span>
-        <span className="muted">{x.answer === null ? t('ask_waits') : t('ask_answered')}</span>
-        <Wrote cell={isObj(x.body) ? str(x.body.cell) : ''} work={x.work} round={x.round} onRound={onRound} />
-      </span>
-      <ArchitectAsk a={x} />
-    </div>
-  );
   return (
     <>
-      {waiting.map(one)}
-      {answered.length > 0 ? (
-        <details className="boxed work-old">
-          <summary>{t('work_answered_asks', { n: answered.length })}</summary>
-          {answered.map(one)}
-        </details>
-      ) : null}
+      {waiting.map((x) => (
+        <ArchitectAskBlock key={x.id} a={x} onRound={onRound} />
+      ))}
+      <Section title={t('work_answered_asks')} n={answered.length}>
+        {answered.map((x) => (
+          <ArchitectAskBlock key={x.id} a={x} onRound={onRound} />
+        ))}
+      </Section>
     </>
   );
 }
@@ -654,54 +627,52 @@ function Policy({ a, asks, onRound }: { a: ArchitectRead; asks: OwnerAsk[]; onRo
     <>
       <PolicyAsks asks={asks} onRound={onRound} />
       {s !== null ? (
-        <section className="arch-part arch-setting">
-          <div className="decision-label">{t('policy_being_set')}</div>
+        <Section title={t('policy_being_set')} open>
           {s.study !== null ? (
-            <Fold
+            <Section
+              title={t('policy_study')}
               open={s.draft === null}
-              title={
-                <>
-                  {t('policy_study')} · {s.study.cell} · {roundName(s.study.work, s.study.round)}
-                </>
-              }
+              by={<By cell={s.study.cell} work={s.study.work} round={s.study.round} onRound={onRound} />}
             >
-              <Wrote cell={s.study.cell} work={s.study.work} round={s.study.round} onRound={onRound} />
               <StudyView value={s.study.value} />
-            </Fold>
+            </Section>
           ) : null}
           {s.draft !== null ? (
             <>
-              <div className="work-item-head">
-                <span className="decision-label">{t('policy_draft')}</span>
-                <Wrote cell={s.draft.cell} work={s.work} round={s.draft.round} onRound={onRound} />
-              </div>
-              <PolicyText value={s.draft.policy} />
-              <Fold title={t('policy_probes', { n: Array.isArray(s.draft.probes) ? s.draft.probes.length : 0 })}>
-                <ProbesView value={s.draft.probes} />
-              </Fold>
+              <Block
+                head={<strong>{t('policy_draft')}</strong>}
+                by={<By cell={s.draft.cell} work={s.work} round={s.draft.round} onRound={onRound} />}
+              >
+                <PolicyText value={s.draft.policy} />
+                <Section title={t('policy_probes')} n={Array.isArray(s.draft.probes) ? s.draft.probes.length : 0}>
+                  <ProbesView value={s.draft.probes} />
+                </Section>
+              </Block>
               {s.draft.readings.map((r) => (
                 <ReadingView
                   key={r.round}
-                  from={<Wrote cell={r.cell} work={s.work} round={r.round} onRound={onRound} />}
+                  by={<By cell={r.cell} work={s.work} round={r.round} onRound={onRound} />}
                   reading={r.reading}
                   verdict={r.verdict}
                 />
               ))}
             </>
           ) : null}
-        </section>
+        </Section>
       ) : null}
-      <section className="arch-part">
-        <div className="work-item-head">
-          <span className="decision-label">{t('policy_in_force')}</span>
-          {p !== null ? (
-            <span className="muted">
-              {t('policy_took_effect', { at: time(p.at) })} <Wrote cell={p.cell} work={p.work} round={p.round} onRound={onRound} />
-            </span>
-          ) : null}
-        </div>
+      <Section
+        title={t('policy_in_force')}
+        open
+        by={
+          p !== null ? (
+            <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>
+              {t('policy_took_effect', { at: time(p.at) })}
+            </By>
+          ) : undefined
+        }
+      >
         {p !== null ? <PolicyText value={p.policy} /> : <p className="muted">{t('policy_none')}</p>}
-      </section>
+      </Section>
     </>
   );
 }

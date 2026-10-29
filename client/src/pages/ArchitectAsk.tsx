@@ -1,19 +1,21 @@
 // An ask an architect put to the owner, as the owner reads and answers it, by its kind: a question, laid out as an
 // engineer's ask is, with the matters it holds; an open choice, which holds no wake; the study of a new policy to read;
-// and the policy to approve, with its probes and every reading of it by a new architect. While it waits, its form: an
-// option clicked and words; or one of the choices its cell offers (satisfied, study on or no change; approved or not
-// good enough) and words, needed unless the owner agrees. Each answer goes to the interface's answer of an ask, and the
-// engine goes on.
+// and the policy to approve, with its probes and every reading of it by a new architect. Every kind but the question,
+// which the card every ask shares heads, is a block under its number, kind and the cell and round that put it. While
+// it waits, its form: an option clicked and words; or one of the choices its cell offers (satisfied, study on or no
+// change; approved or not good enough) and words, needed unless the owner agrees. Each answer goes to the interface's
+// answer of an ask, and the engine goes on.
 
 import { useState } from 'react';
 
 import type { JsonValue, OwnerAsk } from '../api';
 import { choicesOf, rulingAnswer } from '../architect';
-import { roundName, time } from '../format';
+import { time } from '../format';
 import { postJson } from '../http';
-import { Field, Fold, OptionBoxes } from '../item/Shapes';
+import { Field, OptionBoxes } from '../item/Shapes';
 import { isObj, label, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
+import { Block, By, type OpenRound, RoundLink, Section, SendForm } from '../parts';
 import { t, type Key } from '../text';
 import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
 import { AnswerForm, AskView, decided } from './Decide';
@@ -123,80 +125,68 @@ function RulingForm({ a }: { a: OwnerAsk }) {
   const meaning = choices.find(([v]) => v === choice)?.[1] ?? '';
   const agrees = choice !== null && choice === choices[0]?.[0];
   return (
-    <div className="decide">
-      <div className="decide-row">
-        {choices.map(([v, m]) => (
-          <button
-            key={v}
-            type="button"
-            className={`decide-button${choice === v ? ' on' : ''}`}
-            aria-pressed={choice === v}
-            title={m}
-            onClick={() => setChoice((c) => (c === v ? null : v))}
-            disabled={busy}
-          >
-            {label(v)}
-          </button>
-        ))}
-      </div>
-      {meaning !== '' ? <p className="muted pick-hint">{meaning}</p> : null}
-      <textarea
-        value={text}
-        rows={3}
-        placeholder={t(agrees ? 'ruling_words_optional' : 'ruling_words_needed')}
-        onChange={(e) => setText(e.target.value)}
-        disabled={busy}
-      />
-      <div className="decide-row">
-        <button
-          type="button"
-          className="decide-button"
-          onClick={() => answer !== null && send(answer)}
-          disabled={busy || answer === null}
-          title={answer === null ? t('ruling_not_ready') : undefined}
-        >
-          {t('answer_send')}
-        </button>
-      </div>
-      {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
-    </div>
+    <SendForm
+      above={
+        <>
+          <div className="decide-row">
+            {choices.map(([v, m]) => (
+              <button
+                key={v}
+                type="button"
+                className={`decide-button${choice === v ? ' on' : ''}`}
+                aria-pressed={choice === v}
+                title={m}
+                onClick={() => setChoice((c) => (c === v ? null : v))}
+                disabled={busy}
+              >
+                {label(v)}
+              </button>
+            ))}
+          </div>
+          {meaning !== '' ? <p className="muted pick-hint">{meaning}</p> : null}
+        </>
+      }
+      words={{ text, set: setText, placeholder: t(agrees ? 'ruling_words_optional' : 'ruling_words_needed') }}
+      label={t('answer_send')}
+      ready={answer !== null}
+      busy={busy}
+      why={t('ruling_not_ready')}
+      onSend={() => {
+        if (answer !== null) send(answer);
+      }}
+      error={error}
+    />
   );
 }
 
 /// The policy to approve: its text, its probes folded, and each reading of it by a new architect with the verdict.
-function PolicyAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
+function PolicyAsk({ a, body, onRound }: { a: OwnerAsk; body: Obj; onRound?: OpenRound }) {
   const readings = objs(body.readings);
   const probes = Array.isArray(body.probes) ? body.probes.length : 0;
   return (
     <div className="card-view">
       <PolicyText value={body.policy ?? null} />
-      {probes > 0 ? (
-        <Fold title={t('policy_probes', { n: probes })}>
-          <ProbesView value={body.probes ?? null} />
-        </Fold>
-      ) : null}
-      {readings.length > 0 ? (
-        <div className="field">
-          <span className="decision-label">{t('policy_readings', { n: readings.length })}</span>
-          {readings.map((r, i) => (
-            <ReadingView
-              key={i}
-              from={
-                typeof r.round === 'number' ? <span className="muted arch-from">{roundName(a.work, r.round)}</span> : null
-              }
-              reading={r.reading ?? null}
-              verdict={r.verdict ?? null}
-            />
-          ))}
-        </div>
-      ) : null}
+      <Section title={t('policy_probes')} n={probes}>
+        <ProbesView value={body.probes ?? null} />
+      </Section>
+      <Section title={t('policy_readings')} n={readings.length} open>
+        {readings.map((r, i) => (
+          <ReadingView
+            key={i}
+            by={typeof r.round === 'number' ? <By work={a.work} round={r.round} onRound={onRound} /> : null}
+            reading={r.reading ?? null}
+            verdict={r.verdict ?? null}
+          />
+        ))}
+      </Section>
       {a.answer === null ? <RulingForm a={a} /> : <Answered a={a} />}
     </div>
   );
 }
 
-/// An ask of the architect's, by its kind.
-export function ArchitectAsk({ a }: { a: OwnerAsk }) {
+/// An ask of the architect's, by its kind; its rounds open by `onRound` where the page shows them, else on the wake's
+/// page.
+export function ArchitectAsk({ a, onRound }: { a: OwnerAsk; onRound?: OpenRound }) {
   const body = isObj(a.body) ? a.body : {};
   switch (str(body.kind)) {
     case 'open':
@@ -209,15 +199,35 @@ export function ArchitectAsk({ a }: { a: OwnerAsk }) {
         </div>
       );
     case 'policy_approval':
-      return <PolicyAsk a={a} body={body} />;
+      return <PolicyAsk a={a} body={body} onRound={onRound} />;
     default:
       return (
         <>
           {Array.isArray(body.holds) && body.holds.length > 0 ? (
             <p className="muted">{t('ask_holds', { ids: body.holds.map((x) => str(x)).join(', ') })}</p>
           ) : null}
-          <AskView a={a} />
+          <AskView a={a} round={<RoundLink work={a.work} round={a.round} onRound={onRound} />} />
         </>
       );
   }
+}
+
+/// An ask of the architect's wherever the page shows it: a question as the card every ask shares; every other kind as
+/// a block under its number, its kind, whether it waits, and the cell and round that put it.
+export function ArchitectAskBlock({ a, onRound }: { a: OwnerAsk; onRound?: OpenRound }) {
+  const body = isObj(a.body) ? a.body : {};
+  const kind = str(body.kind);
+  if (kind !== 'open' && kind !== 'study' && kind !== 'policy_approval') return <ArchitectAsk a={a} onRound={onRound} />;
+  const head = (
+    <>
+      <strong>{t('ask_head', { id: a.id })}</strong>
+      <span className="badge">{askKindWords(a)}</span>
+      <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
+    </>
+  );
+  return (
+    <Block id={`ask-${a.id}`} head={head} by={<By cell={str(body.cell)} work={a.work} round={a.round} onRound={onRound} />}>
+      <ArchitectAsk a={a} onRound={onRound} />
+    </Block>
+  );
 }

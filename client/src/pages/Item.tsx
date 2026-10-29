@@ -1,21 +1,21 @@
 // An item, what needs the owner first: the design cards and asks of the owner its live work waits on; where the work
 // stands, as a checklist; the problem, as the engineer understands it once research has run; the design; the
 // acceptance; what changed on the way; what it depends on; and, folded, its history: earlier and replaced design
-// cards, answered asks, its works. Each block names the round it came from. What the works hand back is drawn by its
-// shape in the flow's formats; a field the page does not know is shown as labelled text.
+// cards, answered asks, its works. Each block names the cell and round it came from. What the works hand back is
+// drawn by its shape in the flow's formats; a field the page does not know is shown as labelled text.
 
 import { useEffect, useState, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Settings, Shown } from '../api';
-import { DependencyKind, Facts, ItemBadge, Loaded, Section, WorkBadge } from '../components';
-import { cost, roundName, time } from '../format';
-import { Acceptance, Approaches, Deviation, Design, Field, Fold, Measure, Understanding, type Met } from '../item/Shapes';
+import { DependencyKind, Facts, ItemBadge, Loaded, WorkBadge } from '../components';
+import { cost, time } from '../format';
+import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str } from '../labelled';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Link, workHref } from '../route';
+import { By, ItemRef, RoundLink, Section } from '../parts';
 import { t } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
 
@@ -57,14 +57,9 @@ function Tier({ id, level }: { id: number; level: string }) {
   );
 }
 
-/// Where a value shown on the item came from: the round and the cell, opening the round.
+/// Where a value shown on the item came from: the cell and the round, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
-  const round = roundName(x.work, x.round);
-  return (
-    <Link to={workHref(x.work, { round: x.round })} className="shown-from">
-      {x.cell !== undefined ? t('shown_from', { round, cell: x.cell }) : round}
-    </Link>
-  );
+  return <By cell={x.cell} work={x.work} round={x.round} />;
 }
 
 /// A round of one of the item's works: two values shown come from the same round when this is the same.
@@ -109,10 +104,10 @@ function byPath(d: ItemDetail): Map<string, Shown[]> {
 const newest = (list: Shown[] | undefined): Shown | undefined =>
   list !== undefined && list.length > 0 ? list[list.length - 1] : undefined;
 
-/// A block of the page with the round it came from beside its title.
+/// A block of the page, open unless said, with the cell and round it came from beside its title.
 function Block(props: { title: ReactNode; from?: Shown; open?: boolean; children: ReactNode }) {
   return (
-    <Section title={props.title} open={props.open} extra={props.from !== undefined ? <From x={props.from} /> : null}>
+    <Section title={props.title} open={props.open ?? true} by={props.from !== undefined ? <From x={props.from} /> : undefined}>
       {props.children}
     </Section>
   );
@@ -121,11 +116,11 @@ function Block(props: { title: ReactNode; from?: Shown; open?: boolean; children
 /// A design card, in the card every card shares, linked to the round that handed it in; folded to its one line unless
 /// it is the item's current card.
 function Card({ c, current }: { c: DesignCard; current: number | null }) {
-  return <DesignCardView c={c} round={<From x={{ work: c.work, round: c.round }} />} folded={c.id !== current} />;
+  return <DesignCardView c={c} round={<RoundLink work={c.work} round={c.round} />} folded={c.id !== current} />;
 }
 
 function Ask({ a }: { a: OwnerAsk }) {
-  return <AskView a={a} round={<From x={a} />} />;
+  return <AskView a={a} round={<RoundLink work={a.work} round={a.round} />} />;
 }
 
 /// The problem: the engineer's understanding once research has run, the item as its creator wrote it folded under it;
@@ -145,17 +140,15 @@ function Problem({ d, shown }: { d: ItemDetail; shown: Map<string, Shown[]> }) {
   return (
     <Block title={t('problem_title')} from={now}>
       <Understanding value={now.value} />
-      <Fold title={t('item_as_written')}>{written}</Fold>
-      {before.length > 0 ? (
-        <Fold title={t('shown_before', { n: before.length })}>
-          {before.map((x) => (
-            <div key={roundKey(x)} className="shown-old">
-              <From x={x} />
-              <Understanding value={x.value} />
-            </div>
-          ))}
-        </Fold>
-      ) : null}
+      <Section title={t('item_as_written')}>{written}</Section>
+      <Section title={t('shown_before')} n={before.length}>
+        {before.map((x) => (
+          <div key={roundKey(x)} className="shown-old">
+            <From x={x} />
+            <Understanding value={x.value} />
+          </div>
+        ))}
+      </Section>
     </Block>
   );
 }
@@ -198,18 +191,12 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
       ) : null}
       {round !== undefined ? <DesignOf round={round} shown={shown} /> : null}
       {options !== undefined ? (
-        <Fold
-          title={
-            <>
-              {t('design_options', { n })} <From x={options} />
-            </>
-          }
-        >
+        <Section title={t('design_options')} n={n} by={<From x={options} />}>
           <Approaches value={options.value} chosen={chosen} />
-        </Fold>
+        </Section>
       ) : null}
       {rounds.length > 1 ? (
-        <Fold title={t('shown_before', { n: rounds.length - 1 })}>
+        <Section title={t('shown_before')} n={rounds.length - 1}>
           {rounds
             .slice(0, -1)
             .reverse()
@@ -225,7 +212,7 @@ function DesignBlock({ shown }: { shown: Map<string, Shown[]> }) {
                 </div>
               );
             })}
-        </Fold>
+        </Section>
       ) : null}
     </Block>
   );
@@ -246,13 +233,13 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
       : null;
     return (
       <Block title={t('acceptance')}>
-        <p className="shown-from">
-          {at !== null ? (
-            <Link to={workHref(at.work, { round: at.round })} className="shown-from">
-              {t('acceptance_locked', { round: roundName(at.work, at.round) })}
-            </Link>
-          ) : null}
-        </p>
+        {at !== null ? (
+          <p>
+            <By work={at.work} round={at.round}>
+              {t('acceptance_locked')}
+            </By>
+          </p>
+        ) : null}
         <Acceptance value={d.acceptance} met={met} />
       </Block>
     );
@@ -314,9 +301,7 @@ function Linked({ list }: { list: LinkedItem[] }) {
     <ul className="linked">
       {list.map((l) => (
         <li key={l.item.id}>
-          <Link to={`/items/${l.item.id}`}>
-            #{l.item.id} {l.item.title}
-          </Link>{' '}
+          <ItemRef id={l.item.id} title={l.item.title} />{' '}
           <ItemBadge state={l.item.state} /> <DependencyKind kind={l.kind} />
           <div className="muted">{l.needs}</div>
         </li>
@@ -360,28 +345,22 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
   if (cards.length === 0 && asks.length === 0 && d.works.length === 0 && !imported) return null;
   return (
     <Section title={t('history')} open={false}>
-      {cards.length > 0 ? (
-        <Fold title={t('history_cards', { n: cards.length })} open>
-          <p className="dc-lead">{t('dc_lead')}</p>
-          {cards.map((c) => (
-            <Card key={c.id} c={c} current={current} />
-          ))}
-        </Fold>
-      ) : null}
-      {asks.length > 0 ? (
-        <Fold title={t('history_asks', { n: asks.length })} open>
-          {asks.map((a) => (
-            <Ask key={a.id} a={a} />
-          ))}
-        </Fold>
-      ) : null}
-      {d.works.length > 0 ? (
-        <Fold title={t('history_works', { n: d.works.length })} open>
-          <Works d={d} />
-        </Fold>
-      ) : null}
+      <Section title={t('history_cards')} n={cards.length} open>
+        <p className="dc-lead">{t('dc_lead')}</p>
+        {cards.map((c) => (
+          <Card key={c.id} c={c} current={current} />
+        ))}
+      </Section>
+      <Section title={t('history_asks')} n={asks.length} open>
+        {asks.map((a) => (
+          <Ask key={a.id} a={a} />
+        ))}
+      </Section>
+      <Section title={t('history_works')} n={d.works.length} open>
+        <Works d={d} />
+      </Section>
       {imported ? (
-        <Fold title={t('item_imported')}>
+        <Section title={t('item_imported')}>
           <p className="muted">{t('item_imported_note')}</p>
           <Facts
             rows={[
@@ -390,7 +369,7 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
               ['PR', d.imported_pr !== null ? `#${d.imported_pr}` : ''],
             ]}
           />
-        </Fold>
+        </Section>
       ) : null}
     </Section>
   );
@@ -438,7 +417,7 @@ function Detail({ d }: { d: ItemDetail }) {
         ))}
       </header>
       {cards.length > 0 || asks.length > 0 ? (
-        <Section title={t('needs_you')}>
+        <Section title={t('needs_you')} open>
           {asks.map((a) => (
             <Ask key={a.id} a={a} />
           ))}
@@ -458,12 +437,12 @@ function Detail({ d }: { d: ItemDetail }) {
       {d.depends_on.length > 0 || d.depended_on_by.length > 0 ? (
         <div className="two">
           {d.depends_on.length > 0 ? (
-            <Section title={t('depends_on')}>
+            <Section title={t('depends_on')} open>
               <Linked list={d.depends_on} />
             </Section>
           ) : null}
           {d.depended_on_by.length > 0 ? (
-            <Section title={t('depended_on_by')}>
+            <Section title={t('depended_on_by')} open>
               <Linked list={d.depended_on_by} />
             </Section>
           ) : null}

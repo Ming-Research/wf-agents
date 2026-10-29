@@ -14,6 +14,7 @@ import { type Course, heldName, WorkBadge, Loaded } from '../components';
 import { Controls, held, runningWords, takeoverWords, useActions, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
+import { ItemRef } from '../parts';
 import { Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t } from '../text';
 import { Work } from './Work';
@@ -145,11 +146,10 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
       <td title={`#${w.id}`}>#{w.id}</td>
       <td title={item}>
         {w.item !== null ? (
-          <Link to={`/items/${w.item}`} className="row-link" title={`${item}\n${t('open_item')}`}>
-            <span className="muted">#{w.item} </span>
-            {w.title}
+          <>
+            <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} />
             {w.project ? <span className="muted"> · {w.project}</span> : null}
-          </Link>
+          </>
         ) : (
           w.graph
         )}
@@ -395,11 +395,10 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
       <span className="work-name" title={name}>
         <strong>#{w.id}</strong>{' '}
         {w.item !== null ? (
-          <Link to={`/items/${w.item}`} className="row-link" title={`${name}\n${t('open_item')}`}>
-            <span className="muted">#{w.item} </span>
-            {w.title}
+          <>
+            <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />
             {w.project ? <span className="muted"> · {w.project}</span> : null}
-          </Link>
+          </>
         ) : (
           w.graph
         )}
