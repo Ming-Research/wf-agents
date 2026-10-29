@@ -8,7 +8,7 @@
 
 import { DotFillIcon } from '@primer/octicons-react';
 import { Button, CounterLabel, ToggleSwitch, UnderlineNav } from '@primer/react';
-import { useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
 
 import type { Conversation, Status, WorkSummary } from './api';
 import { course } from './components';
@@ -40,29 +40,32 @@ function stateWords(s: Status): string {
 /// The switch that keeps waiting sessions warm while every work is paused, on at first: one click turns it over, and
 /// the engine keeps it across restarts.
 function KeepWarm({ status }: { status: Status }) {
-  const [busy, setBusy] = useState(false);
+  // The switch shows the click at once and waits for nothing: the request is quick, and a loading state swapped the
+  // switch's label for a spinner, which made the bar jump. Until the engine's state says the same, what was clicked
+  // stands; a request that fails puts the engine's state back and says why.
+  const [want, setWant] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const on = want ?? status.keep_warm;
+  useEffect(() => {
+    if (want !== null && want === status.keep_warm) setWant(null);
+  }, [want, status.keep_warm]);
   const flip = () => {
-    setBusy(true);
+    const next = !on;
+    setWant(next);
     setError(null);
-    postJson('/api/v1/engine/keep-warm', { on: !status.keep_warm }).then(
-      () => setBusy(false),
-      (e: unknown) => {
-        setBusy(false);
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
+    postJson('/api/v1/engine/keep-warm', { on: next }).catch((e: unknown) => {
+      setWant(null);
+      setError(e instanceof Error ? e.message : String(e));
+    });
   };
   return (
     <>
-      <span className="keep-warm" title={status.keep_warm ? t('keep_warm_on_hint') : t('keep_warm_off_hint')}>
+      <span className="keep-warm" title={on ? t('keep_warm_on_hint') : t('keep_warm_off_hint')}>
         <span id="keep-warm-label">{t('keep_warm')}</span>
         <ToggleSwitch
           aria-labelledby="keep-warm-label"
-          checked={status.keep_warm}
+          checked={on}
           onClick={flip}
-          loading={busy}
-          loadingLabel={t('loading')}
           buttonLabelOn={t('switch_on')}
           buttonLabelOff={t('switch_off')}
           statusLabelPosition="end"
