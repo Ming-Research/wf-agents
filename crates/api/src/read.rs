@@ -1707,7 +1707,7 @@ pub fn architect(
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
-        handled: handled(conn, project)?,
+        handled: matters_handled(conn, project)?,
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
         setting,
@@ -1833,7 +1833,7 @@ fn first_why(v: &Value) -> Option<String> {
 /// path did, from the pick that took it to the round that closed it, as the records of what was done have it (the
 /// reply kept with the matter, the item changes it collected, the effects its rounds handed in and the engine carried
 /// out, what they told the owner, the ask put about it); and when nothing came of it, why.
-fn handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
+fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Handled>> {
     let mut st = conn.prepare(
         "SELECT m.id, m.kind, m.detail, m.what, m.handled_work, m.handled_round, coalesce(r.cell, ''), r.ended_at,
                 m.work, json_extract(m.reply, '$.text'), m.asked, r.output
