@@ -227,7 +227,9 @@ fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundI
 pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
     let w = ctx.work.id;
     let at_value = at.and_then(|p| ctx.at(p));
-    if crate::architect::act(ctx, tx, name, at_value.as_ref())? || crate::blockers::act(ctx, tx, name)? {
+    if crate::architect::act(ctx, tx, name, at_value.as_ref())?
+        || crate::blockers::act(ctx, tx, name, at_value.as_ref())?
+    {
         return Ok(());
     }
     match name {

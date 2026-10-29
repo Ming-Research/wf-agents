@@ -82,6 +82,8 @@ pub(crate) struct Row {
     pub main: bool,
     /// The row goes on without answering the cells that wait for an answer.
     pub drops: bool,
+    /// The row passes the work on to another cell that answers the cells that wait for an answer.
+    pub passes: bool,
     pub note: Option<String>,
 }
 
@@ -130,6 +132,8 @@ pub(crate) struct Cell {
 }
 
 pub(crate) struct Graph<'s> {
+    /// The cells a stopped task stands at while its blocker is held.
+    pub holders: BTreeSet<usize>,
     pub source: &'s Source,
     pub flow: &'s Flow,
     /// The rules of this graph: those every graph shares that name a line of it, for those lines, then its own.
@@ -470,6 +474,13 @@ impl<'s> Graph<'s> {
             .map_err(|e| format!("the asking part names {e}"))?;
         let receive = flow.asking.receive.as_deref().map(idx).transpose()?;
         let asked: BTreeSet<usize> = roles.iter().map(|r| idx(&r.node)).collect::<Result<_, _>>()?;
+        // The cells a row passes the work on to, which answer the cell that asked in place of the one passed from.
+        let mut handed = asked.clone();
+        for n in &nodes {
+            for r in n.cases.iter().flatten().filter(|r| r.passes == Some(true)) {
+                handed.insert(idx(&r.to)?);
+            }
+        }
         ensure!(
             receive.is_none_or(|r| region.contains(&r)) && asked.is_subset(&region),
             "the asking part does not hold the cell that receives or one that is asked"
@@ -549,20 +560,40 @@ impl<'s> Graph<'s> {
                 Vec::new()
             };
             let mut raw_rows: Vec<(RawRow, bool)> = Vec::new();
+            let asked_here = asked.contains(&idx(nid)?);
             if agent {
                 for r in &my_roles {
-                    let row = RawRow {
-                        name: r.row.clone(),
-                        conditions: vec![Atom::Is(ask_to.clone(), BTreeSet::from([r.name.clone()]))],
-                        to: r.node.clone(),
-                        sets: None,
-                        actions: r.actions.clone(),
-                        counts: Some(flow.asking.counts.clone()),
-                        waits: None,
-                        interject: None,
-                        main: None,
-                        drops: None,
-                        note: None,
+                    let cond = vec![Atom::Is(ask_to.clone(), BTreeSet::from([r.name.clone()]))];
+                    // A cell that is asked holds what it was asked: it hands it on to another role instead of asking.
+                    let row = match (&flow.asking.hand_over, asked_here) {
+                        (Some(h), true) => RawRow {
+                            name: h.row.replace("{name}", &r.name),
+                            conditions: cond,
+                            to: r.node.clone(),
+                            sets: h.sets.clone(),
+                            actions: Some(h.actions.clone()),
+                            counts: Some(h.counts.clone()),
+                            waits: None,
+                            interject: None,
+                            main: None,
+                            drops: None,
+                            passes: Some(true),
+                            note: h.note.clone(),
+                        },
+                        _ => RawRow {
+                            name: r.row.clone(),
+                            conditions: cond,
+                            to: r.node.clone(),
+                            sets: r.sets.clone(),
+                            actions: r.actions.clone(),
+                            counts: Some(flow.asking.counts.clone()),
+                            waits: None,
+                            interject: None,
+                            main: None,
+                            drops: None,
+                            passes: None,
+                            note: None,
+                        },
                     };
                     raw_rows.push((row, true));
                 }
@@ -640,8 +671,15 @@ impl<'s> Graph<'s> {
                     r.name
                 );
                 ensure!(
-                    to != "@asker" || asked.contains(&idx(nid)?),
+                    to != "@asker" || asked.contains(&idx(nid)?) || handed.contains(&idx(nid)?),
                     "only a cell that is asked answers the one that asked: {nid} {}",
+                    r.name
+                );
+                let passes = r.passes.unwrap_or(false);
+                ensure!(
+                    !passes || (region.contains(&idx(nid)?) && at.get(&to).is_some_and(|t| handed.contains(t))),
+                    "a row that passes the work on goes from the asking part to a cell that answers the cell that \
+                     asked in its place: {nid} {}",
                     r.name
                 );
                 let counts_ok = r.counts.as_deref().is_none_or(|c| counters.contains(c));
@@ -653,8 +691,10 @@ impl<'s> Graph<'s> {
                     r.name
                 );
                 let interject = r.interject.unwrap_or(false);
+                // Or, from a cell that answers the cell that asked, back to it: through choosing the way on for an
+                // agent of its line.
                 ensure!(
-                    !interject || flow.asking.receive.as_ref() == Some(&to),
+                    !interject || flow.asking.receive.as_ref() == Some(&to) || to == "@asker",
                     "a row that takes an interjection goes to the cell that receives it: {nid} {} {to}",
                     r.name
                 );
@@ -678,12 +718,13 @@ impl<'s> Graph<'s> {
                     actions: r.actions.unwrap_or_default(),
                     main: r.main.unwrap_or(false),
                     drops,
+                    passes,
                     note: r.note,
                 });
             }
             let i = idx(nid)?;
             ensure!(
-                !asked.contains(&i) || rows.iter().any(|r| r.to == "@asker"),
+                !asked.contains(&i) || rows.iter().any(|r| r.to == "@asker" || r.drops),
                 "a cell that is asked does not answer: {nid}"
             );
             let mut main: Vec<Field> = n
@@ -921,7 +962,7 @@ impl<'s> Graph<'s> {
             }
         }
 
-        blockers(flow, &cells, &at)?;
+        let holders = blockers(flow, &cells, &at)?;
 
         // The blocks: every cell in exactly one; the asking part is one, its entries the cells that are asked.
         let mut block = vec![usize::MAX; cells.len()];
@@ -1064,6 +1105,7 @@ impl<'s> Graph<'s> {
             block_names,
             akeys: HashMap::new(),
             out_keys: RefCell::new(HashMap::new()),
+            holders,
         };
         g.sources()?;
         g.pseudo()?;
@@ -1198,9 +1240,15 @@ impl<'s> Graph<'s> {
 /// blocker is a row. A row into a holder's cell from any other cell raises it, unless the cell raises it with its own
 /// row that waits; a row out of a holder's cell to any other cell resolves or withdraws it, and a cell that raises it
 /// with its row that waits resolves it by one row at least and withdraws it by each row its holder fails it by.
-fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result<(), String> {
-    use crate::format::{HOLDERS, RAISE_BLOCKER, RESOLVE_BLOCKER, WITHDRAW_BLOCKER};
-    let Some(b) = &flow.blockers else { return Ok(()) };
+///
+/// A cell where a task waits on its holder (one not an agent's) has a row that resolves the blocker, one for each way
+/// its holder fails it, and one that takes the owner's interjection; a row that passes the work on to another holder
+/// hands the blocker on. Gives the cells where a blocker is held.
+fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result<BTreeSet<usize>, String> {
+    use crate::format::{HAND_OVER, HOLDERS, RAISE_BLOCKER, RESOLVE_BLOCKER, WITHDRAW_BLOCKER};
+    let Some(b) = &flow.blockers else {
+        return Ok(BTreeSet::new());
+    };
     let does = |r: &Row, name: &str| r.actions.iter().any(|d| d.name() == name);
     let mut holding: BTreeMap<usize, &crate::format::BlockerCell> = BTreeMap::new();
     for h in &b.cells {
@@ -1275,15 +1323,39 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
                 r.name
             );
         }
-        if let Some(h) = here.filter(|h| h.waits) {
+        let Some(h) = here else { continue };
+        if c.kind != CellKind::Agent {
             ensure!(
                 c.rows.iter().any(|r| does(r, RESOLVE_BLOCKER)),
-                "no row of {} resolves the blocker it waits on",
+                "no row of {} resolves the blocker the task waits on there",
+                h.cell
+            );
+            ensure!(
+                c.rows
+                    .iter()
+                    .any(|r| r.name == "interjection" && r.interject && does(r, WITHDRAW_BLOCKER)),
+                "{} has no row that takes the owner's interjection, withdrawing the blocker the task waits on",
                 h.cell
             );
         }
+        // A row that passes the work on to a cell of another holder hands the blocker on.
+        for r in c.rows.iter().filter(|r| r.passes) {
+            let Some(t) = target(r).and_then(|t| holding.get(&t)) else {
+                return Err(format!(
+                    "a row passes the work on to no holder's cell: {} {}",
+                    c.id, r.name
+                ));
+            };
+            let other = t.holders != h.holders || t.cell == h.cell;
+            ensure!(
+                !other || does(r, HAND_OVER),
+                "a row that passes the work on to another holder does not hand the blocker on: {} {}",
+                c.id,
+                r.name
+            );
+        }
     }
-    Ok(())
+    Ok(holding.keys().copied().collect())
 }
 
 /// Whether a field holds, at any depth, a union whose branches are `what`.
@@ -1362,6 +1434,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
             interject: None,
             main: Some(true),
             drops: None,
+            passes: None,
             note: None,
         }],
     };

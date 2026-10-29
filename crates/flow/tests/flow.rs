@@ -37,7 +37,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (39, 138, 212));
+    assert_eq!((s.cells, s.rows, s.states), (39, 135, 206));
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

@@ -155,6 +155,10 @@ pub struct CompiledRow {
     /// The row goes on without answering the cells that wait for an answer, which get it later another way.
     #[serde(default, skip_serializing_if = "is_false")]
     pub drops: bool,
+    /// The row passes the work on to another cell that answers the cell that asked in place of the one it leaves: a
+    /// blocker handed to another holder. The cells that wait for an answer stay as they are.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub passes: bool,
     /// A row every agent's cell has that its agent chooses: to ask, run tools, search, pause, answer an interjection
     /// or take it to choose the way on; or that the engine takes for the cell's line, as a new session's.
     pub common: bool,
@@ -919,6 +923,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     interject: r.interject,
                     main: r.main,
                     drops: r.drops,
+                    passes: r.passes,
                     common: r.common,
                     fallback: false,
                     note: r.note.clone(),
@@ -1050,6 +1055,7 @@ fn anew_row(g: &Graph, c: &Cell) -> Option<CompiledRow> {
         interject: false,
         main: false,
         drops: true,
+        passes: false,
         common: true,
         fallback: false,
         note: Some(a.note.clone()),
@@ -1073,6 +1079,7 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
         interject: false,
         main: false,
         drops: false,
+        passes: false,
         common: false,
         fallback: true,
         note: Some(note.to_string()),

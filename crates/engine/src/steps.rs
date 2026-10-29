@@ -1325,12 +1325,37 @@ fn ask(
             return Err(format!("{} asks, but put no ask to the owner", r.id));
         };
         let Some(answer) = answer else {
+            // What was said to the work before the owner answered takes it on to choose the way on: the ask needs no
+            // answer then.
+            if let Some(row) = crate::row(cell, "interjection").cloned() {
+                let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+                let given = values::given(e, w, g, cell, Some(item), &gathered)?;
+                if given.get("interjection").and_then(Value::as_str) == Some("yes") {
+                    return finish(
+                        e,
+                        w,
+                        g,
+                        cell,
+                        r.id,
+                        json!({}),
+                        &row,
+                        Ended::default(),
+                        &[],
+                        None,
+                        &given,
+                    );
+                }
+            }
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
         };
         let answer: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
         let text = answer["text"].as_str().unwrap_or_default().to_string();
         let output = if to == "owner" {
-            json!({ "reply": { "text": text } })
+            // The owner resolves it, or hands it back to the architect with a decision for it to carry out.
+            match answer["to"].as_str().filter(|t| *t == "architect") {
+                Some(t) => json!({ "reply": { "text": text, "to": t } }),
+                None => json!({ "reply": { "text": text } }),
+            }
         } else {
             match answer.get("reply").filter(|x| x.is_object()) {
                 Some(reply) => json!({ "reply": reply }),
@@ -1340,7 +1365,11 @@ fn ask(
             }
         };
         let gathered = inputs::gather(e, w, g, cell, Some(item))?;
-        let given = values::given(e, w, g, cell, Some(item), &gathered)?;
+        let mut given = values::given(e, w, g, cell, Some(item), &gathered)?;
+        // The owner's answer came: what was said to the work meanwhile reaches it at its next round.
+        if given.contains_key("interjection") {
+            given.insert("interjection".into(), json!("no"));
+        }
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
@@ -1353,12 +1382,32 @@ fn ask(
     let gathered = inputs::gather(e, w, g, cell, Some(item))?;
     // The ask holds what the cells handed in: the question, how far the cell got, what failed. The history and the
     // other tables the cell reads are in the database for the owner to look at.
-    let asked: Vec<Value> = gathered
+    let mut asked: Vec<Value> = gathered
         .iter()
         .filter(|x| x.value.is_some() && x.input.from.iter().all(|s| matches!(s, Src::Place(..))))
         .map(|x| json!({ "what": x.input.what, "value": x.value }))
         .collect();
     let about = what_is_asked(&asked);
+    // A question handed to the owner says how it came: every hand-over, with why and what each holder found.
+    let moves: Option<Value> = match crate::blockers::open(e.db.conn(), w.id)? {
+        Some(b) => {
+            e.db.conn()
+                .query_row("SELECT moves FROM blockers WHERE id = ?1", [b.id], |r| {
+                    r.get::<_, String>(0)
+                })
+                .ok()
+                .and_then(|m| serde_json::from_str::<Value>(&m).ok())
+                .filter(|m| m.as_array().is_some_and(|ms| !ms.is_empty()))
+        }
+        None => None,
+    };
+    let handed = moves.as_ref().and_then(|m| m.as_array()?.last().cloned());
+    if let Some(m) = &moves {
+        asked.push(json!({
+            "what": "How the question came to you: every hand-over, with why and what each holder found",
+            "value": m,
+        }));
+    }
     let body = json!({ "to": to, "work": w.id, "item": item.id, "title": item.title, "asked": asked });
     let input = json!({ "inputs": recorded_inputs(&gathered) });
     let commit = e.config.commit.clone();
@@ -1369,6 +1418,15 @@ fn ask(
             "Work {} on item {} ({}) met a flow anomaly, a fault of wf-agents: the way on its engineer chose does not \
              fit the situation, and it asks you how to go on",
             w.id, item.id, item.title
+        )
+    } else if let Some(m) = &handed {
+        format!(
+            "Work {} on item {} ({}) waits on a question the {} handed to you: {}{about}",
+            w.id,
+            item.id,
+            item.title,
+            m["from"]["holder"].as_str().unwrap_or("architect"),
+            m["why"].as_str().unwrap_or_default()
         )
     } else {
         format!("Work {} on item {} ({}) asks you{about}", w.id, item.id, item.title)

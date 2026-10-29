@@ -199,6 +199,12 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         return Err("an answer says something".into());
     }
     let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
+    // The owner may hand a question it holds back to the architect, with the answer as a decision to carry out.
+    match a.to.as_deref() {
+        None => {}
+        Some("architect") if body["to"] == "owner" => answer["to"] = json!("architect"),
+        Some(other) => return Err(format!("ask {ask} cannot be handed to {other}")),
+    }
     if body["to"] == "architect" {
         let mut reply = a.reply.clone().unwrap_or_else(|| json!({}));
         reply["text"] = json!(a.text);
@@ -679,6 +685,7 @@ mod tests {
             why: None,
             reply: None,
             choice: None,
+            to: None,
         };
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
         let got: String = db
@@ -866,6 +873,7 @@ mod tests {
             why: None,
             reply: None,
             choice: given["choice"].as_str().map(str::to_string),
+            to: None,
         }
     }
 

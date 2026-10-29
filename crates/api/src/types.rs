@@ -451,6 +451,11 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub choice: Option<String>,
+    /// For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
+    /// the answer as a decision for it to carry out, instead of resolving it.
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
 }
 
 /// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its

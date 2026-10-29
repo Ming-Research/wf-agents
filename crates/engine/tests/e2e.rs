@@ -1410,6 +1410,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         why: None,
         reply: None,
         choice: None,
+        to: None,
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let first = e.step(None).unwrap();
@@ -3404,6 +3405,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
         why: None,
         reply: None,
         choice: None,
+        to: None,
     };
     api::answer(&mut e.db, ask, &yes).unwrap();
     let again = e.step(None).unwrap().work.unwrap();
@@ -3583,6 +3585,7 @@ fn a_policy_set_again_is_studied_and_the_owner_says_it_stays() {
         why: None,
         reply: None,
         choice: Some("policy_stays".into()),
+        to: None,
     };
     let ask = asked(&mut e).unwrap();
     api::answer(&mut e.db, ask, &stays).unwrap();
@@ -5509,6 +5512,7 @@ fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
         why: None,
         reply: None,
         choice: Some("fix_text".into()),
+        to: None,
     };
     api::answer(&mut e.db, ask, &fix).unwrap();
     for _ in 0..20 {
@@ -6594,15 +6598,15 @@ impl Dice {
     }
 }
 
-/// What a round hands in, at random: an ask of the advisor, the architect or the owner, or its own answer.
+/// What a round hands in: its picks and what it sets.
 type Picked = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
 
-fn random_ask(dice: &Dice) -> Picked {
-    let (to, kind) = match dice.roll(10) {
-        0 | 1 => ("advisor", "unsure"),
-        2 | 3 => ("architect", "split"),
-        4 => ("owner", "permission"),
-        _ => return (Vec::new(), Vec::new()),
+/// An ask of `to`, of a kind that role may be asked.
+fn an_ask(to: &'static str) -> Picked {
+    let kind = match to {
+        "advisor" => "unsure",
+        "architect" => "split",
+        _ => "permission",
     };
     (
         vec![
@@ -6612,6 +6616,16 @@ fn random_ask(dice: &Dice) -> Picked {
         ],
         vec![("outcome.ask.points[].what", json!(format!("A point for the {to}.")))],
     )
+}
+
+/// What a round hands in, at random: an ask of the advisor, the architect or the owner, or its own answer.
+fn random_ask(dice: &Dice) -> Picked {
+    match dice.roll(10) {
+        0 | 1 => an_ask("advisor"),
+        2 | 3 => an_ask("architect"),
+        4 => an_ask("owner"),
+        _ => (Vec::new(), Vec::new()),
+    }
 }
 
 /// A work of the engineer's graph not ended, at random, if there is one.
@@ -6644,9 +6658,12 @@ fn open_asks(e: &Engine) -> Vec<i64> {
     .collect()
 }
 
-/// One random sequence of events over three items: steps of the engine, whose rounds ask the advisor, the architect
-/// and the owner and have the architect reply, sometimes with an item to wait for; the owner's answers; interjections;
-/// cancels; and takeovers by a new flow version. After each, every chain of blockers closes.
+/// One random sequence of events over three items of project p, beside project q, related to it: steps of the engine,
+/// whose rounds ask the advisor, the architect and the owner, hand questions on (the advisor to the architect or the
+/// owner, an architect to the owner or to the other project's architect, the engineer to the owner after waiting
+/// long), and reply, sometimes with an item to wait for, of either project; the owner's answers, which now and then
+/// hand the question back to the architect; the architects' hours, past their limit; interjections; cancels; and
+/// takeovers by a new flow version. After each, every chain of blockers closes.
 fn random_events(seed: u64, events: usize) {
     let s = setup(&format!("blockers-{seed}"));
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
@@ -6658,42 +6675,88 @@ fn random_events(seed: u64, events: usize) {
             install.replace("slots = 1", "slots = 2")
         ),
     );
-    git(&s.data, &["commit", "-q", "-am", "a level above, and two slots"]);
+    let q = s.root.join("q-checkout");
+    git(
+        &s.root,
+        &["clone", "-q", &s.origin.to_string_lossy(), &q.to_string_lossy()],
+    );
+    let p_file = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let checkout = s.root.join("checkout");
+    write(
+        &s.data,
+        "projects/p.toml",
+        &p_file.replace("rules = [\"ground\"]", "rules = [\"ground\"]\nother_projects = [\"q\"]"),
+    );
+    write(
+        &s.data,
+        "projects/q.toml",
+        &p_file
+            .replace("o/p", "o/q")
+            .replace(&checkout.display().to_string(), &q.display().to_string())
+            .replace("rules = [\"ground\"]", "rules = [\"ground\"]\nother_projects = [\"p\"]"),
+    );
+    git(&s.data, &["add", "-A"]);
+    git(
+        &s.data,
+        &["commit", "-q", "-m", "a level above, two slots, and a related project"],
+    );
     let dice = Rc::new(Dice::new(seed));
     let mut agents = scripts();
     for cell in ["R1", "D1", "T3"] {
         let d = dice.clone();
         agents.insert(cell, Box::new(move |_: &Request, _: usize| random_ask(&d)));
     }
+    // The advisor answers, or hands the question to the architect or the owner.
+    let d = dice.clone();
+    agents.insert(
+        "A1",
+        Box::new(move |_: &Request, _: usize| match d.roll(4) {
+            0 => an_ask("architect"),
+            1 => an_ask("owner"),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
     let path = config::database(&s.data);
-    // The architect's reply has the work wait, now and then, for an item made after its own, so that no cycle closes.
+    // An architect replies, now and then with an item to wait for, made after the work's own so that no cycle closes,
+    // of either project; or hands the question to the owner, or to the other project's architect.
     let (d, p) = (dice.clone(), path.clone());
     agents.insert(
         "H3",
         Box::new(move |r: &Request, _: usize| {
             let c = db::open_read(&p).unwrap();
+            let project = project_of(r);
             let asked: Option<i64> = c
                 .query_row(
                     "SELECT m.item FROM architect_matters m
-                     JOIN rounds x ON x.work = ?1 AND x.n = (SELECT max(n) FROM rounds WHERE work = ?1)
-                     WHERE m.kind = 'engineer_question' AND m.handled_round IS NULL AND m.withdrawn IS NULL
+                     WHERE m.project = ?1 AND m.kind = 'engineer_question' AND m.handled_round IS NULL
+                       AND m.withdrawn IS NULL
                      ORDER BY m.id LIMIT 1",
-                    [r.work],
+                    [&project],
                     |x| x.get(0),
                 )
                 .ok()
                 .flatten();
+            let order = if d.roll(2) == 0 { "ASC" } else { "DESC" };
             let later: Option<i64> = asked.and_then(|i| {
                 c.query_row(
-                    "SELECT id FROM items WHERE id > ?1 AND cancelled IS NULL ORDER BY id LIMIT 1",
+                    &format!("SELECT id FROM items WHERE id > ?1 AND cancelled IS NULL ORDER BY id {order} LIMIT 1"),
                     [i],
                     |x| x.get(0),
                 )
                 .ok()
             });
+            let other = if project == "p" { "q" } else { "p" };
             let mut reply = json!({ "text": "Go on as you planned.", "why": "It holds." });
-            if let Some(i) = later.filter(|_| d.roll(3) == 0) {
-                reply["waits"] = json!([{ "key": i.to_string(), "title": "the other", "delivers": "its part" }]);
+            match d.roll(6) {
+                0 => reply["hand_over"] = json!({ "to": "owner", "why": "Only the owner decides this." }),
+                1 => reply["hand_over"] = json!({ "to": "architect", "project": other, "why": "It is theirs." }),
+                2 => {
+                    if let Some(i) = later {
+                        reply["waits"] =
+                            json!([{ "key": i.to_string(), "title": "the other", "delivers": "its part" }]);
+                    }
+                }
+                _ => {}
             }
             (Vec::new(), vec![("outcome.reply", reply)])
         }),
@@ -6721,9 +6784,18 @@ fn random_events(seed: u64, events: usize) {
             (vec![("outcome.next", next)], Vec::new())
         }),
     );
+    // Whether to wait longer, at random.
+    let d = dice.clone();
+    agents.insert(
+        "A7",
+        Box::new(move |_: &Request, _: usize| {
+            let v = ["wait_on", "to_owner", "withdraw"][d.roll(3) as usize];
+            (vec![("outcome.longer", v)], Vec::new())
+        }),
+    );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let items: Vec<i64> = (0..3)
+    let mut items: Vec<i64> = (0..3)
         .map(|i| {
             e.db.write(Actor::Owner, |tx| {
                 tx.execute(
@@ -6741,6 +6813,22 @@ fn random_events(seed: u64, events: usize) {
             .unwrap()
         })
         .collect();
+    // An item of q, which p's works may be had wait for; q starts no work of its own.
+    let theirs =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('q', 'Their part', 'It is missing.', 'p needs it.', 'change', 'l')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since, why) VALUES ('q', 'architect', 1, 'Not now.')",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    items.push(theirs);
     let mut after = None;
     let mut versions = 0;
     let mut log = Vec::new();
@@ -6748,14 +6836,20 @@ fn random_events(seed: u64, events: usize) {
         let event = match dice.roll(100) {
             0..=11 => match open_asks(&e).first() {
                 Some(ask) => {
+                    let back = dice.roll(3) == 0;
                     let answer = api::Answer {
                         text: "Go on.".into(),
                         why: None,
                         reply: None,
                         choice: None,
+                        to: back.then(|| "architect".to_string()),
                     };
-                    api::answer(&mut e.db, *ask, &answer).unwrap();
-                    format!("the owner answers ask {ask}")
+                    match api::answer(&mut e.db, *ask, &answer) {
+                        Ok(_) if back => format!("the owner hands ask {ask} back to the architect"),
+                        Ok(_) => format!("the owner answers ask {ask}"),
+                        // An ask an architect asked, which holds no task, is not handed back.
+                        Err(why) => format!("the owner cannot answer ask {ask} so: {why}"),
+                    }
                 }
                 None => "no ask to answer".into(),
             },
@@ -6802,6 +6896,30 @@ fn random_events(seed: u64, events: usize) {
                 }
                 None => "no work to take over".into(),
             },
+            // The architects had hours to act, in rounds of a wake over by now: a question they hold is past its limit.
+            26..=28 => {
+                let v = e.flow_now;
+                let now = db::now();
+                e.db.write(Actor::Engine, |tx| {
+                    for project in ["p", "q"] {
+                        tx.execute(
+                            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+                             VALUES (NULL, ?1, 'architect', 'E2', 'over before', ?2)",
+                            params![v, project],
+                        )?;
+                        let wake = tx.last_insert_rowid();
+                        tx.execute(
+                            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at,
+                               ended_at)
+                             VALUES (?1, 1, 'H10', '{}', '{}', 'done', 'c', ?2, ?3)",
+                            params![wake, now - 3 * 3_600_000, now],
+                        )?;
+                    }
+                    Ok(())
+                })
+                .unwrap();
+                "the architects spent three hours".into()
+            }
             _ => {
                 let stepped = e.step(after).unwrap();
                 after = stepped.work;
@@ -6834,11 +6952,6 @@ fn random_events(seed: u64, events: usize) {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Random sequences of events (asks of the advisor, the architect and the owner, the architect's replies, the owner's
-// answers, interjections, cancels, ends and takeovers by a new flow version) leave every chain of blockers closed after
-// each event: every stopped task has exactly one open blocker, raised at the cell it stopped at and held by the holder
-// of the cell it stands at; every open blocker's holder exists; no ended task has an open blocker; and the items
-// waited for form no cycle.
 macro_rules! random_events {
     ($($name:ident: $seed:expr),*) => {$(
         #[test]
@@ -6848,10 +6961,17 @@ macro_rules! random_events {
     )*};
 }
 
+// Random sequences of events (asks of the advisor, the architect and the owner, hand-overs between them and between
+// two related projects' architects, the architects' replies, the owner's answers, interjections, cancels, ends and
+// takeovers by a new flow version) leave every chain of blockers closed after each event: every stopped task has
+// exactly one open blocker, raised at the cell it stopped at and held by the holder of the cell it stands at; every
+// open blocker's holder exists, in whichever project; no ended task has an open blocker; the items waited for form no
+// cycle, across projects; and a chain of hand-overs between architects always has a current holder.
 random_events!(
     every_chain_of_blockers_closes_under_random_events_1: 1,
     every_chain_of_blockers_closes_under_random_events_2: 2,
     every_chain_of_blockers_closes_under_random_events_3: 3,
     every_chain_of_blockers_closes_under_random_events_4: 4,
-    every_chain_of_blockers_closes_under_random_events_5: 5
+    every_chain_of_blockers_closes_under_random_events_5: 5,
+    every_chain_of_blockers_closes_under_random_events_6: 6
 );

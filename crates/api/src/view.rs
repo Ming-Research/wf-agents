@@ -155,11 +155,33 @@ impl<'a> Ways<'a> {
     }
 
     /// The cells an answer from `id` goes back to: each cell that went there, except that one on the line of the
-    /// receiving cell is answered through it.
+    /// receiving cell is answered through it, and one that passed the work on to it is answered in its place: its own
+    /// askers are.
     fn askers(&self, id: &str) -> Vec<String> {
+        self.askers_past(id, &mut BTreeSet::new())
+    }
+
+    fn askers_past(&self, id: &str, seen: &mut BTreeSet<String>) -> Vec<String> {
+        if !seen.insert(id.to_string()) {
+            return Vec::new();
+        }
         let receive = self.g.receive.as_deref().and_then(|r| self.cell(r));
         let mut out: Vec<String> = Vec::new();
         for c in self.callers(id) {
+            let rows: Vec<bool> = self
+                .cell(&c)
+                .map(|x| x.rows.iter().filter(|r| r.to == id).map(|r| r.passes).collect())
+                .unwrap_or_default();
+            if rows.iter().any(|p| *p) {
+                for a in self.askers_past(&c, seen) {
+                    if !out.contains(&a) {
+                        out.push(a);
+                    }
+                }
+            }
+            if !rows.is_empty() && rows.iter().all(|p| *p) {
+                continue;
+            }
             let through = receive.filter(|r| {
                 r.id != c
                     && !self.asking(&c)

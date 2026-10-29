@@ -79,6 +79,19 @@ impl CompiledGraph {
         if to == "@self" {
             return Ok(Position { recorded, ..p.clone() });
         }
+        // A row that passes the work on keeps the cells that wait for an answer: the cell it goes to answers them.
+        if row.passes {
+            if self.cell(to).is_none() {
+                return Err(format!("{m} \"{}\" goes to no such cell: {to}", row.name));
+            }
+            return Ok(Position {
+                at: to.to_string(),
+                stopped: p.stopped.clone(),
+                callers: p.callers.clone(),
+                from: Some(m.to_string()),
+                recorded,
+            });
+        }
         let to_caller = p.callers.last().is_some_and(|c| c == to) && self.is_agent(to);
         if to == "@caller" || to == "@asker" || to_caller {
             let Some((last, rest)) = p.callers.split_last() else {

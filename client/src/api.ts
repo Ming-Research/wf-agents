@@ -539,7 +539,12 @@ reply?: JsonValue,
  * For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
  * the ask lists.
  */
-choice?: string, };
+choice?: string, 
+/**
+ * For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
+ * the answer as a decision for it to carry out, instead of resolving it.
+ */
+to?: string, };
 
 /**
  * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
@@ -2133,6 +2138,11 @@ pauses: boolean, interject: boolean, main: boolean,
  * The row goes on without answering the cells that wait for an answer, which get it later another way.
  */
 drops?: boolean, 
+/**
+ * The row passes the work on to another cell that answers the cell that asked in place of the one it leaves: a
+ * blocker handed to another holder. The cells that wait for an answer stay as they are.
+ */
+passes?: boolean, 
 /**
  * A row every agent's cell has that its agent chooses: to ask, run tools, search, pause, answer an interjection
  * or take it to choose the way on; or that the engine takes for the cell's line, as a new session's.

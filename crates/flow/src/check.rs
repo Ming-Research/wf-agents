@@ -10,9 +10,10 @@ use crate::returns::{Cond, Rets};
 use crate::walk::State;
 
 /// The kinds of finding, in the order they are reported.
-const KINDS: [&str; 14] = [
+const KINDS: [&str; 15] = [
     "overlap",
     "no row",
+    "holder stops",
     "unreached",
     "never taken",
     "nowhere",

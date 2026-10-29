@@ -1186,6 +1186,40 @@
               }
             ]
           }
+        },
+        {
+          "name": "hand_over",
+          "type": "obj",
+          "optional": true,
+          "desc": "Only to hand the question on instead of answering it, when it needs the owner's decision or belongs to a related project's architect: the text then says what you found and did, and the work's blocker goes to whom this names, who answers the side that asked. Leave it out to answer",
+          "fields": [
+            {
+              "name": "to",
+              "type": "enum",
+              "desc": "To whom",
+              "values": [
+                [
+                  "owner",
+                  "The owner: a decision only the owner can make"
+                ],
+                [
+                  "architect",
+                  "The architect of a related project, which the project's configuration names among its other projects"
+                ]
+              ]
+            },
+            {
+              "name": "project",
+              "type": "text",
+              "optional": true,
+              "desc": "For an architect, its project, by its name in the configuration"
+            },
+            {
+              "name": "why",
+              "type": "text",
+              "desc": "Why it is handed on: what only they can decide or do"
+            }
+          ]
         }
       ]
     },
@@ -2741,7 +2775,9 @@
       "raise_blocker": "Raises the task's blocker at the cell where its problem arose: an engineer's question, an engine tool's failure, an ask of the owner, a wait for items to deliver or for the owner's ruling, held by the holder of the cell the row leads to. A cell where the work waits raises it with its row that waits, for what it waits for.",
       "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
-      "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing."
+      "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
+      "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to the owner, who is put an ask; to an architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
+      "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2851,7 +2887,8 @@
       "turn": "Whether the work is first in its project's merge queue.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet.",
       "corrections": "How many times the text of the policy being set was corrected since it was written: fewer than three, or three, the flow's own limit, at which the gaps a reading leaves go on with the draft to the owner.",
-      "next_reading": "Whether a new architect reads the text put together, or it was put together for a minor fix a reading found, and the reading just judged counts."
+      "next_reading": "Whether a new architect reads the text put together, or it was put together for a minor fix a reading found, and the reading just judged counts.",
+      "held": "Where the question the work put to an architect stands: replied, handed to the owner or to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work"
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
@@ -3336,6 +3373,12 @@
         "blockers",
         "architect_queue",
         "owner_asks"
+      ],
+      "hand_over": [
+        "blockers"
+      ],
+      "wait_on_blocker": [
+        "blockers"
       ]
     },
     "reads": {
@@ -3494,6 +3537,16 @@
         "says": "the cell the text is put together after",
         "stores": [
           "place"
+        ]
+      },
+      "held": {
+        "says": "reply or hand-over; architect's time; an item cancelled; what was said",
+        "stores": [
+          "blockers",
+          "architect_queue",
+          "interjections",
+          "dependencies",
+          "sessions"
         ]
       }
     }
@@ -3843,7 +3896,8 @@
           "A3",
           "A4",
           "A5",
-          "A6"
+          "A6",
+          "A7"
         ],
         "receive": "A4",
         "roles": [
@@ -3855,7 +3909,10 @@
             "fields": [],
             "do": [
               "raise_blocker"
-            ]
+            ],
+            "sets": {
+              "holding": "advisor"
+            }
           },
           {
             "name": "architect",
@@ -3884,7 +3941,21 @@
             ]
           }
         ],
-        "counts": "asks"
+        "counts": "asks",
+        "handOver": {
+          "row": "to_{name}",
+          "do": [
+            {
+              "at": "ask",
+              "do": "hand_over"
+            }
+          ],
+          "counts": "hand_overs",
+          "sets": {
+            "holding": "none"
+          },
+          "note": "A holder never stops while it holds a blocker: it hands it on, saying in its ask why and what it found, and the holder it hands it to answers the cell that asked in its place."
+        }
       },
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the work. The counters are in this work's database records and visible in the owner's interface. The limits are numbers in the project's configuration, next to the CI settings; a counter with no number is only counted, never reported.",
@@ -3935,6 +4006,14 @@
           {
             "name": "waits_for_items",
             "desc": "The times the architect had this work stop and wait for other items, and the engineer stopped to wait when choosing the way on"
+          },
+          {
+            "name": "hand_overs",
+            "desc": "The times the work's blocker was handed from one holder to another: by the advisor, the architect, the owner, or the engineer taking it to the owner after waiting long"
+          },
+          {
+            "name": "waits_longer",
+            "desc": "The times the engineer chose to wait longer for the architect's reply, past its limit of the architect's time"
           }
         ]
       },
@@ -4655,7 +4734,8 @@
               ],
               "sets": {
                 "full_ci": "not_green",
-                "stage": "research"
+                "stage": "research",
+                "holding": "none"
               },
               "main": true
             }
@@ -5375,6 +5455,13 @@
                     "machine_down",
                     "other"
                   ]
+                ],
+                [
+                  "inp",
+                  "holding",
+                  [
+                    "none"
+                  ]
                 ]
               ],
               "to": "A2",
@@ -5383,6 +5470,32 @@
               "do": [
                 "raise_blocker"
               ]
+            },
+            {
+              "name": "failed_held",
+              "if": [
+                [
+                  "any",
+                  "failed.kind",
+                  [
+                    "network_or_api",
+                    "ci_did_not_start",
+                    "timed_out",
+                    "machine_down",
+                    "other"
+                  ]
+                ],
+                [
+                  "inp",
+                  "holding",
+                  [
+                    "advisor"
+                  ]
+                ]
+              ],
+              "to": "@caller",
+              "counts": "tool_failures",
+              "note": "The advisor holds the task's blocker and never stops for the architect: it is given the failure with the results, and resolves the question or hands it on."
             }
           ],
           "always": [
@@ -5390,7 +5503,19 @@
               "at": "results",
               "do": "record_tool_runs"
             }
-          ]
+          ],
+          "inenums": {
+            "holding": [
+              [
+                "none",
+                "No holder's cell asked for the tools"
+              ],
+              [
+                "advisor",
+                "The advisor asked for the tools, while it holds the task's blocker"
+              ]
+            ]
+          }
         },
         {
           "id": "X3",
@@ -7912,7 +8037,7 @@
                   "inp",
                   "gates",
                   [
-                    "waiting"
+                    "items"
                   ]
                 ],
                 [
@@ -7937,7 +8062,71 @@
               ],
               "waits": true,
               "main": true,
-              "note": "The owner's interface shows what the work waits for; when it comes, the engine judges again."
+              "note": "The items it depends on hold it: the owner's interface shows which; when they merge, the engine judges again."
+            },
+            {
+              "name": "wait_ruling",
+              "if": [
+                [
+                  "none",
+                  "@review.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@re.verdict",
+                  [
+                    "not_fixed",
+                    "insist"
+                  ]
+                ],
+                [
+                  "none",
+                  "@skip.verdict",
+                  [
+                    "does_not_stand"
+                  ]
+                ],
+                [
+                  "inp",
+                  "gates",
+                  [
+                    "ruling"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "M1",
+              "do": [
+                "raise_blocker",
+                "notify_pending_approvers"
+              ],
+              "waits": true,
+              "note": "The owner's ruling on the design card holds it, handed on from the items once they merged: the owner's interface shows what waits; when it comes, the engine judges again."
             },
             {
               "name": "clear",
@@ -8054,8 +8243,12 @@
                 "Every item depended on is merged; the design tree did not change, or every decision of its change was confirmed by the owner, word for word as it is to merge (for decisions copied from a parent's design card, the version gone through on the parent's design card)"
               ],
               [
-                "waiting",
-                "Something is not ready: an item depended on is not merged, or the owner has not confirmed every decision of the change to the design tree, or it changed after the owner had"
+                "items",
+                "An item depended on is not merged"
+              ],
+              [
+                "ruling",
+                "Every item depended on is merged, and the owner has not confirmed every decision of the change to the design tree, or it changed after the owner had"
               ]
             ],
             "interjection": "interjection_state",
@@ -9197,6 +9390,16 @@
               "maybe": true
             },
             {
+              "what": "Why the question was withdrawn: the engineer's own judgment not to wait longer; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "longer"
+                ]
+              ],
+              "maybe": true
+            },
+            {
               "what": "The cell that asked, or the cell that took up the interjection (recorded by the engine), and how many times this work has asked",
               "from": [
                 {
@@ -9233,6 +9436,9 @@
               ],
               "waited": [
                 "The items you stopped to wait for are all merged, and what they delivered is in the input. Work out whether what they delivered is what this work expected: if so, carry on; if not, decide by where it differs whether to change the design or whether what this work must deliver has changed."
+              ],
+              "withdrawn": [
+                "You asked someone earlier, and the question was withdrawn before an answer came: why is in the input (you chose not to wait longer, the architect that held it is gone, or an item this work depended on was cancelled). Choose how the work goes on without the answer: carry on if it can, change the design if it must, or ask again where someone else can answer."
               ]
             }
           },
@@ -9631,6 +9837,10 @@
                 "The engineer asked the advisor, the architect or the owner, and the reply has come"
               ],
               [
+                "withdrawn",
+                "The engineer asked, and the question was withdrawn before an answer came: the engineer chose not to wait longer, its holder was gone, or an item it depended on was cancelled"
+              ],
+              [
                 "interjection",
                 "In another cell the engineer got an interjection, thought what comes next might change, and handed in redirect"
               ],
@@ -9922,16 +10132,6 @@
               "maybe": true
             },
             {
-              "what": "The architect's or the owner's replies; none if they were not asked",
-              "from": [
-                [
-                  "@from",
-                  "reply"
-                ]
-              ],
-              "maybe": true
-            },
-            {
               "what": "How many times this work has asked",
               "from": [
                 {
@@ -9942,7 +10142,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, ask the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds may only be asked of the owner, by asking the owner. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the owner. You never ask and wait: what you cannot decide, you hand on with ask, saying in it why and what you found, and the architect or the owner you hand it to answers the cell that asked in your place. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -9983,7 +10183,10 @@
               "to": "@asker",
               "do": [
                 "resolve_blocker"
-              ]
+              ],
+              "sets": {
+                "holding": "none"
+              }
             }
           ],
           "always": [
@@ -10053,6 +10256,15 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "what": "The question as it moved: who holds it, since when, every hand-over with why and what the holder found",
+              "from": [
+                {
+                  "db": "blockers",
+                  "by": "work"
+                }
+              ]
             }
           ],
           "out": [
@@ -10066,9 +10278,9 @@
               "if": [
                 [
                   "inp",
-                  "cancelled",
+                  "held",
                   [
-                    "no"
+                    "answered"
                   ]
                 ]
               ],
@@ -10078,13 +10290,89 @@
               ]
             },
             {
+              "name": "to_owner",
+              "if": [
+                [
+                  "inp",
+                  "held",
+                  [
+                    "to_owner"
+                  ]
+                ]
+              ],
+              "to": "A3",
+              "passes": true,
+              "do": [
+                {
+                  "at": "reply",
+                  "do": "hand_over"
+                }
+              ],
+              "counts": "hand_overs",
+              "note": "The architect does not ask and wait: it hands the question to the owner, who answers the cell that asked, or hands it back with a decision for the architect to carry out."
+            },
+            {
+              "name": "to_architect",
+              "if": [
+                [
+                  "inp",
+                  "held",
+                  [
+                    "to_architect"
+                  ]
+                ]
+              ],
+              "to": "A2",
+              "passes": true,
+              "do": [
+                {
+                  "at": "reply",
+                  "do": "hand_over"
+                }
+              ],
+              "counts": "hand_overs",
+              "note": "A hand-over between architects: the question goes to the queue of the related project's architect the reply names, saying which project and work it is for, and the work waits here for that architect."
+            },
+            {
+              "name": "overdue",
+              "if": [
+                [
+                  "inp",
+                  "held",
+                  [
+                    "overdue"
+                  ]
+                ]
+              ],
+              "to": "A7",
+              "passes": true,
+              "note": "Taking it higher is the work's own judgment: the engineer weighs whether to wait longer."
+            },
+            {
+              "name": "holder_gone",
+              "if": [
+                [
+                  "inp",
+                  "held",
+                  [
+                    "holder_gone"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "note": "The architect that held it is gone: the question is withdrawn, and the work chooses the way on without it."
+            },
+            {
               "name": "cancelled",
               "if": [
                 [
                   "inp",
-                  "cancelled",
+                  "held",
                   [
-                    "yes"
+                    "cancelled"
                   ]
                 ]
               ],
@@ -10093,17 +10381,56 @@
                 "withdraw_blocker"
               ],
               "note": "An item this work depended on was cancelled while it waited for the reply: the question leaves the architect's queue, and the cell that asked, through choosing the way on for the engineer's cells, takes the notice."
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "held",
+                  [
+                    "interjection"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "counts": "interjections",
+              "interject": true,
+              "note": "What was said to the work takes it on to choose the way on: the question leaves the architect's queue."
             }
           ],
           "inenums": {
-            "cancelled": [
+            "held": [
               [
-                "yes",
+                "answered",
+                "The architect replied"
+              ],
+              [
+                "to_owner",
+                "The architect handed it to the owner, saying why and what it found"
+              ],
+              [
+                "to_architect",
+                "The architect handed it to the architect of a related project, saying why and what it found"
+              ],
+              [
+                "overdue",
+                "No reply yet, past its limit of the architect's time to act on it (awake and not paused): two hours, provisionally, until how long the architect takes has been measured"
+              ],
+              [
+                "holder_gone",
+                "The architect that holds it is gone: its project is no longer in the configuration"
+              ],
+              [
+                "cancelled",
                 "An item this work's item depended on was cancelled, and the work has not taken it up yet"
               ],
               [
-                "no",
-                "None was"
+                "interjection",
+                "The owner or the architect said something to the work, which it has not taken up yet"
               ]
             ]
           }
@@ -10133,6 +10460,15 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "what": "The question as it moved: who held it before, every hand-over with why and what the holder found",
+              "from": [
+                {
+                  "db": "blockers",
+                  "by": "work"
+                }
+              ]
             }
           ],
           "out": [
@@ -10145,6 +10481,18 @@
                   "name": "text",
                   "type": "text",
                   "desc": "The answer, or which option of the choice was chosen"
+                },
+                {
+                  "name": "to",
+                  "type": "enum",
+                  "optional": true,
+                  "desc": "Left out when the answer resolves it; to hand it to the project's architect with a decision for it to carry out instead, which the text says",
+                  "values": [
+                    [
+                      "architect",
+                      "The project's architect carries out what the owner decided, and answers the cell that asked"
+                    ]
+                  ]
                 }
               ]
             }
@@ -10154,13 +10502,232 @@
               "name": "answered",
               "if": [
                 [
-                  "all"
+                  "none",
+                  "reply.to",
+                  [
+                    "architect"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
                 ]
               ],
               "to": "@asker",
               "do": [
                 "resolve_blocker"
               ]
+            },
+            {
+              "name": "to_architect",
+              "if": [
+                [
+                  "is",
+                  "reply.to",
+                  [
+                    "architect"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "A2",
+              "passes": true,
+              "do": [
+                {
+                  "at": "reply",
+                  "do": "hand_over"
+                }
+              ],
+              "counts": "hand_overs",
+              "note": "The owner hands it back to the architect with a decision for it to carry out, which the architect's queue gets with the owner's words."
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "counts": "interjections",
+              "interject": true,
+              "note": "What was said to the work before the owner answered takes it on to choose the way on: the ask needs no answer."
+            }
+          ],
+          "inenums": {
+            "interjection": "interjection_state"
+          }
+        },
+        {
+          "id": "A7",
+          "kind": "agent",
+          "title": "Whether to wait longer",
+          "effort": "medium",
+          "line": "engineer",
+          "without": [
+            "ask",
+            "tools"
+          ],
+          "inputs": [
+            {
+              "what": "What the cell that asked asked, and what it did in that round; none when an engine tool failed",
+              "from": [
+                [
+                  "@caller",
+                  "ask"
+                ],
+                [
+                  "@caller",
+                  "progress"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The question as it moved: who holds it, since when, every hand-over with why and what the holder found",
+              "from": [
+                {
+                  "db": "blockers",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "The queue of the architect of this work's project: each matter with who waits for it and how long",
+              "from": [
+                {
+                  "db": "architect_queue",
+                  "by": "project"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round answers one thing only: whether this work waits longer for the architect. Its question has waited past its limit of the architect's time to act on it, counted only while the architect was awake and not paused, so the architect had the time and answered other matters first. Weigh what waiting costs this work against what the architect is busy with, and whether the work can go on another way.",
+            "Hand in wait_on when the question is the architect's and the answer is worth waiting for: its limit is counted again. Hand in to_owner when it needs a decision the architect is not giving, saying why: the owner answers the cell that asked, or hands it back to the architect with a decision. Hand in withdraw when the work can go on without the answer: the question leaves the architect's queue, and you choose the way on."
+          ],
+          "out": [
+            {
+              "name": "longer",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether to wait longer for the architect's reply",
+              "branches": [
+                {
+                  "value": "wait_on",
+                  "desc": "Wait on: the answer is the architect's and worth waiting for",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why it is worth waiting for"
+                    }
+                  ]
+                },
+                {
+                  "value": "to_owner",
+                  "desc": "Take it to the owner: it needs a decision the architect is not giving",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why the owner, written for the owner"
+                    }
+                  ]
+                },
+                {
+                  "value": "withdraw",
+                  "desc": "Withdraw it: the work can go on without the answer",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why it can go on, and how"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "wait_on",
+              "if": [
+                [
+                  "is",
+                  "longer.verdict",
+                  [
+                    "wait_on"
+                  ]
+                ]
+              ],
+              "to": "A2",
+              "passes": true,
+              "do": [
+                {
+                  "at": "longer",
+                  "do": "wait_on_blocker"
+                }
+              ],
+              "counts": "waits_longer",
+              "main": true
+            },
+            {
+              "name": "to_owner",
+              "if": [
+                [
+                  "is",
+                  "longer.verdict",
+                  [
+                    "to_owner"
+                  ]
+                ]
+              ],
+              "to": "A3",
+              "passes": true,
+              "do": [
+                {
+                  "at": "longer",
+                  "do": "hand_over"
+                }
+              ],
+              "counts": "hand_overs"
+            },
+            {
+              "name": "withdraw",
+              "if": [
+                [
+                  "is",
+                  "longer.verdict",
+                  [
+                    "withdraw"
+                  ]
+                ]
+              ],
+              "to": "@asker",
+              "do": [
+                {
+                  "at": "longer",
+                  "do": "withdraw_blocker"
+                }
+              ],
+              "note": "The question leaves the architect's queue, and the work chooses the way on without it."
             }
           ]
         },
@@ -10340,7 +10907,7 @@
         ]
       },
       "blockers": {
-        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, the architect at `A2`, the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on or the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, and the rows out of it resolve or withdraw it. A work's end withdraws its open blocker, with the end's reason.",
+        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on, then the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2` or `A3`, `A2` to `A3` or to a related project's architect, `A3` back to `A2`), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
         "cells": [
           {
             "cell": "A1",
@@ -10350,6 +10917,15 @@
           },
           {
             "cell": "A2",
+            "holders": [
+              "architect"
+            ],
+            "fails": [
+              "holder_gone"
+            ]
+          },
+          {
+            "cell": "A7",
             "holders": [
               "architect"
             ]
@@ -12521,6 +13097,7 @@
             }
           ],
           "without": [
+            "ask",
             "search"
           ],
           "shown": [
@@ -12620,7 +13197,7 @@
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What the constitution, the policy or what goes outside decides, ask the owner: this question then waits for the answer, and you go on with other matters."
+            "What the constitution, the policy or what goes outside decides, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
           ],
           "out": [
             {
@@ -12732,6 +13309,9 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "without": [
+            "ask"
           ]
         },
         {
@@ -13197,7 +13777,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: how this failure gets fixed. You do not fix it yourself: what needs the project's code changed or an engineer's time becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do (the configuration, credentials, a permission, another machine) you ask the owner. One that passed and will not come back needs nothing: say why you judge so.",
+            "This round answers one thing only: how this failure gets fixed. You do not fix it yourself: what needs the project's code changed or an engineer's time becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do (the configuration, credentials, a permission, another machine) you hand to the owner with the reply's hand_over, saying why and, in its text, what you found; you never ask and wait. One that passed and will not come back needs nothing: say why you judge so.",
             "Reply to the work that waits: what was done, and whether it goes on now (the engine runs the failed step again) or waits for an item, which you list in the reply's waits."
           ],
           "out": [
@@ -13255,6 +13835,7 @@
             }
           ],
           "without": [
+            "ask",
             "search"
           ],
           "always": [

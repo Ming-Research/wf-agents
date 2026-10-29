@@ -81,11 +81,19 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 "unchanged"
             })
         }
-        "gates" => s(if gates_waiting_for(e, w, item)?.is_none() {
-            "clear"
-        } else {
-            "waiting"
+        // What the merge gate waits for: the items it depends on while one is not merged, then the owner's ruling.
+        "gates" => s(match gates_waiting_for(e, w, item)? {
+            None => "clear",
+            Some(_)
+                if dependencies(e, item.id)?
+                    .iter()
+                    .any(|d| !item_merged(e, *d).unwrap_or(false)) =>
+            {
+                "items"
+            }
+            Some(_) => "ruling",
         }),
+        "held" => crate::blockers::held(e, w),
         // An interjection waiting for the engineer; a word that needs no answer, as the owner confirming the design card,
         // is not one that turns the work.
         "interjection" => {
@@ -155,10 +163,17 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         "came_by" => {
             let from = arrived_from(e, w, g)?.unwrap_or_default();
             let fc = g.cell(&from);
-            s(match fc {
-                Some(c) if matches!(c.id.as_str(), "A1" | "A2" | "A3") => "reply",
-                Some(c) if c.id == "A6" => "waited",
-                Some(c) if c.kind == "agent" => "interjection",
+            // The row the holder's cell took: a question withdrawn, or what was said to the work, is no reply.
+            let took = crate::work::rounds_at(e.db.conn(), w.id, &from)?
+                .into_iter()
+                .find_map(|r| r.transition);
+            s(match (fc, took.as_deref()) {
+                (Some(c), Some("interjection")) if matches!(c.id.as_str(), "A2" | "A3") => "interjection_at_engine",
+                (Some(c), Some("holder_gone" | "cancelled")) if c.id == "A2" => "withdrawn",
+                (Some(c), _) if c.id == "A7" => "withdrawn",
+                (Some(c), _) if matches!(c.id.as_str(), "A1" | "A2" | "A3") => "reply",
+                (Some(c), _) if c.id == "A6" => "waited",
+                (Some(c), _) if c.kind == "agent" => "interjection",
                 _ => "interjection_at_engine",
             })
         }

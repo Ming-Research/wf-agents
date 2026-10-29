@@ -188,6 +188,7 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         why: a.why,
         reply: a.reply,
         choice: a.choice,
+        to: None,
     };
     api::answer(&mut db, a.ask, &given)
 }

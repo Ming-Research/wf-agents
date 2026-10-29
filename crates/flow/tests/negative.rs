@@ -477,7 +477,7 @@ case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,
     "side entry",
     |v| {
-        obj(row(v, "M1", "interjection")).remove("interject");
+        obj(row(v, "T7", "interjection")).remove("interject");
     }
 );
 

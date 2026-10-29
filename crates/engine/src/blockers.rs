@@ -199,7 +199,7 @@ pub fn hand_over(tx: &Transaction<'_>, id: i64, to: &Holder, why: &str, found: &
     let now = db::now();
     let mv = json!({ "at": now, "from": from.said(), "to": to.said(), "why": why, "found": found });
     tx.execute(
-        "UPDATE blockers SET holder = ?2, project = ?3, items = ?4, since = ?5, matter = NULL, ask = NULL,
+        "UPDATE blockers SET holder = ?2, project = ?3, items = ?4, since = ?5, matter = NULL,
            moves = json_insert(moves, '$[#]', json(?6))
          WHERE id = ?1 AND ended IS NULL",
         params![id, to.holder, to.project, to.items_json(), now, mv.to_string()],
@@ -531,16 +531,170 @@ fn cycle(waits: &BTreeMap<i64, BTreeSet<i64>>) -> Option<Vec<i64>> {
     None
 }
 
-/// The rows' actions on a task's blocker, as `engine.actions` names them: `raise_blocker`, `resolve_blocker` and
-/// `withdraw_blocker`; false for any other action.
-pub(crate) fn act(ctx: &crate::actions::Ctx, tx: &Transaction<'_>, name: &str) -> Result<bool, String> {
+/// How long an architect may hold a blocker before the task weighs whether to wait longer, in the architect's own
+/// time: the time its wakes' rounds ran, while it was awake and not paused, since it took the blocker. Provisional:
+/// two hours, until how long the architect takes has been measured.
+pub const ARCHITECT_WAIT: i64 = 2 * 3_600_000;
+
+/// The time the architect of `project` had to act on a blocker since `since`, up to `now`: the time its wakes' rounds
+/// ran in that span, in milliseconds.
+pub fn architect_time(conn: &Connection, project: &str, since: i64, now: i64) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT coalesce(sum(min(coalesce(r.ended_at, ?3), ?3) - max(r.started_at, ?2)), 0)
+         FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.graph = 'architect' AND w.project = ?1 AND coalesce(r.ended_at, ?3) > ?2 AND r.started_at < ?3",
+        params![project, since, now],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
+/// The engine's value `held`: where the question a task put to an architect stands, at the cell it waits at for it
+/// (`A2`). The architect replied, or handed it to the owner or to a related project's architect; else an item the work
+/// depended on was cancelled; else something was said to the work; else the architect that holds it is gone; else it
+/// waited past its limit of the architect's time; else it waits, which no row takes.
+pub fn held(e: &Engine, w: &Work) -> Result<String, String> {
+    let conn = e.db.conn();
+    let s = |x: &str| Ok(x.to_string());
+    let Some(b) = open(conn, w.id)? else {
+        return s("answered");
+    };
+    if let Some(m) = b.matter {
+        let reply: Option<String> = conn
+            .query_row("SELECT reply FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
+            .optional()
+            .map_err(sql)?
+            .flatten();
+        if let Some(reply) = json_col(reply) {
+            return s(match reply["hand_over"]["to"].as_str() {
+                Some("owner") => "to_owner",
+                Some("architect") => "to_architect",
+                _ => "answered",
+            });
+        }
+    }
+    let pending = |extra: &str| -> Result<i64, String> {
+        conn.query_row(
+            &format!(
+                "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
+                   AND informs = 0 {extra}"
+            ),
+            [w.id],
+            |r| r.get(0),
+        )
+        .map_err(sql)
+    };
+    if pending("AND cancelled_item IS NOT NULL")? > 0 {
+        return s("cancelled");
+    }
+    if pending("")? > 0 {
+        return s("interjection");
+    }
+    let project = b.project.clone().unwrap_or_default();
+    if !e.config.config.projects.contains_key(&project) {
+        return s("holder_gone");
+    }
+    if architect_time(conn, &project, b.since, db::now())? > ARCHITECT_WAIT {
+        return s("overdue");
+    }
+    s("waiting")
+}
+
+/// The rows' actions on a task's blocker, as `engine.actions` names them: `raise_blocker`, `hand_over`,
+/// `wait_on_blocker`, `resolve_blocker` and `withdraw_blocker`; false for any other action.
+pub(crate) fn act(
+    ctx: &crate::actions::Ctx,
+    tx: &Transaction<'_>,
+    name: &str,
+    at: Option<&Value>,
+) -> Result<bool, String> {
     match name {
         "raise_blocker" => raise_at(ctx, tx)?,
+        "hand_over" => hand_over_at(ctx, tx, at)?,
+        "wait_on_blocker" => {
+            if let Some(b) = open(tx, ctx.work.id)? {
+                let why = at.and_then(|v| v["why"].as_str()).unwrap_or_default();
+                say(tx, b.id, "engineer", "waits_on", &json!({ "why": why }))?;
+                wait_on(tx, b.id)?;
+            }
+        }
         "resolve_blocker" => resolve_at(ctx, tx)?,
         "withdraw_blocker" => withdraw_at(ctx, tx)?,
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+/// `hand_over`: the task's blocker, handed on to the holder of the cell the row passes the work on to, with why and
+/// what the holder that hands it on found, as its return says: the advisor's ask, the architect's reply, the owner's
+/// answer, or the engineer's judgment not to wait longer. An architect it goes to is a related project's, as the
+/// architect's reply names it, or the work's own; the architect it leaves is told, its matter withdrawn unless it
+/// handled it.
+fn hand_over_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>, at: Option<&Value>) -> Result<(), String> {
+    let Some(b) = open(tx, ctx.work.id)? else { return Ok(()) };
+    let target = ctx.to.at.clone();
+    let h =
+        holder_cell(ctx, &target).ok_or_else(|| format!("a row hands a blocker on to {target}, where none is held"))?;
+    let at = at.cloned().unwrap_or(Value::Null);
+    let own = ctx.item.as_ref().map(|i| i.project.clone()).unwrap_or_default();
+    let to = match h.holders.first().map(String::as_str) {
+        Some("architect") => {
+            let named = at["hand_over"]["project"].as_str().filter(|_| ctx.cell.id == target);
+            Holder::architect(named.unwrap_or(&own))
+        }
+        Some(other) => Holder::named(other),
+        None => return Err(format!("{target} holds no blocker")),
+    };
+    let points = |v: &Value| -> String {
+        v["points"]
+            .as_array()
+            .map(|ps| {
+                ps.iter()
+                    .map(|p| {
+                        let tried = p["tried"]
+                            .as_str()
+                            .map(|t| format!(" (tried: {t})"))
+                            .unwrap_or_default();
+                        format!("{}{tried}", p["what"].as_str().unwrap_or_default())
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_default()
+    };
+    let (why, found) = match b.holder.as_str() {
+        "advisor" => (
+            format!(
+                "the advisor hands it on: {}",
+                at["points"][0]["kind"]
+                    .as_str()
+                    .unwrap_or("what it cannot decide")
+                    .replace('_', " ")
+            ),
+            points(&at),
+        ),
+        "owner" => (
+            "the owner decided, for the architect to carry out".to_string(),
+            at["text"].as_str().unwrap_or_default().to_string(),
+        ),
+        _ if at.get("verdict").is_some() => (
+            at["why"].as_str().unwrap_or_default().to_string(),
+            "it waited past its limit of the architect's time with no reply".to_string(),
+        ),
+        _ => (
+            at["hand_over"]["why"].as_str().unwrap_or_default().to_string(),
+            at["text"].as_str().unwrap_or_default().to_string(),
+        ),
+    };
+    // The architect it leaves without having handled it is told: its matter leaves the queue.
+    if let Some(m) = b.matter {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = ?2 WHERE id = ?1 AND handled_round IS NULL AND withdrawn IS NULL",
+            params![m, format!("the work handed the question on: {why}")],
+        )
+        .map_err(sql)?;
+    }
+    hand_over(tx, b.id, &to, &why, &found)
 }
 
 fn holder_cell<'c>(ctx: &'c crate::actions::Ctx, cell: &str) -> Option<&'c flow::format::BlockerCell> {

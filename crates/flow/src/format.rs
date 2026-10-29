@@ -453,6 +453,26 @@ pub struct Asking {
     pub roles: Vec<Role>,
     /// The counter every question counts.
     pub counts: String,
+    /// What a cell that is asked has for each role it may hand on to, in place of asking it: a row that passes the
+    /// work on, the holder that hands on holding nothing then.
+    #[serde(rename = "handOver")]
+    pub hand_over: Option<HandOver>,
+}
+
+/// The row every cell that is asked has for each other role, which hands the blocker on to it instead of asking it:
+/// the cell that is asked never stops to wait for an answer itself.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandOver {
+    /// The row's name, with `{name}` for the role's.
+    pub row: String,
+    #[serde(rename = "do")]
+    pub actions: Vec<Do>,
+    /// The counter the row counts: a blocker handed back and forth is a loop.
+    pub counts: String,
+    /// Values the engine records for the work.
+    pub sets: Option<BTreeMap<String, String>>,
+    pub note: Option<String>,
 }
 
 /// Someone an agent may ask: the cell that is asked, and the row every asking cell gets for it.
@@ -467,6 +487,8 @@ pub struct Role {
     pub fields: Vec<RawField>,
     #[serde(rename = "do")]
     pub actions: Option<Vec<Do>>,
+    /// Values the engine records for the work when it asks this role.
+    pub sets: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -727,6 +749,10 @@ pub const RESOLVE_BLOCKER: &str = "resolve_blocker";
 /// The action on a row out of a holder's cell that withdraws the task's blocker, saying why.
 pub const WITHDRAW_BLOCKER: &str = "withdraw_blocker";
 
+/// The action on a row that passes the work on to another holder's cell: the blocker is handed on, saying why and what
+/// the holder that hands it on found.
+pub const HAND_OVER: &str = "hand_over";
+
 /// Who may hold a blocker.
 pub const HOLDERS: [&str; 4] = ["advisor", "architect", "owner", "items"];
 
@@ -765,6 +791,10 @@ pub struct RawRow {
     /// The row goes on without answering the cells that wait for an answer: they get it later, another way, such as
     /// an ask of the owner that holds only the matter it is about while the rest goes on.
     pub drops: Option<bool>,
+    /// The row passes the work on, within the asking part, from a cell that answers the cell that asked to another
+    /// that answers it in its place: a blocker handed to another holder, or taken to the cell that judges whether to
+    /// wait longer. The cells that wait for an answer stay as they are.
+    pub passes: Option<bool>,
     pub note: Option<String>,
 }
 

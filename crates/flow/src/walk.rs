@@ -82,6 +82,19 @@ impl Graph<'_> {
                 ..s.clone()
             });
         }
+        // A row that passes the work on keeps the cells that wait for an answer: the cell it goes to answers them.
+        if r.passes {
+            let Target::Cell(t) = r.target else {
+                return Step::Nowhere;
+            };
+            return Step::To(State {
+                at: t,
+                stopped: s.stopped,
+                callers: s.callers.clone(),
+                from: Some(m),
+                recorded: v,
+            });
+        }
         let to_caller = matches!(r.target, Target::Cell(t) if s.callers.last() == Some(&t) && self.cells[t].kind == CellKind::Agent);
         if matches!(r.target, Target::Caller | Target::Asker) || to_caller {
             let Some((&last, rest)) = s.callers.split_last() else {
@@ -240,6 +253,18 @@ impl Analysis<'_, '_> {
                         self.findings.first("nowhere", &c.id, &r.name, ex);
                     }
                     Step::To(s2) => {
+                        // A holder never stops while it holds a blocker: from a cell where one is held, the work goes
+                        // into another holder's cell only by a row that hands it on, or with the answer back.
+                        let holds = s
+                            .callers
+                            .iter()
+                            .chain(std::iter::once(&s.at))
+                            .any(|x| g.holders.contains(x));
+                        let into = g.holders.contains(&s2.at) && s2.at != s.at && !s.callers.contains(&s2.at);
+                        if holds && into && !r.passes {
+                            let ex = format!("{} -> {}", way(), g.cells[s2.at].id);
+                            self.findings.first("holder stops", &c.id, &r.name, ex);
+                        }
                         let j = match index.get(&s2) {
                             Some(j) => *j,
                             None => {

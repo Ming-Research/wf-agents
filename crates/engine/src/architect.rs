@@ -1145,20 +1145,6 @@ pub fn ask_owner(
 
 // An engineer's question.
 
-/// The matter an engineer's question was queued as, by the round that asked, with the architect's reply once it gave
-/// one.
-pub fn question(e: &Engine, round: RoundId) -> Result<Option<(i64, Option<Value>)>, String> {
-    e.db.conn()
-        .query_row(
-            "SELECT id, reply FROM architect_matters WHERE work = ?1 AND round = ?2 ORDER BY id LIMIT 1",
-            [round.work, round.n],
-            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
-        )
-        .optional()
-        .map(|o| o.map(|(id, reply)| (id, json_col(reply))))
-        .map_err(sql)
-}
-
 /// The kind of matter a question to the architect is, with its detail: by the kind of the ask's first point when a cell
 /// asked, an engineer's question; for an engine tool that failed, or main's environment that changed, a failure.
 fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
@@ -1193,9 +1179,13 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
     ("engineer_question", "other_question".into())
 }
 
-/// Cell `A2`: what is asked is queued for the architect of the item's project as a matter, which wakes it if
-/// it sleeps; the work waits, holding no slot, until the architect replies, and the reply goes back to the cell that
-/// asked unchanged.
+/// Cell `A2`: the work's blocker, held by an architect: the question, or the tool's failure, is queued for the
+/// architect that holds it as a matter, which wakes it if it sleeps, saying which project and work it is for and how
+/// it moved; the work waits, holding no slot. A matter that stands for the blocker in that architect's queue already,
+/// as when the work comes back from weighing whether to wait longer, is not queued again; a blocker the owner handed
+/// back goes with the owner's decision to the cell that carries it out. Each time the engine takes the work's step
+/// here it works out where the question stands (the value `held`) and takes that row: the reply goes back to the cell
+/// that asked unchanged, a hand-over passes the work on, and the rest withdraw it.
 pub fn ask_architect(
     e: &mut Engine,
     w: &Work,
@@ -1204,57 +1194,119 @@ pub fn ask_architect(
     item: &Item,
     open: Option<Round>,
 ) -> Result<Advance, String> {
+    let conn = e.db.conn();
+    let b = crate::blockers::open(conn, w.id)?
+        .ok_or_else(|| format!("work {} waits for an architect, but holds no blocker", w.id))?;
     if let Some(r) = open.filter(|r| r.cell.as_deref() == Some(cell.id.as_str())) {
-        let Some((matter, reply)) = question(e, r.id)? else {
-            return Err(format!("{} asks the architect, but queued no matter", r.id));
-        };
-        let Some(reply) = reply else {
-            // An item the work depended on cancelled while it waited: the cell's row for that, which needs no reply.
-            if let Some(row) = crate::row(cell, "cancelled").cloned() {
-                let gathered = inputs::gather(e, w, g, cell, Some(item))?;
-                let given = values::given(e, w, g, cell, Some(item), &gathered)?;
-                if given.get("cancelled").and_then(Value::as_str) == Some("yes") {
-                    return finish(
-                        e,
-                        w,
-                        g,
-                        cell,
-                        r.id,
-                        json!({}),
-                        &row,
-                        Ended::default(),
-                        &[],
-                        None,
-                        &given,
-                    );
-                }
-            }
-            return Ok(Advance::Waits(format!(
-                "matter {matter} waits for the architect's reply"
-            )));
-        };
-        let output = json!({ "reply": reply });
         let gathered = inputs::gather(e, w, g, cell, Some(item))?;
         let given = values::given(e, w, g, cell, Some(item), &gathered)?;
-        let row = g.take(&cell.id, &output, &given)?.clone();
+        let held = given
+            .get("held")
+            .and_then(Value::as_str)
+            .unwrap_or("waiting")
+            .to_string();
+        let Some(row) = crate::row(cell, &held).cloned() else {
+            let m = b
+                .matter
+                .map(|m| format!("matter {m}"))
+                .unwrap_or_else(|| "the question".into());
+            return Ok(Advance::Waits(format!("{m} waits for the architect's reply")));
+        };
+        let output = match held.as_str() {
+            "answered" | "to_owner" | "to_architect" => {
+                let reply: Option<String> = match b.matter {
+                    Some(m) => {
+                        e.db.conn()
+                            .query_row("SELECT reply FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
+                            .optional()
+                            .map_err(sql)?
+                            .flatten()
+                    }
+                    None => None,
+                };
+                json!({ "reply": json_col(reply).unwrap_or(Value::Null) })
+            }
+            _ => json!({}),
+        };
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
+    let project = b.project.clone().unwrap_or_else(|| item.project.clone());
+    let live: Option<i64> = match b.matter {
+        Some(m) => conn
+            .query_row(
+                "SELECT id FROM architect_matters
+                 WHERE id = ?1 AND project = ?2 AND handled_round IS NULL AND withdrawn IS NULL",
+                params![m, project],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?,
+        None => None,
+    };
     let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+    let input = json!({ "inputs": recorded(&gathered) });
+    let commit = e.config.commit.clone();
+    if let Some(m) = live {
+        e.db.write(Actor::Engine, |tx| {
+            work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .map_err(sql)?;
+        return Ok(Advance::Waits(format!("matter {m} waits for the architect's reply")));
+    }
     let asked = asked_of(&gathered);
-    let (kind, detail) = question_kind(&gathered);
+    let (kind, detail) = match b.kind.as_str() {
+        "tool_failure" => question_kind(&gathered),
+        _ => match question_kind(&gathered) {
+            ("failure", _) => ("engineer_question", "other_question".to_string()),
+            x => x,
+        },
+    };
+    let moves: Value = conn
+        .query_row("SELECT moves FROM blockers WHERE id = ?1", [b.id], |r| {
+            r.get::<_, String>(0)
+        })
+        .map(|m| serde_json::from_str(&m).unwrap_or(Value::Null))
+        .map_err(sql)?;
+    // A blocker the owner handed back goes with the owner's decision to the cell that carries it out.
+    let decided = moves
+        .as_array()
+        .and_then(|ms| ms.last())
+        .is_some_and(|m| m["from"]["holder"] == "owner");
+    let back = b.ask.filter(|_| decided).map(|a| {
+        let cell = if kind == "failure" { "H7" } else { "H3" };
+        (a, cell)
+    });
     let about = match what_is_asked(&asked) {
         a if a.is_empty() => format!(" ({})", detail.replace('_', " ")),
         a => a,
     };
-    let what = format!("Work {} on item {} ({}) asks{about}", w.id, item.id, item.title);
-    let body = json!({ "to": "architect", "work": w.id, "item": item.id, "title": item.title, "asked": asked });
-    let input = json!({ "inputs": recorded(&gathered) });
-    let commit = e.config.commit.clone();
+    let of = if project == item.project {
+        String::new()
+    } else {
+        format!(" of project {}", item.project)
+    };
+    let what = match back {
+        Some(_) => format!(
+            "Work {} on item {} ({}){of}: the owner decided its question, for you to carry out{about}",
+            w.id, item.id, item.title
+        ),
+        None => format!("Work {} on item {} ({}){of} asks{about}", w.id, item.id, item.title),
+    };
+    let body = json!({
+        "to": "architect",
+        "work": w.id,
+        "item": item.id,
+        "title": item.title,
+        "for": { "project": item.project, "work": w.id },
+        "asked": asked,
+        "moves": moves,
+    });
     let matter =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
             let m = Matter {
-                project: item.project.clone(),
+                project: project.clone(),
                 kind: kind.into(),
                 detail: Some(detail.clone()),
                 what: what.clone(),
@@ -1263,18 +1315,20 @@ pub fn ask_architect(
                 raised: Some((round.work, round.n)),
             };
             let matter = queue_matter(tx, &m)?;
-            // The matter stands for the work's blocker in the architect's queue while the architect holds it.
-            if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
-                && b.holder == "architect"
-            {
-                crate::blockers::set_matter(tx, b.id, matter).map_err(db::Error::Abort)?;
+            if let Some((ask, resume)) = back {
+                tx.execute(
+                    "UPDATE architect_matters SET asked = ?2, resume_cell = ?3 WHERE id = ?1",
+                    params![matter, ask, resume],
+                )?;
             }
+            // The matter stands for the work's blocker in the queue of the architect that holds it.
+            crate::blockers::set_matter(tx, b.id, matter).map_err(db::Error::Abort)?;
             Ok(matter)
         })
         .map_err(sql)?;
     (e.say)(&format!(
-        "work {} asks the architect of {}: matter {matter}",
-        w.id, item.project
+        "work {} asks the architect of {project}: matter {matter}",
+        w.id
     ));
     Ok(Advance::Waits(format!(
         "matter {matter} waits for the architect's reply"
@@ -2455,6 +2509,41 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                         return Err(format!(
                             "the reply's {list} names {k}, which is no item and no key an item change of this round \
                              makes"
+                        ));
+                    }
+                }
+            }
+            // A question handed on is not answered: it splits nothing and has the work wait for nothing, and it goes
+            // to the owner or to the architect of a project the project's configuration names among its other
+            // projects.
+            if let Some(h) = reply.get("hand_over").filter(|h| h.is_object()) {
+                if !items(reply.get("children")).is_empty() || !items(reply.get("waits")).is_empty() {
+                    return Err(
+                        "a reply that hands the question on neither splits the work nor has it wait: leave out \
+                         children and waits, or hand_over"
+                            .into(),
+                    );
+                }
+                if h["to"] == "architect" {
+                    let project = project_of(c.w)?;
+                    let to = text(&h["project"]).trim();
+                    let related =
+                        c.e.config
+                            .config
+                            .projects
+                            .get(project)
+                            .map(|p| p.other_projects.clone())
+                            .unwrap_or_default();
+                    if to == project || !related.iter().any(|o| o == to) {
+                        return Err(format!(
+                            "hand_over goes to the architect of a project {project}'s configuration names among its \
+                             other projects ({}), and names {to:?}",
+                            related.join(", ")
+                        ));
+                    }
+                    if !c.e.config.config.projects.contains_key(to) {
+                        return Err(format!(
+                            "hand_over names {to}, which is no project in the configuration"
                         ));
                     }
                 }
