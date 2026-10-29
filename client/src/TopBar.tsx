@@ -1,5 +1,6 @@
 // The bar on every view: the views (the works, the architect, the items, the flow, and the owner's conversations with
-// how many things in them wait for the owner and how many messages are unread), and how the engine stands: running,
+// how many things in them wait for the owner, red, and how many entries are unread, grey, the browser's notifications
+// telling of what newly waits), and how the engine stands: running,
 // paused (saying which works the owner started run meanwhile), pausing while the last round finishes, or waiting for
 // what stops every work, with the switch that pauses every work or starts them all, the switch that keeps waiting
 // sessions warm while every work is paused, and the slots in use. The engine starts with every work paused. Drawn as
@@ -15,6 +16,7 @@ import { course } from './components';
 import { time } from './format';
 import { postJson } from './http';
 import { reread, useOnline, useResource, useStatus } from './live';
+import { useNotifications } from './notify';
 import { navigate, type Route } from './route';
 import { t, type Key } from './text';
 
@@ -173,11 +175,13 @@ const go = (to: string) => (e: MouseEvent<HTMLAnchorElement> | KeyboardEvent<HTM
   navigate(to);
 };
 
-/// The bar: the views, the owner's conversations with how many things in them wait for the owner (asks not answered,
-/// design cards not ruled, faults of wf-agents not read) in a count of its own and how many messages are unread, and
-/// how the engine stands with the switch of every work. A view's own controls stay in the view.
+/// The bar: the views, the owner's conversations with how many things in them wait for the owner (the open blockers
+/// the owner holds, design cards not ruled, faults of wf-agents not read) in a red count and how many entries are
+/// unread in a grey one, the browser told of what newly waits, and how the engine stands with the switch of every
+/// work.
 export function TopBar({ route }: { route: Route }) {
   const conversations = useResource<Conversation[]>('messages', '/api/v1/conversations');
+  useNotifications(conversations.data);
   const list = conversations.data ?? [];
   const waiting = list.reduce((n, c) => n + c.waiting, 0);
   const unread = list.reduce((n, c) => n + c.unread, 0);
