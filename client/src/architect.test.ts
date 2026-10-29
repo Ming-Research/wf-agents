@@ -233,7 +233,7 @@ describe("the architect's page", () => {
       page: 'architect' as const,
       project: null,
       wake: null,
-      tab: 'conversation' as const,
+      tab: 'rounds' as const,
       round: null,
       cell: null,
     };
@@ -241,7 +241,7 @@ describe("the architect's page", () => {
       architect,
       { ...architect, tab: 'queue' },
       { ...architect, project: 'p', tab: 'observations' },
-      { ...architect, wake: 12, round: 3, tab: 'rounds' },
+      { ...architect, wake: 12, round: 3, tab: 'conversation' },
       { ...architect, wake: 12, cell: 'H3' },
     ];
     for (const r of routes) {
@@ -253,7 +253,7 @@ describe("the architect's page", () => {
     expect(href(architect)).toBe('/architect');
     expect(href({ ...architect, project: 'p', wake: 12 })).toBe('/architect?project=p&wake=12');
     // A round of another wake, or one with no wake named, opens none; a tab the page does not know, such as the asks it
-    // had before, is the conversation.
+    // had before, is its rounds, which the page opens on.
     expect(parse('/architect', '?tab=asks')).toEqual(architect);
     expect(parse('/architect', '?wake=12&round=R11-3&tab=x')).toEqual({ ...architect, wake: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);
