@@ -26,9 +26,9 @@ export function styleOf(c: CompiledCell): string {
   return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';
 }
 
-const FONT = '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const FONT = '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 const BOLD = `600 ${FONT}`;
-const SMALL = '12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const SMALL = '14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 let canvas: CanvasRenderingContext2D | null | undefined;
 
@@ -41,18 +41,18 @@ export function measure(text: string, font = FONT): number {
     canvas.font = font;
     return canvas.measureText(text).width;
   }
-  const size = font.includes('12px') ? 12 : 13;
+  const size = Number(/(\d+)px/.exec(font)?.[1] ?? '15');
   return text.length * size * (font.startsWith('600') ? 0.6 : 0.55);
 }
 
 /// The widest a cell's text runs before it wraps, and the height of a line of it and of a small line under it.
-const WRAP = 230;
-const LINE = 18;
-const SMALL_LINE = 15;
-const PAD_X = 16;
-const PAD_Y = 11;
+const WRAP = 240;
+const LINE = 20;
+const SMALL_LINE = 17;
+const PAD_X = 10;
+const PAD_Y = 6;
 /// The height of the row of marks of the moves a cell lacks.
-const MARKS = 20;
+const MARKS = 22;
 
 /// A text in lines no wider than `wrap` in `font`, the first starting `first` in.
 function wrapped(text: string, font: string, wrap: number, first = 0): string[] {
@@ -147,7 +147,7 @@ export type Lack = { text: string; title: string };
 /// What a cell's box says under its title: what the values its step decides by read, in lines, and the moves it lacks.
 export type CellNote = { reads: string[]; lacks: Lack[] };
 
-const CIRCLE = 36;
+const CIRCLE = 38;
 /// The room a hexagon's points take on each side of its text.
 const POINT = 12;
 
@@ -191,9 +191,9 @@ export function sizes(
     } else if (n.kind === 'out' || n.kind === 'in') {
       size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', SMALL)) + 14), height: CIRCLE });
     } else if (n.kind === 'rule') {
-      size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, SMALL)) + 40, height: 28 });
+      size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, SMALL)) + 40, height: 30 });
     } else {
-      size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', SMALL)) + 44, height: 28 });
+      size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', SMALL)) + 44, height: 30 });
     }
   }
   return { size, lines, notes };
@@ -234,7 +234,7 @@ export function labelSize(e: ChartEdge, numbered: boolean): Size | null {
   const nos = numbered ? badgeRow(e.numbers).width : 0;
   const names = e.label === '' ? 0 : measure(e.label, SMALL);
   if (nos === 0 && names === 0) return null;
-  return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 20 };
+  return { width: Math.ceil(nos + (nos > 0 && names > 0 ? NAMES_GAP : 0) + names) + 12, height: 22 };
 }
 
 /// The arrowhead's length and width, the same for every arrow but those lit for the round chosen, whose wide line

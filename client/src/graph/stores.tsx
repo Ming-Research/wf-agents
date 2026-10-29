@@ -106,10 +106,10 @@ const TITLE = 34;
 const PAD = 16;
 const GAP = 10;
 const BETWEEN = 24;
-const FONT = '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-const SMALL = '11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const FONT = '15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const SMALL = '13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 const WRAP = 170;
-const LINE = 17;
+const LINE = 19;
 
 /// A store's title in lines no wider than a store's text may be.
 export function storeLines(s: Store): string[] {

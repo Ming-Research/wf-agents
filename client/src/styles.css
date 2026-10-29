@@ -1190,7 +1190,7 @@ ul.linked {
 svg.fc {
   display: block;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   user-select: none;
 }
 
@@ -1205,7 +1205,7 @@ svg.fc {
 }
 
 .fc-group text {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   fill: var(--muted);
 }
@@ -1286,7 +1286,7 @@ svg.fc {
 }
 
 .fc-circle text {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 /* What the engine does on a line, or every time a cell returns. */
@@ -1297,7 +1297,7 @@ svg.fc {
 }
 
 .fc-act text {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .fc-edge.fc-edge-does {
@@ -1307,7 +1307,7 @@ svg.fc {
 
 /* Under a step the engine decides, what its values read; on a cell, a move it lacks. */
 .fc .fc-reads {
-  font-size: 12px;
+  font-size: 14px;
   fill: var(--muted);
 }
 
@@ -1323,7 +1323,7 @@ svg.fc {
 }
 
 .fc .fc-lack text {
-  font-size: 11px;
+  font-size: 13px;
   fill: var(--muted);
 }
 
@@ -1343,7 +1343,7 @@ svg.fc {
 }
 
 .fc .fc-store-note {
-  font-size: 11px;
+  font-size: 13px;
   fill: var(--muted);
 }
 
@@ -1392,7 +1392,7 @@ svg.fc {
 
 .fc-rule text,
 .fc-flag text {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .fc-selected > rect:not(.fc-ring),
@@ -1465,7 +1465,7 @@ svg.fc {
 
 .fc-wait text {
   fill: #fff;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .fc-unvisited {
@@ -1485,7 +1485,7 @@ svg.fc {
 }
 
 .fc-mark {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1659,7 +1659,7 @@ svg.fc {
 }
 
 .fc-label text {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .fc-label-main text {
