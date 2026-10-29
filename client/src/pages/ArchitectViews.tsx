@@ -8,6 +8,7 @@ import { type ReactNode } from 'react';
 
 import type { JsonValue, NextPlan, Said } from '../api';
 import { againstInOrder } from '../architect';
+import { DocList } from '../document';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
@@ -17,19 +18,14 @@ import { t } from '../text';
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 const texts = (v: JsonValue | undefined): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x) => x !== '') : []);
 
-/// A list of texts, when there are any.
-function Texts({ label, value, ordered = false }: { label: string; value: JsonValue | undefined; ordered?: boolean }) {
+/// A list of texts, when there are any, as every list of a document is: numbered items.
+function Texts({ label, value }: { label: string; value: JsonValue | undefined }) {
   const list = texts(value);
   if (list.length === 0) return null;
-  const items = list.map((x, i) => (
-    <li key={i}>
-      <MarkdownInline text={x} />
-    </li>
-  ));
   return (
     <div className="field">
       <SubHeading>{label}</SubHeading>
-      {ordered ? <ol className="arch-list">{items}</ol> : <ul className="arch-list">{items}</ul>}
+      <DocList items={list.map((x) => ({ lead: x, parts: [] }))} />
     </div>
   );
 }
@@ -39,98 +35,74 @@ function wroteBy(s: Said, onRound: OpenRound): ReactNode {
   return <By cell={s.cell} at={s.at} work={s.work} round={s.round} onRound={onRound} />;
 }
 
-/// A policy: its direction and why, its principles numbered, and the signals that the direction may have to change.
+/// A policy, as one document: its direction and why, its principles numbered, and the signals that the direction may
+/// have to change, each with how it shows.
 export function PolicyText({ value }: { value: JsonValue }) {
   if (!isObj(value) || typeof value.direction !== 'string') return <Labelled value={value} />;
   const principles = objs(value.principles);
   const signals = objs(value.signals);
   return (
-    <div className="shape">
+    <div className="document">
       <Field label={t('policy_direction')} value={value.direction} />
       <Field label={t('policy_why')} value={value.why} />
       {principles.length > 0 ? (
         <div className="field">
           <SubHeading>{t('policy_principles')}</SubHeading>
-          <ol className="arch-list arch-numbered">
-            {principles.map((p, i) => (
-              <li key={i} value={typeof p.no === 'number' ? p.no : i + 1}>
-                <Markdown text={str(p.text)} />
-              </li>
-            ))}
-          </ol>
+          <DocList
+            items={principles.map((p, i) => ({
+              lead: str(p.text),
+              parts: [],
+              no: typeof p.no === 'number' ? p.no : i + 1,
+            }))}
+          />
         </div>
       ) : null}
       {signals.length > 0 ? (
         <div className="field">
           <SubHeading>{t('policy_signals')}</SubHeading>
-          <ul className="arch-list">
-            {signals.map((s, i) => (
-              <li key={i}>
-                <strong>
-                  <MarkdownInline text={str(s.what)} />
-                </strong>
-                : <MarkdownInline text={str(s.how)} />
-              </li>
-            ))}
-          </ul>
+          <DocList items={signals.map((s) => ({ lead: str(s.what), parts: [[t('policy_signal_how'), s.how]] }))} />
         </div>
       ) : null}
     </div>
   );
 }
 
-/// The study of a new policy: the direction the owner wants, how things stand, what it touches, the directions
-/// compared and the one recommended, what its conclusions rest on, and what it asks the owner.
+/// The study of a new policy, as one document: the direction the owner wants, how things stand, what it touches, the
+/// directions compared and the one recommended, what its conclusions rest on, and what it asks the owner; every list of
+/// it drawn alike, numbered items with their leads in bold and their parts as labelled paragraphs.
 export function StudyView({ value }: { value: JsonValue }) {
   if (!isObj(value) || typeof value.intent !== 'string') return <Labelled value={value} />;
   const impact = objs(value.impact);
   const options = objs(value.options);
   const basis = objs(value.basis);
   return (
-    <div className="shape">
+    <div className="document">
       <Field label={t('study_intent')} value={value.intent} />
       <Field label={t('study_now')} value={value.now} />
       {impact.length > 0 ? (
         <div className="field">
           <SubHeading>{t('study_impact')}</SubHeading>
-          <ul className="arch-list">
-            {impact.map((x, i) => (
-              <li key={i}>
-                <strong>
-                  <MarkdownInline text={str(x.what)} />
-                </strong>
-                : <MarkdownInline text={str(x.how)} />
-              </li>
-            ))}
-          </ul>
+          <DocList items={impact.map((x) => ({ lead: str(x.what), parts: [[t('study_how'), x.how]] }))} />
         </div>
       ) : null}
       {options.length > 0 ? (
         <div className="field">
           <SubHeading>{t('study_options')}</SubHeading>
-          <div className="option-boxes">
-            {options.map((o, i) => (
-              <div key={i} className="option-box">
-                <Markdown text={str(o.does)} />
-                <Field label={t('study_then')} value={o.then} />
-              </div>
-            ))}
-          </div>
+          <DocList items={options.map((o) => ({ lead: str(o.does), parts: [[t('study_then'), o.then]] }))} />
         </div>
       ) : null}
       <Field label={t('study_recommend')} value={value.recommend} />
       {basis.length > 0 ? (
-        <Section title={t('study_basis')} n={basis.length}>
-          <ul className="grounds">
-            {basis.map((b, i) => (
-              <li key={i}>
-                <Label variant={str(b.kind) === 'checked' ? 'success' : 'attention'}>{words(str(b.kind))}</Label>{' '}
-                <MarkdownInline text={str(b.claim)} />
-                <Field label={t('study_where')} value={b.where} />
-              </li>
-            ))}
-          </ul>
-        </Section>
+        <div className="field">
+          <SubHeading>{t('study_basis')}</SubHeading>
+          <DocList
+            items={basis.map((b) => ({
+              lead: str(b.claim),
+              mark: <Label variant={str(b.kind) === 'checked' ? 'success' : 'attention'}>{words(str(b.kind))}</Label>,
+              parts: [[t('study_where'), b.where]],
+            }))}
+          />
+        </div>
       ) : null}
       <Texts label={t('study_questions')} value={value.questions} />
     </div>

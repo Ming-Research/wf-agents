@@ -185,7 +185,7 @@ function PolicyAsk({ a, body, onRound, revisions }: {
     <div className="card-view">
       <details className="talk-fold" open={a.answer === null}>
         <summary>{t('ask_policy_fold')}</summary>
-        <div className="talk-fold-body document">
+        <div className="talk-fold-body">
           <PolicyText value={body.policy ?? null} />
         </div>
       </details>
@@ -229,7 +229,7 @@ export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; on
         <div className="card-view">
           <details className="talk-fold" open={a.answer === null}>
             <summary>{t('ask_study_fold')}</summary>
-            <div className="talk-fold-body document">
+            <div className="talk-fold-body">
               <StudyView value={body.study ?? null} />
             </div>
           </details>

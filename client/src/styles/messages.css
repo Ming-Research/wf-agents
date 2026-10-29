@@ -402,12 +402,38 @@
   margin-bottom: 0;
 }
 
-/* A document the owner reads, a study, a policy or a design: one document in one style. */
+/* A document the owner reads, a study, a policy or a design: one document in one style, framed as what an agent handed
+   back, every list of it numbered items with their leads in bold and their parts as labelled paragraphs. */
+.document {
+  display: grid;
+  gap: var(--base-size-12);
+  padding: var(--base-size-12) var(--base-size-16);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+  overflow-wrap: anywhere;
+}
+
 .document-list {
   display: grid;
   gap: var(--base-size-8);
   margin: var(--base-size-8) 0 0;
   padding-left: var(--base-size-24);
+}
+
+.document-list > li {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.document-lead,
+.document-part {
+  margin: 0;
+}
+
+.policy-tab {
+  display: grid;
+  gap: var(--base-size-12);
 }
 
 /* Where a card waiting for the owner is ruled on or answered, and the button that answers it here. */

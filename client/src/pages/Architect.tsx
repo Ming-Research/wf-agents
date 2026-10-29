@@ -372,7 +372,7 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
   const p = a.policy;
   if (p === null) return <p className="muted">{t('policy_none')}</p>;
   return (
-    <div className="document">
+    <div className="policy-tab">
       <p className="muted">
         <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>
           {t('policy_took_effect', { at: time(p.at) })}

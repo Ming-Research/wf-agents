@@ -6,6 +6,7 @@ import { Label, type LabelColorOptions } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { JsonValue } from '../api';
+import { DocList } from '../document';
 import { empty, isObj, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
 import { Section, SubHeading } from '../parts';
@@ -103,21 +104,23 @@ export function Design({ value, after }: { value: JsonValue; after: ReactNode })
   );
 }
 
-/// The approaches compared: each with how it works, what is good and what is bad about it, the one chosen marked.
+/// The approaches compared, as a list of the design's document: each by its name, with how it works, what is good and
+/// what is bad about it, the one chosen marked.
 export function Approaches({ value, chosen }: { value: JsonValue; chosen: string }) {
   if (!Array.isArray(value) || !value.every((o) => isObj(o) && typeof o.name === 'string')) {
     return <Labelled value={value} />;
   }
   return (
-    <OptionBoxes
-      options={value.filter(isObj)}
-      fields={[
-        ['how', t('option_how')],
-        ['good', t('option_good')],
-        ['bad', t('option_bad')],
-      ]}
-      recommended={chosen}
-      mark={t('decision_chosen')}
+    <DocList
+      items={value.filter(isObj).map((o) => ({
+        lead: str(o.name),
+        mark: str(o.name) !== '' && str(o.name) === chosen ? <Label variant="success">{t('decision_chosen')}</Label> : undefined,
+        parts: [
+          [t('option_how'), o.how],
+          [t('option_good'), o.good],
+          [t('option_bad'), o.bad],
+        ],
+      }))}
     />
   );
 }

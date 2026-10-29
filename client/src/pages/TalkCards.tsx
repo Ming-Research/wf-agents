@@ -89,7 +89,7 @@ function DesignOfStage({ shown, s, w }: { shown: Shown[]; s: StageCard; w: WorkS
   return (
     <details className="talk-fold">
       <summary>{t('stage_design_fold')}</summary>
-      <div className="talk-fold-body">
+      <div className="talk-fold-body document">
         <DesignShown shown={shown} leans={s.said} waits={s.current ? (w?.waits ?? null) : null} />
       </div>
     </details>
@@ -213,7 +213,7 @@ export function PolicyCard({ p }: { p: PolicyInForce }) {
       </div>
       <details className="talk-fold">
         <summary>{t('policy_read')}</summary>
-        <div className="talk-fold-body document">
+        <div className="talk-fold-body">
           <PolicyText value={p.policy} />
         </div>
       </details>

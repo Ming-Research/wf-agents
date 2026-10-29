@@ -245,7 +245,9 @@ function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail 
   const live = d.works.find((w) => w.state !== 'done' && w.state !== 'ended') ?? null;
   return (
     <Block title={t('design_title')} from={from}>
-      <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
+      <div className="document">
+        <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
+      </div>
     </Block>
   );
 }

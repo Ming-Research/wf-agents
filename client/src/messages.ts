@@ -1206,6 +1206,8 @@ const messages = {
   study_impact: 'What it touches',
   study_options: 'The directions compared',
   study_then: 'What follows',
+  study_how: 'How',
+  policy_signal_how: 'How it shows',
   study_recommend: 'Recommended',
   study_basis: 'What it rests on',
   study_where: 'Where, or how to confirm it',
