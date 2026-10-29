@@ -4271,7 +4271,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
     assert_eq!((lines[0].0.as_str(), lines[0].1), ("line", true), "{lines:?}");
     assert!(
-        lines[0].2.starts_with("research,") && !lines[0].2.contains("implement"),
+        lines[0].2.starts_with("research.problem,") && !lines[0].2.contains("implement"),
         "{lines:?}"
     );
     assert_eq!(lines[1], ("cell".to_string(), false, "implement,implement".to_string()));
