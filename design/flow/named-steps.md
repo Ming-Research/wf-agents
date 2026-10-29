@@ -3,3 +3,5 @@ Decision: Everything the engine carries out has a name in the flow (each action,
 Decision: An input read from the database names the table or view it reads, and the compiler loads `db/schema.sql` into an in-memory database to check that each one exists, because an input whose source is missing must fail when the flow is compiled, not when a work reaches the cell.
 
 Decision: Rows on the main path are flagged in the flow, and the compiled flow carries the flags, because the anomaly view counts every transition off the main path without agents reporting it.
+
+Decision: Each cell has a short English name, its own within its graph, and a cell that does the same in both graphs has the same name in both (`tools`, `to_owner`), instead of a number or a code by its place, because a number says nothing of what its cell does, the two graphs numbered alike cells apart, and adding or removing a cell left the numbers uneven; a work and its rounds keep the ids of the flow version the work ran on, so a reader of the works and rounds of every version names a cell by its name and by the number or code it had before.

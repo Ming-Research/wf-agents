@@ -45,6 +45,8 @@ export type FlowChartProps = {
   marks: Marks[];
   /// The cell the chart opens on; with none, the top of the first graph.
   start: string | null;
+  /// The graph of that cell; with none, the first that has it.
+  startGraph?: string | null;
   onPick: (p: Pick) => void;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
   legend: 'flow' | 'work' | 'compare';
@@ -268,7 +270,7 @@ function Legend({ graphs, legend }: { graphs: CompiledGraph[]; legend: FlowChart
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { graphs, marks, start, onPick, legend, ref } = props;
+  const { graphs, marks, start, startGraph, onPick, legend, ref } = props;
   const numbered = legend !== 'work';
   const models = useMemo(() => graphs.map(({ g, view }) => build(g, view)), [graphs]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
@@ -344,7 +346,7 @@ export function FlowChart(props: FlowChartProps) {
   useEffect(() => {
     if (current === null || placed === null || opened.current === current || !viewer.current) return;
     opened.current = current;
-    const at = start !== null ? rectRef.current(`c:${start}`) : null;
+    const at = start !== null ? rectRef.current(`c:${start}`, startGraph ?? undefined) : null;
     if (at) {
       viewer.current.place(at, 1);
       return;
@@ -361,7 +363,7 @@ export function FlowChart(props: FlowChartProps) {
           }
         : null;
     viewer.current.start(READABLE, around);
-  }, [current, placed, start]);
+  }, [current, placed, start, startGraph]);
   // The cell a round runs at now, in its graph; the chart centres on it when it is another than the one it centred on
   // last, the one it opened on included.
   const centred = useRef<string | null>(start);

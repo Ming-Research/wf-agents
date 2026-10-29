@@ -15,8 +15,10 @@ use serde_json::Value;
 
 pub use rusqlite;
 
+mod cells;
 mod matters;
 
+pub use cells::{cells_sql, is_cell};
 pub use matters::{Matter, lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect};
 
 /// The database's definition, as `db/schema.sql` writes it.
@@ -53,6 +55,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0025.sql"),
     include_str!("../../../db/migrations/0026.sql"),
     include_str!("../../../db/migrations/0027.sql"),
+    include_str!("../../../db/migrations/0028.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1071,6 +1074,36 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'end')",
+                [library],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 1, 'merge_queue', '{}', '{}', 'merged', 'c', 1, 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(ready(&db), ["parser", "checker"]);
+        assert!(
+            names(db.conn(), "SELECT needs FROM item_blocked_by")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    // A work of a flow version before cells had names keeps the numbers its cells had then: the merge it recorded at the
+    // merge cell, then 9, lets the items that depend on it start, and it is done at the end of its graph, then 20.
+    #[test]
+    fn a_work_of_a_version_before_cells_had_names_is_read_by_its_numbers() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let parser = item(tx, "parser")?;
+            let library = item(tx, "library")?;
+            add_dependency(tx, parser, library, "its lexer", "blocking")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', '20')",
                 [library],
             )?;
@@ -1082,11 +1115,9 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(ready(&db), ["parser", "checker"]);
-        assert!(
-            names(db.conn(), "SELECT needs FROM item_blocked_by")
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            names(db.conn(), "SELECT title FROM ready_items ORDER BY item").unwrap(),
+            ["parser"]
         );
     }
 
@@ -1128,7 +1159,7 @@ mod tests {
         }
         assert_eq!(
             first_sentence(
-                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell 8.\n  SELECT 1"
+                "CREATE VIEW v AS\n  -- Rows the work holds: its findings, as the\n  -- review wrote them. Read by: cell `fix`.\n  SELECT 1"
             ),
             "Rows the work holds: its findings, as the review wrote them."
         );
@@ -1711,7 +1742,8 @@ mod tests {
     // at a cell of the old graph with its round and answers the asks only that wake waited for or that asked to approve
     // changes; a matter not handled takes the kind of the new graph with its old kind as its detail, one held for
     // approval is back in the queue, one held by an ask still waiting stays held, to go back to the cell that decides
-    // it, and one handled stays as it was; the architect's hold on new starts is the project's.
+    // it (by its name, once cells have names), and one handled stays as it was; the architect's hold on new starts is
+    // the project's.
     #[test]
     fn each_project_has_its_architect_on_the_new_graph() {
         let mut old = at_version(19);
@@ -1813,7 +1845,7 @@ mod tests {
             [
                 m("engineer_question", Some("split"), None, None, None),
                 m("set_straight", Some("tidy_board"), None, None, None),
-                m("failure", Some("tool_failed"), Some(2), Some("F1"), None),
+                m("failure", Some("tool_failed"), Some(2), Some("have_fixed"), None),
                 m("advance", None, None, None, Some(1)),
             ]
         );

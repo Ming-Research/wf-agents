@@ -1,6 +1,6 @@
-//! The tool cells: the tools agents ask for (cell 13, and the architect's TOOLS), the full CI on the draft (7), the merge
-//! queue (9) and watching main (10). Each attempt of a tool is a row of tool_runs under the cell's round. A tool that
-//! fails is tried twice more; a refusal is a result, not a failure, and is not tried again.
+//! The tool cells: the tools agents ask for (cell `tools`, in each graph), the full CI on the draft (`full_ci`), the
+//! merge queue (`merge_queue`) and watching main (`watch_main`). Each attempt of a tool is a row of tool_runs under the
+//! cell's round. A tool that fails is tried twice more; a refusal is a result, not a failure, and is not tried again.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -366,7 +366,7 @@ fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
         .collect()
 }
 
-// Cell 13.
+// Cell `tools`.
 
 /// The tools a round asked for, as the tool cell takes them from its input.
 pub fn asked(gathered: &[Gathered]) -> Vec<Value> {
@@ -435,8 +435,8 @@ pub fn run_tools(
     let asked = asked(gathered);
     let mut results: Vec<Value> = Vec::new();
     let mut only: Option<Vec<String>> = None;
-    if w.pos.from.as_deref() == Some("15") {
-        let last = work::rounds_at(e.db.conn(), w.id, "13")?
+    if w.pos.from.as_deref() == Some("to_architect") {
+        let last = work::rounds_at(e.db.conn(), w.id, "tools")?
             .into_iter()
             .find(|r| r.transition.is_some());
         if let Some(out) = last.and_then(|r| r.output) {
@@ -711,7 +711,7 @@ fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Fa
     })
 }
 
-// Cell 7.
+// Cell `full_ci`.
 
 /// Catches the branch up with main, pushes it, and runs the full CI on it; a red check is run again once.
 pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
@@ -773,7 +773,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
     Ok(json!({ "result": { "kind": kind, "checks": checks_json(&again) } }))
 }
 
-// Cell 9.
+// Cell `merge_queue`.
 
 /// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it.
 pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
@@ -823,7 +823,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     }
 }
 
-// Cell 10.
+// Cell `watch_main`.
 
 /// Watches the full CI on the merge commit. On red it runs the red checks again, looks in the table of known red
 /// checks, and runs them on main's commit before the merge, in that order.
@@ -838,7 +838,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
             ),
         ));
     }
-    let merged = crate::inputs::last_return(e, w, g, "9", "result")?
+    let merged = crate::inputs::last_return(e, w, g, "merge_queue", "result")?
         .and_then(|r| r["result"]["merge_commit"].as_str().map(str::to_string))
         .ok_or("the work has no merge commit")?;
     let wt = w.worktree.clone().unwrap_or_else(|| project.checkout.clone());

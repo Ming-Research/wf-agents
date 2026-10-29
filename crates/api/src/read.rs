@@ -1673,9 +1673,12 @@ pub fn architect(
     // A new policy is being set while the latest wake, not over, is at the stage the study of one is in.
     let setting = match wakes.first() {
         Some((_, s)) if !over(s) && s.stage.is_some() => {
-            let study = flows
-                .graph(conn, s.flow_version, &s.graph)
-                .and_then(|g| g.cell("P1").and_then(|c| c.stage.clone()));
+            let study = flows.graph(conn, s.flow_version, &s.graph).and_then(|g| {
+                g.cells
+                    .iter()
+                    .find(|c| db::is_cell("architect", "study", &c.id))
+                    .and_then(|c| c.stage.clone())
+            });
             if study == s.stage {
                 Some(setting(conn, s.id)?)
             } else {
@@ -1735,10 +1738,14 @@ fn returned(output: Option<String>, field: Option<&str>) -> Value {
 fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
     let picked: Option<Option<i64>> = conn
         .query_row(
-            "SELECT coalesce(json_extract(output, '$.queue.matter'), json_extract(output, '$.outcome.pick.matter'))
-             FROM rounds WHERE work = ?1 AND transition IS NOT NULL
-               AND (cell = 'D0' OR (cell = 'D1' AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))
-             ORDER BY n DESC LIMIT 1",
+            &format!(
+                "SELECT coalesce(json_extract(output, '$.queue.matter'), json_extract(output, '$.outcome.pick.matter'))
+                 FROM rounds WHERE work = ?1 AND transition IS NOT NULL
+                   AND (cell IN {} OR (cell IN {} AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))
+                 ORDER BY n DESC LIMIT 1",
+                db::cells_sql("architect", &["anything"]),
+                db::cells_sql("architect", &["pick"])
+            ),
             [wake],
             |r| r.get(0),
         )
@@ -1793,10 +1800,22 @@ fn woke_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>
 }
 
 /// The cells on a matter's path, whose rounds a matter's entry of the log holds.
-const PATH: [&str; 11] = ["T1", "Q1", "Q2", "I1", "I2", "K1", "F1", "O1", "M1", "N1", "ASK"];
+const PATH: [&str; 11] = [
+    "set_straight",
+    "crux",
+    "ways",
+    "what_is_it",
+    "take_in",
+    "card_sound",
+    "have_fixed",
+    "owner_words",
+    "answer_architect",
+    "what_runs",
+    "to_owner",
+];
 
 /// The cells whose rounds are judgments of the whole, each an entry of the log of its own.
-const JUDGMENTS: [&str; 7] = ["U1", "U2", "U3", "R1", "X1", "C1", "E1"];
+const JUDGMENTS: [&str; 7] = ["state", "policy_right", "fit", "review", "revise", "rethink", "wrap_up"];
 
 /// A project's architect's log over its latest fifty wakes, newest first: each judgment of the whole, and each matter
 /// taken with each round of its path in order and the round that closed it.
@@ -1827,12 +1846,17 @@ fn log(conn: &Connection, project: &str) -> Result<Vec<LogEntry>> {
         if matches!(&open, Some(LogEntry::Matter { work: w, .. }) if *w != work) {
             out.extend(open.take());
         }
-        let picked = match cell.as_str() {
-            "D0" => returned(output.clone(), None)["queue"]["matter"].as_i64(),
-            "D1" => returned(output.clone(), Some("pick"))["matter"].as_i64(),
-            _ => None,
+        // A round of a wake keeps the cell's id of the flow version the wake ran on.
+        let is = |names: &[&str]| names.iter().any(|n| db::is_cell("architect", n, &cell));
+        let look = is(&["anything"]);
+        let picked = if look {
+            returned(output.clone(), None)["queue"]["matter"].as_i64()
+        } else if is(&["pick"]) {
+            returned(output.clone(), Some("pick"))["matter"].as_i64()
+        } else {
+            None
         };
-        if cell == "D0" {
+        if look {
             out.extend(open.take());
         }
         if let Some(m) = picked {
@@ -1863,7 +1887,7 @@ fn log(conn: &Connection, project: &str) -> Result<Vec<LogEntry>> {
             });
             continue;
         }
-        if PATH.contains(&cell.as_str()) {
+        if is(&PATH) {
             if let Some(LogEntry::Matter { rounds, .. }) = open.as_mut() {
                 rounds.push(Said {
                     work,
@@ -1875,7 +1899,7 @@ fn log(conn: &Connection, project: &str) -> Result<Vec<LogEntry>> {
             }
             continue;
         }
-        if JUDGMENTS.contains(&cell.as_str()) {
+        if is(&JUDGMENTS) {
             out.push(LogEntry::Judgment {
                 work,
                 round,
@@ -2120,17 +2144,20 @@ fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyInForce>> {
 fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
     let study = conn
         .query_row(
-            "SELECT n, ended_at, output FROM rounds WHERE work = ?1 AND cell = 'P1' AND transition IS NOT NULL
-               AND json_extract(output, '$.outcome.study') IS NOT NULL
-             ORDER BY n DESC LIMIT 1",
+            &format!(
+                "SELECT n, cell, ended_at, output FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL
+                   AND json_extract(output, '$.outcome.study') IS NOT NULL
+                 ORDER BY n DESC LIMIT 1",
+                db::cells_sql("architect", &["study"])
+            ),
             [work],
             |r| {
                 Ok(Said {
                     work,
                     round: r.get(0)?,
-                    cell: "P1".into(),
-                    at: r.get(1)?,
-                    value: returned(r.get(2)?, Some("study")),
+                    cell: r.get(1)?,
+                    at: r.get(2)?,
+                    value: returned(r.get(3)?, Some("study")),
                 })
             },
         )
@@ -2167,36 +2194,39 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
 fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
     let state = conn
         .query_row(
-            "SELECT a.work, a.round, r.ended_at, r.output, a.learned, a.notes FROM architect_state a
+            "SELECT a.work, a.round, r.cell, r.ended_at, r.output, a.learned, a.notes FROM architect_state a
              JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.project = ?1",
             [project],
             |r| {
                 let said = Said {
                     work: r.get(0)?,
                     round: r.get(1)?,
-                    cell: "U1".into(),
-                    at: r.get(2)?,
-                    value: returned(r.get(3)?, None),
+                    cell: r.get(2)?,
+                    at: r.get(3)?,
+                    value: returned(r.get(4)?, None),
                 };
                 let list = |v: Option<String>| json(v).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-                Ok((said, list(r.get(4)?), list(r.get(5)?)))
+                Ok((said, list(r.get(5)?), list(r.get(6)?)))
             },
         )
         .optional()?;
     let against = conn
         .query_row(
-            "SELECT r.work, r.n, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
-             WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell = 'U2' AND r.transition IS NOT NULL
-               AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-             ORDER BY r.work DESC, r.n DESC LIMIT 1",
+            &format!(
+                "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
+                 ORDER BY r.work DESC, r.n DESC LIMIT 1",
+                db::cells_sql("architect", &["policy_right"])
+            ),
             [project],
             |r| {
                 Ok(Said {
                     work: r.get(0)?,
                     round: r.get(1)?,
-                    cell: "U2".into(),
-                    at: r.get(2)?,
-                    value: returned(r.get(3)?, None),
+                    cell: r.get(2)?,
+                    at: r.get(3)?,
+                    value: returned(r.get(4)?, None),
                 })
             },
         )
@@ -2207,31 +2237,36 @@ fn understanding(conn: &Connection, project: &str) -> Result<Understanding> {
     };
     // Every version, read from the round records alone: each understanding, with what the wrap-ups after it, before
     // the next, learned; a round that asked for tools or paused gave none.
-    let mut st = conn.prepare(
-        "SELECT r.work, r.n, r.ended_at, json_extract(r.output, '$.outcome'),
+    let (wrap_ups, understandings) = (
+        db::cells_sql("architect", &["wrap_up"]),
+        db::cells_sql("architect", &["state"]),
+    );
+    let mut st = conn.prepare(&format!(
+        "SELECT r.work, r.n, r.cell, r.ended_at, json_extract(r.output, '$.outcome'),
                 (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y
                  ON y.id = x.work
-                 WHERE y.graph = 'architect' AND y.project = w.project AND x.cell = 'E1' AND x.transition IS NOT NULL
+                 WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN {wrap_ups} AND x.transition IS NOT NULL
                    AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
                    AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))
                    AND NOT EXISTS (SELECT 1 FROM rounds z JOIN works v ON v.id = z.work
-                     WHERE v.project = w.project AND z.cell = 'U1' AND z.transition IS NOT NULL
+                     WHERE v.project = w.project AND z.cell IN {understandings} AND z.transition IS NOT NULL
                        AND z.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
                        AND (z.work > r.work OR (z.work = r.work AND z.n > r.n))
                        AND (z.work < x.work OR (z.work = x.work AND z.n < x.n))))
          FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell = 'U1' AND r.transition IS NOT NULL
+         WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {understandings} AND r.transition IS NOT NULL
            AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
          ORDER BY r.work DESC, r.n DESC",
-    )?;
+    ))?;
     let versions = st
         .query_map([project], |r| {
             Ok(StateVersion {
                 work: r.get(0)?,
                 round: r.get(1)?,
-                at: r.get(2)?,
-                state: json(r.get(3)?).unwrap_or(Value::Null),
-                learned: json(r.get(4)?).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
+                cell: r.get(2)?,
+                at: r.get(3)?,
+                state: json(r.get(4)?).unwrap_or(Value::Null),
+                learned: json(r.get(5)?).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -2290,7 +2325,7 @@ mod tests {
             },
         )
         .unwrap();
-        let first = compiled.graph("engineer").unwrap().cell("1").unwrap().inputs[0]
+        let first = compiled.graph("engineer").unwrap().cell("research").unwrap().inputs[0]
             .what
             .clone();
         let data = std::env::temp_dir().join(format!("wf-agents-api-{}-{name}", std::process::id()));
@@ -2321,21 +2356,21 @@ mod tests {
                 &[],
             )?;
             run("INSERT INTO dispatch_queue (item, position) VALUES (2, 1.0)", &[])?;
-            run("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '1')", &[])?;
+            run("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'research')", &[])?;
             run("INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'engineer', 'claude', 's1')", &[])?;
             run(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, 1, '0', '{}', '{}', 'started', 'c', 10, 20)",
+                 VALUES (1, 1, 'start', '{}', '{}', 'started', 'c', 10, 20)",
                 &[],
             )?;
             let input = input.to_string();
             run(
                 "INSERT INTO rounds (work, n, cell, session, input, output, rejected, config_commit, model, usage, started_at, ended_at)
-                 VALUES (1, 2, '1', 1, ?1, '{\"progress\":\"looked\"}', '{\"format\":\"no outcome\"}', 'c', 'm', '{\"cost_usd\":0.5}', 30, 40)",
+                 VALUES (1, 2, 'research', 1, ?1, '{\"progress\":\"looked\"}', '{\"format\":\"no outcome\"}', 'c', 'm', '{\"cost_usd\":0.5}', 30, 40)",
                 &[&input],
             )?;
             run(
-                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (1, 3, '1', 1, ?1, 'c', 50)",
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (1, 3, 'research', 1, ?1, 'c', 50)",
                 &[&input],
             )?;
             let result = result.to_string();
@@ -2404,7 +2439,7 @@ mod tests {
         })
         .unwrap();
         let cache = Flows::default();
-        let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
+        let cell = s.compiled.graph("engineer").unwrap().cell("research").unwrap().clone();
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!(ws.len(), 1);
         let w = &ws[0];
@@ -2445,7 +2480,7 @@ mod tests {
         let p = &d.pings[0];
         assert_eq!(
             (p.line.as_str(), p.cell.as_str(), p.on.as_str(), p.what.as_str()),
-            ("engineer", "1", "pause", "to look")
+            ("engineer", "research", "pause", "to look")
         );
         assert_eq!((p.cost_usd, p.read, p.written), (Some(0.25), 9000, 20));
         // What the agents spent, by day, model and line, counts the rounds and the pings of every work; a round or a ping
@@ -2567,12 +2602,12 @@ mod tests {
     #[test]
     fn a_round_gives_its_message_conditional_inputs_and_call() {
         let mut s = setup("message");
-        let cell = s.compiled.graph("engineer").unwrap().cell("1").unwrap().clone();
+        let cell = s.compiled.graph("engineer").unwrap().cell("research").unwrap().clone();
         let input = json!({
-            "message": "# R1-4 · cell 1 · Research",
+            "message": "# R1-4 · cell research · Research",
             "conditional": [
                 { "address": "rule:ground", "hash": "h1", "given": true },
-                { "address": "R1-2·1·understanding", "hash": "h2", "given": false },
+                { "address": "R1-2·research·understanding", "hash": "h2", "given": false },
             ],
             "call": {
                 "command": ["claude", "-p", "--effort", "high"],
@@ -2588,11 +2623,11 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, rejected, config_commit, started_at, ended_at)
-                 VALUES (1, 4, '1', 1, ?1, ?2, 'c', 60, 70)",
+                 VALUES (1, 4, 'research', 1, ?1, ?2, 'c', 60, 70)",
                 [input.to_string(), failed.to_string()],
             )?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 5, '1', ?1, 'c', 80)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 5, 'research', ?1, 'c', 80)",
                 [step.to_string()],
             )?;
             // R1-2 locked the first acceptance, and R1-4 a new one in its place.
@@ -2607,13 +2642,13 @@ mod tests {
         .unwrap();
         let cache = Flows::default();
         let r = round(s.db.conn(), &cache, &s.data, 1, 4).unwrap();
-        assert_eq!(r.message.as_deref(), Some("# R1-4 · cell 1 · Research"));
+        assert_eq!(r.message.as_deref(), Some("# R1-4 · cell research · Research"));
         assert_eq!(
             r.conditional
                 .iter()
                 .map(|m| (m.address.as_str(), m.given))
                 .collect::<Vec<_>>(),
-            [("rule:ground", true), ("R1-2·1·understanding", false)]
+            [("rule:ground", true), ("R1-2·research·understanding", false)]
         );
         assert_eq!(r.call.as_ref().unwrap()["session"]["resumed"], "s1");
         assert_eq!((r.level.as_deref(), r.effort.as_deref()), (Some("3"), Some("high")));
@@ -2630,7 +2665,7 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
-                 VALUES (1, 6, '12', '{}', 'c', 100, 110)",
+                 VALUES (1, 6, 'advisor', '{}', 'c', 100, 110)",
                 [],
             )?;
             tx.execute(
@@ -2676,7 +2711,7 @@ mod tests {
         let all = items(s.db.conn(), &cache).unwrap();
         let states: Vec<ItemState> = all.items.iter().map(|i| i.state).collect();
         assert_eq!(states, [ItemState::Working, ItemState::Queued]);
-        assert_eq!(all.items[0].at.as_deref(), Some("1"));
+        assert_eq!(all.items[0].at.as_deref(), Some("research"));
         assert_eq!(all.links.len(), 1);
         assert_eq!(all.links[0].kind, "blocking");
         // A work that runs goes on whatever it depends on: nothing holds it back.
@@ -2734,7 +2769,14 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let title = s.compiled.graph("engineer").unwrap().cell("1").unwrap().title.clone();
+        let title = s
+            .compiled
+            .graph("engineer")
+            .unwrap()
+            .cell("research")
+            .unwrap()
+            .title
+            .clone();
         let d = item(s.db.conn(), &Flows::default(), 1).unwrap();
         assert_eq!(
             d.design_cards[0].replaced,
@@ -2742,7 +2784,7 @@ mod tests {
                 design_card: 2,
                 round: 3,
                 work: 1,
-                cell: Some("1".into()),
+                cell: Some("research".into()),
                 title: Some(title),
                 at: Some(50),
                 changed: Some("Kept one table.".into()),
@@ -2787,7 +2829,7 @@ mod tests {
         let rows = json!([{ "a": 1 }]);
         let design = json!("Keep one table.");
         let message = format!(
-            "# R1-4 · cell 1 · Research\n\n## Given\n\n### rule:ground\n{}\n\n### R1-1·engine·rows\n{rows}\n\n## Task\n\nDo it.\n",
+            "# R1-4 · cell research · Research\n\n## Given\n\n### rule:ground\n{}\n\n### R1-1·engine·rows\n{rows}\n\n## Task\n\nDo it.\n",
             rule.as_str().unwrap()
         );
         let input = json!({ "message": message, "conditional": [
@@ -2798,7 +2840,7 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, 4, '1', 1, ?1, ?2, 'done', 'c', 60, 70)",
+                 VALUES (1, 4, 'research', 1, ?1, ?2, 'done', 'c', 60, 70)",
                 [input.to_string(), output.to_string()],
             )?;
             Ok(())
@@ -2808,7 +2850,7 @@ mod tests {
         let found = |v: &Value, address: &str| content(s.db.conn(), &cache, 1, &flow::formats::hash(v), address);
         assert_eq!(found(&rule, "rule:ground"), Ok(rule.clone()));
         assert_eq!(found(&rows, "R1-1·engine·rows"), Ok(rows.clone()));
-        assert_eq!(found(&design, "R353·1·design"), Ok(design.clone()));
+        assert_eq!(found(&design, "R353·research·design"), Ok(design.clone()));
         assert!(matches!(found(&json!("never"), "rule:ground"), Err(Error::NotFound(_))));
     }
 
@@ -2824,7 +2866,7 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (1, 4, '1', 1, '{}', ?1, 'done', 'c', 90, 91)",
+                 VALUES (1, 4, 'research', 1, '{}', ?1, 'done', 'c', 90, 91)",
                 [&ret],
             )?;
             Ok(())
@@ -2834,13 +2876,13 @@ mod tests {
         let at = |path: &str| {
             d.shown
                 .iter()
-                .find(|x| x.cell == "1" && x.path == path)
+                .find(|x| x.cell == "research" && x.path == path)
                 .map(|x| x.value.clone())
         };
         assert_eq!(at("understanding"), Some(json!({ "problem": "what is wrong" })));
         assert_eq!(at("progress"), Some(json!("read the code")));
         // The start's return holds nothing the flow shows.
-        assert!(d.shown.iter().all(|x| x.cell == "1"));
+        assert!(d.shown.iter().all(|x| x.cell == "research"));
     }
 
     /// Two wakes of project p's architect: one over, which handled an engineer's question, and one at the owner's
@@ -2856,10 +2898,10 @@ mod tests {
                            "given": {} });
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let wake = [
-            ("W0", queued.to_string(), Some("{}".to_string()), Some("woke")),
-            ("W1", "{}".into(), Some("{}".into()), Some("not_understood")),
+            ("wake", queued.to_string(), Some("{}".to_string()), Some("woke")),
+            ("understood", "{}".into(), Some("{}".into()), Some("not_understood")),
             (
-                "U1",
+                "state",
                 "{}".into(),
                 Some(out(
                     json!({ "state": [{ "line": "l", "serves": "s", "approach": "a", "where": "w",
@@ -2869,7 +2911,7 @@ mod tests {
                 Some("understood"),
             ),
             (
-                "U2",
+                "policy_right",
                 "{}".into(),
                 Some(out(
                     json!({ "against": [], "verdict": { "verdict": "holds", "why": "w" } }),
@@ -2877,58 +2919,58 @@ mod tests {
                 Some("holds"),
             ),
             (
-                "U3",
+                "fit",
                 "{}".into(),
                 Some(out(json!({ "fit": { "verdict": "fits", "why": "w" } }))),
                 Some("fits"),
             ),
             (
-                "D0",
+                "anything",
                 "{}".into(),
                 Some(json!({ "queue": { "verdict": "one", "matter": 1 } }).to_string()),
                 Some("one"),
             ),
-            ("RT", "{}".into(), Some("{}".into()), Some("to_Q1")),
+            ("route", "{}".into(), Some("{}".into()), Some("to_crux")),
             (
-                "Q1",
+                "crux",
                 "{}".into(),
                 Some(out(json!({ "crux": { "root": "itself", "question": "q" } }))),
                 Some("found"),
             ),
             (
-                "Q2",
+                "ways",
                 "{}".into(),
                 Some(out(
                     json!({ "judgment": { "chosen": "one" }, "reply": { "text": "t", "why": "w" } }),
                 )),
                 Some("done"),
             ),
-            ("B1", "{}".into(), Some("{}".into()), Some("done")),
+            ("batch_done", "{}".into(), Some("{}".into()), Some("done")),
             (
-                "C1",
+                "rethink",
                 "{}".into(),
                 Some(out(json!({ "rethink": { "verdict": "no", "why": "w" } }))),
                 Some("no"),
             ),
             (
-                "D0",
+                "anything",
                 "{}".into(),
                 Some(json!({ "queue": { "verdict": "none" } }).to_string()),
                 Some("none"),
             ),
             (
-                "E1",
+                "wrap_up",
                 "{}".into(),
                 Some(out(json!({ "learned": "L", "notes": [{ "text": "N" }] }))),
                 Some("wrapped_up"),
             ),
-            ("E2", "{}".into(), Some("{}".into()), None),
+            ("record", "{}".into(), Some("{}".into()), None),
         ];
         let setting = [
-            ("W0", none.to_string(), Some("{}".to_string()), Some("woke")),
-            ("W1", "{}".into(), Some("{}".into()), Some("understood")),
+            ("wake", none.to_string(), Some("{}".to_string()), Some("woke")),
+            ("understood", "{}".into(), Some("{}".into()), Some("understood")),
             (
-                "U2",
+                "policy_right",
                 "{}".into(),
                 Some(out(
                     json!({ "against": [{ "article": "Article 2", "status": "broken", "where": "w",
@@ -2937,7 +2979,7 @@ mod tests {
                 Some("set_again"),
             ),
             (
-                "P1",
+                "study",
                 "{}".into(),
                 Some(out(json!({ "study": { "intent": "i" } }))),
                 Some("studied"),
@@ -2946,8 +2988,8 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
             run(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'E2', 'p'),
-                 (NULL, 1, 'architect', 'P2', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'record', 'p'),
+                 (NULL, 1, 'architect', 'owner_reads', 'p'), (NULL, 1, 'architect', 'record', 'q')",
                 &[],
             )?;
             for (work, rounds) in [(2_i64, &wake[..]), (3, &setting[..])] {
@@ -2962,14 +3004,14 @@ mod tests {
                 }
             }
             run(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 5, 'P2', '{}', 'c', 400)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 5, 'owner_reads', '{}', 'c', 400)",
                 &[],
             )?;
-            let study = json!({ "from": "architect", "project": "p", "kind": "study", "work": 3, "cell": "P2",
+            let study = json!({ "from": "architect", "project": "p", "kind": "study", "work": 3, "cell": "owner_reads",
                 "study": { "intent": "i" }, "choices": [["satisfied", "s"]] })
             .to_string();
             run("INSERT INTO owner_asks (work, round, body) VALUES (3, 5, ?1)", &[&study])?;
-            let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "ASK",
+            let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "to_owner",
                 "asked": [], "holds": [3] })
             .to_string();
             run("INSERT INTO owner_asks (work, round, body) VALUES (2, 9, ?1)", &[&held])?;
@@ -2985,7 +3027,7 @@ mod tests {
             )?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at, asked,
-                 resume_cell) VALUES ('p', 'report', 'other', 'Held', '{\"urgent\":true}', 1, 1, 1, 220, 2, 'I1')",
+                 resume_cell) VALUES ('p', 'report', 'other', 'Held', '{\"urgent\":true}', 1, 1, 1, 220, 2, 'what_is_it')",
                 &[],
             )?;
             run(
@@ -3124,7 +3166,7 @@ mod tests {
             ]
         );
         assert_eq!(a.queue[1].title.as_deref(), Some("First"));
-        assert_eq!(a.queue[1].resume_cell.as_deref(), Some("I1"));
+        assert_eq!(a.queue[1].resume_cell.as_deref(), Some("what_is_it"));
         assert_eq!(
             a.holds,
             [DispatchHold {
@@ -3152,7 +3194,7 @@ mod tests {
             (2, 6, 1, "engineer_question", Some(9))
         );
         let cells: Vec<&str> = rounds.iter().map(|r| r.cell.as_str()).collect();
-        assert_eq!(cells, ["Q1", "Q2"]);
+        assert_eq!(cells, ["crux", "ways"]);
         assert_eq!(rounds[0].value["crux"]["question"], "q");
         let judged: Vec<(i64, i64, &str)> = a
             .log
@@ -3165,12 +3207,12 @@ mod tests {
         assert_eq!(
             judged,
             [
-                (3, 3, "U2"),
-                (2, 13, "E1"),
-                (2, 11, "C1"),
-                (2, 5, "U3"),
-                (2, 4, "U2"),
-                (2, 3, "U1")
+                (3, 3, "policy_right"),
+                (2, 13, "wrap_up"),
+                (2, 11, "rethink"),
+                (2, 5, "fit"),
+                (2, 4, "policy_right"),
+                (2, 3, "state")
             ]
         );
         assert_eq!(a.changes.len(), 1);

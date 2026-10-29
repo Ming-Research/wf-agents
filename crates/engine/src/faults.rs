@@ -199,7 +199,7 @@ mod tests {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             for _ in 0..2 {
                 tx.execute(
-                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', '16')",
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'to_owner')",
                     [],
                 )?;
             }
@@ -231,13 +231,14 @@ mod tests {
             "p",
             "work 7 (a wake of the architect)",
             RoundId::new(7, 5),
-            "C1",
+            "rethink",
             "architect",
             &m,
         );
         assert!(
-            text.contains("R7-5 of work 7 (a wake of the architect) in project p, at cell C1 on the architect line")
-                && text.contains("14 minutes after")
+            text.contains(
+                "R7-5 of work 7 (a wake of the architect) in project p, at cell rethink on the architect line"
+            ) && text.contains("14 minutes after")
                 && text.contains(
                     "wrote 412,345 tokens to the cache again of the 418,000 the session held, which cost about $1.23"
                 )
@@ -249,7 +250,7 @@ mod tests {
             before: Some("2.1.3".into()),
             after: Some("2.1.4".into()),
         }];
-        let text = told("p", "work 7", RoundId::new(7, 5), "C1", "architect", &m);
+        let text = told("p", "work 7", RoundId::new(7, 5), "rethink", "architect", &m);
         assert!(
             text.ends_with("differs from the session's round before, R7-4, in: the CLI's version (2.1.3 → 2.1.4)."),
             "{text}"
@@ -268,12 +269,12 @@ mod tests {
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'C1', 'p')",
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'rethink', 'p')",
                 [],
             )?;
             for n in 1..=6 {
                 tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'C1', '{}', 'c', ?1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'rethink', '{}', 'c', ?1)",
                     [n],
                 )?;
             }

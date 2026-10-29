@@ -184,7 +184,9 @@ impl Context<'_> {
                             let a = r.get("acceptance").filter(|a| !empty(a))?.clone();
                             let round = RoundId::new(r["acceptance_work"].as_i64()?, r["acceptance_round"].as_i64()?);
                             let path = match self.cell_of_round(round).as_deref() {
-                                Some("12") => "12·reply.new_acceptance".to_string(),
+                                Some(c) if db::is_cell(crate::ENGINEER, "advisor", c) => {
+                                    format!("{c}·reply.new_acceptance")
+                                }
                                 Some(c) => format!("{c}·acceptance"),
                                 None => "acceptance".to_string(),
                             };
@@ -196,21 +198,24 @@ impl Context<'_> {
                         .into_iter()
                         .map(|r| {
                             let id = r["item"].as_i64().unwrap_or_default();
-                            let researched: Option<RoundId> = self
+                            let researched: Option<(RoundId, String)> = self
                                 .e
                                 .db
                                 .conn()
                                 .query_row(
-                                    "SELECT r.work, r.n FROM rounds r JOIN works w ON w.id = r.work
-                                     WHERE w.item = ?1 AND r.cell = '1' AND r.transition IS NOT NULL
-                                       AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
-                                     ORDER BY r.work DESC, r.n DESC LIMIT 1",
+                                    &format!(
+                                        "SELECT r.work, r.n, r.cell FROM rounds r JOIN works w ON w.id = r.work
+                                         WHERE w.item = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+                                           AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
+                                         ORDER BY r.work DESC, r.n DESC LIMIT 1",
+                                        db::cells_sql(crate::ENGINEER, &["research"])
+                                    ),
                                     [id],
-                                    |x| Ok(RoundId::new(x.get(0)?, x.get(1)?)),
+                                    |x| Ok((RoundId::new(x.get(0)?, x.get(1)?), x.get(2)?)),
                                 )
                                 .ok();
                             let address = match researched {
-                                Some(k) => format!("{k}·1·understanding.problem"),
+                                Some((k, c)) => format!("{k}·{c}·understanding.problem"),
                                 None => format!("item:{id}·problem"),
                             };
                             (address, r["problem"].clone())
@@ -643,8 +648,8 @@ pub fn columns(
     };
     let mut cols: Vec<String> = Vec::new();
     match cell.id.as_str() {
-        "5a" => {
-            let review = crate::inputs::last_return(e, w, g, "18", "plan")
+        "table_review" => {
+            let review = crate::inputs::last_return(e, w, g, "next_step", "plan")
                 .ok()
                 .flatten()
                 .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
@@ -673,11 +678,11 @@ pub fn columns(
                 cols.push("The research's judgment that the work stands: does its reason hold?".into());
                 cols.push("The judgment that there is no better design: does its reason hold?".into());
                 for (c, what) in [
-                    ("3a", "a gap in what is under test"),
-                    ("3b", "unsure facts"),
-                    ("3c", "architectural burden"),
-                    ("3d", "cross-project dependency"),
-                    ("3e", "splitting"),
+                    ("gap_under_test", "a gap in what is under test"),
+                    ("sure", "unsure facts"),
+                    ("cost", "architectural burden"),
+                    ("cross_project", "cross-project dependency"),
+                    ("split", "splitting"),
                 ] {
                     // A check the project lacks what it needs for was answered by the engine, not judged: no column.
                     let not_asked = g
@@ -690,7 +695,9 @@ pub fn columns(
                         ));
                     }
                 }
-                let changes = crate::inputs::last_return(e, w, g, "4", "deviations").ok().flatten();
+                let changes = crate::inputs::last_return(e, w, g, "implement", "deviations")
+                    .ok()
+                    .flatten();
                 for d in changes
                     .and_then(|r| r["deviations"].as_array().cloned())
                     .unwrap_or_default()
@@ -704,7 +711,9 @@ pub fn columns(
                     }
                 }
                 // A return of a flow version before the answer was flat holds the test changes under end.
-                let done = crate::inputs::last_return(e, w, g, "4", "test_changes").ok().flatten();
+                let done = crate::inputs::last_return(e, w, g, "implement", "test_changes")
+                    .ok()
+                    .flatten();
                 for t in done
                     .and_then(|r| {
                         r.get("test_changes")
@@ -727,7 +736,7 @@ pub fn columns(
                 }
             }
         }
-        "5b" => {
+        "tree_review" => {
             let review = rule("design_tree_review");
             for i in [1, 2, 3, 4, 10, 11] {
                 cols.extend(review.get(i).cloned());
@@ -789,15 +798,18 @@ mod tests {
             "{common}"
         );
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
-        let four = cell_format(&g, g.cell("4").unwrap(), &[]);
+        let implement = cell_format(&g, g.cell("implement").unwrap(), &[]);
         assert!(
-            four.contains("`tools` (of ci, ci_before, measure, gh, query)"),
-            "{four}"
+            implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
+            "{implement}"
         );
-        assert!(four.contains("`ask` (to advisor, architect, owner)"), "{four}");
-        let twelve = cell_format(&g, g.cell("12").unwrap(), &[]);
-        assert!(twelve.contains("`ask` (to architect, owner)"), "{twelve}");
-        assert!(!twelve.contains("`redirect`"), "{twelve}");
+        assert!(
+            implement.contains("`ask` (to advisor, architect, owner)"),
+            "{implement}"
+        );
+        let advisor = cell_format(&g, g.cell("advisor").unwrap(), &[]);
+        assert!(advisor.contains("`ask` (to architect, owner)"), "{advisor}");
+        assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
 
     // What the inputs every agent's cell has are is said once, in the common format; each cell's list of its inputs
@@ -806,20 +818,20 @@ mod tests {
     fn the_inputs_every_cell_has_are_described_once() {
         let g = graph();
         let common = common_format(&g, &[]);
-        let four = g.cell("4").unwrap();
-        let goal = four
+        let implement = g.cell("implement").unwrap();
+        let goal = implement
             .inputs
             .iter()
             .find(|x| x.name.as_deref() == Some("Design goal"))
             .unwrap();
         assert_eq!(common.matches(goal.what.as_str()).count(), 1, "{common}");
-        let listed = cell_inputs(four);
+        let listed = cell_inputs(implement);
         assert!(!listed.contains(goal.what.as_str()), "{listed}");
         assert!(
             listed.contains("Design goal, which format:common describes"),
             "{listed}"
         );
-        assert!(listed.contains(four.inputs[0].what.as_str()), "{listed}");
+        assert!(listed.contains(implement.inputs[0].what.as_str()), "{listed}");
     }
 
     // A kind of question whose need the project does not meet is left out of the formats, value and meaning, and the

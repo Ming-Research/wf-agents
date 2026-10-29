@@ -202,14 +202,14 @@ impl Engine {
     /// Takes over works on an older flow version, which the engine does when each next goes on, instead of taking its
     /// step: each stops, saying why, as every work ends ([`ending::end`]: the round it was in is cut off, its design
     /// cards are replaced, its asks of the owner need no answer, its questions to the architect are withdrawn and its
-    /// sessions end), and its item gets a new work on this version, whose cell 0 takes over the stopped work's branch,
-    /// worktree and pull request and whose cell 1 is told what exists, the questions withdrawn included. Until then the
-    /// owner still rules on its design cards and answers its asks, and the new work is given them. A new work is paused
-    /// as the owner had paused the old one, so that a work the owner steps stays in the owner's hands. Every work given
-    /// is stopped before any new one starts, so that the slots they held are free; a new work takes a slot only when
-    /// one is free: in the order of the works stopped, those that find one start now, and the items of the rest go to
-    /// the head of the queue, ahead of the items queued before, in the same order, to start as slots free. Gives the
-    /// new works started.
+    /// sessions end), and its item gets a new work on this version, whose cell `start` takes over the stopped work's
+    /// branch, worktree and pull request and whose cell `research` is told what exists, the questions withdrawn
+    /// included. Until then the owner still rules on its design cards and answers its asks, and the new work is given
+    /// them. A new work is paused as the owner had paused the old one, so that a work the owner steps stays in the
+    /// owner's hands. Every work given is stopped before any new one starts, so that the slots they held are free; a
+    /// new work takes a slot only when one is free: in the order of the works stopped, those that find one start now,
+    /// and the items of the rest go to the head of the queue, ahead of the items queued before, in the same order, to
+    /// start as slots free. Gives the new works started.
     fn take_over(&mut self, works: &[Work]) -> Result<Vec<i64>, String> {
         let now = self.flow_now;
         let why = format!("the flow moved to version {now}, and a new work on it takes the item over");

@@ -1,5 +1,5 @@
 {
- "0": [
+ "start": [
   {
    "row": "started",
    "json": {
@@ -14,7 +14,7 @@
    "given": {}
   }
  ],
- "1": [
+ "research": [
   {
    "row": "done",
    "json": {
@@ -67,7 +67,7 @@
    "given": {}
   }
  ],
- "1a": [
+ "stands": [
   {
    "row": "no",
    "json": {
@@ -103,7 +103,7 @@
    "given": {}
   }
  ],
- "2": [
+ "compare": [
   {
    "row": "tools",
    "json": {
@@ -159,7 +159,7 @@
    "given": {}
   }
  ],
- "2a": [
+ "choose": [
   {
    "row": "first",
    "json": {
@@ -259,7 +259,7 @@
    "given": {}
   }
  ],
- "2b": [
+ "rethink_design": [
   {
    "row": "no",
    "json": {
@@ -280,7 +280,7 @@
    "given": {}
   }
  ],
- "3a": [
+ "gap_under_test": [
   {
    "row": "no",
    "json": {
@@ -297,7 +297,7 @@
    "given": {}
   }
  ],
- "3b": [
+ "sure": [
   {
    "row": "no",
    "json": {
@@ -314,7 +314,7 @@
    "given": {}
   }
  ],
- "3c": [
+ "cost": [
   {
    "row": "no",
    "json": {
@@ -331,7 +331,7 @@
    "given": {}
   }
  ],
- "3d": [
+ "cross_project": [
   {
    "row": "no",
    "json": {
@@ -343,7 +343,7 @@
    "given": {}
   }
  ],
- "3e": [
+ "split": [
   {
    "row": "implementation",
    "json": {
@@ -358,7 +358,7 @@
    }
   }
  ],
- "4": [
+ "implement": [
   {
    "row": "tools",
    "json": {
@@ -433,7 +433,7 @@
    "given": {}
   }
  ],
- "18": [
+ "next_step": [
   {
    "row": "adversarial",
    "json": {
@@ -447,7 +447,7 @@
    }
   }
  ],
- "5": [
+ "blind_review": [
   {
    "row": "done",
    "json": {
@@ -474,7 +474,7 @@
    "given": {}
   }
  ],
- "5a": [
+ "table_review": [
   {
    "row": "done",
    "json": {
@@ -549,7 +549,7 @@
    }
   }
  ],
- "5b": [
+ "tree_review": [
   {
    "row": "done",
    "json": {
@@ -599,7 +599,7 @@
    "given": {}
   }
  ],
- "6": [
+ "adversarial": [
   {
    "row": "for_engineer",
    "json": {
@@ -681,7 +681,7 @@
    "given": {}
   }
  ],
- "8": [
+ "fix": [
   {
    "row": "done",
    "json": {
@@ -724,7 +724,7 @@
    "given": {}
   }
  ],
- "9": [
+ "merge_queue": [
   {
    "row": "merged",
    "json": {
@@ -736,7 +736,7 @@
    "given": {}
   }
  ],
- "10": [
+ "watch_main": [
   {
    "row": "green",
    "json": {
@@ -747,7 +747,7 @@
    "given": {}
   }
  ],
- "11": [
+ "way_on": [
   {
    "row": "carry_on",
    "json": {
@@ -766,7 +766,7 @@
    }
   }
  ],
- "12": [
+ "advisor": [
   {
    "row": "answered",
    "json": {
@@ -803,7 +803,7 @@
    "given": {}
   }
  ],
- "15": [
+ "to_architect": [
   {
    "row": "answered",
    "json": {
@@ -825,7 +825,7 @@
    "given": {}
   }
  ],
- "16": [
+ "to_owner": [
   {
    "row": "answered",
    "json": {
@@ -836,7 +836,7 @@
    "given": {}
   }
  ],
- "13": [
+ "tools": [
   {
    "row": "ran",
    "json": {
@@ -892,7 +892,7 @@
    "given": {}
   }
  ],
- "3f": [
+ "adversarial_needed": [
   {
    "row": "yes",
    "json": {

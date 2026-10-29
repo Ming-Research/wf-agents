@@ -756,7 +756,7 @@ mod tests {
     fn a_round_runs_with_its_whole_command_line_and_its_own_configuration_directory() {
         let r = Request {
             work: 1,
-            cell: "4".into(),
+            cell: "implement".into(),
             line: "engineer".into(),
             cli: config::Cli {
                 kind: config::CliKind::Claude,

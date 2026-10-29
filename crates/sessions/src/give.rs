@@ -352,7 +352,7 @@ mod tests {
     fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
             id: RoundId::new(1, n),
-            cell: Some("1".into()),
+            cell: Some("research".into()),
             session: Some(1),
             input,
             output,
@@ -381,8 +381,8 @@ mod tests {
             (
                 hash(&acceptance),
                 vec![
-                    "R290·12·reply.new_acceptance".to_string(),
-                    "R4-25·12·reply.new_acceptance".to_string(),
+                    "R290·advisor·reply.new_acceptance".to_string(),
+                    "R4-25·advisor·reply.new_acceptance".to_string(),
                 ],
             ),
             (hash(&json!("no")), vec!["R4-7·engine·adversarial".to_string()]),
@@ -391,28 +391,28 @@ mod tests {
         let mut m = Giver::new(&held, &registry, &conn, &[]);
         // An address written before rounds were named by their work is never given again.
         assert_eq!(
-            m.earliest("R4-30·2a·acceptance".into(), &acceptance),
-            "R4-25·12·reply.new_acceptance"
+            m.earliest("R4-30·choose·acceptance".into(), &acceptance),
+            "R4-25·advisor·reply.new_acceptance"
         );
         assert_eq!(
-            m.earliest("R4-9·3b·answer.verdict".into(), &json!("no")),
-            "R4-9·3b·answer.verdict"
+            m.earliest("R4-9·sure·answer.verdict".into(), &json!("no")),
+            "R4-9·sure·answer.verdict"
         );
         assert_eq!(
             m.add("R4-9·engine·rethought".into(), json!("no")),
             "R4-9·engine·rethought"
         );
         assert_eq!(
-            m.add("R4-9·3b·answer.verdict".into(), json!("no")),
-            "R4-9·3b·answer.verdict"
+            m.add("R4-9·sure·answer.verdict".into(), json!("no")),
+            "R4-9·sure·answer.verdict"
         );
         assert_eq!(
-            m.add("R4-30·2a·acceptance".into(), acceptance.clone()),
-            "R4-30·2a·acceptance"
+            m.add("R4-30·choose·acceptance".into(), acceptance.clone()),
+            "R4-30·choose·acceptance"
         );
         assert_eq!(
-            m.add("R4-31·12·reply.new_acceptance".into(), acceptance),
-            "R4-30·2a·acceptance"
+            m.add("R4-31·advisor·reply.new_acceptance".into(), acceptance),
+            "R4-30·choose·acceptance"
         );
         assert_eq!(m.list.len(), 3);
         assert_eq!(
@@ -459,8 +459,8 @@ mod tests {
             round(
                 4,
                 record(&[
-                    ("R1-3·13·results", &results),
-                    ("R1-4·5a·columns[findings]", &findings),
+                    ("R1-3·tools·results", &results),
+                    ("R1-4·table_review·columns[findings]", &findings),
                     ("R1-4·engine·work_ci", &ci),
                 ]),
                 Some(json!({})),
@@ -507,18 +507,18 @@ mod tests {
         let new = [
             changed,
             one(
-                "R1-9·13·results",
+                "R1-9·tools·results",
                 json!({ "results": [{ "tool": "query", "ran": { "rows": [2] } }] }),
             ),
             one(
-                "R1-9·5a·columns[findings]",
+                "R1-9·table_review·columns[findings]",
                 json!([{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R2" }] }]),
             ),
             one(
                 "R1-9·engine·work_ci",
                 json!({ "fast": { "head": "b", "result": "green" } }),
             ),
-            one("R1-9·3b·answer.verdict", json!("no")),
+            one("R1-9·sure·answer.verdict", json!("no")),
             one("ij:2", said.clone()),
         ];
         assert_eq!(repeats(&held, &new), Vec::<String>::new());

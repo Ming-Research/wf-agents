@@ -183,7 +183,7 @@ impl Ctx<'_> {
             .map_err(|e| e.to_string())?;
         match work::json_col(locked) {
             Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("2a", "acceptance")?.as_ref())),
+            _ => Ok(items(self.last("choose", "acceptance")?.as_ref())),
         }
     }
 
@@ -560,7 +560,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             if let Some(x) = ids.iter().find(|i| !wanted.contains(i)) {
                 return fail(format!("{x} is not an acceptance condition"));
             }
-            let recheck = c.cell.id == "6" && !c.accepted("6")?.is_empty();
+            let recheck = c.cell.id == "adversarial" && !c.accepted("adversarial")?.is_empty();
             if !recheck && let Some(x) = wanted.iter().find(|i| !ids.contains(i)) {
                 return fail(format!("no row for acceptance condition {x}"));
             }
@@ -576,7 +576,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "new_test_results" | "guard_test_results" => {
-            if c.last("3f", "adversarial")?.is_some_and(|a| a["verdict"] == "yes") {
+            if c.last("adversarial_needed", "adversarial")?
+                .is_some_and(|a| a["verdict"] == "yes")
+            {
                 return Ok(());
             }
             let new = check == "new_test_results";
@@ -630,7 +632,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             let rows = items(c.unwrapped.get(table));
             let mut kinds: Vec<(String, String)> = Vec::new();
-            for cell in ["4", "8"] {
+            for cell in ["implement", "fix"] {
                 // A return of a flow version before the answer was flat holds the test changes under end.
                 let changes = match c.last(cell, "test_changes")? {
                     Some(x) => Some(x),
@@ -737,16 +739,16 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
         }
         "disputed_tests_answered" => {
-            let Some(last6) = c.accepted("6")?.first().map(|r| r.id) else {
+            let Some(last6) = c.accepted("adversarial")?.first().map(|r| r.id) else {
                 return Ok(());
             };
             let tests = strs(v);
-            for fix in c.accepted("8")?.into_iter().filter(|r| r.id > last6) {
+            for fix in c.accepted("fix")?.into_iter().filter(|r| r.id > last6) {
                 let table = table_of(&fix);
                 for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
                     let id = known_as(&table, row["id"].as_str().unwrap_or_default());
                     if matches!(row["answer"].as_str(), Some("test_wrong" | "advisor_ruled"))
-                        && c.accepted("6")?.first().is_some_and(|r| mentions(r, &id))
+                        && c.accepted("adversarial")?.first().is_some_and(|r| mentions(r, &id))
                         && !tests.contains(&id)
                     {
                         return fail(format!(
@@ -766,7 +768,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     return fail(format!("{id} was ruled by the advisor; it is not insisted on"));
                 }
             }
-            if c.cell.id == "5a" {
+            if c.cell.id == "table_review" {
                 for r in items(c.unwrapped.get("previous"))
                     .iter()
                     .filter(|r| r["verdict"] == "not_fixed")
@@ -857,7 +859,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "previous_findings_answered" => {
-            let Some(last) = c.accepted("5a")?.into_iter().next() else {
+            let Some(last) = c.accepted("table_review")?.into_iter().next() else {
                 return Ok(());
             };
             let out = last.output.map(|o| c.g.unwrap(&o)).unwrap_or(Value::Null);
@@ -875,9 +877,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
         }
         "no_adversarial_when_due" => {
-            let first = c.accepted("5a")?.is_empty();
-            let chose = c.last("3f", "adversarial")?.is_some_and(|a| a["verdict"] == "yes");
-            let ran = !c.accepted("6")?.is_empty();
+            let first = c.accepted("table_review")?.is_empty();
+            let chose = c
+                .last("adversarial_needed", "adversarial")?
+                .is_some_and(|a| a["verdict"] == "yes");
+            let ran = !c.accepted("adversarial")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
             let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;
             let verdict = v.and_then(|x| x["verdict"].as_str());
@@ -893,10 +897,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
         }
         "blind_findings_carried" => {
-            let Some(blind) = c.accepted("5")?.into_iter().next() else {
+            let Some(blind) = c.accepted("blind_review")?.into_iter().next() else {
                 return Ok(());
             };
-            if c.accepted("5a")?.first().is_some_and(|r| r.id > blind.id) {
+            if c.accepted("table_review")?.first().is_some_and(|r| r.id > blind.id) {
                 return Ok(());
             }
             let out = blind.output.map(|o| c.g.unwrap(&o)).unwrap_or(Value::Null);
@@ -941,7 +945,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_disagreeing_after_insist" => {
             let mut insisted: BTreeSet<String> = BTreeSet::new();
-            for (cell, path) in [("5a", "previous"), ("6", "previous")] {
+            for (cell, path) in [("table_review", "previous"), ("adversarial", "previous")] {
                 for p in items(c.last(cell, path)?.as_ref())
                     .iter()
                     .filter(|p| p["verdict"] == "insist")
@@ -968,7 +972,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             if v.is_none() {
                 return Ok(());
             }
-            if c.accepted("12")?.is_empty() {
+            if c.accepted("advisor")?.is_empty() {
                 fail("this work never asked the advisor")
             } else {
                 Ok(())
@@ -1025,7 +1029,7 @@ fn mentions(r: &Round, id: &str) -> bool {
 /// The ids the engineer answered advisor_ruled in the fixes since the last review.
 fn ruled_ids(c: &Ctx<'_>) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
-    for fix in c.accepted("8")? {
+    for fix in c.accepted("fix")? {
         let table = table_of(&fix);
         for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
             if row["answer"] == "advisor_ruled" {

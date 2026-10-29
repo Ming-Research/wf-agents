@@ -994,8 +994,8 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
 }
 
-/// Cell 0: the session manager sets up where the work runs, on a machine with a free slot, and the id the engineer's
-/// session will have.
+/// Cell `start`: the session manager sets up where the work runs, on a machine with a free slot, and the id the
+/// engineer's session will have.
 fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     // An item above the highest level an item may be at is refused: the work pauses, saying why.
     e.config
@@ -1024,7 +1024,7 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     Ok(json!({ "place": place }))
 }
 
-/// Cell 20: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
+/// Cell `end`: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
 /// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
 /// for the architect, as a matter of its own.
 fn end_work(e: &mut Engine, w: &Work) -> Result<Value, String> {
@@ -1065,7 +1065,7 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     let commit: Option<String> = conn
         .query_row(
             "SELECT json_extract(output, '$.result.merge_commit') FROM rounds
-             WHERE work = ?1 AND cell = '9' AND transition = 'merged' ORDER BY n DESC LIMIT 1",
+             WHERE work = ?1 AND cell = 'merge_queue' AND transition = 'merged' ORDER BY n DESC LIMIT 1",
             [w.id],
             |r| r.get(0),
         )
@@ -1103,9 +1103,9 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     }))
 }
 
-/// Cell 16: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell 15 that an
-/// earlier engine put to the owner, who answered for the architect in the architect's form, is completed by the
-/// owner's answer the same way.
+/// Cell `to_owner`: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell
+/// `to_architect` that an earlier engine put to the owner, who answered for the architect in the architect's form, is
+/// completed by the owner's answer the same way.
 fn ask(
     e: &mut Engine,
     w: &Work,
@@ -1226,17 +1226,17 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// Cell 18: what runs next, from what the design chose, what the review accepted, whether the change changed since
-/// each side last looked, and what the fix answered.
+/// Cell `next_step`: what runs next, from what the design chose, what the review accepted, whether the change changed
+/// since each side last looked, and what the fix answered.
 fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
-    let reviews = inputs::answered(e, w, g, "5a")?;
-    let adversarial = inputs::answered(e, w, g, "6")?;
-    let fixes = inputs::answered(e, w, g, "8")?;
-    let chose = inputs::last_return(e, w, g, "3f", "adversarial")?
+    let reviews = inputs::answered(e, w, g, "table_review")?;
+    let adversarial = inputs::answered(e, w, g, "adversarial")?;
+    let fixes = inputs::answered(e, w, g, "fix")?;
+    let chose = inputs::last_return(e, w, g, "adversarial_needed", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "yes");
-    let not_accepted = inputs::last_return(e, w, g, "5a", "no_adversarial")?
+    let not_accepted = inputs::last_return(e, w, g, "table_review", "no_adversarial")?
         .and_then(|r| at_path(&r, "no_adversarial.verdict"))
         .is_some_and(|v| v == "does_not_stand");
     let now = w

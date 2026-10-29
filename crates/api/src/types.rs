@@ -608,7 +608,7 @@ pub struct RoundInput {
 /// One conditional input of an agent round's message.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundConditional {
-    /// Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
+    /// Its address, such as `R5-12·choose·design`, `rule:ground` or `format:common`.
     pub address: String,
     /// The hash of its content, which tells two versions under one address apart.
     pub hash: String,
@@ -1060,9 +1060,9 @@ pub struct Said {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LogEntry {
-    /// A judgment of the whole: understanding the project (U1), whether the policy is right (U2), whether what runs fits
-    /// (U3), the review of a batch's item changes and their revision (R1, X1), a rethink after a batch (C1), a wrap-up
-    /// (E1).
+    /// A judgment of the whole: understanding the project (`state`), whether the policy is right (`policy_right`),
+    /// whether what runs fits (`fit`), the review of a batch's item changes and their revision (`review`, `revise`), a
+    /// rethink after a batch (`rethink`), a wrap-up (`wrap_up`).
     Judgment {
         work: i64,
         round: i64,
@@ -1190,6 +1190,7 @@ pub struct Understanding {
 pub struct StateVersion {
     pub work: i64,
     pub round: i64,
+    pub cell: String,
     pub at: Option<i64>,
     pub state: Value,
     pub learned: Vec<Value>,

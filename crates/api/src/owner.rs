@@ -320,14 +320,17 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
             )?;
         } else {
             tx.execute(
-                "DELETE FROM architect_matters
-                 WHERE kind = 'design_card' AND json_extract(body, '$.design_card') = ?1 AND handled_round IS NULL
-                   AND asked IS NULL AND id NOT IN (
-                     SELECT coalesce(json_extract(p.output, '$.queue.matter'),
-                                     json_extract(p.output, '$.outcome.pick.matter')) FROM rounds p
-                     JOIN works w ON w.id = p.work
-                     WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell IN ('D0', 'D1')
-                       AND p.transition IS NOT NULL)",
+                &format!(
+                    "DELETE FROM architect_matters
+                     WHERE kind = 'design_card' AND json_extract(body, '$.design_card') = ?1 AND handled_round IS NULL
+                       AND asked IS NULL AND id NOT IN (
+                         SELECT coalesce(json_extract(p.output, '$.queue.matter'),
+                                         json_extract(p.output, '$.outcome.pick.matter')) FROM rounds p
+                         JOIN works w ON w.id = p.work
+                         WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell IN {}
+                           AND p.transition IS NOT NULL)",
+                    db::cells_sql("architect", &["anything", "pick"])
+                ),
                 [design_card],
             )?;
         }
@@ -511,9 +514,9 @@ mod tests {
                 [],
             )?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', '16')", [])?;
+            tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'to_owner')", [])?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, '4', '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'implement', '{}', 'c', 1)",
                 [],
             )?;
             tx.execute(
@@ -537,7 +540,7 @@ mod tests {
         assert!(resume(&mut db, 1).is_err());
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "UPDATE works SET paused = 'cell 13: no', paused_by = 'engine' WHERE id = 1",
+                "UPDATE works SET paused = 'cell tools: no', paused_by = 'engine' WHERE id = 1",
                 [],
             )?;
             Ok(())
@@ -635,7 +638,7 @@ mod tests {
         );
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'U1', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'state', 'p')",
                 [],
             )?;
             Ok(())
@@ -812,11 +815,11 @@ mod tests {
             if wake == 0 {
                 tx.execute(
                     "INSERT INTO works (id, item, flow_version, graph, at, project)
-                     VALUES (9, NULL, 1, 'architect', 'ASK', 'p')",
+                     VALUES (9, NULL, 1, 'architect', 'to_owner', 'p')",
                     [],
                 )?;
                 tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'ASK', '{}', 'c', 1)",
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (9, 1, 'to_owner', '{}', 'c', 1)",
                     [],
                 )?;
             }
@@ -847,7 +850,7 @@ mod tests {
         ]);
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "project": "p", "work": 9, "cell": "P2", "kind": "study", "study": {},
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "owner_reads", "kind": "study", "study": {},
                     "choices": choices }),
         );
         assert!(answer(&mut db, ask, &with_reply("Fine.", json!({ "choice": "maybe" }))).is_err());
@@ -897,11 +900,11 @@ mod tests {
         .unwrap();
         let ask = architect_ask(
             &mut db,
-            json!({ "from": "architect", "project": "p", "work": 9, "cell": "ASK", "kind": "ask", "asked": [],
+            json!({ "from": "architect", "project": "p", "work": 9, "cell": "to_owner", "kind": "ask", "asked": [],
                     "holds": [1] }),
         );
         db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE architect_matters SET asked = ?1, resume_cell = 'Q2'", [ask])?;
+            tx.execute("UPDATE architect_matters SET asked = ?1, resume_cell = 'ways'", [ask])?;
             Ok(())
         })
         .unwrap();

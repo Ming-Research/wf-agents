@@ -100,14 +100,6 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
             source.format
         )));
     }
-    let mut ids = BTreeSet::new();
-    for f in &source.flows {
-        for n in &f.nodes {
-            if !ids.insert(n.id.as_str()) {
-                return Err(fail(format!("two cells with one id: {}", n.id)));
-            }
-        }
-    }
     // A rule every graph shares names lines, each a line of some graph.
     let all_lines: BTreeSet<&str> = source
         .flows

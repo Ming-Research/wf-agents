@@ -17,7 +17,9 @@
 -- - Who created or changed a row, and when, is in changes, not in the row.
 -- - Times are UTC milliseconds since the Unix epoch.
 -- - JSON columns hold text that passes json_valid.
--- - Cell, line and transition names are the ones in the flow version of the work they belong to.
+-- - Cell, line and transition names are the ones in the flow version of the work they belong to. Before cells had
+--   names they had numbers and codes, which the works and rounds of those versions keep: a view that reads works or
+--   rounds names a cell by both, as ('merge_queue', '9').
 -- - Project, machine, level and CLI names are the ones in the configuration. The configuration is not pinned to a
 --   work: a committed change applies from the next round on. Each round keeps the input it was actually given and
 --   the configuration commit it ran with.
@@ -32,43 +34,46 @@ CREATE TABLE items (
   -- Item number, one sequence across all projects.
   id INTEGER PRIMARY KEY,
   -- The project the item belongs to. Picks the repository, CI and settings its works run with.
-  -- Read by: the engine; cells 2 and 2b, through the project's design goals.
+  -- Read by: the engine; cells `compare` and `rethink_design`, through the project's design goals.
   project TEXT NOT NULL,
-  -- What to do, as an action. Read by: cell 1 for the items around this one; people.
+  -- What to do, as an action. Read by: cell `research` for the items around this one; people.
   title TEXT NOT NULL,
   -- What cannot be done or is wrong, and why the work is worth doing, as written at creation. The engineer's own
-  -- understanding replaces them in views once cell 1 has run; these stay as written.
-  -- Read by: cell 1, for this item and the items that depend on it; cell 5 reads the problem only.
+  -- understanding replaces them in views once cell `research` has run; these stay as written.
+  -- Read by: cell `research`, for this item and the items that depend on it; cell `blind_review` reads the problem
+  -- only.
   problem TEXT NOT NULL,
   why TEXT NOT NULL,
-  -- How to do it, when the creator already knows; NULL otherwise. Read by: cell 1.
+  -- How to do it, when the creator already knows; NULL otherwise. Read by: cell `research`.
   approach TEXT,
-  -- What the work hands in: a change to merge, or a report. Read by: cells 1 and 5a; the engine, which runs reports
-  -- without full CI on the draft.
+  -- What the work hands in: a change to merge, or a report. Read by: cells `research` and `table_review`; the engine,
+  -- which runs reports without full CI on the draft.
   deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
-  -- Agent level; decides which agent and model run the work. Read by: the engine at cell 0.
+  -- Agent level; decides which agent and model run the work. Read by: the engine at cell `start`.
   level TEXT NOT NULL,
   -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design
   -- passes its checks. Every later design must hand in exactly this list; only the advisor can change it.
-  -- Read by: cells 2a, 4, 5, 5a and 6; the engine, which compares each design's acceptance with it.
+  -- Read by: cells `choose`, `implement`, `blind_review`, `table_review` and `adversarial`; the engine, which compares
+  -- each design's acceptance with it.
   acceptance TEXT CHECK (acceptance IS NULL OR json_valid(acceptance)),
   -- The round whose acceptance was locked, by its work and its number in the work: a design round, or an advisor
-  -- round that changed it. Read by: cell 2a, to see whether the advisor changed it.
+  -- round that changed it. Read by: cell `choose`, to see whether the advisor changed it.
   acceptance_work INTEGER,
   acceptance_round INTEGER,
-  -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell 1 for the items around this one.
+  -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell `research` for the items around this
+  -- one.
   cancelled TEXT,
-  -- For an item imported from outside this flow, such as an item of an earlier board: where it came from, as the
-  -- import wrote it; NULL for an item made here. Read by: cell 1, through what already exists for the item; the
+  -- For an item imported from outside this flow, such as an item of an earlier board: where it came from, as the import
+  -- wrote it; NULL for an item made here. Read by: cell `research`, through what already exists for the item; the
   -- owner's interface.
   imported_from TEXT,
-  -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL
-  -- when there were none. Read by: cell 0, which takes them over when the item had no work here before; cell 1; the
-  -- owner's interface.
+  -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL when
+  -- there were none. Read by: cell `start`, which takes them over when the item had no work here before; cell
+  -- `research`; the owner's interface.
   imported_branch TEXT,
   imported_pr INTEGER,
   -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The locked
-  -- acceptance, designed by the work, is acceptance. Read by: cell 1, through item_body.
+  -- acceptance, designed by the work, is acceptance. Read by: cell `research`, through item_body.
   wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
   -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
   -- is not. Read by: ready_items; the architect.
@@ -89,15 +94,17 @@ CREATE TABLE item_links (
   -- making it depend on them. A blocking dependency keeps item from starting until depends_on is merged; with a
   -- parallel one, item can start while depends_on is unfinished, and waits before it merges. A work already running
   -- goes on either way.
-  -- Read by: cell 1 (the items above and beside this one, what it waits for, who waits for it), 3e (what it has been
-  -- split into), 11 and 11b (what the items it waits for handed in), 19 (how far they have got); item_blocked_by.
+  -- Read by: cell `research` (the items above and beside this one, what it waits for, who waits for it), `split` (what
+  -- it has been split into), `way_on` and `wait_items` (what the items it waits for handed in), `merge_gate` (how far
+  -- they have got); item_blocked_by.
   item INTEGER NOT NULL REFERENCES items(id),
   depends_on INTEGER NOT NULL REFERENCES items(id),
-  -- What item needs depends_on to hand in, in one sentence. Read by: cells 1 and 11b.
+  -- What item needs depends_on to hand in, in one sentence. Read by: cells `research` and `wait_items`.
   needs TEXT NOT NULL,
   -- blocking: item does not start until depends_on is merged, as when it needs a module or a library depends_on makes.
   -- parallel: item may start before, and waits where it needs depends_on: before it merges, or where the architect's
-  -- reply has it stop. Read by: item_blocked_by; cells 1, 3e, 11, 11b and 19; the architect; the owner's interface.
+  -- reply has it stop. Read by: item_blocked_by; cells `research`, `split`, `way_on`, `wait_items` and `merge_gate`;
+  -- the architect; the owner's interface.
   kind TEXT NOT NULL CHECK (kind IN ('blocking', 'parallel')),
   PRIMARY KEY (item, depends_on),
   CHECK (item <> depends_on)
@@ -107,7 +114,7 @@ CREATE TABLE dispatch_queue (
   -- Items waiting for a work to start, in the order the owner sets by hand, ahead of the architect's order. When a
   -- slot is free the engine starts a work on the first one. This table goes away once the architect's order alone
   -- decides what starts.
-  -- Read by: the engine at cell 0.
+  -- Read by: the engine at cell `start`.
   item INTEGER PRIMARY KEY REFERENCES items(id),
   -- Lower starts first. A real number, so an item can be put between two others without renumbering.
   position REAL NOT NULL UNIQUE
@@ -118,9 +125,10 @@ CREATE TABLE design_cards (
   -- or removes. It asks the owner nothing; what the owner is asked is an ask of the owner. A design card is handed in
   -- by one round and belongs to that round; its item is found through the round's work. A ruled design card never
   -- changes; a decision that has to change comes in a new design card that replaces the old one.
-  -- Read by: cell 1 (design cards ruled on this item), 2 and 2a (rulings that disagreed or chose another option), 2a
-  -- (the latest design card of the items that depend on this one), 5a and 5b (the work's design card as it stands),
-  -- 15 (the design card to look at), 19 (whether the design card has been confirmed).
+  -- Read by: cell `research` (design cards ruled on this item), `compare` and `choose` (rulings that disagreed or chose
+  -- another option), `choose` (the latest design card of the items that depend on this one), `table_review` and
+  -- `tree_review` (the work's design card as it stands), `to_architect` (the design card to look at), `merge_gate`
+  -- (whether the design card has been confirmed).
   id INTEGER PRIMARY KEY,
   -- The round that handed the design card in: its work, and its number in the work.
   work INTEGER NOT NULL,
@@ -129,12 +137,12 @@ CREATE TABLE design_cards (
   -- output, which never changes, so the copy cannot drift.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer design card took its place
-  -- and it can no longer be ruled. Read by: the engine; cell 19.
+  -- and it can no longer be ruled. Read by: the engine; cell `merge_gate`.
   status TEXT NOT NULL CHECK (status IN ('open', 'ruled', 'replaced')),
-  -- The rulings in the order given, JSON list, the owner's and the architect's alike: who ruled and when, and a
-  -- verdict on each decision of the card by its number (confirm or disagree), with any approach chosen instead and
-  -- why; a ruling made before rulings were per decision holds one verdict on the whole card, its option and words.
-  -- The card is confirmed when a ruling confirms every decision. Read by: cells 1, 2, 2a and 19.
+  -- The rulings in the order given, JSON list, the owner's and the architect's alike: who ruled and when, and a verdict
+  -- on each decision of the card by its number (confirm or disagree), with any approach chosen instead and why; a
+  -- ruling made before rulings were per decision holds one verdict on the whole card, its option and words. The card is
+  -- confirmed when a ruling confirms every decision. Read by: cells `research`, `compare`, `choose` and `merge_gate`.
   rulings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rulings)),
   -- The design card that replaced this one. Read by: people following a decision to its latest design card.
   replaced_by INTEGER REFERENCES design_cards(id),
@@ -151,7 +159,8 @@ CREATE TABLE owner_asks (
   -- An ask of the owner: what an agent asks the owner, or asks the architect while the owner answers for the
   -- architect. The work waits for the answer, which goes back unchanged to the cell that asked. It belongs to the
   -- round of the asking cell that put it to the owner; its item is found through the round's work.
-  -- Read by: cell 1 (the asks of the owner on this item, with their answers); the engine, which waits for the answer.
+  -- Read by: cell `research` (the asks of the owner on this item, with their answers); the engine, which waits for the
+  -- answer.
   id INTEGER PRIMARY KEY,
   -- The round that put it to the owner: its work, and its number in the work.
   work INTEGER NOT NULL,
@@ -160,7 +169,7 @@ CREATE TABLE owner_asks (
   -- round was given, which never changes.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The owner's answer, JSON: who answered and when, and the text; for an ask of the architect, the rest of the
-  -- architect's reply too. NULL while it waits. Read by: the engine; cell 1.
+  -- architect's reply too. NULL while it waits. Read by: the engine; cell `research`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -243,13 +252,13 @@ CREATE TABLE works (
   -- The cell the work is at. Read by: the engine; views of status and slots.
   at TEXT NOT NULL,
   -- The cell the work left to ask or to be answered; the answer resumes it there. NULL when nothing is pending.
-  -- Read by: the engine; cell 11, to know where the question was asked.
+  -- Read by: the engine; cell `way_on`, to know where the question was asked.
   resume_at TEXT,
   -- The cells waiting for an answer, innermost last, JSON list. Read by: the engine, to route answers back.
   waiting TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(waiting)),
   -- Values earlier transition rows recorded, JSON object: whether full CI has passed, whether this design has been
   -- pushed, whether a dedicated adversarial test is needed, and the like.
-  -- Read by: the engine; cells 2a, 4 and 18 through their inputs.
+  -- Read by: the engine; cells `choose`, `implement` and `next_step` through their inputs.
   recorded TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(recorded)),
   -- The machine every round of the work runs on; set when the work starts. Read by: the engine.
   machine TEXT,
@@ -257,9 +266,10 @@ CREATE TABLE works (
   -- Read by: the engine and the session manager on that machine.
   worktree TEXT,
   branch TEXT,
-  -- Pull request number; NULL before the first push. Read by: cells 9 and 13; people.
+  -- Pull request number; NULL before the first push. Read by: cells `merge_queue` and `tools`; people.
   pr INTEGER,
-  -- The head last pushed; the next push is checked against it. Read by: cells 7, 9, 13 and 18.
+  -- The head last pushed; the next push is checked against it. Read by: cells `full_ci`, `merge_queue`, `tools` and
+  -- `next_step`.
   pushed_head TEXT,
   -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
   -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
@@ -397,7 +407,7 @@ CREATE TABLE rounds (
   -- What the engine gave, JSON. For an agent's round: the message, word for word; each conditional input in it, by its
   -- address and the hash of its content, and whether it was given or only referred to; and the call (the whole
   -- command line, the session it started or resumed, the engine's version and the command line's). For another step,
-  -- the values of its inputs; for cell 0, nothing. Rounds recorded before this format keep the prompt and inputs.
+  -- the values of its inputs; for cell `start`, nothing. Rounds recorded before this format keep the prompt and inputs.
   -- Read by: the engine, to tell what a session already holds; the owner's interface.
   input TEXT NOT NULL CHECK (json_valid(input)),
   -- The whole return, JSON: for the engine's own step what it computed, for a tool cell the tools' results, for the
@@ -428,10 +438,11 @@ CREATE TABLE rounds (
 ) STRICT;
 
 CREATE TABLE tool_runs (
-  -- Each attempt of a tool the engine runs: the tools an agent asks for, run at cell 13, and the tool cells 7, 9 and
-  -- 10. A retry is a new row.
-  -- Read by: the round that asked for the tools (their results); cells 5 and 6 (each measurement); 5a and 5b (the
-  -- latest CI on the work); 15 (a tool that still failed after retries); the history.
+  -- Each attempt of a tool the engine runs: the tools an agent asks for, run at cell `tools`, and the tool cells
+  -- `full_ci`, `merge_queue` and `watch_main`. A retry is a new row.
+  -- Read by: the round that asked for the tools (their results); cells `blind_review` and `adversarial` (each
+  -- measurement); `table_review` and `tree_review` (the latest CI on the work); `to_architect` (a tool that still
+  -- failed after retries); the history.
   id INTEGER PRIMARY KEY,
   -- The round in which the engine ran the tool: its work, and its number in the work.
   work INTEGER NOT NULL,
@@ -458,7 +469,7 @@ CREATE TABLE interjections (
   -- What the owner or the architect says to a running work. The engine hands each one to the line it is for: during a
   -- round after the agent's next tool use, or at the front of the next round's input. Rulings on design cards arrive
   -- this way too. Replies are in the output of the round that answered.
-  -- Read by: every agent cell; cells 18, 19 and 20 when the work stands at them.
+  -- Read by: every agent cell; cells `next_step`, `merge_gate` and `end` when the work stands at them.
   id INTEGER PRIMARY KEY,
   work INTEGER NOT NULL REFERENCES works(id),
   -- The line it is for.
@@ -477,7 +488,7 @@ CREATE TABLE known_red_checks (
   -- CI checks known to fail for a reason outside any one work, so full CI and the merge queue do not hold them against
   -- the work. Added while works run, which is why this is a table and not configuration. A row is removed when its
   -- check is fixed. How often a check failed now and then is counted from tool_runs.
-  -- Read by: cells 7 and 9.
+  -- Read by: cells `full_ci` and `merge_queue`.
   project TEXT NOT NULL,
   check_name TEXT NOT NULL,
   -- Why it fails.
@@ -640,7 +651,7 @@ CREATE TABLE dispatch_holds (
   -- What stops new works of a project from starting, one row for each: its architect's own hold, its architect setting
   -- it straight, its architect setting a new policy. While a project has a row here, the engine starts no new work on
   -- its items; works already running go on, and the other projects' works start as usual.
-  -- Read by: the engine at cell 0; the architect, through its board; the owner's interface.
+  -- Read by: the engine at cell `start`; the architect, through its board; the owner's interface.
   project TEXT NOT NULL,
   -- architect: held by the architect's own action. set_straight: its understanding found the whole must be set
   -- straight. policy: a new policy is being set.
@@ -689,19 +700,18 @@ CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) W
 CREATE INDEX observations_by_project ON observations (project);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
--- work or project at hand has a column of that name; the engine filters on it. Cell numbers are those of the
--- engineer's graph.
+-- work or project at hand has a column of that name; the engine filters on it.
 
 CREATE VIEW item_blocked_by AS
-  -- Each item with each item it depends on by a blocking dependency that is not merged yet, as the merge cell (9)
-  -- records a merge: no work starts on the item until every one is. A cancelled item, which never delivers, holds back
-  -- none. Read by: ready_items; the architect, through its board; the owner's interface, which shows an item that
-  -- would start but for them as waiting for them.
+  -- Each item with each item it depends on by a blocking dependency that is not merged yet, as the merge cell
+  -- (`merge_queue`) records a merge: no work starts on the item until every one is. A cancelled item, which never
+  -- delivers, holds back none. Read by: ready_items; the architect, through its board; the owner's interface, which
+  -- shows an item that would start but for them as waiting for them.
   SELECT l.item, l.depends_on, l.needs
   FROM item_links l JOIN items d ON d.id = l.depends_on
   WHERE l.kind = 'blocking' AND d.cancelled IS NULL AND NOT EXISTS (
     SELECT 1 FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.item = l.depends_on AND r.cell = '9' AND r.transition = 'merged');
+    WHERE w.item = l.depends_on AND r.cell IN ('merge_queue', '9') AND r.transition = 'merged');
 
 CREATE VIEW ready_items AS
   -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then the
@@ -711,7 +721,7 @@ CREATE VIEW ready_items AS
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
   -- graph does; it is done at the end of the engineer's graph. While dispatch_holds has a row, the engine starts none.
-  -- Read by: cell 0; the architect, through what runs and starts next.
+  -- Read by: cell `start`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
     SELECT w.item FROM works w
@@ -720,7 +730,8 @@ CREATE VIEW ready_items AS
       WHERE r.work = w.id AND r.n = (SELECT max(x.n) FROM rounds x WHERE x.work = w.id)
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
-    SELECT w.item FROM works w WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at = '20')
+    SELECT w.item FROM works w
+    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('end', '20'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
   WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
@@ -729,38 +740,40 @@ CREATE VIEW ready_items AS
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
-  -- The item as its creator wrote it, the acceptance it wanted included. Read by: cells 1 and 5a.
+  -- The item as its creator wrote it, the acceptance it wanted included. Read by: cells `research` and `table_review`.
   SELECT id AS item, project, title, problem, why, approach, deliver, wanted FROM items;
 
 CREATE VIEW item_problem AS
-  -- The item's problem: the engineer's understanding once cell 1 has run, as written before.
-  -- Read by: cell 5, which is given the problem and the acceptance only.
+  -- The item's problem: the engineer's understanding once cell `research` has run, as written before.
+  -- Read by: cell `blind_review`, which is given the problem and the acceptance only.
   SELECT i.id AS item, coalesce((
     SELECT json_extract(r.output, '$.outcome.understanding.problem')
     FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.item = i.id AND r.cell = '1' AND r.transition IS NOT NULL
+    WHERE w.item = i.id AND r.cell IN ('research', '1') AND r.transition IS NOT NULL
       AND json_extract(r.output, '$.outcome.understanding') IS NOT NULL
     ORDER BY r.work DESC, r.n DESC LIMIT 1), i.problem) AS problem
   FROM items i;
 
 CREATE VIEW item_acceptance AS
   -- The item's locked acceptance, and the round that locked it, by its work and its number in the work; NULL until a
-  -- first design passes its checks. Read by: cells 2a, 4, 5, 5a and 6.
+  -- first design passes its checks. Read by: cells `choose`, `implement`, `blind_review`, `table_review` and
+  -- `adversarial`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
 
 CREATE VIEW item_design_cards AS
-  -- Every design card of the item's works, with its rulings. Read by: cells 1, 2, 2a and 19.
+  -- Every design card of the item's works, with its rulings. Read by: cells `research`, `compare`, `choose` and
+  -- `merge_gate`.
   SELECT w.item, c.work, c.id AS design_card, c.round, c.body, c.status, c.rulings, c.replaced_by
   FROM design_cards c JOIN works w ON w.id = c.work;
 
 CREATE VIEW item_asks AS
-  -- Every ask of the owner of the item's works, with its answer. Read by: cell 1.
+  -- Every ask of the owner of the item's works, with its answer. Read by: cell `research`.
   SELECT w.item, a.work, a.id AS ask, a.round, a.body, a.answer
   FROM owner_asks a JOIN works w ON w.id = a.work;
 
 CREATE VIEW parent_design_cards AS
   -- The design cards of the items that depend on this one, not yet replaced: what a split-off item's parent
-  -- decided. Read by: cell 2a.
+  -- decided. Read by: cell `choose`.
   SELECT l.depends_on AS item, l.item AS parent, c.id AS design_card, c.body, c.status, c.rulings
   FROM item_links l
   JOIN works w ON w.item = l.item
@@ -769,7 +782,7 @@ CREATE VIEW parent_design_cards AS
 
 CREATE VIEW item_dependencies AS
   -- What the item depends on, with the kind of each dependency, what it needs of each and how far each is: the cell
-  -- its latest work is at, or why it was cancelled. Read by: cells 3e and 19.
+  -- its latest work is at, or why it was cancelled. Read by: cells `split` and `merge_gate`.
   SELECT l.item, l.depends_on, l.kind, l.needs, d.title, d.cancelled,
     (SELECT w.at FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS at,
     (SELECT w.pr FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS pr
@@ -779,7 +792,7 @@ CREATE VIEW item_context AS
   -- Where the item sits in the whole: the items above it (those that depend on it, up to the root), beside it
   -- (the other items its parents depend on) and below it (those it depends on), each with its problem and why and
   -- the kind of the dependency that brings it in: above, how it depends on the item below it on the way; beside, how
-  -- their parent depends on it; below, how this item depends on it. Read by: cell 1.
+  -- their parent depends on it; below, how this item depends on it. Read by: cell `research`.
   WITH RECURSIVE up(item, other, depth, kind) AS (
     SELECT depends_on, item, 1, kind FROM item_links
     UNION
@@ -796,7 +809,8 @@ CREATE VIEW item_context AS
   FROM item_links l JOIN items o ON o.id = l.depends_on;
 
 CREATE VIEW work_state AS
-  -- Where each work stands, as the engine keeps it. Read by: cells 7, 9, 11a, 13, 18 and 20.
+  -- Where each work stands, as the engine keeps it. Read by: cells `full_ci`, `merge_queue`, `back`, `tools`,
+  -- `next_step` and `end`.
   SELECT id AS work, item, graph, at, resume_at, waiting, recorded, machine, worktree, branch, pr, pushed_head,
     paused, ended
   FROM works;
@@ -811,7 +825,7 @@ CREATE VIEW work_history AS
 
 CREATE VIEW work_counters AS
   -- How many times each work took the rows that count each counter, by the compiled flow it runs on.
-  -- Read by: cell 12; cell 11, through work_asking; the owner's interface.
+  -- Read by: cell `advisor`; cell `way_on`, through work_asking; the owner's interface.
   SELECT r.work, json_extract(row.value, '$.counts') AS counter, count(*) AS times
   FROM rounds r
   JOIN works w ON w.id = r.work
@@ -824,14 +838,14 @@ CREATE VIEW work_counters AS
 
 CREATE VIEW work_asking AS
   -- The cell that asked, or that took up an interjection, and how many times each work has asked: what choosing the
-  -- way on needs of where the work stands. Read by: cell 11.
+  -- way on needs of where the work stands. Read by: cell `way_on`.
   SELECT w.id AS work, w.resume_at AS asked_at,
     coalesce((SELECT c.times FROM work_counters c WHERE c.work = w.id AND c.counter = 'asks'), 0) AS asks
   FROM works w;
 
 CREATE VIEW work_design_card AS
   -- Each work's design card as it stands: its latest one, unless that was replaced, with its rulings and the numbers
-  -- of the earlier design cards of the work, which it replaced. Read by: cells 5a and 5b.
+  -- of the earlier design cards of the work, which it replaced. Read by: cells `table_review` and `tree_review`.
   SELECT c.work, c.id AS design_card, c.round, c.body, c.status, c.rulings,
     (SELECT json_group_array(o.id) FROM design_cards o WHERE o.work = c.work AND o.id < c.id) AS replaces
   FROM design_cards c
@@ -840,7 +854,7 @@ CREATE VIEW work_design_card AS
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on
   -- the code before the change (the tool ci_before), each with the head it ran on and its result, which holds the
-  -- links to its runs; and the head last pushed. Read by: cells 5a and 5b.
+  -- links to its runs; and the head last pushed. Read by: cells `table_review` and `tree_review`.
   SELECT w.id AS work, w.pushed_head AS head,
     (SELECT json_object('head', json_extract(t.args, '$.head'), 'result', json(t.result)) FROM tool_runs t
      WHERE t.work = w.id AND t.tool = 'ci' AND t.result IS NOT NULL ORDER BY t.id DESC LIMIT 1) AS fast_ci,
@@ -851,39 +865,42 @@ CREATE VIEW work_ci AS
   FROM works w;
 
 CREATE VIEW work_measurements AS
-  -- Every run of the measure tool for each work, with its result and the files kept. Read by: cells 5 and 6.
+  -- Every run of the measure tool for each work, with its result and the files kept. Read by: cells `blind_review` and
+  -- `adversarial`.
   SELECT t.work, t.round, t.attempt, t.args, t.result, t.files
   FROM tool_runs t
   WHERE t.tool = 'measure';
 
 CREATE VIEW work_review_record AS
   -- What decides what runs next after a review: the values rows recorded, and the last return of the table review
-  -- and of adversarial testing. Read by: cell 18.
+  -- and of adversarial testing. Read by: cell `next_step`.
   SELECT w.id AS work, w.recorded,
-    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell = '5a' AND r.transition IS NOT NULL
+    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell IN ('table_review', '5a') AND r.transition IS NOT NULL
      ORDER BY r.n DESC LIMIT 1) AS last_review,
-    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell = '6' AND r.transition IS NOT NULL
+    (SELECT r.output FROM rounds r WHERE r.work = w.id AND r.cell IN ('adversarial', '6') AND r.transition IS NOT NULL
      ORDER BY r.n DESC LIMIT 1) AS last_adversarial
   FROM works w;
 
 CREATE VIEW waited_items AS
   -- The items each work's item depends on, with the kind of each dependency, what it needs of each, how far each is
-  -- and, once merged, the last return of its merge. Read by: cells 11 and 11b.
+  -- and, once merged, the last return of its merge. Read by: cells `way_on` and `wait_items`.
   SELECT w.id AS work, d.id AS item, l.kind, l.needs, d.title, d.cancelled,
     (SELECT x.at FROM works x WHERE x.item = d.id ORDER BY x.id DESC LIMIT 1) AS at,
     (SELECT r.output FROM rounds r JOIN works x ON x.id = r.work
-     WHERE x.item = d.id AND r.cell = '9' AND r.transition = 'merged' ORDER BY r.work DESC, r.n DESC LIMIT 1) AS merged
+     WHERE x.item = d.id AND r.cell IN ('merge_queue', '9') AND r.transition = 'merged'
+     ORDER BY r.work DESC, r.n DESC LIMIT 1) AS merged
   FROM works w JOIN item_links l ON l.item = w.item JOIN items d ON d.id = l.depends_on;
 
 CREATE VIEW waiting_interjections AS
-  -- Interjections not yet handed in, in the order they came. Read by: every agent cell; cells 18, 19 and 20.
+  -- Interjections not yet handed in, in the order they came. Read by: every agent cell; cells `next_step`, `merge_gate`
+  -- and `end`.
   SELECT work, id AS interjection, line, speaker, text FROM interjections WHERE delivered_round IS NULL;
 
 CREATE VIEW merge_queue AS
-  -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell 9.
+  -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell `merge_queue`.
   SELECT i.project, w.id AS work, w.pr, w.pushed_head
   FROM works w JOIN items i ON i.id = w.item
-  WHERE w.at = '9' AND w.ended IS NULL
+  WHERE w.at IN ('merge_queue', '9') AND w.ended IS NULL
   ORDER BY w.id;
 
 CREATE VIEW side_reports AS
@@ -895,12 +912,12 @@ CREATE VIEW side_reports AS
 
 CREATE VIEW work_followups AS
   -- What to do next, as each report or fix handed in. A return of a flow version before the answer of implementing
-  -- and fixing was flat holds it under end. Read by: cell 20, whose step queues a report's latest for the architect;
+  -- and fixing was flat holds it under end. Read by: cell `end`, whose step queues a report's latest for the architect;
   -- the owner's interface.
   SELECT w.item, r.work, r.n AS round, coalesce(json_extract(r.output, '$.outcome.followup'),
     json_extract(r.output, '$.outcome.end.followup')) AS followup
   FROM rounds r JOIN works w ON w.id = r.work
-  WHERE r.cell IN ('4', '8') AND coalesce(json_extract(r.output, '$.outcome.followup'),
+  WHERE r.cell IN ('implement', '4', 'fix', '8') AND coalesce(json_extract(r.output, '$.outcome.followup'),
     json_extract(r.output, '$.outcome.end.followup')) IS NOT NULL;
 
 CREATE VIEW work_progress AS
@@ -914,20 +931,21 @@ CREATE VIEW item_research AS
   -- implementation cells. Read by: the owner's interface; the architect.
   SELECT w.item, r.work, r.n AS round, r.cell, json_extract(r.output, '$.outcome') AS outcome
   FROM rounds r JOIN works w ON w.id = r.work
-  WHERE r.cell IN ('1', '2', '2a', '3c', '4', '8') AND r.transition IS NOT NULL;
+  WHERE r.cell IN ('research', '1', 'compare', '2', 'choose', '2a', 'cost', '3c', 'implement', '4', 'fix', '8')
+    AND r.transition IS NOT NULL;
 
 CREATE VIEW adversarial_directions AS
   -- The directions each adversarial round tried. Read by: the owner's interface, to see what kinds of work it
   -- finds problems in.
   SELECT w.item, r.work, r.n AS round, d.value AS direction
   FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.directions') d
-  WHERE r.cell = '6';
+  WHERE r.cell IN ('adversarial', '6');
 
 CREATE VIEW advisor_rulings AS
   -- Disputes the fix took to the advisor, and the ruling it carried out. Read by: the owner's interface.
   SELECT r.work, r.n AS round, json_extract(x.value, '$.id') AS finding, json_extract(x.value, '$.ruling') AS ruling
   FROM rounds r, json_each(r.output, '$.outcome.rows') x
-  WHERE r.cell = '8' AND json_extract(x.value, '$.answer') = 'advisor_ruled';
+  WHERE r.cell IN ('fix', '8') AND json_extract(x.value, '$.answer') = 'advisor_ruled';
 
 CREATE VIEW not_applicable_answers AS
   -- Gate questions answered not applicable, with why. Read by: the owner's interface, to see which questions do
@@ -940,19 +958,20 @@ CREATE VIEW known_red_counts AS
   -- How often main was red only on known red checks, by project. Read by: the owner's interface.
   SELECT i.project, count(*) AS times
   FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-  WHERE r.cell = '10' AND json_extract(r.output, '$.main.kind') = 'known_red'
+  WHERE r.cell IN ('watch_main', '10') AND json_extract(r.output, '$.main.kind') = 'known_red'
   GROUP BY i.project;
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
   -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
   -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer, and whether it is urgent. Read by: cells W0 and D0; the engine, which wakes each project's architect and
-  -- gives the architect its queue; the owner's interface.
+  -- answer, and whether it is urgent. Read by: cells `wake` and `anything`; the engine, which wakes each project's
+  -- architect and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
-        SELECT 1 FROM works w WHERE w.id = m.work AND w.graph = 'engineer' AND w.at = '15' AND w.ended IS NULL)
+        SELECT 1 FROM works w
+        WHERE w.id = m.work AND w.graph = 'engineer' AND w.at IN ('to_architect', '15') AND w.ended IS NULL)
         THEN 'agent'
       WHEN m.kind = 'owner_words' THEN 'owner'
       ELSE 'none' END AS waits,
@@ -976,21 +995,22 @@ CREATE VIEW architect_notes AS
   ORDER BY r.work, r.n;
 
 CREATE VIEW architect_state AS
-  -- Each project's state of things as its architect last wrote it: its latest understanding (cell U1), with what its
-  -- wrap-ups learned and every note written since; a round that asked for tools or paused wrote none of them. Read by:
-  -- cells U1 and E1; the owner's interface.
+  -- Each project's state of things as its architect last wrote it: its latest understanding (cell `state`), with what
+  -- its wrap-ups learned and every note written since; a round that asked for tools or paused wrote none of them. Read
+  -- by: cells `state` and `wrap_up`; the owner's interface.
   SELECT project, work, round, state, direction, learned, notes FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
       json_extract(r.output, '$.outcome.direction') AS direction,
       (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
-       WHERE y.graph = 'architect' AND y.project = w.project AND x.cell = 'E1' AND x.transition IS NOT NULL
+       WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN ('wrap_up', 'E1')
+         AND x.transition IS NOT NULL
          AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
          AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))) AS learned,
       (SELECT json_group_array(json_object('item', n.item, 'text', n.text)) FROM architect_notes n
        WHERE n.project = w.project AND (n.work > r.work OR (n.work = r.work AND n.round > r.n))) AS notes,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell = 'U1' AND r.transition IS NOT NULL
+    WHERE w.graph = 'architect' AND r.cell IN ('state', 'U1') AND r.transition IS NOT NULL
       AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner'))
   WHERE k = 1;
 
@@ -998,7 +1018,7 @@ CREATE VIEW architect_log AS
   -- Each project's architect's log, newest first, its latest forty entries: each judgment it handed in (whether the
   -- policy is right, whether what runs fits, each matter's answer, each rethink after a batch) and the owner's answer
   -- to each study of a new policy, by the round that gave it, with the matter it handled and what it said, its
-  -- conclusion with its reasons. Read by: cells U1, U2 and U3.
+  -- conclusion with its reasons. Read by: cells `state`, `policy_right` and `fit`.
   SELECT project, work, round, cell, at, matter, said FROM (
     SELECT w.project, r.work, r.n AS round, r.cell, r.ended_at AS at,
       (SELECT m.id FROM architect_matters m WHERE m.handled_work = r.work AND m.handled_round = r.n) AS matter,
@@ -1008,73 +1028,78 @@ CREATE VIEW architect_log AS
     FROM rounds r JOIN works w ON w.id = r.work
     WHERE w.graph = 'architect' AND r.transition IS NOT NULL
       AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner')
-      AND r.cell IN ('U2', 'U3', 'T1', 'Q2', 'I2', 'K1', 'F1', 'O1', 'M1', 'N1', 'C1', 'P2'))
+      AND r.cell IN ('policy_right', 'U2', 'fit', 'U3', 'set_straight', 'T1', 'ways', 'Q2', 'take_in', 'I2',
+        'card_sound', 'K1', 'have_fixed', 'F1', 'owner_words', 'O1', 'answer_architect', 'M1', 'what_runs', 'N1',
+        'rethink', 'C1', 'owner_reads', 'P2'))
   WHERE k <= 40;
 
 CREATE VIEW architect_last_fit AS
-  -- Each project's architect's latest answer to whether what runs fits. Read by: cell U3.
+  -- Each project's architect's latest answer to whether what runs fits. Read by: cell `fit`.
   SELECT project, work, round, fit FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.fit') AS fit,
       row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
     FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell = 'U3' AND r.transition IS NOT NULL
+    WHERE w.graph = 'architect' AND r.cell IN ('fit', 'U3') AND r.transition IS NOT NULL
       AND json_extract(r.output, '$.outcome.fit') IS NOT NULL)
   WHERE k = 1;
 
 CREATE VIEW wake_handled AS
   -- The matters each wake of an architect handled, in the order it handled them: each matter, its kind, the cell and
-  -- the round that closed it, and what that round said it did. Read by: cell E1; the owner's interface.
+  -- the round that closed it, and what that round said it did. Read by: cell `wrap_up`; the owner's interface.
   SELECT m.handled_work AS work, m.handled_round AS round, m.id AS matter, m.kind, m.detail, m.what, r.cell,
     json_extract(r.output, '$.progress') AS said
   FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
   ORDER BY m.handled_work, m.handled_round;
 
 CREATE VIEW policy_current AS
-  -- Each project's policy in force: the text written, or put together from a correction, last before the owner's
-  -- latest approval in a wake of the project's architect, with the round of that approval; none before the first
-  -- policy takes effect. A correction hands in only what it changes, and the engine puts the text together (P4); a
+  -- Each project's policy in force: the text written, or put together from a correction, last before the owner's latest
+  -- approval in a wake of the project's architect, with the round of that approval; none before the first policy takes
+  -- effect. A correction hands in only what it changes, and the engine puts the text together (`assemble`); a
   -- correction of a flow version before that held the whole text. Older versions stay readable in the rounds and are
   -- given to no agent. Read by: the engine, for the architect's cells; the owner's interface.
   SELECT project, work, round, policy FROM (
     SELECT w.project, a.work, a.n AS round,
       (SELECT coalesce(json_extract(t.output, '$.draft.policy'), json_extract(t.output, '$.outcome.policy'),
          json_extract(t.output, '$.outcome.revision.policy'))
-       FROM rounds t WHERE t.work = a.work AND t.cell IN ('P3', 'P4', 'P7') AND t.transition IS NOT NULL AND t.n < a.n
+       FROM rounds t
+       WHERE t.work = a.work AND t.cell IN ('write', 'P3', 'assemble', 'P4', 'correct', 'P7')
+         AND t.transition IS NOT NULL AND t.n < a.n
          AND coalesce(json_extract(t.output, '$.draft.policy'), json_extract(t.output, '$.outcome.policy'),
            json_extract(t.output, '$.outcome.revision.policy')) IS NOT NULL
        ORDER BY t.n DESC LIMIT 1) AS policy,
       row_number() OVER (PARTITION BY w.project ORDER BY a.work DESC, a.n DESC) AS k
     FROM rounds a JOIN works w ON w.id = a.work
-    WHERE w.graph = 'architect' AND a.cell = 'P10' AND a.transition IS NOT NULL)
+    WHERE w.graph = 'architect' AND a.cell IN ('takes_effect', 'P10') AND a.transition IS NOT NULL)
   WHERE k = 1;
 
 CREATE VIEW policy_draft AS
-  -- Each wake's version of the policy being set: the round of the latest writing or correcting in the wake, the text
-  -- as it stands, and the probes with the answers the architect holds right. A correction hands in only what it
-  -- changes, and the text is then as the engine last put it together (P4); a correction of a flow version before that
-  -- held the whole text. Read by: policy_text, policy_probes_asked and policy_trials; the cells on the architect's
-  -- line take it from the returns that wrote it or put it together.
+  -- Each wake's version of the policy being set: the round of the latest writing or correcting in the wake, the text as
+  -- it stands, and the probes with the answers the architect holds right. A correction hands in only what it changes,
+  -- and the text is then as the engine last put it together (`assemble`); a correction of a flow version before that
+  -- held the whole text. Read by: policy_text, policy_probes_asked and policy_trials; the cells on the architect's line
+  -- take it from the returns that wrote it or put it together.
   SELECT t.work, t.n AS round,
     (SELECT coalesce(json_extract(x.output, '$.draft.policy'), json_extract(x.output, '$.outcome.policy'),
        json_extract(x.output, '$.outcome.revision.policy'))
-     FROM rounds x WHERE x.work = t.work AND x.cell IN ('P3', 'P4', 'P7') AND x.transition IS NOT NULL
+     FROM rounds x
+     WHERE x.work = t.work AND x.cell IN ('write', 'P3', 'assemble', 'P4', 'correct', 'P7') AND x.transition IS NOT NULL
        AND coalesce(json_extract(x.output, '$.draft.policy'), json_extract(x.output, '$.outcome.policy'),
          json_extract(x.output, '$.outcome.revision.policy')) IS NOT NULL
      ORDER BY x.n DESC LIMIT 1) AS policy,
     coalesce(json_extract(t.output, '$.outcome.probes'), json_extract(t.output, '$.outcome.revision.probes')) AS probes
   FROM rounds t JOIN works w ON w.id = t.work
-  WHERE w.graph = 'architect' AND t.cell IN ('P3', 'P7') AND t.transition IS NOT NULL
+  WHERE w.graph = 'architect' AND t.cell IN ('write', 'P3', 'correct', 'P7') AND t.transition IS NOT NULL
     AND t.n = (SELECT max(x.n) FROM rounds x
-               WHERE x.work = t.work AND x.cell IN ('P3', 'P7') AND x.transition IS NOT NULL);
+               WHERE x.work = t.work AND x.cell IN ('write', 'P3', 'correct', 'P7') AND x.transition IS NOT NULL);
 
 CREATE VIEW policy_text AS
-  -- The text of each wake's version of the policy being set, without its probes. Read by: cell P4; the engine, to
-  -- check a reading of it.
+  -- The text of each wake's version of the policy being set, without its probes. Read by: cell `assemble`; the engine,
+  -- to check a reading of it.
   SELECT work, round, policy FROM policy_draft;
 
 CREATE VIEW policy_probes_asked AS
   -- The probes of each wake's version of the policy being set, the questions only, without the answers the architect
-  -- holds right. Read by: cell P5, the new architect that reads the policy.
+  -- holds right. Read by: cell `fresh_read`, the new architect that reads the policy.
   SELECT d.work, d.round,
     json_group_array(json_object('id', json_extract(p.value, '$.id'), 'ask', json_extract(p.value, '$.ask'))) AS probes
   FROM policy_draft d, json_each(d.probes) p
@@ -1082,13 +1107,17 @@ CREATE VIEW policy_probes_asked AS
 
 CREATE VIEW policy_trials AS
   -- Each wake's version of the policy being set, with every reading of it by a new architect since it was written and
-  -- the architect's judgment of each, oldest first. Read by: cells P8, P9 and P10; the owner's interface.
+  -- the architect's judgment of each, oldest first. Read by: cells `count`, `owner_approves` and `takes_effect`; the
+  -- owner's interface.
   SELECT d.work, d.round, d.policy, d.probes,
     (SELECT json_group_array(json_object('round', r.n, 'reading', json(json_extract(r.output, '$.outcome.reading')),
        'verdict', json((SELECT json_extract(v.output, '$.outcome.verdict') FROM rounds v
-                        WHERE v.work = r.work AND v.cell = 'P6' AND v.transition IS NOT NULL AND v.n > r.n
+                        WHERE v.work = r.work AND v.cell IN ('judge_read', 'P6') AND v.transition IS NOT NULL
+                          AND v.n > r.n
                         ORDER BY v.n LIMIT 1))))
-     FROM rounds r WHERE r.work = d.work AND r.cell = 'P5' AND r.transition IS NOT NULL AND r.n > d.round) AS readings
+     FROM rounds r
+     WHERE r.work = d.work AND r.cell IN ('fresh_read', 'P5') AND r.transition IS NOT NULL AND r.n > d.round)
+       AS readings
   FROM policy_draft d;
 
 CREATE VIEW observations_all AS
@@ -1106,11 +1135,11 @@ CREATE VIEW observations_all AS
     m.merged
   FROM observations o LEFT JOIN (
     SELECT w.item, max(r.ended_at) AS merged FROM rounds r JOIN works w ON w.id = r.work
-    WHERE r.cell = '9' AND r.transition = 'merged' GROUP BY w.item) m ON m.item = o.folded_into;
+    WHERE r.cell IN ('merge_queue', '9') AND r.transition = 'merged' GROUP BY w.item) m ON m.item = o.folded_into;
 
 CREATE VIEW observations_open AS
-  -- Each project's open observations, each with its number, what it is, its tags, how many times it was reported,
-  -- where it came from, what it refers to and the item that took it in, if one has. Read by: cell S1, which searches
+  -- Each project's open observations, each with its number, what it is, its tags, how many times it was reported, where
+  -- it came from, what it refers to and the item that took it in, if one has. Read by: cell `search`, which searches
   -- them; the engine.
   SELECT project, id, what, tags, times_reported, source, refs, folded_into
   FROM observations_all WHERE closed IS NULL;

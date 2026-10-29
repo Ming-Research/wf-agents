@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 use crate::inputs::{Gathered, answered, at_path, last_return};
 use crate::work::{Item, Work};
-use crate::{Engine, git};
+use crate::{ENGINEER, Engine, git};
 
 /// What the rows of a cell are given: the values rows recorded, the engine's values the cell names, and each input
 /// read by id under `@<id>`.
@@ -55,7 +55,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             if item.deliver == "report" {
                 return s("report");
             }
-            let tree = last_return(e, w, g, "2a", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
+            let tree = last_return(e, w, g, "choose", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
             if tree.as_ref().and_then(Value::as_str) == Some("design_paths_only") {
                 s("design_paths_only")
             } else {
@@ -63,7 +63,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
         }
         "review_round" => {
-            let reviewed = !answered(e, w, g, "5")?.is_empty() || !answered(e, w, g, "5a")?.is_empty();
+            let reviewed =
+                !answered(e, w, g, "blind_review")?.is_empty() || !answered(e, w, g, "table_review")?.is_empty();
             s(if reviewed { "table" } else { "blind" })
         }
         "tree" => {
@@ -116,8 +117,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             let from = w.pos.from.clone().unwrap_or_default();
             let fc = g.cell(&from);
             s(match fc {
-                Some(c) if matches!(c.id.as_str(), "12" | "15" | "16") => "reply",
-                Some(c) if c.id == "11b" => "waited",
+                Some(c) if matches!(c.id.as_str(), "advisor" | "to_architect" | "to_owner") => "reply",
+                Some(c) if c.id == "wait_items" => "waited",
                 Some(c) if c.kind == "agent" => "interjection",
                 _ => "interjection_at_engine",
             })
@@ -158,7 +159,7 @@ fn brought_back(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>
     let Some(from) = w.pos.from.as_deref() else {
         return Ok(None);
     };
-    if !matches!(from, "12" | "15" | "16") {
+    if !matches!(from, "advisor" | "to_architect" | "to_owner") {
         return Ok(None);
     }
     Ok(last_return(e, w, g, from, "reply")?.and_then(|r| r.get("reply").cloned()))
@@ -185,8 +186,11 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
     let n: i64 =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
-             WHERE w.item = ?1 AND r.cell = '9' AND r.transition = 'merged'",
+                &format!(
+                    "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
+                     WHERE w.item = ?1 AND r.cell IN {} AND r.transition = 'merged'",
+                    db::cells_sql(ENGINEER, &["merge_queue"])
+                ),
                 [item],
                 |r| r.get(0),
             )
@@ -283,7 +287,7 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
 
 /// The head the last review started from; none before the first review.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
-    head_reviewed_by(e, w, g, "5a")
+    head_reviewed_by(e, w, g, "table_review")
 }
 
 /// The head a review cell last looked at: that of its newest answered round, if any.

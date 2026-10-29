@@ -49,10 +49,13 @@ export type FlowScreenProps = {
   marks: Array<Omit<Marks, 'selected'>>;
   /// The cell the address names: its panel is open.
   cell: string | null;
-  /// Called when the panel opens a cell, or closes; the page keeps it in its address.
-  onCell: (cell: string | null) => void;
-  /// The cell the chart opens on.
+  /// The graph of that cell, where two graphs drawn may each have a cell of its name; with none, the first that has it.
+  cellGraph?: string | null;
+  /// Called when the panel opens a cell, with its graph, or closes; the page keeps it in its address.
+  onCell: (cell: string | null, graph?: string) => void;
+  /// The cell the chart opens on, and its graph.
   start: string | null;
+  startGraph?: string | null;
   /// When two flows are compared: what changed, which the panel opens on.
   diff?: FlowDiff | null;
   /// On a work's page: the work, its rounds, a round's panel, and the round the address names, each round by its
@@ -148,8 +151,10 @@ export function FlowScreen(props: FlowScreenProps) {
     legend,
     marks,
     cell,
+    cellGraph,
     onCell,
     start,
+    startGraph,
     diff,
     work,
     rounds,
@@ -203,20 +208,21 @@ export function FlowScreen(props: FlowScreenProps) {
     if (round != null) {
       if (now?.kind !== 'round' || now.round !== round) open({ kind: 'round', round });
     } else if (cell !== null) {
-      if (now?.kind !== 'cell' || now.cell !== cell) {
-        open({ kind: 'cell', cell });
-        pickCell(undefined, cell);
+      const graph = cellGraph ?? undefined;
+      if (now?.kind !== 'cell' || now.cell !== cell || (graph !== undefined && now.graph !== graph)) {
+        open(graph !== undefined ? { kind: 'cell', cell, graph } : { kind: 'cell', cell });
+        pickCell(graph, cell);
       }
     }
     // Only when the address changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cell, round]);
+  }, [cell, cellGraph, round]);
   useEffect(() => {
     if (now === null) {
       if (cell !== null) onCell(null);
       if (round != null) onRound?.(null);
-    } else if (now.kind === 'cell' && now.cell !== cell) {
-      onCell(now.cell);
+    } else if (now.kind === 'cell' && (now.cell !== cell || (cellGraph != null && now.graph !== cellGraph))) {
+      onCell(now.cell, now.graph);
     } else if (now.kind === 'round' && now.round !== round) {
       onRound?.(now.round);
     }
@@ -424,7 +430,15 @@ export function FlowScreen(props: FlowScreenProps) {
     <FlowContext.Provider value={flowFor(undefined)}>
       <div className="flow-screen">
         <div className="flow-chart-area">
-          <FlowChart ref={chartRef} graphs={graphs} marks={chartMarks} start={start} onPick={onPick} legend={legend} />
+          <FlowChart
+            ref={chartRef}
+            graphs={graphs}
+            marks={chartMarks}
+            start={start}
+            startGraph={startGraph}
+            onPick={onPick}
+            legend={legend}
+          />
         </div>
         {side !== undefined || shown ? (
           <aside className="dock" style={width !== null ? { width } : undefined}>

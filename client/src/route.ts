@@ -65,6 +65,8 @@ export type Route =
       page: 'flow';
       /// The stored version shown; with none, the one new works start on.
       version: number | null;
+      /// The graph of the cell open: two graphs may each have a cell of one name.
+      graph: string | null;
       cell: string | null;
       /// Instead of a stored version, the flow at a git ref of a project's checkout.
       project: string | null;
@@ -131,6 +133,7 @@ export function parse(pathname: string, search: string): Route {
       return {
         page: 'flow',
         version,
+        graph: q.get('graph'),
         cell: q.get('cell'),
         project: q.get('project'),
         ref: q.get('ref'),
@@ -181,6 +184,7 @@ export function href(r: Route): string {
         ['project', r.project],
         ['ref', r.ref],
         ['from', r.from],
+        ['graph', r.graph],
         ['cell', r.cell],
       ])}`;
     case 'missing':

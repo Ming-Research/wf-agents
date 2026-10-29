@@ -168,22 +168,22 @@ mod tests {
         let g = f.graph("engineer").unwrap();
         let all = flow::formats::common_format(g, &[]);
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()), &[]);
-        assert_eq!(of("1"), of("8"));
-        assert_eq!(of("5"), of("5a"));
-        for cell in ["1", "5", "6", "12"] {
+        assert_eq!(of("research"), of("fix"));
+        assert_eq!(of("blind_review"), of("table_review"));
+        for cell in ["research", "blind_review", "adversarial", "advisor"] {
             assert!(of(cell).len() <= all.len(), "{cell}");
         }
         assert!(
-            all.contains("`redirect`") && !of("12").contains("`redirect`"),
+            all.contains("`redirect`") && !of("advisor").contains("`redirect`"),
             "{}",
-            of("12")
+            of("advisor")
         );
-        let cells: Vec<&str> = format_cells(g, g.cell("5a").unwrap())
+        let cells: Vec<&str> = format_cells(g, g.cell("table_review").unwrap())
             .iter()
             .map(|c| c.id.as_str())
             .collect();
         assert!(
-            cells.contains(&"5") && cells.contains(&"5b") && !cells.contains(&"4"),
+            cells.contains(&"blind_review") && cells.contains(&"tree_review") && !cells.contains(&"implement"),
             "{cells:?}"
         );
     }
@@ -199,6 +199,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["4", "8"]);
+        assert_eq!(starts, ["implement", "fix"]);
     }
 }

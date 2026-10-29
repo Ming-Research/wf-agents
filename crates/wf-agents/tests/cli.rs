@@ -348,7 +348,7 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
             [],
         )?;
         tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (1, 1, 'engineer', '4', '/w/1', 5)",
+            "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (1, 1, 'engineer', 'implement', '/w/1', 5)",
             [],
         )?;
         tx.execute(

@@ -37,9 +37,9 @@ function CompareBox({ r, versions, shown, onClose }: {
   const list = sources.data ?? [];
   const chosen = list.find((s) => s.project === project) ?? list[0];
   const show = () => {
-    if (against === 'version') go({ ...r, version: to, project: null, ref: null, from, cell: null });
+    if (against === 'version') go({ ...r, version: to, project: null, ref: null, from, graph: null, cell: null });
     else if (chosen && ref.trim() !== '') {
-      go({ ...r, version: null, project: chosen.project, ref: ref.trim(), from, cell: null });
+      go({ ...r, version: null, project: chosen.project, ref: ref.trim(), from, graph: null, cell: null });
     }
     onClose();
   };
@@ -143,7 +143,7 @@ function Bar({ r, versions, current, at }: {
             value={shown ?? ''}
             title={title}
             aria-label={t('flow_version_pick')}
-            onChange={(e) => go({ ...r, version: Number(e.target.value), cell: null })}
+            onChange={(e) => go({ ...r, version: Number(e.target.value), graph: null, cell: null })}
           >
             {versions.map((v) => (
               <option
@@ -213,8 +213,10 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
       legend={diff ? 'compare' : 'flow'}
       marks={marks}
       cell={r.cell}
-      onCell={(cell) => go({ ...r, cell }, true)}
+      cellGraph={r.graph}
+      onCell={(cell, graph) => go({ ...r, graph: cell !== null ? (graph ?? null) : null, cell }, true)}
       start={r.cell}
+      startGraph={r.graph}
       diff={diff}
     />
   );

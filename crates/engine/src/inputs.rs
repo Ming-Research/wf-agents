@@ -206,12 +206,12 @@ pub fn gather(
                     by: Some("project".into()),
                 };
                 let whole = source(e, w, g, cell, item, &view)?;
-                if answered(e, w, g, "U1")?.is_empty() {
+                if answered(e, w, g, "state")?.is_empty() {
                     parts.extend(whole);
                     continue;
                 }
                 for path in ["state", "direction"] {
-                    parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), path.into()))?);
+                    parts.extend(source(e, w, g, cell, item, &Src::Place("state".into(), path.into()))?);
                 }
                 if let Some(p) = whole {
                     let has = |v: &Value| v.as_array().is_some_and(|xs| xs.iter().any(|x| !x.is_null()));
@@ -540,7 +540,7 @@ pub fn engine_input(
                 // At a re-review of the design tree, the change since the last design tree review; the table review
                 // runs just before it on the same head, so its head would leave nothing to review.
                 let base = if name == "tree_changes_to_review" {
-                    crate::values::head_reviewed_by(e, w, g, "5b")?
+                    crate::values::head_reviewed_by(e, w, g, "tree_review")?
                 } else {
                     None
                 };
@@ -739,22 +739,22 @@ mod tests {
             },
             parts: vec![
                 place(
-                    "5a",
+                    "table_review",
                     "columns[findings]",
                     json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] }]),
                 ),
                 place(
-                    "5b",
+                    "tree_review",
                     "columns[findings]",
                     json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }]),
                 ),
                 place(
-                    "5a",
+                    "table_review",
                     "columns[cannot_verify]",
                     json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
                 ),
                 place(
-                    "6",
+                    "adversarial",
                     "new_tests",
                     json!([
                         { "name": "fails_before", "on_head": "green", "on_base": "red" },
@@ -762,17 +762,17 @@ mod tests {
                     ]),
                 ),
                 place(
-                    "6",
+                    "adversarial",
                     "guard_tests",
                     json!([{ "name": "guard", "on_head": "green", "on_base": "green" }]),
                 ),
                 place(
-                    "7",
+                    "full_ci",
                     "result[conflict]",
                     json!({ "kind": "conflict", "files": ["a.rs"] }),
                 ),
                 place(
-                    "7",
+                    "full_ci",
                     "result[red]",
                     json!({ "kind": "red", "checks": [
                         { "name": "check", "result": "red", "run": "u" },
@@ -787,9 +787,9 @@ mod tests {
         assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]);
         assert_eq!(
             (&rows[0]["from"], &rows[0]["column"], &rows[0]["fid"]),
-            (&json!("5a·columns[findings]"), &json!("2"), &json!("R1"))
+            (&json!("table_review·columns[findings]"), &json!("2"), &json!("R1"))
         );
-        assert_eq!(rows[2]["from"], "5b·columns[findings]");
+        assert_eq!(rows[2]["from"], "tree_review·columns[findings]");
         assert_eq!((&rows[3]["column"], rows[3].get("id")), (&json!("3"), None));
         assert_eq!(rows[4]["name"], "passes_before");
         assert_eq!(rows[5]["files"], json!(["a.rs"]));

@@ -51,12 +51,12 @@ describe('the message catalog', () => {
 
 describe('the addresses', () => {
   it('read back what they write', () => {
-    const flow = { page: 'flow' as const, version: null, cell: null, project: null, ref: null, from: null };
+    const flow = { page: 'flow' as const, version: null, graph: null, cell: null, project: null, ref: null, from: null };
     const work = { page: 'work' as const, id: 3, round: null, cell: null, tab: 'rounds' as const, only: null };
     const routes: Route[] = [
       { page: 'works' },
       { ...work, round: 240 },
-      { ...work, cell: '2a' },
+      { ...work, cell: 'choose' },
       { ...work, tab: 'cards' },
       { ...work, tab: 'messages', round: 7 },
       { ...work, only: 'failed' },
@@ -64,10 +64,10 @@ describe('the addresses', () => {
       { page: 'item', id: 5 },
       { page: 'messages', open: null },
       { page: 'messages', open: 'architects:p|q' },
-      { ...flow, version: 1, cell: '13' },
+      { ...flow, version: 1, graph: 'architect', cell: 'tools' },
       flow,
       { ...flow, version: 2, from: 1 },
-      { ...flow, project: 'p', ref: 'wf-agents/12-x', from: 1, cell: '4' },
+      { ...flow, project: 'p', ref: 'wf-agents/12-x', from: 1, graph: 'engineer', cell: 'implement' },
     ];
     for (const r of routes) {
       const at = href(r);
@@ -94,7 +94,7 @@ describe('how a work goes on', () => {
     project: 'p',
     graph: 'engineer',
     flow_version: 2,
-    at: '16',
+    at: 'to_owner',
     at_title: 'Owner',
     stage: null,
     state: 'ready',
@@ -195,7 +195,7 @@ describe('how a work goes on', () => {
     expect(stepWhyNot(pausing, controls(pausing, status({ running: 5 })))).toBe('pausing after this round');
     expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5, stepping: 5 })).running).toBe('step');
     // Stopped by the engine on an older flow version: Start and Step, which wait for the round under way.
-    const stopped = course(work({ paused: 'cell 4: no', paused_by: 'engine', flow_version: 1 }), status({}));
+    const stopped = course(work({ paused: 'cell implement: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
     expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, start: true, step: true, canStep: false });
     expect(stepWhyNot(stopped, controls(stopped, status({ stepping: 3 })))).toBe(
@@ -238,7 +238,7 @@ describe('the flow in words', () => {
     expect(valuesWords(['x', 'y'])).toBe('`x` or `y`');
     expect(targetWords('@caller')).toBe('back to the cell that called');
     expect(targetWords('@self')).toBe('itself');
-    expect(targetWords('4')).toBeNull();
+    expect(targetWords('implement')).toBeNull();
   });
 });
 
@@ -558,7 +558,7 @@ describe("a cell's panel", () => {
       inputs: [
         { id: null, what: 'the item', from: [{ db: 'item_body', by: 'item' }], maybe: false },
         { id: null, what: 'the code', from: ['self'], maybe: false },
-        { id: null, what: 'the design', from: [['2a', 'design']], maybe: false },
+        { id: null, what: 'the design', from: [['choose', 'design']], maybe: false },
       ],
     });
     expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
@@ -606,10 +606,10 @@ describe('an ask', () => {
 
 describe('a round', () => {
   it('reads the numbers of the list to work from, names a model as people do, and reads a value at an address', () => {
-    const workFrom = ['1. R6-12·2a·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
+    const workFrom = ['1. R6-12·choose·ask', 'Read yourself: the code', '3. R6-15·engine·work_counters', 'Rules: rule:general'];
     expect(addressesByNumber(workFrom)).toEqual(
       new Map([
-        [1, ['R6-12·2a·ask']],
+        [1, ['R6-12·choose·ask']],
         [3, ['R6-15·engine·work_counters']],
       ]),
     );
@@ -623,12 +623,12 @@ describe('a round', () => {
   });
 
   it('cuts a message at its headings and keeps every character', () => {
-    const message = '# R9-12 · cell 2b\n\nCame from cell 2a.\n\n## Given\n\n### format:2b\n\nThe answer\n## Task\nThink.\n';
+    const message = '# R9-12 · cell rethink_design\n\nCame from cell choose.\n\n## Given\n\n### format:rethink_design\n\nThe answer\n## Task\nThink.\n';
     const parts = messageParts(message);
     expect(parts.filter((p) => 'heading' in p)).toEqual([
-      { heading: '# R9-12 · cell 2b' },
+      { heading: '# R9-12 · cell rethink_design' },
       { heading: '## Given' },
-      { heading: '### format:2b' },
+      { heading: '### format:rethink_design' },
       { heading: '## Task' },
     ]);
     expect(parts.map((p) => ('heading' in p ? p.heading : p.text)).join('\n')).toBe(message);
@@ -965,7 +965,7 @@ describe("a work's usage", () => {
       id: 1,
       session: 1,
       line: 'engineer',
-      cell: '16',
+      cell: 'to_owner',
       on: 'owner',
       what: "the owner's answer to ask 3",
       started_at: 2,

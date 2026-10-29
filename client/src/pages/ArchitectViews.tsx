@@ -373,7 +373,7 @@ function StateVersions({ u, onRound }: { u: Understanding; onRound: OpenRound })
   const k = Math.min(at, versions.length - 1);
   const before = versions[k + 1];
   const c = stateChanges(before !== undefined ? before.state : null, v.state);
-  const said: Said = { work: v.work, round: v.round, cell: 'U1', at: v.at, value: v.state };
+  const said: Said = { work: v.work, round: v.round, cell: v.cell, at: v.at, value: v.state };
   const chip = (kind: string) =>
     kind === 'added' ? t('line_added') : kind === 'changed' ? t('line_changed') : kind === 'removed' ? t('line_removed') : '';
   return (

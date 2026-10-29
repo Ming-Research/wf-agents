@@ -240,7 +240,7 @@ mod tests {
     fn round(n: i64, input: Value, output: Option<Value>, compactions: i64) -> Round {
         Round {
             id: RoundId::new(1, n),
-            cell: Some("1".into()),
+            cell: Some("research".into()),
             session: Some(1),
             input,
             output,
@@ -255,11 +255,14 @@ mod tests {
 
     #[test]
     fn a_round_is_named_by_its_work_and_number() {
-        assert_eq!(round_of("R5-28·4·end.test_changes[added]"), Some(RoundId::new(5, 28)));
+        assert_eq!(
+            round_of("R5-28·implement·end.test_changes[added]"),
+            Some(RoundId::new(5, 28))
+        );
         assert_eq!(RoundId::new(5, 28).to_string(), "R5-28");
         assert_eq!(round_of("rule:ground"), None);
         // An address written before rounds were named by their work names no round.
-        assert_eq!(round_of("R28·4·end.test_changes[added]"), None);
+        assert_eq!(round_of("R28·implement·end.test_changes[added]"), None);
     }
 
     // What the engine computes as the architect's standard context is known by its input, whichever round gave it; what
@@ -294,15 +297,15 @@ mod tests {
         let h = Held::of(&rounds);
         assert!(h.holds("rule:ground", &hash(&rule)));
         assert!(!h.holds("rule:ground", &hash(&json!("Facts first, then the rest."))));
-        assert!(h.holds("R1-3·2a·design", "any"));
-        assert!(!h.holds("R2-3·2a·design", "any"));
+        assert!(h.holds("R1-3·choose·design", "any"));
+        assert!(!h.holds("R2-3·choose·design", "any"));
         assert!(!h.holds("R1-3·engine·project_guide", "any"));
         assert!(!h.holds("ij:1", &hash(&json!("From the owner: x"))));
         let mut later = rounds.to_vec();
         later.push(round(5, json!({}), Some(json!({ "outcome": {} })), 1));
         let h = Held::of(&later);
         assert!(!h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R1-3·2a·design", "any"));
+        assert!(!h.holds("R1-3·choose·design", "any"));
         assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
         assert!(!h.compacted_waiting);
     }
@@ -323,7 +326,7 @@ mod tests {
         later.push(round(4, given, Some(json!({})), 0));
         let h = Held::with_pings(&later, &[300]);
         assert!(h.holds("rule:ground", &hash(&rule)));
-        assert!(!h.holds("R1-2·1·outcome", "any") && h.holds("R1-4·1·outcome", "any"));
+        assert!(!h.holds("R1-2·research·outcome", "any") && h.holds("R1-4·research·outcome", "any"));
         // A ping that compacted nothing changes nothing.
         assert!(Held::with_pings(&rounds, &[]).holds("rule:ground", &hash(&rule)));
     }

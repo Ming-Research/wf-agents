@@ -7,10 +7,10 @@
 //! architect's graph, its asks of the owner, and the batch of item changes a review looks at before they are made. A
 //! project's architect's line goes on in one CLI session across the project's wakes until a new policy ends it.
 //!
-//! The engine knows a few cells of the architect's graph by their ids, as the views over its rounds do: the look at
-//! the queue (D0) and the pick (D1), which say the matter picked; the understanding (U1); the rethink after a batch
-//! (C1), which ends a batch; the review of the batch (R1); and the first and deciding cell of each kind's path
-//! ([`KINDS`]).
+//! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
+//! the queue (`anything`) and the pick (`pick`), which say the matter picked; the understanding (`state`); the rethink
+//! after a batch (`rethink`), which ends a batch; the review of the batch (`review`); and the first and deciding cell
+//! of each kind's path ([`KINDS`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -61,32 +61,35 @@ pub const INPUTS: [&str; 21] = [
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
 
-/// The input that gives the state of things as the architect last wrote it: when the wake's understanding (U1) wrote
-/// it, as the places of that round's return, which the wake's session holds, with what was learned and noted since read
-/// from `architect_state`; otherwise that view whole.
+/// The input that gives the state of things as the architect last wrote it: when the wake's understanding (`state`)
+/// wrote it, as the places of that round's return, which the wake's session holds, with what was learned and noted
+/// since read from `architect_state`; otherwise that view whole.
 pub const STATE: &str = "state_of_things";
 
-/// The input that gives the study of a new policy and the owner's answer to it, as places of the returns of P1 and P2,
-/// when the owner's latest answer to a study in the wake said the policy in force stays; none otherwise.
+/// The input that gives the study of a new policy and the owner's answer to it, as places of the returns of `study` and
+/// `owner_reads`, when the owner's latest answer to a study in the wake said the policy in force stays; none otherwise.
 pub const STAYS: &str = "policy_stays";
 
 /// The places of the returns [`STAYS`] gives.
-pub const STAYS_PLACES: [(&str, &str); 2] = [("P1", "study"), ("P2", "ruling")];
+pub const STAYS_PLACES: [(&str, &str); 2] = [("study", "study"), ("owner_reads", "ruling")];
 
-/// Whether the owner's latest answer in the wake to a study of a new policy (P2) said the policy in force stays.
+/// Whether the owner's latest answer in the wake to a study of a new policy (`owner_reads`) said the policy in force
+/// stays.
 pub fn policy_stays(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    let latest = inputs::returns_holding(e, w, g, "P2", "ruling")?.into_iter().next();
+    let latest = inputs::returns_holding(e, w, g, "owner_reads", "ruling")?
+        .into_iter()
+        .next();
     Ok(latest.is_some_and(|(_, r)| r["ruling"]["choice"] == "policy_stays"))
 }
 
 /// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the wake's
-/// round that wrote it (P3) handed it in, or as the engine put it together (P4) from a correction (P7), which hands in
-/// only its edits; and its probes, as the round that last wrote or corrected them handed them in. Each is addressed as
-/// the oldest of those places that holds it as it is now, so that the session that wrote it, or was given it once, is
-/// only referred to it.
+/// round that wrote it (`write`) handed it in, or as the engine put it together (`assemble`) from a correction
+/// (`correct`), which hands in only its edits; and its probes, as the round that last wrote or corrected them handed
+/// them in. Each is addressed as the oldest of those places that holds it as it is now, so that the session that wrote
+/// it, or was given it once, is only referred to it.
 const DRAFT: [(&str, [(&str, &str); 2]); 2] = [
-    ("draft_text", [("P3", "policy"), ("P4", "draft.policy")]),
-    ("draft_probes", [("P3", "probes"), ("P7", "revision.probes")]),
+    ("draft_text", [("write", "policy"), ("assemble", "draft.policy")]),
+    ("draft_probes", [("write", "probes"), ("correct", "revision.probes")]),
 ];
 
 /// The places of the returns an input of the policy being set is taken from, the newest of them; none for another
@@ -98,14 +101,14 @@ pub fn draft_places(name: &str) -> Option<&'static [(&'static str, &'static str)
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
 pub const KINDS: [(&str, &str, &str); 8] = [
-    ("set_straight", "T1", "T1"),
-    ("engineer_question", "Q1", "Q2"),
-    ("report", "I1", "I2"),
-    ("design_card", "K1", "K1"),
-    ("failure", "F1", "F1"),
-    ("owner_words", "O1", "O1"),
-    ("other_architect", "M1", "M1"),
-    ("slots_free", "N1", "N1"),
+    ("set_straight", "set_straight", "set_straight"),
+    ("engineer_question", "crux", "ways"),
+    ("report", "what_is_it", "take_in"),
+    ("design_card", "card_sound", "card_sound"),
+    ("failure", "have_fixed", "have_fixed"),
+    ("owner_words", "owner_words", "owner_words"),
+    ("other_architect", "answer_architect", "answer_architect"),
+    ("slots_free", "what_runs", "what_runs"),
 ];
 
 /// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is an
@@ -119,22 +122,22 @@ const QUESTION_KINDS: [&str; 6] = [
     "too_costly",
 ];
 
-/// The cells the engine knows by their ids: the look at the queue, the pick, the understanding, the rethink after a
+/// The cells the engine knows by their names: the look at the queue, the pick, the understanding, the rethink after a
 /// batch, and the review of the batch.
-const LOOK: &str = "D0";
-const PICK: &str = "D1";
-const UNDERSTAND: &str = "U1";
-const RETHINK: &str = "C1";
-const REVIEW: &str = "R1";
+const LOOK: &str = "anything";
+const PICK: &str = "pick";
+const UNDERSTAND: &str = "state";
+const RETHINK: &str = "rethink";
+const REVIEW: &str = "review";
 
 /// The architect's line, whose session goes on across its project's wakes; the cell that asks whether that session
 /// understood the project; and the stage of the cells that set a new policy.
 const LINE: &str = "architect";
-const UNDERSTOOD_YET: &str = "W1";
+const UNDERSTOOD_YET: &str = "understood";
 const SETTING_POLICY: &str = "setting_policy";
 
 /// The cell of the engineer's graph a work is done at, as the views read it.
-const ENGINEER_END: &str = "20";
+const ENGINEER_END: &str = "end";
 
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
@@ -299,8 +302,8 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
     Ok(())
 }
 
-/// Cell W0: the wake goes on in the CLI session the project's last wake left, unless a new policy ended it: its line's
-/// session is a row of this wake's with the same CLI session, which the next round of the line resumes.
+/// Cell `wake`: the wake goes on in the CLI session the project's last wake left, unless a new policy ended it: its
+/// line's session is a row of this wake's with the same CLI session, which the next round of the line resumes.
 pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let id = w.id;
     e.db.write(Actor::Engine, |tx| {
@@ -313,8 +316,8 @@ pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
 // The queue and the batch.
 
 /// The matter the latest pick in a wake chose before round `before`, or before none: the lone matter the queue held
-/// (cell D0), or the one the architect picked (cell D1); none when the latest look at the queue found none, or many
-/// with no pick after it.
+/// (cell `anything`), or the one the architect picked (cell `pick`); none when the latest look at the queue found none,
+/// or many with no pick after it.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(String, Option<String>)> = conn
         .query_row(
@@ -484,8 +487,8 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
-/// Cell D0: what can be picked from the project's queue now; a lone matter is picked here, without a round. A design
-/// card matter whose card needs no look any longer is closed first, as the round's progress says.
+/// Cell `anything`: what can be picked from the project's queue now; a lone matter is picked here, without a round. A
+/// design card matter whose card needs no look any longer is closed first, as the round's progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let project = project_of(w)?;
     let closed = close_settled_cards(e, w, project)?;
@@ -596,10 +599,11 @@ fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
         let n = count(
             e.db.conn(),
             &format!(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2 AND cell = ?3 AND transition IS NOT NULL
-                   AND transition NOT IN {NO_ANSWER}"
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2 AND cell IN {} AND transition IS NOT NULL
+                   AND transition NOT IN {NO_ANSWER}",
+                db::cells_sql(ARCHITECT, &[UNDERSTAND])
             ),
-            &[&r.work, &r.n, &UNDERSTAND],
+            &[&r.work, &r.n],
         )?;
         if n > 0 {
             return Ok(true);
@@ -615,9 +619,9 @@ fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let conn = e.db.conn();
     let last: Option<String> = conn
         .query_row(
-            "SELECT cell FROM rounds WHERE work = ?1 AND cell IN (?2, 'W1') AND transition IS NOT NULL
+            "SELECT cell FROM rounds WHERE work = ?1 AND cell IN (?2, ?3) AND transition IS NOT NULL
              ORDER BY n DESC LIMIT 1",
-            params![w.id, RETHINK],
+            params![w.id, RETHINK, UNDERSTOOD_YET],
             |r| r.get(0),
         )
         .optional()
@@ -635,17 +639,18 @@ fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
         conn,
         &format!(
             "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
-             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell = ?2 AND r.transition IS NOT NULL
-               AND r.transition NOT IN {NO_ANSWER}"
+             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+               AND r.transition NOT IN {NO_ANSWER}",
+            db::cells_sql(ARCHITECT, &[UNDERSTAND])
         ),
-        &[&project, &UNDERSTAND],
+        &[&project],
     )?;
     if before == 0 {
         return Ok("first".into());
     }
     let policy = count(
         conn,
-        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'P10' AND transition IS NOT NULL",
+        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'takes_effect' AND transition IS NOT NULL",
         &[&w.id],
     )?;
     Ok(if policy > 0 { "new_policy" } else { "new" }.into())
@@ -963,9 +968,9 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
     ("engineer_question", "other_question".into())
 }
 
-/// Cell 15: what is asked is queued for the architect of the item's project as a matter, which wakes it if it sleeps;
-/// the work waits, holding no slot, until the architect replies, and the reply goes back to the cell that asked
-/// unchanged.
+/// Cell `to_architect`: what is asked is queued for the architect of the item's project as a matter, which wakes it if
+/// it sleeps; the work waits, holding no slot, until the architect replies, and the reply goes back to the cell that
+/// asked unchanged.
 pub fn ask_architect(
     e: &mut Engine,
     w: &Work,
@@ -1024,8 +1029,8 @@ pub fn ask_architect(
     )))
 }
 
-/// Cell P8: how many new sessions in a row read this version of the policy's text and were judged to understand it;
-/// two pass it, one asks for another.
+/// Cell `count`: how many new sessions in a row read this version of the policy's text and were judged to understand
+/// it; two pass it, one asks for another.
 pub fn count_trials(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let rows = query_json(
         e.db.conn(),
@@ -1061,9 +1066,12 @@ type Running = (i64, Option<String>, Option<String>);
 /// The work running on an item, as the database has it: not stopped and not at the end of the engineer's graph.
 fn running_work(conn: &Connection, item: i64) -> Result<Option<Running>, String> {
     conn.query_row(
-        "SELECT id, paused, paused_by FROM works
-         WHERE item = ?1 AND graph = 'engineer' AND ended IS NULL AND at <> ?2 ORDER BY id DESC LIMIT 1",
-        params![item, ENGINEER_END],
+        &format!(
+            "SELECT id, paused, paused_by FROM works
+             WHERE item = ?1 AND graph = 'engineer' AND ended IS NULL AND at NOT IN {} ORDER BY id DESC LIMIT 1",
+            db::cells_sql(ENGINEER, &[ENGINEER_END])
+        ),
+        params![item],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )
     .optional()
@@ -1408,7 +1416,7 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
             let kind: String = tx
                 .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
                 .map_err(sql)?;
-            let decides = KINDS.iter().find(|k| k.0 == kind).map_or("O1", |k| k.2);
+            let decides = KINDS.iter().find(|k| k.0 == kind).map_or("owner_words", |k| k.2);
             tx.execute(
                 "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, handled_work = NULL, handled_round = NULL
                  WHERE id = ?1",
@@ -1636,20 +1644,19 @@ fn names_date(text: &str) -> bool {
     })
 }
 
-/// The cells of the flow a text names: a cell of the architect's graph by its id, as `D1`, or any cell as `cell 15`.
+/// The cells of the flow a text names: a cell's name after the word cell, as `cell pick`; a name alone is a word.
 fn names_cell(e: &Engine, text: &str) -> Option<String> {
     let f = e.flows.get(&e.flow_now)?;
     let words: Vec<&str> = text
-        .split(|c: char| !c.is_ascii_alphanumeric())
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .filter(|w| !w.is_empty())
         .collect();
     for g in &f.graphs {
         for c in &g.cells {
-            let own = g.name == ARCHITECT && words.contains(&c.id.as_str());
             let named = words
                 .windows(2)
                 .any(|w| w[0].eq_ignore_ascii_case("cell") && w[1] == c.id);
-            if own || named {
+            if named {
                 return Some(c.id.clone());
             }
         }
@@ -1694,12 +1701,12 @@ fn revised(c: &checks::Ctx<'_>, at: Option<&str>) -> Result<Option<Value>, Strin
 }
 
 /// The text of the policy a wake is setting as it stands, whole, with the round that holds it: the latest the
-/// architect wrote (P3) or the engine put together (P4); none before one is written.
+/// architect wrote (`write`) or the engine put together (`assemble`); none before one is written.
 fn draft_now(conn: &Connection, work: i64) -> Result<Option<(i64, Value)>, String> {
     let rows = query_json(
         conn,
         "SELECT n, coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy')) AS policy
-         FROM rounds WHERE work = ?1 AND cell IN ('P3', 'P4') AND transition IS NOT NULL
+         FROM rounds WHERE work = ?1 AND cell IN ('write', 'assemble') AND transition IS NOT NULL
            AND coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy')) IS NOT NULL
          ORDER BY n DESC LIMIT 1",
         &[&work],
@@ -1711,8 +1718,8 @@ fn draft_now(conn: &Connection, work: i64) -> Result<Option<(i64, Value)>, Strin
         .map(|r| (r["n"].as_i64().unwrap_or_default(), r["policy"].clone())))
 }
 
-/// Cell P4: this version of the policy's text, put together for a new architect to read: as the architect wrote it,
-/// or, after a correction, the text before with each of the correction's edits applied in order.
+/// Cell `assemble`: this version of the policy's text, put together for a new architect to read: as the architect wrote
+/// it, or, after a correction, the text before with each of the correction's edits applied in order.
 pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
     let conn = e.db.conn();
     let (round, text) =
@@ -1720,7 +1727,7 @@ pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
     let correction = query_json(
         conn,
         "SELECT json_extract(output, '$.outcome.revision.edits') AS edits FROM rounds
-         WHERE work = ?1 AND cell = 'P7' AND transition IS NOT NULL AND n > ?2
+         WHERE work = ?1 AND cell = 'correct' AND transition IS NOT NULL AND n > ?2
            AND json_extract(output, '$.outcome.revision.edits') IS NOT NULL
          ORDER BY n DESC LIMIT 1",
         &[&w.id, &round],
@@ -2111,8 +2118,8 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             let from = batch_start(conn, c.w.id)?;
             let asked = count(
                 conn,
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'O1' AND transition IS NOT NULL
-                   AND json_extract(output, '$.outcome.take.way') = 'rethink'",
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'owner_words'
+                   AND transition IS NOT NULL AND json_extract(output, '$.outcome.take.way') = 'rethink'",
                 &[&c.w.id, &from],
             )?;
             let yes = v.is_some_and(|r| r["verdict"] == "yes");
@@ -2177,7 +2184,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "failed_probes_gone" => {
             let gaps = query_json(
                 conn,
-                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'P6' AND transition = 'gaps'",
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'judge_read' AND transition = 'gaps'",
                 &[&c.w.id],
                 ROWS,
             )?;
@@ -2540,27 +2547,37 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
     let after = format!("--since=@{}", since / 1000);
     let merged = query_json(
         conn,
-        "SELECT w.item, i.title, w.pr, json_extract(r.output, '$.result.merge_commit') AS commit_merged
-         FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND r.cell = '9' AND r.transition = 'merged' AND r.ended_at > ?2 ORDER BY r.ended_at",
+        &format!(
+            "SELECT w.item, i.title, w.pr, json_extract(r.output, '$.result.merge_commit') AS commit_merged
+             FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+             WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at > ?2
+             ORDER BY r.ended_at",
+            db::cells_sql(ENGINEER, &["merge_queue"])
+        ),
         &[&project, &since],
         ROWS,
     )?;
     let works = query_json(
         conn,
-        "SELECT w.id AS work, w.item, i.title, w.at, w.paused, w.ended FROM works w JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND w.graph = 'engineer'
-           AND EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.started_at > ?2)
-           AND (w.ended IS NOT NULL OR w.at = ?3)
-         ORDER BY w.id",
-        &[&project, &since, &ENGINEER_END],
+        &format!(
+            "SELECT w.id AS work, w.item, i.title, w.at, w.paused, w.ended FROM works w JOIN items i ON i.id = w.item
+             WHERE i.project = ?1 AND w.graph = 'engineer'
+               AND EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.started_at > ?2)
+               AND (w.ended IS NOT NULL OR w.at IN {})
+             ORDER BY w.id",
+            db::cells_sql(ENGINEER, &[ENGINEER_END])
+        ),
+        &[&project, &since],
         ROWS,
     )?;
     let main_ci = query_json(
         conn,
-        "SELECT w.item, r.transition, json_extract(r.output, '$.main.kind') AS kind, r.ended_at AS at
-         FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND r.cell = '10' AND r.ended_at > ?2 ORDER BY r.ended_at",
+        &format!(
+            "SELECT w.item, r.transition, json_extract(r.output, '$.main.kind') AS kind, r.ended_at AS at
+             FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+             WHERE i.project = ?1 AND r.cell IN {} AND r.ended_at > ?2 ORDER BY r.ended_at",
+            db::cells_sql(ENGINEER, &["watch_main"])
+        ),
         &[&project, &since],
         ROWS,
     )?;
@@ -2623,8 +2640,11 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         )?;
         let merged = count(
             conn,
-            "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-             WHERE i.project = ?1 AND r.cell = '9' AND r.transition = 'merged' AND r.ended_at BETWEEN ?2 AND ?3",
+            &format!(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+                 WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at BETWEEN ?2 AND ?3",
+                db::cells_sql(ENGINEER, &["merge_queue"])
+            ),
             &[&project, &from, &to],
         )?;
         let cancelled = count(
@@ -2977,7 +2997,7 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let asked = query_json(
         conn,
         "SELECT m.id AS matter, m.kind, m.asked AS ask, m.resume_cell FROM architect_matters m
-         JOIN rounds r ON r.work = ?1 AND r.n > ?2 AND r.cell = 'ASK'
+         JOIN rounds r ON r.work = ?1 AND r.n > ?2 AND r.cell = 'to_owner'
          JOIN owner_asks a ON a.work = r.work AND a.round = r.n AND a.id = m.asked ORDER BY m.id",
         &[&w.id, &from],
         ROWS,
@@ -3006,7 +3026,7 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     )? > 0;
     let rethink = count(
         conn,
-        "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'O1' AND transition IS NOT NULL
+        "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'owner_words' AND transition IS NOT NULL
            AND json_extract(output, '$.outcome.take.way') = 'rethink'",
         &[&w.id, &from],
     )? > 0;
@@ -3072,7 +3092,7 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                     let design = query_json(
                         conn,
                         "SELECT json_extract(output, '$.outcome') AS design FROM rounds
-                         WHERE work = ?1 AND cell = '2a' AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
+                         WHERE work = ?1 AND cell = 'choose' AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
                         &[&c["work"].as_i64().unwrap_or_default()],
                         1,
                     )?;
@@ -3388,7 +3408,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
     let Some(m) = picked(conn, w.id)? else {
         return Ok(None);
     };
-    // The agent's cell whose own answer leads here, as Q1's crux leads to Q2.
+    // The agent's cell whose own answer leads here, as the crux `crux` finds leads to `ways`.
     let Some(prev) = g.cells.iter().find(|c| {
         c.kind == "agent"
             && c.rows
@@ -3408,11 +3428,14 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
     };
     let wakes = query_json(
         conn,
-        "SELECT DISTINCT r.work, r.n FROM rounds r JOIN works x ON x.id = r.work
-         WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell = ?2 AND r.transition IS NOT NULL
-           AND json_extract(r.output, ?3) IS NOT NULL
-         ORDER BY r.work DESC, r.n DESC",
-        &[&project_of(w)?, &prev.id, &format!("$.{}.{field}", g.within)],
+        &format!(
+            "SELECT DISTINCT r.work, r.n FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
+               AND json_extract(r.output, ?2) IS NOT NULL
+             ORDER BY r.work DESC, r.n DESC",
+            db::cells_sql(ARCHITECT, &[prev.id.as_str()])
+        ),
+        &[&project_of(w)?, &format!("$.{}.{field}", g.within)],
         1000,
     )?;
     for r in wakes {

@@ -712,7 +712,7 @@ from: Array<Src>, };
  */
 export type RoundConditional = { 
 /**
- * Its address, such as `R5-12·2a·design`, `rule:ground` or `format:common`.
+ * Its address, such as `R5-12·choose·design`, `rule:ground` or `format:common`.
  */
 address: string, 
 /**
@@ -1238,7 +1238,7 @@ versions: Array<StateVersion>, };
  * One version of the understanding: what an understanding round answered, by the wake and its round, with what the
  * wrap-ups after it, before the next version, learned.
  */
-export type StateVersion = { work: number, round: number, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
+export type StateVersion = { work: number, round: number, cell: string, at: number | null, state: JsonValue, learned: Array<JsonValue>, };
 
 /**
  * What the agents spent on one day, on one model, on one line, across every work: their rounds and the keep-warm pings

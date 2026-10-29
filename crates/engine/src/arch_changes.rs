@@ -715,7 +715,7 @@ mod tests {
                 let item = tx.last_insert_rowid();
                 tx.execute(
                     "INSERT INTO works (item, flow_version, graph, at, worktree, pr)
-                     VALUES (?1, 1, 'engineer', '4', ?2, ?3)",
+                     VALUES (?1, 1, 'engineer', 'implement', ?2, ?3)",
                     params![item, format!("/w/{item}"), pr],
                 )?;
                 let work = tx.last_insert_rowid();

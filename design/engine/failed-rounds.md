@@ -2,7 +2,7 @@ Decision: A return sent back and a run that ended without a return are shared ro
 
 Decision: A round whose agent command line fails to hand in a return is not a return sent back and is never counted with returns sent back, because nothing was wrong with what the agent did: it never ran to the end.
 
-Decision: Before a return is checked against its cell's schema, a field the flow lets it leave out that it holds as null is taken as left out, at every depth, instead of sending the return back, because an agent writes null for a field it has nothing for (F1 wrote `waits: null` and its whole answer was sent back), and the two mean the same.
+Decision: Before a return is checked against its cell's schema, a field the flow lets it leave out that it holds as null is taken as left out, at every depth, instead of sending the return back, because an agent writes null for a field it has nothing for (`have_fixed` wrote `waits: null` and its whole answer was sent back), and the two mean the same.
 
 Decision: When the account's usage limit is reached, the network cannot be reached, the login has expired or the command line cannot be found, the engine starts no new round for any work and tells the owner once; it waits until the time the command line gives for the limit to reset, and otherwise lets one round try every half minute, then carries on each work from the cell it recorded, and the owner, who logs in again or installs the command line, writes nothing; instead of retrying each round, or pausing the work and asking the owner for a written answer, because one cause stops every work alike, only its passing matters, and the round that runs again is the proof that it passed.
 
