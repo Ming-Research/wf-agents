@@ -6,6 +6,7 @@
 // many it handled today, opening to the list with the matter in hand marked. The architect is always there to the
 // owner: the page never names its wakes.
 
+import { BlockedIcon } from '@primer/octicons-react';
 import { Label, Select } from '@primer/react';
 import { useState } from 'react';
 
@@ -308,15 +309,18 @@ export function ArchitectHead({ c }: { c: Conversation }) {
       <div className="talk-head-title">
         <h2 className="talk-head-name">{t('conv_architect', { project })}</h2>
         {a !== null ? <ArchitectNow a={a} status={status} /> : null}
+        {a !== null && a.holds.length > 0 ? (
+          <span className="talk-head-holds">
+            {a.holds.map((h) => (
+              <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
+                <BlockedIcon size={16} />
+                {holdWords(h.reason)}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </div>
       <div className="talk-head-facts">
-        {a !== null
-          ? a.holds.map((h) => (
-              <Label key={h.reason} variant="attention" title={t('hold_since', { at: time(h.since) })}>
-                {holdWords(h.reason)}
-              </Label>
-            ))
-          : null}
         <Link to={architectHref({ project })}>{t('talk_architect_page')}</Link>
         {a !== null ? <ArchitectControls a={a} status={status} /> : null}
       </div>

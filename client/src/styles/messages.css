@@ -488,3 +488,19 @@
   display: inline-flex;
   align-items: center;
 }
+
+/* What stops a project's new works from starting, at the right end of the architect's title row: a sign and words in
+   the attention colour, with no box, so that it reads apart from the architect's own state beside its name. */
+.talk-head-holds {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-12);
+}
+
+.talk-head-hold {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  color: var(--fgColor-attention);
+}

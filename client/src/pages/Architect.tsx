@@ -11,7 +11,7 @@
 // in force, as one document. Each part names the cell that wrote it, and every tab draws its blocks, sections, items
 // and rounds with the page's shared parts.
 
-import { SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
+import { BlockedIcon, SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
 import {
   Button,
   Checkbox,
@@ -144,12 +144,17 @@ function Line({ a, shown, current, pop, setPop }: {
         <Now a={a} current={state.kind === 'awake' ? current : null} />
       </span>
       {state.waiting > 0 ? <span className="muted">{t('talk_queue_left', { n: state.waiting })}</span> : null}
-      {a.holds.map((h) => (
-        <Label key={h.reason} variant="attention" title={t('hold_since', { at: time(h.since) })}>
-          {holdWords(h.reason)}
-          {h.why !== null ? `: ${h.why}` : null}
-        </Label>
-      ))}
+      {a.holds.length > 0 ? (
+        <span className="talk-head-holds">
+          {a.holds.map((h) => (
+            <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
+              <BlockedIcon size={16} />
+              {holdWords(h.reason)}
+              {h.why !== null ? `: ${h.why}` : null}
+            </span>
+          ))}
+        </span>
+      ) : null}
       <Link to={href({ page: 'messages', open: `architect:${a.project}` })} title={t('go_to_conversation_hint')}>
         {t('go_to_conversation')}
       </Link>
