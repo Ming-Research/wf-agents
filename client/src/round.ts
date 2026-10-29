@@ -1,8 +1,9 @@
 // What a round's panel reads from a round, apart from how it draws it: the message as sent, cut at its headings, a
 // long part folded with its size and its share of the message; a value given or handed back, laid out by the JSON
 // Schema of where it belongs (each key with what the schema says it is, the value of an enum or a const with what it
-// means, the alternative of a `oneOf` or `anyOf` the value is) and by its JSON type wherever the schema says nothing
-// of it; and where an agent's round spent its tokens and its cost.
+// means, the alternative of a `oneOf` or `anyOf` the value is, and in a list of objects each key's note once, at the
+// list's head) and by its JSON type wherever the schema says nothing of it; and where an agent's round spent its tokens
+// and its cost.
 
 import type { JsonValue, RoundTokens } from './api';
 import { isObj, type Obj } from './labelled';
@@ -58,21 +59,38 @@ export function preview(text: string): string {
   return Array.from(head).slice(0, 300).join('');
 }
 
+/// A table of more rows than this is folded, its first `ROWS_PREVIEW` rows showing.
+export const ROWS_FOLD_AT = 10;
+export const ROWS_PREVIEW = 3;
+
+/// The label of a folded table, in the page's words: how many rows it has, to open it or to fold it again.
+export function rowsLabel(n: number, open: boolean): string {
+  const rows = n.toLocaleString('en-US');
+  return open ? t('fold_rows_hide', { n: rows }) : t('fold_rows_show', { n: rows });
+}
+
 /// A value laid out by its schema: a text, a number, a boolean or null as JSON writes it, an empty list or object,
 /// an object by its keys in its own order, a list by its items in order; a list of objects the schema lists no fields
 /// of, each holding only texts, numbers, booleans and nulls (the rows a query found), as a table, a column for each
-/// key any of them has, in the order they first come, and a row for each, a key a row lacks left empty.
+/// key any of them has, in the order they first come, and a row for each, a key a row lacks left empty. A list of two
+/// or more objects has a head that gives each key's note once (`head`), its items then holding only the notes the
+/// items do not share.
 export type Shown =
   | { kind: 'text'; text: string }
   | { kind: 'plain'; text: string }
   | { kind: 'empty'; text: string }
   | { kind: 'fields'; fields: ShownField[] }
-  | { kind: 'list'; items: ShownItem[] }
+  | { kind: 'list'; items: ShownItem[]; head?: HeadKey[] }
   | { kind: 'table'; columns: string[]; rows: Array<Array<string | null>> };
 
 /// A key of an object with its value, and what the schema says of it: the note beside the key, and the whole of what
-/// the schema says, for hovering, when the note is shorter.
-export type ShownField = { key: string; note: string | null; full: string | null; value: Shown };
+/// the schema says, for hovering, when the note is shorter; for a list that is not empty, how many items it holds.
+export type ShownField = { key: string; note: string | null; full: string | null; count: string | null; value: Shown };
+
+/// A key of the objects of a list as the list's head gives it, once for them all: its note and the whole of it, none
+/// when the objects' notes for it differ (as the meanings of an enum's different values), and the keys under it, of
+/// an object or of the objects of a list it holds.
+export type HeadKey = { key: string; note: string | null; full: string | null; under: HeadKey[] };
 
 /// An item of a list, with what its value means when the schema says.
 export type ShownItem = { note: string | null; value: Shown };
@@ -217,9 +235,61 @@ function note(text: string | null): { note: string | null; full: string | null }
 }
 
 /// A value, laid out by the schema of where it belongs; with no schema, or where the value is not what the schema
-/// describes, by its JSON type alone.
+/// describes, by its JSON type alone. A list of two or more objects gives each key's note once, at its head.
 export function shape(value: JsonValue, schema: JsonValue | null | undefined, o: ShapeOptions = {}): Shown {
-  return shapeAt(value, isObj(schema) ? schema : null, o, 0);
+  return headed(shapeAt(value, isObj(schema) ? schema : null, o, 0));
+}
+
+/// A value with each list of two or more objects headed by its keys' notes, given once there: an item keeps a note
+/// only where the items' notes for that key differ. The objects of lists inside such a list share its head, outermost
+/// first, so that a note is given once however deep it is.
+function headed(v: Shown): Shown {
+  if (v.kind === 'fields') return { kind: 'fields', fields: v.fields.map((f) => ({ ...f, value: headed(f.value) })) };
+  if (v.kind !== 'list') return v;
+  const objects = v.items.flatMap((x) => (x.value.kind === 'fields' ? [x.value.fields] : []));
+  if (v.items.length < 2 || objects.length < v.items.length) {
+    return { kind: 'list', items: v.items.map((x) => ({ ...x, value: headed(x.value) })) };
+  }
+  const head = headOf(objects);
+  return { kind: 'list', head, items: v.items.map((x) => ({ ...x, value: bare(x.value, head) })) };
+}
+
+/// The objects a value holds for a head: itself when it is one, the items of a list that are objects.
+function objectsIn(v: Shown): ShownField[][] {
+  if (v.kind === 'fields') return [v.fields];
+  if (v.kind === 'list') return v.items.flatMap((x) => (x.value.kind === 'fields' ? [x.value.fields] : []));
+  return [];
+}
+
+/// The head of objects: each key in the order it first comes, with its note when every object that has it gives the
+/// same, and the keys under it; a key with no note and nothing under it is left out, as the head has nothing to say
+/// of it.
+function headOf(objects: ShownField[][]): HeadKey[] {
+  const keys = [...new Set(objects.flatMap((fs) => fs.map((f) => f.key)))];
+  return keys.flatMap((key): HeadKey[] => {
+    const fs = objects.flatMap((o) => o.filter((f) => f.key === key));
+    const same = fs.every((f) => f.note === fs[0].note);
+    const under = headOf(fs.flatMap((f) => objectsIn(f.value)));
+    const note = same ? fs[0].note : null;
+    if (note === null && under.length === 0) return [];
+    return [{ key, note, full: note !== null ? (fs.find((f) => f.full !== null)?.full ?? null) : null, under }];
+  });
+}
+
+/// A value of an object under a head, with the notes the head gives taken off, deep as the head goes.
+function bare(v: Shown, head: HeadKey[]): Shown {
+  if (head.length === 0) return v;
+  if (v.kind === 'list') return { kind: 'list', items: v.items.map((x) => ({ ...x, value: bare(x.value, head) })) };
+  if (v.kind !== 'fields') return v;
+  return {
+    kind: 'fields',
+    fields: v.fields.map((f) => {
+      const h = head.find((x) => x.key === f.key);
+      if (h === undefined) return f;
+      const given = h.note !== null && h.note === f.note;
+      return { ...f, note: given ? null : f.note, full: given ? null : f.full, value: bare(f.value, h.under) };
+    }),
+  };
 }
 
 function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, depth: number): Shown {
@@ -257,11 +327,9 @@ function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, depth: number): S
       const form = depth === 0 && k === o.within && r !== null && r.at >= 0 ? (o.form?.(r.at) ?? null) : null;
       let said = note(form ?? (means !== null ? t('shape_means', { meaning: means }) : described(ks)));
       if (form !== null || means !== null) said = { note: said.note, full: described(ks) ?? said.full };
-      if (Array.isArray(x) && x.length > 0) {
-        const n = t(x.length === 1 ? 'shape_one_item' : 'shape_items', { n: x.length });
-        said = { note: said.note !== null ? `${said.note} ${n}` : n, full: said.full };
-      }
-      return { key: k, note: said.note, full: said.full, value: shapeAt(x, r?.schema ?? null, o, depth + 1) };
+      const count =
+        Array.isArray(x) && x.length > 0 ? t(x.length === 1 ? 'shape_one_item' : 'shape_items', { n: x.length }) : null;
+      return { key: k, note: said.note, full: said.full, count, value: shapeAt(x, r?.schema ?? null, o, depth + 1) };
     }),
   };
 }

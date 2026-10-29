@@ -3165,6 +3165,17 @@ p.rp-note {
   margin-top: 6px;
 }
 
+/* The head of a list of objects: each key's note once for all its items, above them, set off from them by a line. */
+.rp-head {
+  margin-top: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.rp-head-key {
+  margin-top: 2px;
+}
+
 .rp-files {
   display: grid;
   gap: 2px;

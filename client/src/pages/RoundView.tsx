@@ -7,7 +7,8 @@
 // gives its size and its share of the message, its first lines showing. Then its output: the return as handed back in
 // one box, each key on its own line with what the cell's return format says it is beside it, and its value in a box
 // of its own under it, laid out by the cell's compiled return schema alone (no code for any cell): nested keys
-// indented, lists numbered, an empty list said so, nothing hidden, renamed, merged or added; the raw JSON folded at
+// indented, lists numbered, in a list of objects each key's note once at its head and the items as their values, a
+// long table of rows folded, an empty list said so, nothing hidden, renamed, merged or added; the raw JSON folded at
 // the bottom. A return sent back has why above its box. A round no agent ran shows what its step read and what it came
 // to by the same rule; for the tools, what they were asked and what they returned.
 
@@ -27,9 +28,13 @@ import {
   chars,
   FOLD_AT,
   foldLabel,
+  type HeadKey,
   messageParts,
   placeSchema,
   preview,
+  ROWS_FOLD_AT,
+  ROWS_PREVIEW,
+  rowsLabel,
   shape,
   type ShapeOptions,
   type Shown,
@@ -241,8 +246,83 @@ function TextValue({ text }: { text: string }) {
   return <>{text}</>;
 }
 
+/// Rows a query found, as a table in a small box of its own; a long one folded under a label that says how many rows
+/// it has, its first rows showing.
+function Rows({ columns, rows }: { columns: string[]; rows: Array<Array<string | null>> }) {
+  const [open, setOpen] = useState(false);
+  const long = rows.length > ROWS_FOLD_AT;
+  const table = (shown: Array<Array<string | null>>) => (
+    <div className="rp-val rp-table-wrap">
+      <table className="rp-table">
+        <thead>
+          <tr>
+            <th />
+            {columns.map((c) => (
+              <th key={c}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((row, i) => (
+            <tr key={i}>
+              <td className="rp-note">{i + 1}</td>
+              {row.map((x, j) => (
+                <td key={j}>{x}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+  if (!long) return table(rows);
+  return (
+    <div className="rp-fold">
+      <button type="button" className="rp-fold-label" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} {rowsLabel(rows.length, open)}
+      </button>
+      {open ? table(rows) : <div className="rp-preview">{table(rows.slice(0, ROWS_PREVIEW))}</div>}
+    </div>
+  );
+}
+
+/// The head of a list of objects: each key with the note its items share, once, the keys under it indented; outside
+/// the values, as every note is.
+function ListHead({ keys }: { keys: HeadKey[] }) {
+  return (
+    <div className="rp-head">
+      <div className="rp-note">{t('shape_head')}</div>
+      <HeadKeys keys={keys} />
+    </div>
+  );
+}
+
+function HeadKeys({ keys }: { keys: HeadKey[] }) {
+  return (
+    <>
+      {keys.map((k) => (
+        <div key={k.key} className="rp-head-key">
+          <div className="rp-kh">
+            <code className="rp-key">{k.key}</code>
+            {k.note !== null ? (
+              <span className="rp-note" title={k.full ?? undefined}>
+                {k.note}
+              </span>
+            ) : null}
+          </div>
+          {k.under.length > 0 ? (
+            <div className="rp-ind">
+              <HeadKeys keys={k.under} />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /// A value that is not an object, in a small box of its own: a text, a number, a boolean or null as it is, an empty
-/// list or object said so, a list as numbered rows.
+/// list or object said so, a list as numbered rows, a list of objects under the head that gives its keys' notes.
 function ValueBox({ v }: { v: Shown }) {
   switch (v.kind) {
     case 'text':
@@ -267,34 +347,12 @@ function ValueBox({ v }: { v: Shown }) {
         </div>
       );
     case 'table':
-      return (
-        <div className="rp-val rp-table-wrap">
-          <table className="rp-table">
-            <thead>
-              <tr>
-                <th />
-                {v.columns.map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {v.rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="rp-note">{i + 1}</td>
-                  {row.map((x, j) => (
-                    <td key={j}>{x}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <Rows columns={v.columns} rows={v.rows} />;
     case 'list':
       if (v.items.every((x) => x.value.kind === 'fields')) {
         return (
           <div className="rp-ind">
+            {v.head !== undefined && v.head.length > 0 ? <ListHead keys={v.head} /> : null}
             {v.items.map((x, i) => (
               <div key={i} className="rp-item">
                 <div className="rp-note">{t('rp_item', { n: i + 1 })}</div>
@@ -326,8 +384,9 @@ function ValueBox({ v }: { v: Shown }) {
   }
 }
 
-/// An object's keys, each on its own line with what its schema says it is beside it, its value under it: nested keys
-/// indented, any other value in a box of its own.
+/// An object's keys, each on its own line with what its schema says it is beside it, unless the head of the list it
+/// is in says so, and how many items a list holds, its value under it: nested keys indented, any other value in a box
+/// of its own.
 function Fields({ fields }: { fields: ShownField[] }) {
   return (
     <>
@@ -335,9 +394,9 @@ function Fields({ fields }: { fields: ShownField[] }) {
         <div key={x.key} className="rp-field">
           <div className="rp-kh">
             <code className="rp-key">{x.key}</code>
-            {x.note !== null ? (
+            {x.note !== null || x.count !== null ? (
               <span className="rp-note" title={x.full ?? undefined}>
-                {x.note}
+                {[x.note, x.count].filter((s) => s !== null).join(' ')}
               </span>
             ) : null}
           </div>
