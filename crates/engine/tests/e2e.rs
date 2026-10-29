@@ -4222,7 +4222,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, project)
-                 SELECT NULL, flow_version, graph, 'P6', project FROM works WHERE id = ?1",
+                 SELECT NULL, flow_version, 'policy', 'P6', project FROM works WHERE id = ?1",
                 [wake],
             )?;
             Ok(tx.last_insert_rowid())
