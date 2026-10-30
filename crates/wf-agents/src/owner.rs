@@ -10,6 +10,10 @@ use engine::database::open;
 use engine::query_json;
 use serde_json::Value;
 
+/// The most rows an owner command lists from a query; a table that is longer ends there, and the total row of the
+/// cost table, which sums every work, comes after the works it lists.
+const TABLE_ROWS: usize = 10_000;
+
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -319,7 +323,7 @@ fn table(rows: &[Value], width: usize) -> String {
 
 fn show(data: &Path, q: &str, args: &[&dyn db::rusqlite::ToSql], width: usize) -> Result<String, String> {
     let db = open(data)?;
-    Ok(table(&query_json(db.conn(), q, args, 10_000)?, width))
+    Ok(table(&query_json(db.conn(), q, args, TABLE_ROWS)?, width))
 }
 
 pub fn items(data: &Path) -> Result<String, String> {
@@ -416,7 +420,7 @@ pub fn history(data: &Path, work: i64, full: bool) -> Result<String, String> {
             db.conn(),
             "SELECT 'R' || work || '-' || round AS name, * FROM work_history WHERE work = ?1 ORDER BY round",
             &[&work],
-            10_000,
+            TABLE_ROWS,
         )?;
         // Each round as it was given: the texts its record keeps once put back.
         let rows: Vec<Value> = rows.iter().map(|r| db::put_back(db.conn(), r)).collect();
@@ -455,7 +459,7 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
             "SELECT work, 'R' || work || '-' || n AS round, cell, rejected FROM rounds WHERE rejected IS NOT NULL
              ORDER BY work, n",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         100,
     ));
@@ -466,7 +470,7 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
             "SELECT work, 'R' || work || '-' || n AS round, cell, compactions FROM rounds WHERE compactions > 0
              ORDER BY work, n",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         40,
     ));
@@ -476,7 +480,7 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
         "SELECT k.work, i.project, k.counter, k.times FROM work_counters k JOIN works w ON w.id = k.work
          JOIN items i ON i.id = w.item",
         &[],
-        10_000,
+        TABLE_ROWS,
     )?;
     let over: Vec<Value> = rows
         .into_iter()
@@ -508,16 +512,12 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
                     round(json_extract(p.usage, '$.cost_usd'), 4) AS cost_usd, p.error
              FROM pings p JOIN sessions s ON s.id = p.session ORDER BY s.work, p.id",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         100,
     ));
     Ok(out)
 }
-
-/// How many works the table of every work's cost lists, as many as `show` lists of any table; its total row comes
-/// after them and sums every work, those not listed too.
-const COST_WORK_ROWS: usize = 10_000;
 
 /// Time and cost of each work, its keep-warm pings counted, and of its rounds by cell, with its pings apart. The
 /// table of every work ends with a total row: the sum of each column, the cost summed before it is rounded.
@@ -551,8 +551,8 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
             let db = open(data)?;
             // One statement, so the rows and the total are read from one snapshot. `w` is each work's line with its
             // cost not yet rounded, computed once for both the rows and the total; the total is the one row after
-            // the works (`k` orders it, as UNION ALL does not), left out when there is no round to sum. Row limit
-            // and bound limit come from the one constant.
+            // the works (`k` orders it, as UNION ALL does not), left out when there is no round to sum. The works
+            // listed are TABLE_ROWS, and the query may return one row more for the total.
             let rows = query_json(
                 db.conn(),
                 "WITH w AS MATERIALIZED (
@@ -569,8 +569,8 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
                      SELECT 1, 'total', r, s, round(c, 2)
                      FROM (SELECT sum(rounds) AS r, sum(secs) AS s, sum(cost) AS c FROM w) WHERE r IS NOT NULL)
                  ORDER BY k, work",
-                &[&(COST_WORK_ROWS as i64)],
-                COST_WORK_ROWS + 1,
+                &[&(TABLE_ROWS as i64)],
+                TABLE_ROWS + 1,
             )?;
             Ok(table(&rows, 40))
         }
