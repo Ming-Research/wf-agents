@@ -1556,8 +1556,10 @@ mod tests {
         };
         let before = logged(&db);
         db.migrate(MIGRATIONS).unwrap();
-        let mut st = db.conn().prepare("SELECT ended_kind FROM works ORDER BY id").unwrap();
-        let kinds: Vec<Option<String>> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        let kinds: Vec<Option<String>> = {
+            let mut st = db.conn().prepare("SELECT ended_kind FROM works ORDER BY id").unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
         let want: Vec<Option<String>> = texts.iter().map(|(_, k)| k.map(str::to_string)).chain([None]).collect();
         assert_eq!(kinds, want);
         assert_eq!(logged(&db), before);
