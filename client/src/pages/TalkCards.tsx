@@ -101,7 +101,8 @@ function DesignOfStage({ shown, s, w }: { shown: Shown[]; s: StageCard; w: WorkS
 /// A stretch of a work at one stage: the stage, how many times the work came back to it, where it is while the work
 /// is there (its cell) or done, when, how long and what it cost, with its rounds; why it came back; the facts the
 /// engine knows of it; what the engineer's last round in it said, folded; and in the design's card, the design folded
-/// and the design cards its rounds handed in, the one that waits for the owner's ruling with its buttons.
+/// and the design cards its rounds handed in, each folded to its head line, the one that waits for the owner's ruling
+/// with its buttons once opened.
 export function StageCardView({ e, s, w }: { e: ConversationEntry; s: StageCard; w: WorkSummary | null }) {
   const work = e.work ?? 0;
   const tone = s.current ? 'accent' : 'success';
@@ -142,7 +143,7 @@ export function StageCardView({ e, s, w }: { e: ConversationEntry; s: StageCard;
       ) : null}
       {s.stage === 'design' ? <DesignOfStage shown={s.shown} s={s} w={w} /> : null}
       {s.design_cards.map((c) => (
-        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} folded={c.status === 'replaced'} />
+        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} folded />
       ))}
     </Card>
   );

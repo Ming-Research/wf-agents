@@ -680,13 +680,14 @@ function Pins({ at, children }: { at: 'top' | 'bottom'; children: ReactNode }) {
 }
 
 /// What waits for the owner pinned at the top of the conversation: the design card whose ruling a work waits for
-/// before its merge, with the verdicts to send. An ask of a work's is not pinned: it waits where it was asked.
+/// before its merge, with the verdicts to send, folded to its head line until the owner opens it, as the owner asked,
+/// since open it took most of the conversation. An ask of a work's is not pinned: it waits where it was asked.
 function Pinned({ d }: { d: ConversationDetail }) {
   if (d.design_cards.length === 0) return null;
   return (
     <Pins at="top">
       {d.design_cards.map((c) => (
-        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} />
+        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} folded />
       ))}
     </Pins>
   );
