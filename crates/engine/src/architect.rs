@@ -1646,6 +1646,7 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
         )
         .map_err(sql)?;
     }
+    cancel_within_batch(tx, w)?;
     for o in items(effects.get("observation_changes")) {
         observe(tx, &project, &format!("matter {matter}"), &o)?;
     }
@@ -1748,64 +1749,118 @@ fn batch_over(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), Stri
     settle_hold(tx, work, project)
 }
 
-/// The rows of a batch the review found sound, and those it found to fix with what it found: by the review's rows,
-/// numbered as the batch was given; a change that names an item a dropped one creates is dropped with it.
+/// The item a change names by a key an earlier change of the batch creates it under, among those it names: the item it
+/// changes, the item a dependency is on, a merge keeps or absorbs, a known red check's fix, and the item another is
+/// made or moved under.
+fn names_key(c: &Value, key: &str) -> bool {
+    ["item", "on", "keep", "fix_item"]
+        .iter()
+        .map(|k| c[*k].clone())
+        .chain([c["under"]["item"].clone(), c["to"]["item"].clone()])
+        .chain(items(c.get("absorbed")))
+        .any(|v| v.as_str().is_some_and(|s| s.trim() == key))
+}
+
+/// The rows of a batch the review found sound, and those it leaves out with what it found, by the review's rows,
+/// numbered as the batch was given: those it drops (`drop`) and those it found to fix (`fix`), each with the review's
+/// row; a change that names an item a dropped one creates is dropped with it, with the verdict of the change that
+/// creates it.
 fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(Change, Value)>) {
     let mut sound = Vec::new();
     let mut dropped: Vec<(Change, Value)> = Vec::new();
     for (i, row) in rows.into_iter().enumerate() {
         let finding = review
             .iter()
-            .find(|r| r["change"].as_i64() == Some(i as i64 + 1) && r["verdict"] == "fix");
+            .find(|r| r["change"].as_i64() == Some(i as i64 + 1) && (r["verdict"] == "fix" || r["verdict"] == "drop"));
         match finding {
             Some(f) => dropped.push((row, f.clone())),
             None => sound.push(row),
         }
     }
     loop {
-        let gone: BTreeSet<String> = dropped
+        let gone: Vec<(String, Value)> = dropped
             .iter()
             .filter(|(r, _)| r.3["kind"] == "create_item")
-            .map(|(r, _)| text(&r.3["key"]).trim().to_string())
+            .map(|(r, f)| (text(&r.3["key"]).trim().to_string(), f["verdict"].clone()))
             .collect();
-        let names_gone = |c: &Value| {
-            ["item", "on", "keep", "fix_item"]
-                .iter()
-                .map(|k| c[*k].clone())
-                .chain([c["under"]["item"].clone(), c["to"]["item"].clone()])
-                .chain(items(c.get("absorbed")))
-                .any(|v| v.as_str().is_some_and(|s| gone.contains(s.trim())))
-        };
-        let Some(i) = sound.iter().position(|r| names_gone(&r.3)) else {
+        let Some((i, verdict)) = sound.iter().enumerate().find_map(|(i, r)| {
+            gone.iter()
+                .find(|(k, _)| names_key(&r.3, k))
+                .map(|(_, v)| (i, v.clone()))
+        }) else {
             break;
         };
         let row = sound.remove(i);
         dropped.push((
             row,
-            json!({ "what": "It names an item a dropped change was to create" }),
+            json!({ "verdict": verdict, "what": "It names an item a dropped change was to create" }),
         ));
     }
     (sound, dropped)
 }
 
-/// The review gave up on what it still found to fix at its third look: the changes it found sound are made, the rest
-/// dropped with what it found, and the owner is asked about them in an ask that holds the matters they came from, each
-/// to go back, with the answer, to the cell that decides it.
-fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
-    let (w, project) = architect_work_of(ctx)?;
-    let review = items(ctx.unwrapped.get("review"));
-    let (sound, dropped) = sorted_by_review(collected(tx, w)?, &review);
-    let keys = make(tx, &sound, &ctx.projects)?;
-    let matters: BTreeSet<i64> = sound.iter().map(|r| r.2).collect();
-    let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.2).collect();
-    send_held_replies(tx, &matters.difference(&held).copied().collect(), &keys)?;
-    for ((id, _, _, _), finding) in &dropped {
+/// Marks rows of an architect work's batch dropped, each with why.
+fn drop_rows(tx: &Transaction<'_>, rows: &[(Change, Value)]) -> Result<(), String> {
+    for ((id, _, _, _), why) in rows {
         tx.execute(
             "UPDATE architect_item_changes SET state = 'dropped', outcome = ?2 WHERE id = ?1",
-            params![id, finding.to_string()],
+            params![id, why.to_string()],
         )
         .map_err(sql)?;
     }
+    Ok(())
+}
+
+/// A cancel the batch collected of an item a create of the same batch makes, named by its key, cancels that create
+/// out: the item is never made, so the create, every change of the batch that names its key and the cancel are
+/// dropped, saying so, before the review looks at the batch, instead of the review being given an item made, moved
+/// and cancelled in one batch, as in the sixth trial.
+fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
+    let rows = collected(tx, work)?;
+    let created: BTreeSet<String> = rows
+        .iter()
+        .filter(|r| r.3["kind"] == "create_item")
+        .map(|r| text(&r.3["key"]).trim().to_string())
+        .filter(|k| !k.is_empty())
+        .collect();
+    let mut gone: Vec<(Change, Value)> = Vec::new();
+    for (id, _, matter, c) in &rows {
+        let key = text(&c["item"]).trim();
+        if c["kind"] != "cancel" || !created.contains(key) {
+            continue;
+        }
+        let why = json!({
+            "what": format!("The item the batch was to create as {key} was cancelled in the same batch, by a change of \
+                             matter {matter}: it is never made"),
+        });
+        for r in &rows {
+            let creates = r.3["kind"] == "create_item" && text(&r.3["key"]).trim() == key;
+            if (r.0 == *id || creates || names_key(&r.3, key)) && !gone.iter().any(|(g, _)| g.0 == r.0) {
+                gone.push((r.clone(), why.clone()));
+            }
+        }
+    }
+    drop_rows(tx, &gone)
+}
+
+/// The review gave up on what it still found to fix at its third look: the changes it found sound are made, those it
+/// drops are left out, and those it still finds to fix are dropped with what it found, and the owner is asked about
+/// them in an ask that holds the matters they came from, each to go back, with the answer, to the cell that decides it.
+fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
+    let (w, project) = architect_work_of(ctx)?;
+    let review = items(ctx.unwrapped.get("review"));
+    let (sound, left_out) = sorted_by_review(collected(tx, w)?, &review);
+    let keys = make(tx, &sound, &ctx.projects)?;
+    drop_rows(tx, &left_out)?;
+    let matters: BTreeSet<i64> = sound
+        .iter()
+        .chain(left_out.iter().map(|(r, _)| r))
+        .map(|r| r.2)
+        .collect();
+    // What the review drops is left out, and what it still finds to fix is put to the owner.
+    let dropped: Vec<(Change, Value)> = left_out.into_iter().filter(|(_, f)| f["verdict"] == "fix").collect();
+    let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.2).collect();
+    send_held_replies(tx, &matters.difference(&held).copied().collect(), &keys)?;
     if !dropped.is_empty() {
         let asked: Vec<Value> = dropped
             .iter()
@@ -2213,12 +2268,15 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 )
                 .map_err(sql)?;
             }
+            cancel_within_batch(tx, w)?;
         }
         "apply_batch" => {
+            // What the review drops is left out; a flow version before named no review, and the batch was made whole.
             let (_, project) = architect_work_of(ctx)?;
-            let rows = collected(tx, w)?;
+            let (rows, dropped) = sorted_by_review(collected(tx, w)?, &items(at));
             let keys = make(tx, &rows, &ctx.projects)?;
-            let matters: BTreeSet<i64> = rows.iter().map(|r| r.2).collect();
+            drop_rows(tx, &dropped)?;
+            let matters: BTreeSet<i64> = rows.iter().chain(dropped.iter().map(|(r, _)| r)).map(|r| r.2).collect();
             send_held_replies(tx, &matters, &keys)?;
             batch_over(tx, w, &project)?;
         }
@@ -4459,8 +4517,9 @@ mod tests {
         assert_eq!(r["waits"][0]["key"], "41");
     }
 
-    // The review's rows sort the batch into what is made and what is dropped; a change naming an item a dropped
-    // change was to create is dropped with it, a fold of observations into it among them.
+    // The review's rows sort the batch into what is made and what is left out, what it drops and what it finds to fix;
+    // a change naming an item a dropped change was to create is dropped with it, a fold of observations into it among
+    // them.
     #[test]
     fn a_change_naming_a_dropped_item_is_dropped_with_it() {
         let rows = vec![
@@ -4485,8 +4544,19 @@ mod tests {
             json!({ "change": 3, "verdict": "ok", "why": "y" }),
             json!({ "change": 4, "verdict": "ok", "why": "y" }),
         ];
-        let (sound, dropped) = sorted_by_review(rows, &review);
+        let (sound, dropped) = sorted_by_review(rows.clone(), &review);
         assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
         assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
+        // A change the review drops is left out as one it finds to fix is, and what names its item goes with it,
+        // dropped too.
+        let mut review = review;
+        review[0] = json!({ "change": 1, "verdict": "drop", "why": "Item 5 does it already." });
+        let (sound, dropped) = sorted_by_review(rows, &review);
+        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
+        let verdicts: Vec<(i64, &str)> = dropped
+            .iter()
+            .map(|r| (r.0.0, r.1["verdict"].as_str().unwrap()))
+            .collect();
+        assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop")]);
     }
 }

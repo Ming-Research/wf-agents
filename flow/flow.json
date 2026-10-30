@@ -2884,9 +2884,9 @@
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
-      "apply_batch": "Makes every item change of the batch, as the architect, in one transaction, logs each with its reason, sends the replies that waited on them, and ends the review's session.",
-      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
-      "apply_reviewed": "Makes the item changes the review found sound, drops the others and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
+      "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies that waited on them, and ends the review's session.",
+      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
+      "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
       "close_matter": "Marks the matter picked as handled by this round.",
       "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
@@ -2919,7 +2919,7 @@
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
       "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
-      "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again.",
+      "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again; a cancel of an item they create cancels that create out, as an answer's effects do.",
       "settle_straight_hold": "Releases the hold to set the project straight once every matter that sets it straight is handled and the batch's item changes are made.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
       "update_design_card": "Replaces the work's design card with the one handed in, and keeps what the return says changed from it. Only the decisions that changed go through again; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
@@ -16463,7 +16463,7 @@
             }
           ],
           "prompt": [
-            "This round reviews every item change of the batch together, before any is made, without hurrying to a conclusion. Answer four things of each: does it duplicate an existing item, touching the same code not counting; do its place and its dependencies, blocking or parallel, stand among who waits for whom, and does it block more urgent works; does it rest on a conclusion deduced and not checked, an inference that decides the direction to be checked first by an item; does it fit the constitution and the policy, and is it written as items are written. Hand in one row per change: ok, or fix, saying what is wrong and how to fix it."
+            "This round reviews every item change of the batch together, before any is made, without hurrying to a conclusion. Answer four things of each: does it duplicate an existing item, touching the same code not counting; do its place and its dependencies, blocking or parallel, stand among who waits for whom, and does it block more urgent works; does it rest on a conclusion deduced and not checked, an inference that decides the direction to be checked first by an item; does it fit the constitution and the policy, and is it written as items are written. Hand in one row per change: ok; fix, saying what is wrong and how to fix it; or drop, when it should not be made at all, saying why: it is left out, and when nothing is left to fix the rest is made at once."
           ],
           "out": [
             {
@@ -16536,6 +16536,18 @@
                         "desc": "How to fix it"
                       }
                     ]
+                  },
+                  {
+                    "value": "drop",
+                    "desc": "It should not be made at all: it is left out of the batch",
+                    "fields": [
+                      {
+                        "name": "why",
+                        "title": "Why",
+                        "type": "text",
+                        "desc": "Why it should not be made, in a sentence"
+                      }
+                    ]
                   }
                 ]
               }
@@ -16559,8 +16571,12 @@
               "to": "B4",
               "main": true,
               "do": [
-                "apply_batch"
-              ]
+                {
+                  "at": "review",
+                  "do": "apply_batch"
+                }
+              ],
+              "note": "Nothing is left to fix: the changes the review found sound are made, and those it drops are left out."
             },
             {
               "name": "fix",
@@ -16604,7 +16620,7 @@
               "do": [
                 "apply_reviewed"
               ],
-              "note": "The third review that still finds something to fix: what it found sound is made, the rest is dropped and put to the owner."
+              "note": "The third review that still finds something to fix: what it found sound is made, what it drops is left out, and what it still finds to fix is dropped and put to the owner."
             }
           ],
           "without": [
@@ -16718,7 +16734,7 @@
             }
           ],
           "prompt": [
-            "This round revises the batch's item changes by what the review found. Hand in the whole set as it should be made: those found sound as they were, those to fix fixed, and a change left out where the fix is to make none; each with the matter it came from. Search the observations when a change makes or widens an item; change an observation the findings show done already or no longer so in observation_changes. The review looks at the whole set again."
+            "This round revises the batch's item changes by what the review found. Hand in the whole set as it should be made: those found sound as they were, those to fix fixed, and those the review drops, and any whose fix is to make none, left out; each with the matter it came from. Search the observations when a change makes or widens an item; change an observation the findings show done already or no longer so in observation_changes. The review looks at the whole set again."
           ],
           "out": [
             {
