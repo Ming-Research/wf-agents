@@ -7,6 +7,11 @@
 -- words, each a matter of its own now, as every word the owner says to the architect is. Each statement below that
 -- defines something is written exactly as db/schema.sql writes it.
 
+-- The changes below are the migration's, not a writer's, so the triggers that record changes to the rows they
+-- write are dropped first; every trigger is made afresh once the migration is done.
+DROP TRIGGER IF EXISTS track_architect_matters_insert;
+DROP TRIGGER IF EXISTS track_talk_entries_delete;
+
 INSERT INTO architect_matters (project, kind, detail, what, body, at)
 SELECT m.project, 'owner_words', 'said', 'The owner says: ' || e.text, json_object('text', e.text, 'where', 'page'),
   e.at

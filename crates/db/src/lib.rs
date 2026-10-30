@@ -1218,6 +1218,68 @@ mod tests {
         old
     }
 
+    // A database at version 50 that holds what the migrations after it change (an open setting of a policy with its
+    // study waiting for the owner, the hold on new starts it kept, and a talk held with words of the owner's it did not
+    // take yet) migrates to now, with no change outside a write, and comes out as those migrations say; a database
+    // that holds none of it, as a new one, never fires the triggers that record changes, and so cannot tell.
+    #[test]
+    fn a_database_with_rows_from_version_50_migrates_to_now() {
+        let mut old = at_version(50);
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at, transition)
+                 VALUES (1, 1, 'P1', '{}', 'c', 1, 2, 'set_again'), (1, 2, 'P3', '{}', 'c', 3, 4, 'held')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (1, 2, '{\"from\":\"architect\",\"kind\":\"study\"}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, work, round, at, asked, resume_cell)
+                 VALUES ('p', 'set_policy', 'Set the policy', '{}', 1, 1, 1, 1, 'P3')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at, talk_held)
+                 VALUES ('p', 'owner_words', 'said', 'The owner says: hi', '{\"text\":\"hi\",\"where\":\"page\"}', 5, 6)",
+                [],
+            )?;
+            tx.execute("INSERT INTO talk_entries (matter, text, at) VALUES (2, 'And more.', 7)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+        let one = |q: &str| -> String { old.conn().query_row(q, [], |r| r.get(0)).unwrap() };
+        assert!(one("SELECT withdrawn FROM architect_matters WHERE id = 1").contains("no longer runs so"));
+        assert_eq!(
+            one("SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = 1"),
+            "engine"
+        );
+        assert_eq!(one("SELECT count(*) || '' FROM dispatch_holds"), "0");
+        assert_eq!(
+            one("SELECT json_extract(body, '$.text') FROM architect_matters WHERE id = 3"),
+            "And more."
+        );
+        // The triggers are made afresh: a change outside a write is refused again.
+        assert!(
+            old.conn()
+                .execute("UPDATE architect_matters SET what = 'x' WHERE id = 3", [])
+                .is_err()
+        );
+    }
+
     // A database made at version 1 and migrated has the shape of one created from the schema, and keeps its rounds
     // and every row that points to them; each work's rounds are numbered from 1 in the order they were made.
     #[test]

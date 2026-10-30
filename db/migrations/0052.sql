@@ -9,6 +9,12 @@
 -- the texts those settings wrote. Each statement below that defines something is written exactly as db/schema.sql
 -- writes it.
 
+-- The changes below are the migration's, not a writer's, so the triggers that record changes to the rows they
+-- write are dropped first; every trigger is made afresh once the migration is done.
+DROP TRIGGER IF EXISTS track_architect_matters_update;
+DROP TRIGGER IF EXISTS track_owner_asks_update;
+DROP TRIGGER IF EXISTS track_dispatch_holds_delete;
+
 UPDATE architect_matters
 SET withdrawn = 'The setting of a policy no longer runs so; the next check of the policy decides again'
 WHERE kind = 'set_policy' AND handled_round IS NULL AND withdrawn IS NULL;
