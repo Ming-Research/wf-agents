@@ -37,7 +37,17 @@ import { inputName } from './flow/CellGiven';
 import { fieldActions, shownNote, titleOf } from './flow/Returns';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
-import { EFFORTS, effortOf, effortsOf, labelSize } from './graph/flowDraw';
+import {
+  cornerWidth,
+  EFFORTS,
+  effortOf,
+  effortsOf,
+  effortWidth,
+  labelSize,
+  sessionWidth,
+  startsAnew,
+  styleOf,
+} from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords } from './graph/FlowChart';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
@@ -672,6 +682,26 @@ describe('the chart of a flow', () => {
     const cells = ['max', 'turbo', 'low', 'high', 'low', 'medium', 'xhigh'].map((e, i) => cell(`c${i}`, [], { effort: e }));
     expect(effortsOf(cells).map((e) => e.level)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'turbo']);
     expect(effortsOf(graph.cells)).toEqual([]);
+  });
+
+  it('badges an agent cell on no line, and no other, as starting a new session every round, after its effort', () => {
+    const anew = cell('p', [], { line: null, effort: 'xhigh' });
+    expect(startsAnew(anew)).toBe(true);
+    expect(styleOf(anew)).toBe('fresh');
+    // A cell of a line that starts a new session at its first round in a work continues it after: no badge.
+    expect(startsAnew(cell('r', [], { new_session: true }))).toBe(false);
+    expect(startsAnew(cell('e', []))).toBe(false);
+    for (const kind of ['engine', 'tool', 'owner']) {
+      const c = cell('k', [], { kind, line: null });
+      expect(startsAnew(c), kind).toBe(false);
+      expect(styleOf(c), kind).toBe(`kind-${kind}`);
+    }
+    // The badges over the top left corner, from 4 px left of the cell: the effort's, then 3 px on the new session's.
+    expect(sessionWidth()).toBeGreaterThan(effortWidth());
+    expect(cornerWidth(anew)).toBe(effortWidth() + 3 + sessionWidth() - 4);
+    expect(cornerWidth(cell('n', [], { line: null }))).toBe(sessionWidth() - 4);
+    expect(cornerWidth(cell('e', [], { effort: 'high' }))).toBe(effortWidth() - 4);
+    expect(cornerWidth(cell('t', [], { kind: 'tool' }))).toBe(0);
   });
 
   it("keeps an arrow's label on its own line", () => {

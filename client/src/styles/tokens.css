@@ -28,11 +28,11 @@
   --chart-line-thin: 1;
   --chart-line-map: 0.75;
 
-  /* The dashes of the chart's lines: a cell no line runs, the engine's own step, a tool, a computed store, what is
-     read, and the rows a work took, which flow the way it went. */
-  --chart-dash-fresh: 2 2;
-  --chart-dash-engine: 3 3;
-  --chart-dash-tool: 4 3;
+  /* The dashes of the chart's lines, a cell's edge being solid: a move a cell lacks, the line to what the engine does
+     every time a cell returns, a computed store, what is read, and the rows a work took, which flow the way it went. */
+  --chart-dash-lack: 2 2;
+  --chart-dash-does: 3 3;
+  --chart-dash-computed: 4 3;
   --chart-dash-read: 5 4;
   --chart-dash-flow: 10 6;
 

@@ -14,7 +14,19 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useR
 
 import type { CompiledGraph, EngineNames, GraphView } from '../api';
 import { t } from '../text';
-import { EffortBadge, effortsOf, effortWidth, FlowSvg, Halo, labelSize, type Marks, sizes, styleOf } from './flowDraw';
+import {
+  EffortBadge,
+  effortsOf,
+  effortWidth,
+  FlowSvg,
+  Halo,
+  labelSize,
+  type Marks,
+  SessionBadge,
+  sessionWidth,
+  sizes,
+  styleOf,
+} from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
 import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
 import { mapOf, Minimap } from './Minimap';
@@ -210,7 +222,7 @@ function Legend({ charts, stores, legend }: {
             </li>
             <li>
               <Swatch>
-                <g className="fc-cell kind-tool fc-unvisited">
+                <g className="fc-cell fc-any fc-unvisited">
                   <rect x="4" y="2" width="26" height="14" rx="2" />
                 </g>
               </Swatch>
@@ -254,6 +266,11 @@ function Legend({ charts, stores, legend }: {
                 <rect x="4" y="2" width="26" height="14" rx={s === 'kind-engine' || s === 'kind-owner' ? 7 : 2} />
               </g>
             </Swatch>
+            {s === 'fresh' ? (
+              <svg className="fc legend-swatch" width={sessionWidth()} height="18" viewBox={`0 0 ${sessionWidth()} 18`}>
+                <SessionBadge x={0} y={1} />
+              </svg>
+            ) : null}
             {label(s)}
           </li>
         ))}
@@ -426,7 +443,7 @@ function Legend({ charts, stores, legend }: {
           <>
             <li>
               <Swatch>
-                <g className="fc-cell kind-tool fc-added">
+                <g className="fc-cell fc-any fc-added">
                   <rect x="4" y="2" width="26" height="14" rx="2" />
                 </g>
               </Swatch>
@@ -434,7 +451,7 @@ function Legend({ charts, stores, legend }: {
             </li>
             <li>
               <Swatch>
-                <g className="fc-cell kind-tool fc-changed">
+                <g className="fc-cell fc-any fc-changed">
                   <rect x="4" y="2" width="26" height="14" rx="2" />
                 </g>
               </Swatch>

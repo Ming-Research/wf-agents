@@ -1,10 +1,10 @@
 /* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
    its look in Primer's tokens. Text, boxes and fills take the functional tokens; who does a cell's work, the stage
    boxes and the stores take Primer's data and display colours, each named here once by what it marks: an agent's round
-   its line's hue, a cell on no line the page's background, dotted; the engine's own step purple, dashed; a tool the
-   engine runs grey, dashed; the owner orange; a rule blue; the interjection orange; a way to another part lavender, a
-   way from another part orange; what the engine does on a line or every time a cell returns a purple hexagon; a store
-   teal, dashed when it is computed. The values Primer has no token for are in tokens.css. */
+   its line's hue, a cell on no line lime; the engine's own step purple; a tool the engine runs yellow; the owner
+   orange; every cell's edge solid; a rule blue; the interjection orange; a way to another part lavender, a way from
+   another part orange; what the engine does on a line or every time a cell returns a purple hexagon; a store teal,
+   dashed when it is computed. The values Primer has no token for are in tokens.css. */
 
 :root {
   --fc-text: var(--fgColor-default);
@@ -22,12 +22,17 @@
   --fc-architect-fill: var(--data-lime-color-muted);
   --fc-other: var(--data-pine-color-emphasis);
   --fc-other-fill: var(--data-pine-color-muted);
+  /* A cell on no line, filled as any agent's cell is; its badge says it starts a new session every round. */
   --fc-fresh: var(--data-lime-color-emphasis);
-  --fc-fresh-fill: var(--bgColor-default);
+  --fc-fresh-fill: var(--data-lime-color-muted);
   --fc-engine: var(--data-purple-color-emphasis);
   --fc-engine-fill: var(--data-purple-color-muted);
-  --fc-tool: var(--data-gray-color-emphasis);
-  --fc-tool-fill: var(--data-gray-color-muted);
+  /* A tool in a colour of its own, so that no cell looks grey and faded but one a work has not reached. */
+  --fc-tool: var(--data-yellow-color-emphasis);
+  --fc-tool-fill: var(--data-yellow-color-muted);
+  /* In the legend, a cell of any kind. */
+  --fc-any: var(--data-gray-color-emphasis);
+  --fc-any-fill: var(--data-gray-color-muted);
   --fc-owner: var(--data-orange-color-emphasis);
   --fc-owner-fill: var(--data-orange-color-muted);
   --fc-rule: var(--data-blue-color-emphasis);
@@ -48,11 +53,13 @@
   --fc-hot: var(--data-orange-color-emphasis);
   --fc-lit: var(--data-pink-color-emphasis);
   --fc-label: var(--bgColor-muted);
-  /* The effort badges: green, blue, orange and red from low to xhigh, max in purple, each with white letters, as the
-     owner chose; Primer's emphasis backgrounds, which follow light and dark themselves. */
+  /* The effort badges, as the owner chose them: green, blue, light orange, red and purple from low to max, each with
+     white letters but high, a light orange with orange letters since a solid orange was too close to xhigh's red to
+     tell apart; Primer's emphasis backgrounds and its display orange, which follow light and dark themselves. */
   --fc-effort-low: var(--bgColor-success-emphasis);
   --fc-effort-medium: var(--bgColor-accent-emphasis);
-  --fc-effort-high: var(--bgColor-severe-emphasis);
+  --fc-effort-high: var(--display-orange-bgColor-muted);
+  --fc-effort-high-text: var(--display-orange-fgColor);
   --fc-effort-xhigh: var(--bgColor-danger-emphasis);
   --fc-effort-max: var(--bgColor-done-emphasis);
   --fc-effort-text: var(--fgColor-onEmphasis);
@@ -183,25 +190,27 @@ svg.fc {
 .fresh > rect:not(.fc-ring) {
   fill: var(--fc-fresh-fill);
   stroke: var(--fc-fresh);
-  stroke-dasharray: var(--chart-dash-fresh);
 }
 
 .kind-engine > rect:not(.fc-ring) {
   fill: var(--fc-engine-fill);
   stroke: var(--fc-engine);
   stroke-width: var(--chart-line-box);
-  stroke-dasharray: var(--chart-dash-engine);
 }
 
 .kind-tool > rect:not(.fc-ring) {
   fill: var(--fc-tool-fill);
   stroke: var(--fc-tool);
-  stroke-dasharray: var(--chart-dash-tool);
 }
 
 .kind-owner > rect:not(.fc-ring) {
   fill: var(--fc-owner-fill);
   stroke: var(--fc-owner);
+}
+
+.fc-any > rect:not(.fc-ring) {
+  fill: var(--fc-any-fill);
+  stroke: var(--fc-any);
 }
 
 .fc-circle ellipse {
@@ -229,7 +238,7 @@ svg.fc {
 
 .fc-edge.fc-edge-does {
   stroke: var(--fc-engine);
-  stroke-dasharray: var(--chart-dash-engine);
+  stroke-dasharray: var(--chart-dash-does);
 }
 
 /* Under a step the engine decides, what its values read; on a cell, a move it lacks. */
@@ -245,7 +254,7 @@ svg.fc {
 .fc-lack rect {
   fill: var(--fc-label);
   stroke: var(--fc-arrow);
-  stroke-dasharray: var(--chart-dash-fresh);
+  stroke-dasharray: var(--chart-dash-lack);
 }
 
 .fc .fc-lack text {
@@ -260,7 +269,7 @@ svg.fc {
 }
 
 .fc-store-computed rect {
-  stroke-dasharray: var(--chart-dash-tool);
+  stroke-dasharray: var(--chart-dash-computed);
 }
 
 .fc-store-lit rect {
@@ -395,13 +404,11 @@ svg.fc {
 .fc-added > rect:not(.fc-ring) {
   stroke: var(--borderColor-success-emphasis);
   stroke-width: var(--chart-line-marked);
-  stroke-dasharray: none;
 }
 
 .fc-changed > rect:not(.fc-ring) {
   stroke: var(--borderColor-attention-emphasis);
   stroke-width: var(--chart-line-marked);
-  stroke-dasharray: none;
 }
 
 .fc-mark {
@@ -417,16 +424,29 @@ svg.fc {
   fill: var(--fgColor-attention);
 }
 
-/* A cell's corner badges: its rounds, those sent back and failed, and the reasoning effort it runs at. */
+/* A cell's corner badges: its rounds, those sent back and failed, the reasoning effort it runs at, and, on a cell that
+   starts a new session every round, a badge saying so, outlined on the page's background instead of filled, so that it
+   reads as no effort level. */
 .fc-badge rect {
   fill: var(--bgColor-accent-emphasis);
 }
 
+.fc-session rect {
+  fill: var(--bgColor-default);
+  stroke: var(--borderColor-emphasis);
+  stroke-width: var(--chart-line-thin);
+}
+
 .fc .fc-badge text,
-.fc .fc-effort text {
+.fc .fc-effort text,
+.fc .fc-session text {
   fill: var(--fgColor-onEmphasis);
   font-size: var(--chart-badge-text-size);
   font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-session text {
+  fill: var(--fgColor-default);
 }
 
 .fc-b-back rect {
@@ -437,33 +457,40 @@ svg.fc {
   fill: var(--bgColor-danger-emphasis);
 }
 
-/* A level the page does not know is grey. */
+/* Each level sets its badge's colour and its letters', which one rule each draws; a level the page does not know is
+   grey. */
+.fc-effort {
+  --fc-effort-fill: var(--bgColor-neutral-emphasis);
+  --fc-effort-ink: var(--fc-effort-text);
+}
+
+.fc-effort-low {
+  --fc-effort-fill: var(--fc-effort-low);
+}
+
+.fc-effort-medium {
+  --fc-effort-fill: var(--fc-effort-medium);
+}
+
+.fc-effort-high {
+  --fc-effort-fill: var(--fc-effort-high);
+  --fc-effort-ink: var(--fc-effort-high-text);
+}
+
+.fc-effort-xhigh {
+  --fc-effort-fill: var(--fc-effort-xhigh);
+}
+
+.fc-effort-max {
+  --fc-effort-fill: var(--fc-effort-max);
+}
+
 .fc-effort rect {
-  fill: var(--bgColor-neutral-emphasis);
-}
-
-.fc-effort-low rect {
-  fill: var(--fc-effort-low);
-}
-
-.fc-effort-medium rect {
-  fill: var(--fc-effort-medium);
-}
-
-.fc-effort-high rect {
-  fill: var(--fc-effort-high);
-}
-
-.fc-effort-xhigh rect {
-  fill: var(--fc-effort-xhigh);
-}
-
-.fc-effort-max rect {
-  fill: var(--fc-effort-max);
+  fill: var(--fc-effort-fill);
 }
 
 .fc .fc-effort text {
-  fill: var(--fc-effort-text);
+  fill: var(--fc-effort-ink);
 }
 
 /* The arrows: thin, the main path a little heavier and darker, not heavy black. */

@@ -1,12 +1,13 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
-// takes its line's, a cell on no line is white and dotted, the engine's own step is purple, dashed and rounded, a tool
-// the engine runs grey and dashed, the owner orange and rounded. Under a step the engine decides, what its values read;
-// on a cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its
-// top left corner the reasoning effort it runs at, as a badge in the level's colour. What the engine does on a line or
-// every time a cell returns is a purple hexagon. A circle to or from another graph names that graph and its cell, and
-// is drawn as a circle to or from another part. Hovering an arrow or its label lights up the whole row, every arrow
-// that draws it from its source to its target.
+// takes its line's, a cell on no line lime, the engine's own step is purple and rounded, a tool the engine runs yellow,
+// the owner orange and rounded; every cell's edge is solid. Under a step the engine decides, what its values read; on a
+// cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
+// left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
+// new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
+// purple hexagon. A circle to or from another graph names that graph and its cell, and is drawn as a circle to or from
+// another part. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
+// its target.
 
 import { type ReactNode, useRef, useState } from 'react';
 
@@ -18,11 +19,18 @@ import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
 const LINES = ['engineer', 'review', 'adversarial', 'advisor', 'architect'];
 
+/// Whether a cell starts a new session every time it runs: an agent's cell on no line, which the flow says starts a
+/// session of its own every round. A cell of a line that starts a new session only at its first round in a work
+/// (`new_session`) continues it after, and is not one.
+export function startsAnew(c: CompiledCell): boolean {
+  return c.kind === 'agent' && c.line == null;
+}
+
 /// The style a cell is drawn in: its line's for an agent's round, `fresh` for one on no line, else its kind's.
 export function styleOf(c: CompiledCell): string {
   if (c.kind === 'agent') {
-    if (c.line == null) return 'fresh';
-    return LINES.includes(c.line) ? `line-${c.line}` : 'line-other';
+    if (startsAnew(c)) return 'fresh';
+    return c.line != null && LINES.includes(c.line) ? `line-${c.line}` : 'line-other';
   }
   return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';
 }
@@ -178,6 +186,36 @@ export function EffortBadge({ effort, x, y, width }: { effort: Effort; x: number
   );
 }
 
+/// How far apart the badges over a cell's top left corner are.
+const BADGE_GAP = 3;
+
+/// The width of the badge of a cell that starts a new session every time it runs.
+export function sessionWidth(): number {
+  return Math.ceil(measure(t('chart_new_session'), chartFonts().badge)) + 12;
+}
+
+/// The badge of a cell that starts a new session every time it runs, its top left corner at `x`, `y`: of an effort
+/// badge's size, outlined instead of filled, saying so, and why on hovering.
+export function SessionBadge({ x, y }: { x: number; y: number }) {
+  const width = sessionWidth();
+  return (
+    <g className="fc-session">
+      <title>{t('chart_new_session_title')}</title>
+      <rect x={x} y={y} width={width} height={EFFORT_HEIGHT} rx={EFFORT_HEIGHT / 2} />
+      <text x={x + width / 2} y={y + 11.5} textAnchor="middle">
+        {t('chart_new_session')}
+      </text>
+    </g>
+  );
+}
+
+/// How wide the badges over a cell's top left corner run from the cell's left edge: its effort's, then its new
+/// session's; none for a cell with neither.
+export function cornerWidth(c: CompiledCell): number {
+  const widths = [effortOf(c) !== null ? effortWidth() : 0, startsAnew(c) ? sessionWidth() : 0].filter((w) => w > 0);
+  return widths.length > 0 ? widths.reduce((a, w) => a + w, 0) + BADGE_GAP * (widths.length - 1) - 4 : 0;
+}
+
 /// A mark on a cell that lacks a move most cells that could make it make: what it says, and why on hovering.
 export type Lack = { text: string; title: string };
 
@@ -222,7 +260,12 @@ export function sizes(
         ...note.reads.map((l) => measure(l, chartFonts().note)),
         note.lacks.reduce((w, l) => w + measure(l.text, chartFonts().note) + 14, 0),
       ];
-      const width = Math.max(110, Math.ceil(Math.max(...widths)) + 2 * PAD_X + (cell.kind === 'agent' ? 0 : 14));
+      // As wide as its text, and wide enough that the badges over its top left corner end inside it.
+      const width = Math.max(
+        110,
+        Math.ceil(Math.max(...widths)) + 2 * PAD_X + (cell.kind === 'agent' ? 0 : 14),
+        cornerWidth(cell) + 2 * PAD_X,
+      );
       const height = ls.length * LINE + note.reads.length * SMALL_LINE + (note.lacks.length > 0 ? MARKS : 0) + 2 * PAD_Y;
       size.set(n.id, { width, height });
     } else if (n.kind === 'action' || n.kind === 'does') {
@@ -316,11 +359,13 @@ function CellShape({ n, cell, box, lines, note, marks }: {
     }
   }
   const mark = marks.added.has(cell.id) ? t('chart_added') : marks.changed.has(cell.id) ? t('chart_changed') : null;
-  // The effort badge over the top left corner, centred on the line the work's badges at the top right sit on; a
-  // comparison's mark goes after it.
+  // The effort badge over the top left corner, centred on the line the work's badges at the top right sit on, then the
+  // badge of a cell that starts a new session every time; a comparison's mark goes after them.
   const effort = effortOf(cell);
   const effortW = effort !== null ? effortWidth() : 0;
-  const markX = effort !== null ? box.x - 4 + effortW + 4 : box.x + 4;
+  const sessionX = effort !== null ? box.x - 4 + effortW + BADGE_GAP : box.x - 4;
+  const corner = cornerWidth(cell);
+  const markX = corner > 0 ? box.x + corner + 4 : box.x + 4;
   const name = `${cell.id} ${cell.title}`;
   return (
     <g className={cls} data-node={n.id}>
@@ -367,6 +412,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
         <Lacks lacks={note.lacks} x={box.x + box.width / 2} y={box.y + box.height - PAD_Y - MARKS + 3} />
       ) : null}
       {effort !== null ? <EffortBadge effort={effort} x={box.x - 4} y={box.y - 9} width={effortW} /> : null}
+      {startsAnew(cell) ? <SessionBadge x={sessionX} y={box.y - 9} /> : null}
       {mark !== null ? (
         <text className="fc-mark" x={markX} y={box.y - 4}>
           {mark}

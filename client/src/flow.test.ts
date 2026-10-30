@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
-import { EFFORTS, effortOf, effortsOf, labelSize, sizes } from './graph/flowDraw';
+import { cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew } from './graph/flowDraw';
 import { besides, type Laid, layoutChart } from './graph/flowLayout';
 import { cellActions, cellNode, type Chart, chart, moves } from './graph/flowModel';
 import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
@@ -138,6 +138,21 @@ describe('the flow as the engine stores it', () => {
     const levels = effortsOf(cells).map((e) => e.level);
     expect(levels).toEqual(EFFORTS.map(([level]) => level).filter((l) => cells.some((c) => c.effort === l)));
     expect(levels.length).toBeGreaterThan(1);
+  });
+
+  it('badges a cell that starts a new session every round, and not one that starts it at its first round in a work', () => {
+    const cells = compiled.graphs.flatMap((g) => g.cells);
+    expect(cells.some(startsAnew)).toBe(true);
+    expect(cells.some((c) => c.new_session)).toBe(true);
+    expect(cells.filter((c) => c.new_session && startsAnew(c)).map((c) => c.id)).toEqual([]);
+    // The badges over a cell's top left corner end inside it, with a cell's side padding to spare.
+    for (const { g, v } of graphs) {
+      const { size } = sizes(g, chart(g, v, engine, compiled.graphs));
+      for (const c of g.cells) {
+        const width = size.get(cellNode(c.id))?.width ?? 0;
+        expect(width, `${g.name} ${c.id}`).toBeGreaterThanOrEqual(cornerWidth(c) + 24);
+      }
+    }
   });
 
   it('draws every cell of every graph on the map of the flow page, and every store, inside the map', async () => {
