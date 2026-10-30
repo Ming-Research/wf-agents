@@ -531,7 +531,9 @@ impl Context<'_> {
         };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full. A cell's own input that has nothing says none, so that it is not taken for one
-        // missing; an input every agent's cell may have, such as tool results, is listed only when it has something.
+        // missing; an input every agent's cell may have, such as tool results, is listed only when it has something,
+        // or when what it reads came back to the cell holding nothing, as the results of a search that found none,
+        // which say none.
         let mut work_from = Vec::new();
         let mut interjections = Vec::new();
         let mut first: Vec<String> = Vec::new();
@@ -573,7 +575,7 @@ impl Context<'_> {
             }
             if !addrs.is_empty() {
                 work_from.push(format!("{number}. {}", addrs.join(", ")));
-            } else if !x.input.common {
+            } else if !x.input.common || x.parts.iter().any(|p| matches!(p.origin, Origin::Place { .. })) {
                 work_from.push(format!("{number}. none"));
             }
         }

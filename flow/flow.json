@@ -11876,7 +11876,7 @@
           },
           {
             "name": "Search results",
-            "what": "The observations the search found, closest first, each with why it matches",
+            "what": "The observations the search found, closest first, each with why it matches; none when the search found none",
             "from": [
               [
                 "@from",
@@ -17265,7 +17265,7 @@
           "inputs": [
             {
               "name": "What to look for",
-              "what": "What to look for: the text, the tags to look under, and whether the same one or related ones are wanted",
+              "what": "What to look for: the text (look_for), the tags to look under (tags, empty for all) and what the candidates are for (purpose): same, whether this very thing is recorded already, so that the candidates are the observations that record it; related, what an item doing this could take in, so that the candidates are the observations such an item would close",
               "from": [
                 [
                   "@caller",

@@ -5047,11 +5047,11 @@ fn a_matter_at_the_head_asked_for_twice_is_queued_once_with_both_whys() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A cell on a matter's path has the project's open observations searched, by the observer at its own level and line,
-// and goes on with the candidates: here a report taken in is merged into the observation found, reported once more.
-#[test]
-fn the_search_of_observations_hands_back_candidates() {
-    let s = setup("search");
+/// A work of the architect on a side report, whose cell `H5` has the project's open observations searched, the
+/// observer handing back `candidates`, and then merges the report into observation 1, run to its end. Gives the engine,
+/// the architect's work, what the engine said and the setup.
+fn searched(name: &str, candidates: Value) -> (Engine, i64, String, Setup) {
+    let s = setup(name);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     let levels = "[agents.levels.cheap]\ndesc = \"searching\"\ncli = \"claude\"\nmodel = \"m-cheap\"\n\
                   [agents]\nobserver = \"cheap\"\n";
@@ -5075,15 +5075,7 @@ fn the_search_of_observations_hands_back_candidates() {
     );
     agents.insert(
         "X2",
-        Box::new(|_: &Request, _: usize| {
-            (
-                Vec::new(),
-                vec![(
-                    "outcome.candidates",
-                    json!([{ "id": 1, "why": "It records the same slowness." }]),
-                )],
-            )
-        }),
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.candidates", candidates.clone())])),
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
@@ -5117,6 +5109,14 @@ fn the_search_of_observations_hands_back_candidates() {
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
+    (e, arch, log, s)
+}
+
+// A cell on a matter's path has the project's open observations searched, by the observer at its own level and line,
+// and goes on with the candidates: here a report taken in is merged into the observation found, reported once more.
+#[test]
+fn the_search_of_observations_hands_back_candidates() {
+    let (e, arch, log, s) = searched("search", json!([{ "id": 1, "why": "It records the same slowness." }]));
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "X2").expect(&log);
     assert_eq!(&path[at - 2..at + 3], ["H4", "H5", "X2", "H5", "B1"], "{log}");
@@ -5143,6 +5143,29 @@ fn the_search_of_observations_hands_back_candidates() {
             .unwrap();
     assert_eq!(times.0, 2, "{log}");
     assert!(times.1.contains("Seen again in the parser."), "{}", times.1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A search that found nothing comes back saying so: the cell that asked has the search's results listed as none,
+// where before the search it had them not listed at all, and does not take them for not given.
+#[test]
+fn a_search_that_found_nothing_comes_back_as_none() {
+    let (mut e, arch, log, s) = searched("search-none", json!([]));
+    let w = e.work(arch).unwrap();
+    let g = e.graph_of(&w).unwrap();
+    let number = g
+        .cell("H5")
+        .unwrap()
+        .inputs
+        .iter()
+        .filter(|x| !x.from.iter().all(|s| *s == flow::format::Src::Itself))
+        .position(|x| x.name.as_deref() == Some("Search results"))
+        .unwrap()
+        + 1;
+    let listed = |m: &str| work_from(m).into_iter().find(|l| l.starts_with(&format!("{number}. ")));
+    let (asked, back) = (message_at(&e, arch, "H5", false), message_at(&e, arch, "H5", true));
+    assert_eq!(listed(&asked), None, "{asked}");
+    assert_eq!(listed(&back), Some(format!("{number}. none")), "{back}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
