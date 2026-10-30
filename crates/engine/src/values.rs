@@ -37,6 +37,13 @@ pub fn given(
     Ok(out)
 }
 
+/// The engineer's fix cell, whose table holds what the reviews leave to answer.
+const FIX: &str = "T6";
+
+/// The engineer's reviews whose rows in the fix table send a work to the fix: the table review and the design tree
+/// review.
+const REVIEWS: [&str; 2] = ["T4", "T5"];
+
 /// One of the engine's values. Those of the architect's graph are worked out by [`crate::architect`]; the others are
 /// about the item a work is on.
 pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name: &str) -> Result<String, String> {
@@ -85,6 +92,18 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             } else {
                 "unchanged"
             })
+        }
+        // Whether the fix would have a row of the reviews to answer: its table as it would be given now, each source read
+        // from the newest answer of its review, holds a row of the table review or the design tree review.
+        "to_fix" => {
+            let fix = g.cell(FIX).ok_or_else(|| format!("the flow has no fix cell {FIX}"))?;
+            let gathered = crate::inputs::gather(e, w, g, fix, Some(item))?;
+            let reviews = crate::inputs::table(&gathered).into_iter().any(|r| {
+                r["from"]
+                    .as_str()
+                    .is_some_and(|f| REVIEWS.iter().any(|c| f.starts_with(&format!("{c}·"))))
+            });
+            s(if reviews { "rows" } else { "none" })
         }
         // What the merge gate waits for: the items it depends on while one is not merged, then the owner's ruling.
         "gates" => s(match gates_waiting_for(e, w, item)? {
