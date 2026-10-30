@@ -53,13 +53,14 @@
   --fc-hot: var(--data-orange-color-emphasis);
   --fc-lit: var(--data-pink-color-emphasis);
   --fc-label: var(--bgColor-muted);
-  /* The effort badges, as the owner chose them: green, blue, light orange, red and purple from low to max, each with
-     white letters but high, a light orange with orange letters since a solid orange was too close to xhigh's red to
-     tell apart; Primer's emphasis backgrounds and its display orange, which follow light and dark themselves. */
+  /* The effort badges, as the owner chose them: green, blue, orange, red and purple from low to max, each with white
+     letters but high, a plain orange, lighter than the dark orange that was too close to xhigh's red and stronger than
+     the pale one that hardly showed on a stage box, lettered in the text's colour, which white does not read on in the
+     light theme; Primer's emphasis backgrounds and its data orange, which follow light and dark themselves. */
   --fc-effort-low: var(--bgColor-success-emphasis);
   --fc-effort-medium: var(--bgColor-accent-emphasis);
-  --fc-effort-high: var(--display-orange-bgColor-muted);
-  --fc-effort-high-text: var(--display-orange-fgColor);
+  --fc-effort-high: var(--data-orange-color-emphasis);
+  --fc-effort-high-text: var(--fgColor-default);
   --fc-effort-xhigh: var(--bgColor-danger-emphasis);
   --fc-effort-max: var(--bgColor-done-emphasis);
   --fc-effort-text: var(--fgColor-onEmphasis);
