@@ -43,6 +43,7 @@ const MATTER_KINDS: Record<string, Key> = {
   owner_words: 'matter_kind_owner_words',
   other_architect: 'matter_kind_other_architect',
   slots_free: 'matter_kind_slots_free',
+  set_policy: 'matter_kind_set_policy',
 };
 
 /// The kinds of a place to set straight, as the flow means them.

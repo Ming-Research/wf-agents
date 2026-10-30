@@ -76,6 +76,7 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
         ("P2", vec!["hold_for_policy".to_string(), "start_setting".to_string()])
     );
     let given = |k: &str, v: &str| Map::from_iter([(k.to_string(), Value::String(v.into()))]);
+    let none = Map::new();
     let ruling = |choice: &str| serde_json::json!({ "ruling": { "choice": choice, "text": "" } });
     for (at, ways) in [
         ("P3", [("satisfied", "P4"), ("study_on", "P2"), ("policy_stays", "N1")]),
@@ -84,10 +85,10 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
             [("approved", "P12"), ("fix_text", "P8"), ("not_good_enough", "P2")],
         ),
     ] {
-        let held = g.take(at, &serde_json::json!({}), &given("answer", "waits")).unwrap();
+        let held = g.take(at, &serde_json::json!({}), &none).unwrap();
         assert_eq!((held.name.as_str(), held.to.as_str(), held.drops), ("held", "B1", true));
         for (choice, to) in ways {
-            let r = g.take(at, &ruling(choice), &given("answer", "given")).unwrap();
+            let r = g.take(at, &ruling(choice), &none).unwrap();
             assert_eq!((r.name.as_str(), r.to.as_str()), (choice, to));
         }
         let back = g.take("Q2", &serde_json::json!({}), &given("route", at)).unwrap();

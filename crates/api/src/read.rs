@@ -3513,7 +3513,7 @@ mod tests {
     // the readings of it, in whichever of the architect's works they were; a study after the text sends it back.
     #[test]
     fn the_policy_being_set_is_read_across_the_architect_s_works() {
-        let s = architect_setup("setting");
+        let mut s = architect_setup("setting");
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
         let probes = json!([{ "id": "x", "ask": "a", "principles": [1], "expect": "e" }]);

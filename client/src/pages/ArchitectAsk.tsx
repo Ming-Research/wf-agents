@@ -161,7 +161,11 @@ function PolicyAsk({ a, body, onRound, revisions }: {
         {readings.map((r, i) => (
           <ReadingView
             key={i}
-            by={typeof r.round === 'number' ? <By work={a.work} round={r.round} onRound={onRound} /> : null}
+            by={
+              typeof r.round === 'number' ? (
+                <By work={typeof r.work === 'number' ? r.work : a.work} round={r.round} onRound={onRound} />
+              ) : null
+            }
             reading={r.reading ?? null}
             verdict={r.verdict ?? null}
           />

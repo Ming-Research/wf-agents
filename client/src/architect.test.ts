@@ -111,6 +111,7 @@ describe('a matter in words', () => {
     expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
     expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
     expect(matterKind('design_card', null)).toBe('Look at a design card');
+    expect(matterKind('set_policy', null)).toBe('Set a new policy');
     expect(matterKind('report', 'followup')).toBe('Go through side reports');
     expect(matterKind('report', 'fault')).toBe('Look into a fault of wf-agents');
     expect(matterKind('owner_words', 'said')).toBe('Your words');

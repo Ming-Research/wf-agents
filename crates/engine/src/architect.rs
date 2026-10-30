@@ -1209,11 +1209,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             "none"
         }
         .into(),
-        "answer" => match setting_of(conn, w.id)? {
-            Some(m) if answer_back(conn, g, project_of(w)?, m)?.is_some_and(|x| x.1 == w.pos.at) => "given",
-            _ => "waits",
-        }
-        .into(),
         "next_in_batch" => next_in_batch(e, w)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
         "corrections" => if corrections(conn, w.id)? >= CORRECTIONS {

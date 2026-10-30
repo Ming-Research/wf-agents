@@ -2583,19 +2583,6 @@
           "desc": "True only for a running work going the wrong way, whose every round is wasted: the engine pauses it at once, as your pause, with what is wrong as why"
         }
       ]
-    },
-    "ask_answer": {
-      "type": "enum",
-      "values": [
-        [
-          "waits",
-          "The ask is put now, and holds the setting's matter until the owner answers it"
-        ],
-        [
-          "given",
-          "The setting's matter came back to this cell with the owner's answer to its ask"
-        ]
-      ]
     }
   },
   "tools": [
@@ -3169,7 +3156,6 @@
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick or wrap-up, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item."
     },
     "values": {
-      "answer": "Whether the setting's matter came back to the cell with the owner's answer to the ask the cell put, or the cell puts the ask now.",
       "came_by": "How the work came to choose the way on.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet.",
       "corrections": "How many times the text of the policy being set was corrected since it was written: fewer than three, or three, the flow's own limit, at which the gaps a reading leaves go on with the draft to the owner.",
@@ -3690,13 +3676,6 @@
       ]
     },
     "reads": {
-      "answer": {
-        "says": "the setting's matter back with the answer",
-        "stores": [
-          "architect_queue",
-          "owner_asks"
-        ]
-      },
       "ask_architect": {
         "stores": [
           "architect_queue"
@@ -13305,10 +13284,12 @@
               "name": "held",
               "if": [
                 [
-                  "inp",
-                  "answer",
+                  "none",
+                  "ruling.choice",
                   [
-                    "waits"
+                    "satisfied",
+                    "study_on",
+                    "policy_stays"
                   ]
                 ]
               ],
@@ -13325,13 +13306,6 @@
                   [
                     "satisfied"
                   ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
-                  ]
                 ]
               ],
               "to": "P4",
@@ -13345,13 +13319,6 @@
                   "ruling.choice",
                   [
                     "study_on"
-                  ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
                   ]
                 ]
               ],
@@ -13367,13 +13334,6 @@
                   [
                     "policy_stays"
                   ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
-                  ]
                 ]
               ],
               "to": "N1",
@@ -13387,10 +13347,7 @@
           ],
           "shown": [
             "ruling"
-          ],
-          "inenums": {
-            "answer": "ask_answer"
-          }
+          ]
         },
         {
           "id": "P4",
@@ -14577,10 +14534,12 @@
               "name": "held",
               "if": [
                 [
-                  "inp",
-                  "answer",
+                  "none",
+                  "ruling.choice",
                   [
-                    "waits"
+                    "approved",
+                    "fix_text",
+                    "not_good_enough"
                   ]
                 ]
               ],
@@ -14597,13 +14556,6 @@
                   [
                     "approved"
                   ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
-                  ]
                 ]
               ],
               "to": "P12",
@@ -14617,13 +14569,6 @@
                   "ruling.choice",
                   [
                     "fix_text"
-                  ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
                   ]
                 ]
               ],
@@ -14639,13 +14584,6 @@
                   [
                     "not_good_enough"
                   ]
-                ],
-                [
-                  "inp",
-                  "answer",
-                  [
-                    "given"
-                  ]
                 ]
               ],
               "to": "P2",
@@ -14654,10 +14592,7 @@
           ],
           "shown": [
             "ruling"
-          ],
-          "inenums": {
-            "answer": "ask_answer"
-          }
+          ]
         },
         {
           "id": "P12",
