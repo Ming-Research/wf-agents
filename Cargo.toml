@@ -20,11 +20,12 @@ all = { level = "warn", priority = -1 }
 # The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
 # dependencies are optimized fully, because unoptimized they run the tests many times slower (SQLite, built from
 # source, above all), and CI's cache keeps them built. The workspace's own crates, rebuilt on every push, are optimized
-# too: compiling the flow, which most tests do, takes some 16 s unoptimized and 3.5 s at opt-level 1. Line tables are
-# enough for a failing test's backtrace.
+# lightly: compiling the flow, which most tests do, takes some 16 s unoptimized and 3.5 s at level 1, while level 2
+# builds them some 45 s longer to save some 10 s of each test job. Line tables are enough for a failing test's
+# backtrace.
 [profile.ci]
 inherits = "test"
-opt-level = 2
+opt-level = 1
 debug = "line-tables-only"
 
 [profile.ci.package."*"]
