@@ -28,7 +28,7 @@ use db::rusqlite::Connection;
 
 use flow::{CompiledCell, CompiledGraph};
 
-pub use choose::{Plan, Start};
+pub use choose::{On, Plan, Start};
 pub use held::Held;
 pub use round::{Round, RoundId};
 
@@ -89,7 +89,7 @@ impl Manager {
         architect: Option<&str>,
         cell: &CompiledCell,
         limit: u64,
-        on: &str,
+        on: On,
     ) -> Result<Plan, String> {
         if self.asked_new(work, architect) {
             return Ok(Plan::New(Start::Owner));

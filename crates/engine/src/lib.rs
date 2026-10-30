@@ -340,6 +340,13 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
+    /// The configuration directory a CLI runs agents with, as the configuration names it: the login account the
+    /// agents' calls are made under, which holds their sessions. [`Engine::cli_home`] makes it.
+    pub fn cli_dir(&self, name: &str) -> Option<PathBuf> {
+        let cli = self.config.config.install.agents.clis.get(name)?;
+        Some(cli.home(&self.data, name))
+    }
+
     /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of the data
     /// directory's history even when the owner made it first by logging in there.
     pub fn cli_home(&self, name: &str) -> Option<PathBuf> {

@@ -1,9 +1,11 @@
 //! Which session an agent's round runs in: its line's session going on, or a new one, and why. A line starts a new
 //! session at its first round in a work, at the work's first round of a cell the flow says it starts one at (a row
-//! leads there with the action `open_session`), and when
-//! the context of its session is past the configuration's limit, and when the owner asks for one; every other round
-//! goes on in the line's session. The architect's line, at its first round in a work, takes up the session the
+//! leads there with the action `open_session`), when the context of its session is past the configuration's limit,
+//! when its rounds run on another model or under another login account than its session's, and when the owner asks for
+//! one; every other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session the
 //! project's previous architect work left, unless it ended. A cell on no line has a session of its own every round.
+
+use std::path::Path;
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use flow::CompiledCell;
@@ -22,6 +24,9 @@ pub enum Start {
     Limit,
     /// The line's rounds run on another model than its session's, whose prompt cache holds nothing of it.
     Model,
+    /// The line's rounds run under another login account of the CLI than its session's: in another configuration
+    /// directory, which does not hold the session, whose log is in the directory it ran in.
+    Account,
     /// A new work of the architect goes on in the CLI session the project's previous architect work left.
     Carried,
     /// The owner asked for a new session with the round's Start or Step on the page.
@@ -35,6 +40,7 @@ impl Start {
             Start::Cell => "cell",
             Start::Limit => "limit",
             Start::Model => "model",
+            Start::Account => "account",
             Start::Carried => "carried",
             Start::Owner => "owner",
         }
@@ -97,9 +103,37 @@ pub fn model(rounds: &[Round]) -> Option<String> {
     })
 }
 
-/// Where the work's next round at a cell runs, on the model given, with the configuration's limit of a session's context
-/// in tokens. It reads only: [`open`] starts a new session.
-pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &str) -> Result<Plan, String> {
+/// The configuration directory of the CLI a session's rounds ran with, which holds the login their calls were made
+/// under and the session itself: the one its latest round that ran the command line gave it; none when no round
+/// recorded one.
+pub fn home(rounds: &[Round]) -> Option<String> {
+    rounds.iter().rev().find_map(|r| {
+        r.input["call"]["command"].as_array()?;
+        r.input["call"]["env"]["CLAUDE_CONFIG_DIR"].as_str().map(str::to_string)
+    })
+}
+
+/// Whether two configuration directories are one: the same path, or the same directory by two paths.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    a == b
+        || match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+}
+
+/// What a line's rounds run on now, which a session that ran on another cannot go on with: the model, whose prompt
+/// cache holds nothing of another model's session, and the configuration directory of the CLI, the login account the
+/// calls are made under, which holds the session; none when the CLI runs with none of its own.
+#[derive(Debug, Clone, Copy)]
+pub struct On<'a> {
+    pub model: &'a str,
+    pub home: Option<&'a Path>,
+}
+
+/// Where the work's next round at a cell runs, on what it runs on, with the configuration's limit of a session's
+/// context in tokens. It reads only: [`open`] starts a new session.
+pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: On) -> Result<Plan, String> {
     let Some(line) = &cell.line else {
         return Ok(Plan::New(Start::Line));
     };
@@ -133,6 +167,13 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
             return Ok(Plan::New(Start::Cell));
         }
     }
+    // Another login account's configuration directory does not hold the session at all, so a new one starts even to
+    // rewrite a return sent back.
+    if let (Some(was), Some(now)) = (home(&rounds), on.home)
+        && !same_dir(Path::new(&was), now)
+    {
+        return Ok(Plan::New(Start::Account));
+    }
     // A return sent back is rewritten in the session that wrote it; the limit and a new model take effect at the round
     // after. A model's prompt cache holds nothing of a session another model ran, so a session on another model would
     // be written again whole: a new one is given only what its cell needs.
@@ -140,7 +181,7 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
         if context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
             return Ok(Plan::New(Start::Limit));
         }
-        if model(&rounds).is_some_and(|m| m != on) {
+        if model(&rounds).is_some_and(|m| m != on.model) {
             return Ok(Plan::New(Start::Model));
         }
     }

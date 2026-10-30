@@ -5455,6 +5455,46 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// When the agents' login account changes, as when the owner switches it on the Settings page, the line's next round
+// starts a new session under the new one: the CLI keeps a session in the configuration directory it ran in, which
+// another account's is not, so the session could not be resumed there.
+#[test]
+fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
+    let s = setup("account");
+    let (mut e, said, item) = start(&s, scripts());
+    agent_rounds_to(&mut e, item, 2);
+    let (work, _, _) = state(&e, item).unwrap();
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let switched = install.replace(
+        "command = \"claude\"\n",
+        "command = \"claude\"\nconfig_dir = \"agents/claude-other\"\n",
+    );
+    assert_ne!(switched, install);
+    write(&s.data, "install.toml", &switched);
+    git(&s.data, &["commit", "-q", "-am", "another login account"]);
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        line_sessions(&e, work, "engineer"),
+        [
+            ("line".to_string(), true, "R1,R2".to_string()),
+            ("account".to_string(), false, "D1".to_string())
+        ],
+        "{log}"
+    );
+    let home: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT json_extract(input, '$.call.env.CLAUDE_CONFIG_DIR') FROM rounds WHERE work = ?1 AND cell = 'D1'",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(home.ends_with("agents/claude-other"), "{home}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Before the owner approves a new policy, `P10` asks of the draft the question `P1` asks of
 // the policy in force: one that holds goes on to the owner's approval, and one that would need setting again at once
 // goes back to correct the text.

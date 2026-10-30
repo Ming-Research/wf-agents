@@ -613,6 +613,7 @@ const messages = {
   us_started_limit_at: 'the one before was past the context limit, at {n}',
   us_started_carried: "its line's, going on",
   us_started_model: 'the model changed',
+  us_started_account: "the agents' login account changed",
   us_started_owner: 'you asked for it',
   us_with_pings: 'with {n} keep-warm pings',
   us_with_pings_one: 'with 1 keep-warm ping',

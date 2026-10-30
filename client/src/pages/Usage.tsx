@@ -131,6 +131,8 @@ function startedText(s: SessionRow): string {
       return t('us_started_carried');
     case 'model':
       return t('us_started_model');
+    case 'account':
+      return t('us_started_account');
     case 'owner':
       return t('us_started_owner');
     case 'line':

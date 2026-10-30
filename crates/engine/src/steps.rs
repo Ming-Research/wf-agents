@@ -64,6 +64,7 @@ pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, mo
         sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
         sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
         sessions::Start::Model => format!("the model changed to {model}"),
+        sessions::Start::Account => "the agents' login account changed".into(),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
     }
@@ -699,10 +700,15 @@ fn compose(
     item: Option<&Item>,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
-    let model = level_of(e, g, cell, item)?.1.model;
+    let (_, level, _) = level_of(e, g, cell, item)?;
+    let home = e.cli_dir(&level.cli);
+    let on = sessions::On {
+        model: &level.model,
+        home: home.as_deref(),
+    };
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let mut plan = e.sessions.plan(e.db.conn(), w.id, architect, cell, limit, &model)?;
+    let mut plan = e.sessions.plan(e.db.conn(), w.id, architect, cell, limit, on)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),

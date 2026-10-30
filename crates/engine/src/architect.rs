@@ -1189,10 +1189,15 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sess
     let cell = g
         .cell(UNDERSTAND)
         .ok_or("the architect's graph has no understanding question")?;
-    let model = crate::steps::level_of(e, g, cell, None)?.1.model;
+    let level = crate::steps::level_of(e, g, cell, None)?.1;
+    let home = e.cli_dir(&level.cli);
+    let on = sessions::On {
+        model: &level.model,
+        home: home.as_deref(),
+    };
     let limit = e.config.config.install.agents.context_limit;
     e.sessions
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, &model)
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)
 }
 
 /// Whether the session the architect's work goes on in answered the understanding question since it started or was
@@ -1346,13 +1351,18 @@ pub fn understand_first(
     if !here {
         return Ok(None);
     }
-    let model = crate::steps::level_of(e, g, cell, None)?.1.model;
+    let level = crate::steps::level_of(e, g, cell, None)?.1;
+    let home = e.cli_dir(&level.cli);
+    let on = sessions::On {
+        model: &level.model,
+        home: home.as_deref(),
+    };
     let limit = e.config.config.install.agents.context_limit;
     let plan = e
         .sessions
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, &model)?;
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)?;
     Ok(match plan {
-        sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &model)),
+        sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &level.model)),
         sessions::Plan::Going { .. } => None,
     })
 }

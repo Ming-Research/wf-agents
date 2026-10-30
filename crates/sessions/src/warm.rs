@@ -71,16 +71,16 @@ struct Sent {
 }
 
 /// Whether the session the work's next round goes on in is due a ping at `now`, given the cells that round may be
-/// at, on the model given: none when they are not all on one line, when the round will start a new session anyway (the
-/// work's first at a cell its line starts one at, a session past the limit or on another model), while a round runs, before 55 minutes
-/// have passed since its last call or once the cache has let it go, a minute after a ping that failed, and after 39
-/// pings in this wait.
+/// at, on what it runs on: none when they are not all on one line, when the round will start a new session anyway (the
+/// work's first at a cell its line starts one at, a session past the limit, on another model or under another login
+/// account), while a round runs, before 55 minutes have passed since its last call or once the cache has let it go, a
+/// minute after a ping that failed, and after 39 pings in this wait.
 pub fn due(
     conn: &Connection,
     work: i64,
     cells: &[&CompiledCell],
     limit: u64,
-    on: &str,
+    on: choose::On,
     now: i64,
 ) -> Result<Option<Due>, String> {
     let Some(line) = cells.first().and_then(|c| c.line.clone()) else {
