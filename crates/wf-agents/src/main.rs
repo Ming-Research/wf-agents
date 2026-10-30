@@ -233,8 +233,8 @@ enum ItemCommand {
 
 #[derive(Subcommand)]
 enum ArchitectCommand {
-    /// Says something to a project's architect: it comes to its queue as the owner's words, and wakes it when works go
-    /// on.
+    /// Says something to a project's architect: it comes to its queue as the owner's words, and starts a work of it
+    /// when none runs and works go on.
     Say {
         text: String,
         /// The project whose architect it is for; it may be left out when the configuration has one project.

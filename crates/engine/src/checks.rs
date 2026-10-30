@@ -31,7 +31,7 @@ pub struct Ctx<'a> {
     pub w: &'a Work,
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
-    /// The item the work is on, and its project; none for a wake of the architect.
+    /// The item the work is on, and its project; none for a work of the architect.
     pub item: Option<&'a Item>,
     pub project: Option<&'a config::Project>,
     pub output: &'a Value,

@@ -24,7 +24,7 @@ pub struct Work {
     pub ended: Option<String>,
     /// Who paused it, `owner` or `engine`, while it is paused.
     pub paused_by: Option<String>,
-    /// For a wake of the architect, the project whose architect it is.
+    /// For a work of the architect, the project whose architect it is.
     pub project: Option<String>,
 }
 
@@ -121,7 +121,7 @@ impl Work {
 
     /// What a work on no item is, by its graph, as the owner is told it: the architect of its project for a work of the
     /// architect's graph, since to the owner the architect is always there, handling one thing after another, and its
-    /// wakes are how the engine runs it; the architect's policy setting for a work of the policy's.
+    /// works are how the engine runs it; the architect's policy setting for a work of the policy's.
     pub fn of_architect(&self) -> String {
         let project = self.project.as_deref().unwrap_or("no project");
         match self.graph.as_str() {
@@ -408,7 +408,7 @@ pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
 mod tests {
     use super::*;
 
-    // A work on no item is named to the owner by what it is, from its graph, and never by its wakes.
+    // A work on no item is named to the owner by what it is, from its graph, and never as one of the architect's works.
     #[test]
     fn a_work_on_no_item_is_named_by_its_graph() {
         let work = |graph: &str| Work {

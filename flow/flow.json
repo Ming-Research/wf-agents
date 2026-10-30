@@ -3019,14 +3019,14 @@
       "choose_checks": "Decides what runs next, from whether the design chose adversarial testing, whether the review accepted none, the change reviewed last, each side's last results, and the rows the fix cell answered.",
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
-      "ask_architect": "Queues what is asked for the architect, waking the architect if it sleeps; the work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
-      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the wake goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again. In the setting of a policy, what the owner says while reading goes to the cell that answers it, and the work comes back to the same ask, still open.",
+      "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
+      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the architect's work goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again. In the setting of a policy, what the owner says while reading goes to the cell that answers it, and the work comes back to the same ask, still open.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
-      "wake": "Wakes the architect of a project: a wake is a work of the architect's graph, for that project and on no item. It goes on in the session the project's last wake left. A wake holds no slot, and one runs at a time for each project.",
-      "end_wake": "Ends the wake. The project's architect is woken again by the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
+      "wait_for_matter": "No work of the project's architect runs yet: when a matter comes to the project's queue, flow feedback aside, a work of the architect's graph starts, for that project and on no item. It goes on in the session the project's previous architect work left. It holds no slot, and one runs at a time for each project.",
+      "end_architect_work": "Ends the architect's work. The project's next architect work starts with the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and answered every probe rightly, a minor fix found in between included: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text and probes together, for a new architect to read, and records them: as the architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with the fix's edits applied.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the wake started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over.",
@@ -3046,10 +3046,10 @@
       "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
-      "wake_architect": "Queues each side report for the architect once, due at once, which wakes the architect when no wake runs; one marked urgent that comes while a wake runs is also given to that wake at the top of its next round.",
+      "queue_for_architect": "Queues each side report for the architect once, due at once, which starts a work of the architect when none runs; one marked urgent that comes while a work of the architect runs is also given to that work at the top of its next round.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
-      "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It wakes no architect; a wake takes such a matter only when it came before the wake started.",
+      "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It starts no work of an architect; a work of the architect takes such a matter only when it came before that work started.",
       "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause.",
       "hold_to_set_straight": "Starts no new work of the project while its architect sets it straight; the works running go on.",
       "release_straight_hold": "New works of the project start again, if they were held to set it straight.",
@@ -3057,7 +3057,7 @@
       "hold_for_policy": "Holds the project's architect's side while the policy is set: the matters queued wait, no new work of the project starts, and engineers that ask the architect wait.",
       "release_policy_hold": "Lets the project's architect's side go on: the matters queued are handled again, and new works start.",
       "close_matter": "Marks the matter picked as handled by this round.",
-      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions, messages to other architects and notes are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which wakes no architect: the architect it goes to takes it at a wake that started after it came.",
+      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions, messages to other architects and notes are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
       "reply_to_engineer": "Gives the reply to the engineer waiting at its question: at once, or, when the round's item changes are what it says, once the review lets them be made, with the numbers of the items they make.",
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
       "interject_card": "Says to the engineer of the work whose design card is unsound what is wrong with it.",
@@ -3068,7 +3068,7 @@
       "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
       "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, unless one waits already, new starts of the project are held, or the last was handled within the wait the configuration sets (`agents.slots_free_wait`).",
-      "close_settled_cards": "Closes, without a look and before anything is picked, the design card matters whose card the owner confirmed or another replaced, as handled by this wake.",
+      "close_settled_cards": "Closes, without a look and before anything is picked, the design card matters whose card the owner confirmed or another replaced, as handled by this work of the architect.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
       "replace_design_cards": "Marks the work's design cards replaced: the owner can no longer rule on them.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
@@ -3082,8 +3082,8 @@
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to the owner, who is put an ask; to an architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
       "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer.",
-      "start_policy": "Starts the setting of a new policy for the project as a task of its own, a work of the graph policy, unless one runs already; the wake goes on.",
-      "queue_policy_set": "Queues for the project's architect a matter of the kind policy: the setting ended, a new policy took effect or the owner said the policy in force stays; it wakes the architect, whose path for it is what to do next.",
+      "start_policy": "Starts the setting of a new policy for the project as a task of its own, a work of the graph policy, unless one runs already; the architect's work goes on.",
+      "queue_policy_set": "Queues for the project's architect a matter of the kind policy: the setting ended, a new policy took effect or the owner said the policy in force stays; it starts a work of the architect when none runs, and the architect's path for it is what to do next.",
       "close_settled_policies": "Closes the matters of the kind policy that the question what to do next answered since they came, saying why."
     },
     "checks": {
@@ -3146,9 +3146,9 @@
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
-      "since_last_wake": "What happened in the project since its last wake: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the first wake, the same over the last week.",
+      "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the architect's first work, the same over the last week.",
       "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run and what it spent, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
-      "numbers": "The numbers the engine measures for the project, each as the wake started and earlier, for the trend.",
+      "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
@@ -3161,15 +3161,15 @@
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
-      "state_of_things": "The state of things as the architect last wrote it, with what it learned and noted since: when the wake's understanding wrote it, as that round handed it in.",
-      "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the wake said the policy in force stays.",
+      "state_of_things": "The state of things as the architect last wrote it, with what it learned and noted since: when the understanding of the architect's work wrote it, as that round handed it in.",
+      "policy_stays": "The study of a new policy and the owner's answer to it, as their rounds handed them in, when the owner's latest answer to a study in the architect's work said the policy in force stays.",
       "draft_text": "The text of the policy being set, as the round that wrote it handed it in, or as the engine put it together with the corrections since.",
       "draft_probes": "The probes of the policy being set, with the answers held right: as the round that wrote them handed them in, or as the engine put them together with the corrections since.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
       "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
-      "set_again": "Why the policy is set again: what the wake that started the setting found of the policy in force against the constitution, article by article, and each reason it may no longer govern (`P1`)",
+      "set_again": "Why the policy is set again: what the architect's work that started the setting found of the policy in force against the constitution, article by article, and each reason it may no longer govern (`P1`)",
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick or wrap-up, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item."
     },
     "values": {
@@ -3185,8 +3185,8 @@
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "waited": "Whether every item waited for is merged.",
       "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with a decision of the design card.",
-      "understanding": "Whether the session the wake goes on in answered the understanding question since it started or was last compacted.",
-      "entry": "How the work came to the understanding question: the project's first wake, a new policy, another new session, a compacted one, or a rethink after a batch.",
+      "understanding": "Whether the session the architect's work goes on in answered the understanding question since it started or was last compacted.",
+      "entry": "How the work came to the understanding question: the architect's first work on the project, a new policy, another new session, a compacted one, or a rethink after a batch.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer.",
       "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
@@ -3231,7 +3231,7 @@
         "relations": [
           "architect_matters",
           "architect_queue",
-          "wake_handled"
+          "work_handled"
         ],
         "inputs": [
           "queue",
@@ -3307,7 +3307,7 @@
         "inputs": [
           "state_of_things",
           "before",
-          "since_last_wake"
+          "since_last_work"
         ]
       },
       "locked_acceptance": {
@@ -3537,7 +3537,7 @@
       "hand_over_to_sub_items": [
         "branch"
       ],
-      "wake_architect": [
+      "queue_for_architect": [
         "architect_queue"
       ],
       "deliver_answers": [
@@ -3668,7 +3668,7 @@
       "wait_for_start": [
         "owner_notices"
       ],
-      "wake": [
+      "wait_for_matter": [
         "sessions"
       ],
       "raise_blocker": [
@@ -3784,7 +3784,7 @@
         ]
       },
       "entry": {
-        "says": "first wake, new policy, new session, compaction or rethink",
+        "says": "first work, new policy, new session, compaction or rethink",
         "stores": [
           "sessions"
         ]
@@ -3914,7 +3914,7 @@
       "text": [
         "Judging: you are this project's architect, and judge its matters by its constitution and by the policy in force for it. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner: for the policy where you judge whether it is right, for the constitution with the kind constitution_and_policy.",
         "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
-        "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from wake to wake, and what you read without need crowds out what later rounds need. What you remember from an earlier wake is how things stood then: before you act on it, check it against what has changed since.",
+        "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from one of your works to the next, and what you read without need crowds out what later rounds need. What you remember from an earlier work of yours is how things stood then: before you act on it, check it against what has changed since.",
         "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, notes, observations). The owner reads your log afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
         "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
@@ -3923,12 +3923,12 @@
         "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
         "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
         "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
-        "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the wake you are in, or keep a note of it: nothing wakes you for a note, so what you must come back to is in your notes, not in your memory.",
+        "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the work you are in, or keep a note of it: no work of yours starts for a note, so what you must come back to is in your notes, not in your memory.",
         "Never: you push, merge and change no code, configuration, flow or rule, and the database changes only by your effects, as the engine carries them out. Do not reach an item change by another way before it is made: no interjection or reply has an engineer act as if it were made, and a pause holds a work only until the change is made; it does not stand in for a cancellation.",
         "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",
         "Your state of things: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand. Write it to stand on its own and keep it current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it, or in your notes, what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
         "The owner's lasting instructions: an instruction of the owner meant to last, if it decides what comes first, belongs to the policy: have the policy thought again, and keep no note of your own in its place. If it is about how you work, keep it in your notes about the whole, with the owner's words and since when, and follow it until the owner withdraws it.",
-        "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner at an earlier wake and has not changed since, do not tell again.",
+        "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner in an earlier work of yours and has not changed since, do not tell again.",
         "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in tell_owner where it is and what it cost, and if you cannot go on, ask the owner. Changing the flow, the rules or the engine is the owner's to decide; you may propose an item for it.",
         "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say so in what you learned, and tell the owner."
       ],
@@ -4803,7 +4803,7 @@
         "always": [
           {
             "at": "side_reports.urgent",
-            "do": "wake_architect"
+            "do": "queue_for_architect"
           },
           {
             "at": "redirect.answers",
@@ -11036,7 +11036,7 @@
               ],
               [
                 "overdue",
-                "No reply yet, past its limit of the architect's time to act on it (awake and not paused): two hours, provisionally, until how long the architect takes has been measured"
+                "No reply yet, past its limit of the architect's time to act on it (while a work of the architect runs, not paused): two hours, provisionally, until how long the architect takes has been measured"
               ],
               [
                 "holder_gone",
@@ -11246,7 +11246,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: whether this work waits longer for the architect. Its question has waited past its limit of the architect's time to act on it, counted only while the architect was awake and not paused, so the architect had the time and answered other matters first. Weigh what waiting costs this work against what the architect is busy with, and whether the work can go on another way.",
+            "This round answers one thing only: whether this work waits longer for the architect. Its question has waited past its limit of the architect's time to act on it, counted only while a work of the architect ran and was not paused, so the architect had the time and answered other matters first. Weigh what waiting costs this work against what the architect is busy with, and whether the work can go on another way.",
             "Hand in wait_on when the question is the architect's and the answer is worth waiting for: its limit is counted again. Hand in to_owner when it needs a decision the architect is not giving, saying why: the owner answers the cell that asked, or hands it back to the architect with a decision. Hand in withdraw when the work can go on without the answer: the question leaves the architect's queue, and you choose the way on."
           ],
           "out": [
@@ -11598,7 +11598,7 @@
       "end": "E2",
       "blocks": [
         {
-          "name": "wake",
+          "name": "start",
           "nodes": [
             "W0",
             "W1"
@@ -11717,11 +11717,11 @@
         "lines": [
           {
             "name": "architect",
-            "desc": "The architect of the wake's project: a wake goes on in the session the project's last wake left, from understanding the project to the wrap-up",
+            "desc": "The architect of the work's project: a work of the architect goes on in the session the project's previous architect work left, from understanding the project to the wrap-up",
             "anew": {
               "row": "session_anew",
               "to": "W1",
-              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model changed): it holds no state of things, so the wake goes back to understanding the project first, and the matter picked goes back to the queue. Not after a new policy took effect, whose new session goes straight on to what to do next.",
+              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model changed): it holds no state of things, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue. Not after a new policy took effect, whose new session goes straight on to what to do next.",
               "not": [
                 "U1"
               ]
@@ -11733,15 +11733,15 @@
           },
           {
             "name": "observer",
-            "desc": "The search of the project's observations: the first search of a wake starts a new session, and later searches of the wake continue it"
+            "desc": "The search of the project's observations: the first search of a work of the architect starts a new session, and later searches of that work continue it"
           }
         ],
         "rules": [
-          "A wake goes on in the session the project's last wake left. A new session starts at the project's first wake, when a new policy takes effect, when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
+          "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when a new policy takes effect, when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
-          "When the architect hands in pause, the wake waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
-          "The wake's lines only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
+          "When the architect hands in pause, the architect's work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
+          "The lines of the architect's work only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
         ]
       },
       "rules": [
@@ -11762,14 +11762,14 @@
       ],
       "stages": {
         "rules": [
-          "The owner's interface shows each project's architect on its tab: whether it is awake or asleep, and when awake which question it is at and which matter it handles.",
-          "The stage is not stored: it follows from the cell the wake is at.",
-          "While asking the owner, running tools or searching, the stage is that of the cell the wake stopped at."
+          "The owner's interface shows each project's architect on its tab: whether a work of it runs, and while one runs which question it is at and which matter it handles.",
+          "The stage is not stored: it follows from the cell the architect's work is at.",
+          "While asking the owner, running tools or searching, the stage is that of the cell the architect's work stopped at."
         ],
         "list": [
           {
-            "name": "wake",
-            "desc": "The engine wakes it, and readies its session",
+            "name": "start",
+            "desc": "The engine starts a work of it, and readies its session",
             "nodes": [
               "W0",
               "W1"
@@ -11784,7 +11784,7 @@
           },
           {
             "name": "policy",
-            "desc": "Whether the policy in force still holds; when it must be set again, the setting starts as a task of its own, and the wake goes on under the policy in force",
+            "desc": "Whether the policy in force still holds; when it must be set again, the setting starts as a task of its own, and the architect's work goes on under the policy in force",
             "nodes": [
               "P1"
             ]
@@ -11840,7 +11840,7 @@
           },
           {
             "name": "record",
-            "desc": "This wake is done; waiting for the next",
+            "desc": "The architect's work is done; waiting for the next",
             "nodes": [
               "E2"
             ]
@@ -11869,8 +11869,8 @@
         "counts": "asks"
       },
       "limits": {
-        "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the wake. The counters are in the wake's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
-        "waits": "Matters that come while the architect is awake wait in its queue, for the next pick; how long each waited is visible on the owner's interface.",
+        "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the architect's work. The counters are in the work's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
+        "waits": "Matters that come while a work of the architect runs wait in its queue, for the next pick; how long each waited is visible on the owner's interface.",
         "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
@@ -11887,7 +11887,7 @@
           },
           {
             "name": "total_time",
-            "desc": "The time the architect spends working in a wake, its rounds, plus the time of the tools it has the engine run, in minutes, measured and counted by no row; waiting for the owner is not counted. Once a stretch's budget, its limit, is used up, the engine asks it to pause, and the pause waits at cell `X3` for the owner's Start",
+            "desc": "The time the architect spends working in one of its works, its rounds, plus the time of the tools it has the engine run, in minutes, measured and counted by no row; waiting for the owner is not counted. Once a stretch's budget, its limit, is used up, the engine asks it to pause, and the pause waits at cell `X3` for the owner's Start",
             "time": true
           },
           {
@@ -12206,12 +12206,12 @@
         {
           "id": "W0",
           "kind": "engine",
-          "title": "Wake",
-          "step": "wake",
+          "title": "Waits to start",
+          "step": "wait_for_matter",
           "inputs": [
             {
-              "name": "Why it woke",
-              "what": "Why you woke: the matters due in your queue (an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with fewer items ready than slots, a matter back with the owner's answer), or the owner started or stepped you",
+              "name": "Why it started",
+              "what": "Why this work of yours started: the matters due in your queue (an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with fewer items ready than slots, a matter back with the owner's answer), or the owner started or stepped you",
               "from": [
                 {
                   "db": "architect_queue",
@@ -12223,7 +12223,7 @@
           "out": [],
           "cases": [
             {
-              "name": "woke",
+              "name": "started",
               "if": [
                 [
                   "all"
@@ -12254,7 +12254,7 @@
               ],
               "to": "Q0",
               "main": true,
-              "note": "The session goes on and holds its understanding of the project: the wake takes the matters at once."
+              "note": "The session goes on and holds its understanding of the project: the architect's work takes the matters at once."
             },
             {
               "name": "not_understood",
@@ -12275,7 +12275,7 @@
             "understanding": [
               [
                 "understood",
-                "The session the wake goes on in answered the understanding question since it started or was last compacted"
+                "The session the architect's work goes on in answered the understanding question since it started or was last compacted"
               ],
               [
                 "not_understood",
@@ -12305,11 +12305,11 @@
               ]
             },
             {
-              "name": "What happened since the last wake",
-              "what": "What happened in the project since its last wake: the commits merged on main with their messages, the works that ended or stopped, the CI on main, the owner's words and the design cards ruled, the reports that came in; at the project's first wake, the same over the last week",
+              "name": "What happened since the architect's last work",
+              "what": "What happened in the project since the architect's last work: the commits merged on main with their messages, the works that ended or stopped, the CI on main, the owner's words and the design cards ruled, the reports that came in; at the architect's first work on the project, the same over the last week",
               "from": [
                 {
-                  "engine": "since_last_wake"
+                  "engine": "since_last_work"
                 }
               ]
             },
@@ -12324,7 +12324,7 @@
             },
             {
               "name": "Project numbers",
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's wakes spent week by week, up to this wake. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's works spent week by week, up to this work of the architect. The engine measures nothing else yet, and says so for a signal it does not measure",
               "from": [
                 {
                   "engine": "numbers"
@@ -12342,7 +12342,7 @@
             },
             {
               "name": "Last state of things",
-              "what": "Your last state of things, with what your wrap-ups learned and noted since; none at the first wake",
+              "what": "Your last state of things, with what your wrap-ups learned and noted since; none at your first work on the project",
               "from": [
                 {
                   "db": "architect_state",
@@ -12463,7 +12463,7 @@
             "by": "entry",
             "cases": {
               "first": [
-                "This is the project's first wake, and you remember nothing: there is no state of things before yours. Read main's history and the guide, then the items and the code they touch, until you can say each line of work."
+                "This is your first work on the project, and you remember nothing: there is no state of things before yours. Read main's history and the guide, then the items and the code they touch, until you can say each line of work."
               ],
               "new_policy": [
                 "A new policy took effect, and this session is new: you remember nothing. Your last state of things is an earlier account to check against the facts, not a fact."
@@ -12483,7 +12483,7 @@
             "entry": [
               [
                 "first",
-                "The project's first wake: a new session, with no state of things before"
+                "The architect's first work on the project: a new session, with no state of things before"
               ],
               [
                 "new_policy",
@@ -12552,7 +12552,7 @@
             },
             {
               "name": "What the project is now",
-              "what": "What the project is now, as you wrote it in this wake: each line of work, what changed and what is unclear",
+              "what": "What the project is now, as you wrote it in this work: each line of work, what changed and what is unclear",
               "from": [
                 [
                   "U1",
@@ -12593,7 +12593,7 @@
           "prompt": [
             "This round answers one thing only: does the policy in force still hold, and is its direction still right. The policy is the owner's: you act by it and do not change it, but you must see when it no longer holds. You judge its direction only here; what to do under it is the next question.",
             "Signs it does not hold: a signal it names passed its line; a conflict with the constitution, checked article by article, looking also for steps each reasonable alone that together break an article, such as a specification that grows one rule at a time; a fact it rests on, overturned by what the project is now; a new situation it does not cover; a policy that oversteps what a policy governs; no policy yet.",
-            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, or set_again with each reason: the setting of a new policy then starts beside this wake, which goes on with its queue under the policy in force, and no new work of the project starts until a new policy is studied, written and approved, or the owner says the policy stays. You cannot ask here: in doubt, set_again, and the owner decides at once whether it stays."
+            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, or set_again with each reason: the setting of a new policy then starts beside this work, which goes on with its queue under the policy in force, and no new work of the project starts until a new policy is studied, written and approved, or the owner says the policy stays. You cannot ask here: in doubt, set_again, and the owner decides at once whether it stays."
           ],
           "out": [
             {
@@ -12735,7 +12735,7 @@
                 "hold_for_policy",
                 "start_policy"
               ],
-              "note": "The setting of a new policy starts as a task of its own beside the wake, which goes on with its queue under the policy in force; no new work of the project starts until it ends."
+              "note": "The setting of a new policy starts as a task of its own beside the architect's work, which goes on with its queue under the policy in force; no new work of the project starts until it ends."
             }
           ],
           "without": [
@@ -12825,7 +12825,7 @@
             },
             {
               "name": "What the project is now",
-              "what": "What the project is now, as you wrote it in this wake: each line of work, what changed and what is unclear; none when this wake took a matter of a policy set without understanding the project again: your session holds it",
+              "what": "What the project is now, as you wrote it in this work: each line of work, what changed and what is unclear; none when this work took a matter of a policy set without understanding the project again: your session holds it",
               "from": [
                 [
                   "U1",
@@ -12844,7 +12844,7 @@
             },
             {
               "name": "Policy against the constitution",
-              "what": "What you found of the policy against the constitution, article by article, when you checked it in this wake; none when this wake took a matter of a policy set without understanding the project again: your session holds it",
+              "what": "What you found of the policy against the constitution, article by article, when you checked it in this work; none when this work took a matter of a policy set without understanding the project again: your session holds it",
               "from": [
                 [
                   "P1",
@@ -13101,7 +13101,7 @@
                 },
                 {
                   "value": "none",
-                  "desc": "Nothing can be picked, and this batch handled none: the wake wraps up",
+                  "desc": "Nothing can be picked, and this batch handled none: the architect's work wraps up",
                   "fields": []
                 },
                 {
@@ -14306,7 +14306,7 @@
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
               ],
               "flow_feedback": [
-                "It is flow feedback, by cell. Take in as a report what belongs to this project: its items, rules or configuration. What belongs to wf-agents (the flow's cells, inputs, fields and texts) take in too when this project is wf-agents; otherwise forward it in messages to the architect of the project the matter names as wf-agents, which takes it at its next wake, or record it as an observation when it names none."
+                "It is flow feedback, by cell. Take in as a report what belongs to this project: its items, rules or configuration. What belongs to wf-agents (the flow's cells, inputs, fields and texts) take in too when this project is wf-agents; otherwise forward it in messages to the architect of the project the matter names as wf-agents, which takes it in its next work, or record it as an observation when it names none."
               ],
               "fault": [
                 "It is a fault of wf-agents itself, which the owner forwarded to you. Take it in as a report: an item that fixes its cause, an existing item that takes it, or an observation; a fault the evidence shows has stopped needs nothing more than saying so."
@@ -15472,11 +15472,11 @@
           ],
           "inputs": [
             {
-              "name": "Matters handled this wake",
-              "what": "The matters handled in this wake, and how each ended",
+              "name": "Matters handled in this work",
+              "what": "The matters handled in this work, and how each ended",
               "from": [
                 {
-                  "db": "wake_handled",
+                  "db": "work_handled",
                   "by": "work"
                 }
               ]
@@ -15503,7 +15503,7 @@
             }
           ],
           "prompt": [
-            "This round wraps up the wake, and answers two things. First, what you learned this time: whether what you saw while handling matters changes your understanding of the project; if it does, say what changed: it joins your state of things. Second, your notes: what to look at again, about the project as a whole or about one item. Nothing wakes you for a note: the next matter that comes, or the next wake, brings it back to you."
+            "This round wraps up this work, and answers two things. First, what you learned this time: whether what you saw while handling matters changes your understanding of the project; if it does, say what changed: it joins your state of things. Second, your notes: what to look at again, about the project as a whole or about one item. No work of yours starts for a note: the next matter that comes, or your next work, brings it back to you."
           ],
           "out": [
             {
@@ -15546,8 +15546,8 @@
         {
           "id": "E2",
           "kind": "engine",
-          "title": "Record the wake",
-          "step": "end_wake",
+          "title": "End the work",
+          "step": "end_architect_work",
           "inputs": [],
           "out": []
         },
@@ -15595,7 +15595,7 @@
               "to": "B1",
               "drops": true,
               "main": true,
-              "note": "The ask holds only the matter of the path that asked: the wake goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
+              "note": "The ask holds only the matter of the path that asked: the architect's work goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
             }
           ],
           "shown": [
@@ -15987,12 +15987,12 @@
         "lines": [
           {
             "name": "policy",
-            "desc": "The architect setting the project's policy, in a session of its own beside the project's wakes: from the study to the approval"
+            "desc": "The architect setting the project's policy, in a session of its own beside the project's architect works: from the study to the approval"
           }
         ],
         "rules": [
-          "The setting of a policy is a task of its own: a work of this graph for one project, which the understanding of a wake starts when the policy in force may no longer hold (`P1` `set_again`), at most one for a project at a time. Its rounds go on in a session of their own, so that the wake goes on with its queue under the policy in force meanwhile; no new work of the project starts while it runs.",
-          "The setting only reads, in a worktree of its own beside the wake's, at the project's main, which the engine brings to the latest main before each round.",
+          "The setting of a policy is a task of its own: a work of this graph for one project, which the understanding in a work of the architect's graph starts when the policy in force may no longer hold (`P1` `set_again`), at most one for a project at a time. Its rounds go on in a session of their own, so that the architect's work goes on with its queue under the policy in force meanwhile; no new work of the project starts while it runs.",
+          "The setting only reads, in a worktree of its own beside that of the architect's works, at the project's main, which the engine brings to the latest main before each round.",
           "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, in an empty directory, given only what its cell's inputs hold.",
           "When the task ends, the architect's queue gets a matter that says so: a new policy that took effect ends the architect's session, whose next round understands the project afresh and thinks what to do next under it; the policy in force staying goes to what to do next in the session as it is."
         ]
@@ -16356,7 +16356,7 @@
           "inputs": [
             {
               "name": "Why it is set again",
-              "what": "Why it is set again: each reason the policy may no longer govern, with what was seen, as the wake that set it again judged it; none when no wake set it again",
+              "what": "Why it is set again: each reason the policy may no longer govern, with what was seen, as the architect's work that set it again judged it; none when no work of the architect set it again",
               "from": [
                 {
                   "engine": "set_again"
@@ -16428,7 +16428,7 @@
             }
           ],
           "prompt": [
-            "This round studies the direction of a new policy: this is a task of its own, beside the project's wakes, which go on under the policy in force while it is set; no new work of the project starts until it is. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
+            "This round studies the direction of a new policy: this is a task of its own, beside the project's architect works, which go on under the policy in force while it is set; no new work of the project starts until it is. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
             "First find out which direction the owner wants and what for, starting from the owner's own words in the project's design goal and from the constitution; then read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. Answer: how the things concerned stand now, with numbers where there are numbers; what a new direction touches, and how; at least three directions to choose from, each with where it takes the project and what follows from it, never an order of work; which you recommend and why; and what you are unsure of and must ask the owner. For what you checked, say where; for what you deduced, from what, and how to confirm it.",
             "When the owner read it and gave views, study on by them, and hand in the whole study corrected, not only answers to the new questions.",
             "Questions for the owner go in the study's questions, which the owner answers as it reads the study; hand in ask only for what the study cannot go on without."
@@ -17589,8 +17589,8 @@
               ]
             },
             {
-              "name": "What the wake found, and the project now",
-              "what": "What the wake that set it again found of the policy in force against the constitution, article by article, with its reasons; and what the project is now, as its architect last wrote it; none when no wake set it again",
+              "name": "What the architect's work found, and the project now",
+              "what": "What the architect's work that set it again found of the policy in force against the constitution, article by article, with its reasons; and what the project is now, as its architect last wrote it; none when no work of the architect set it again",
               "from": [
                 {
                   "engine": "set_again"

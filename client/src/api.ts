@@ -56,7 +56,7 @@ started: Array<number>,
  */
 releasing: Array<number>, 
 /**
- * The projects whose architect the owner started since every work was last paused: its wakes go on whatever the
+ * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
  */
 architects_started: Array<string>, 
@@ -161,7 +161,7 @@ export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", des
  */
 export type WorkSummary = { id: number, 
 /**
- * The item worked on, its title and its project; for a wake of an architect, no item and the architect's project.
+ * The item worked on, its title and its project; for a work of an architect, no item and the architect's project.
  */
 item: number | null, title: string | null, project: string | null, 
 /**
@@ -409,7 +409,7 @@ read_at: number | null,
  */
 ask: number | null, ask_kinds: Array<AskKind>, 
 /**
- * For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
+ * For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
  * architect's project; none otherwise.
  */
 architect: string | null, };
@@ -434,7 +434,7 @@ by: string,
  */
 matter: number, 
 /**
- * `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its wake
+ * `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its work
  * and its number; `withdrawn`.
  */
 state: string, handled_work: number | null, handled_round: number | null, };
@@ -650,9 +650,10 @@ what: string,
  */
 state: string, 
 /**
- * While it is worked on: the cell the architect is at, with its title, and the wake's round there.
+ * While it is worked on: the cell the architect is at, with its title, and the round of the architect's work
+ * there.
  */
-cell: string | null, cell_title: string | null, wake: number | null, round: number | null, 
+cell: string | null, cell_title: string | null, architect_work: number | null, round: number | null, 
 /**
  * The work it is about, whose group holds it in full, and that work's item.
  */
@@ -844,8 +845,8 @@ export type Session = { line: string, cli: string, cli_session: string, };
  */
 export type WorkSession = { id: number, line: string, 
 /**
- * Why it started: line, cell, limit, or wake (a wake of the architect going on in the CLI session the last wake
- * left).
+ * Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
+ * previous architect work left).
  */
 started: string, 
 /**
@@ -1170,9 +1171,9 @@ models: { [key in string]: string }, highest_level: string | null, architect: st
 export type NewLevel = { level: string, };
 
 /**
- * A project's architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the item changes
- * its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations. A
- * wake is a work of the architect's graph for the project, on no item.
+ * A project's architect, as its tab shows it: its works, its queue, what it asked the owner, its log, the item changes
+ * its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations.
+ * Its works are works of the architect's graph for the project, on no item.
  */
 export type Architect = { 
 /**
@@ -1184,9 +1185,9 @@ project: string,
  */
 projects: Array<string>, 
 /**
- * Its wakes, newest first.
+ * Its works, newest first.
  */
-wakes: Array<Wake>, 
+works: Array<ArchitectWork>, 
 /**
  * The matters it has not handled: those in its queue, in the order they came; then those an ask of the owner holds.
  */
@@ -1196,7 +1197,7 @@ queue: Array<Matter>,
  */
 holds: Array<DispatchHold>, 
 /**
- * What its wakes asked the owner, oldest first.
+ * What its works asked the owner, oldest first.
  */
 asks: Array<OwnerAsk>, 
 /**
@@ -1212,7 +1213,7 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null, 
 /**
- * The policy a wake is setting now; none while no wake sets one.
+ * The policy a work of it is setting now; none while no work of it sets one.
  */
 setting: PolicySetting | null, 
 /**
@@ -1234,13 +1235,13 @@ tags: Array<Tag>,
 own: boolean, };
 
 /**
- * One wake of an architect.
+ * One work of an architect.
  */
-export type Wake = { work: WorkSummary, 
+export type ArchitectWork = { work: WorkSummary, 
 /**
- * What woke it: the matters its queue held when it woke, as its first round was given them.
+ * What it started for: the matters its queue held when it started, as its first round was given them.
  */
-woke_for: Array<Queued>, 
+started_for: Array<Queued>, 
 /**
  * How many matters it handled.
  */
@@ -1252,7 +1253,7 @@ handled: number,
 handling: number | null, };
 
 /**
- * A matter as an architect's queue gave it to a wake.
+ * A matter as an architect's queue gave it to a work of the architect.
  */
 export type Queued = { matter: number, kind: string, detail: string | null, what: string, item: number | null, };
 
@@ -1331,7 +1332,7 @@ export type MatterCard = { id: number, status: string, rulings: JsonValue, repla
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
 /**
- * What a round of an architect handed back: its wake, its number in the wake, its cell, when it ended, and its answer.
+ * What a round of an architect handed back: its work, its number in the work, its cell, when it ended, and its answer.
  */
 export type Said = { work: number, round: number, cell: string, at: number | null, value: JsonValue, };
 
@@ -1341,7 +1342,7 @@ export type Said = { work: number, round: number, cell: string, at: number | nul
  */
 export type Handled = { matter: number, kind: string, detail: string | null, what: string, 
 /**
- * The round that closed it: its wake, its number and its cell, and when it ended.
+ * The round that closed it: its work, its number and its cell, and when it ended.
  */
 work: number, round: number, cell: string, at: number | null, 
 /**
@@ -1388,7 +1389,7 @@ export type HandledAction = { kind: string, item: number | null, };
  */
 export type ItemChange = { id: number, 
 /**
- * The round that handed it in: its wake and its number.
+ * The round that handed it in: its work and its number.
  */
 work: number, round: number, 
 /**
@@ -1452,7 +1453,8 @@ export type Tag = { name: string, desc: string, };
 export type CloseObservation = { why: string, };
 
 /**
- * The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
+ * The policy in force: its text, and the round of the architect's work in which it took effect, after the owner
+ * approved it.
  */
 export type PolicyInForce = { work: number, round: number, 
 /**
@@ -1461,8 +1463,8 @@ export type PolicyInForce = { work: number, round: number,
 cell: string, at: number | null, policy: JsonValue, };
 
 /**
- * A new policy as a wake sets it: the latest study of it, and the latest text with its probes and every reading of it
- * by a new architect since, with the architect's verdict on each.
+ * A new policy as a work of the architect sets it: the latest study of it, and the latest text with its probes and
+ * every reading of it by a new architect since, with the architect's verdict on each.
  */
 export type PolicySetting = { work: number, study: Said | null, draft: Draft | null, };
 
@@ -1530,11 +1532,11 @@ asks: Waiting, design_cards: Waiting, faults: Waiting, };
  */
 export type ArchitectNow = { project: string, 
 /**
- * Its wake not over, by its work, while it is awake; none while it sleeps.
+ * Its work not over, by its id, while one runs; none while none runs.
  */
-wake: number | null, 
+work: number | null, 
 /**
- * Whether that wake is paused.
+ * Whether that work is paused.
  */
 paused: boolean, 
 /**
@@ -1564,7 +1566,7 @@ merged: number, made: number, cancelled: number,
  */
 open_prs: number, 
 /**
- * What the engineers' works and the architects' wakes spent in it, their keep-warm pings included, in US dollars.
+ * What the engineers' works and the architects' works spent in it, their keep-warm pings included, in US dollars.
  */
 engineers_usd: number, architects_usd: number, };
 

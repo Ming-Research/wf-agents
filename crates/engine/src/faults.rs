@@ -407,7 +407,7 @@ mod tests {
         assert_eq!((notices, misses), (4, 5));
     }
 
-    /// A database with one wake of project p's architect and six rounds of it.
+    /// A database with one work of project p's architect and six rounds of it.
     fn with_rounds() -> db::Db {
         let mut db = db::Db::in_memory().unwrap();
         db.write(Actor::Engine, |tx| {

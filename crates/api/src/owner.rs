@@ -276,7 +276,7 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<St
             ));
         }
     }
-    // A wake that picked it is answering it: the owner's words go to the architect instead.
+    // A work of the architect that picked it is answering it: the owner's words go to the architect instead.
     let picked: i64 = db
         .conn()
         .query_row(
@@ -335,8 +335,9 @@ fn holds_of(body: &Value) -> Vec<i64> {
 
 /// Answers an ask an architect put, by its kind: the owner's view of a study or approval of a policy, with the option
 /// chosen; an answer to what the architect asked, which brings back the matters the ask holds, each to the cell that
-/// asked about it, or, for an ask that held neither a matter nor a wake, comes to the architect's queue as the owner's
-/// words. An ask of the changes an earlier architect collected for approval is closed: item changes are reviewed now.
+/// asked about it, or, for an ask that held neither a matter nor a work of the architect, comes to the architect's
+/// queue as the owner's words. An ask of the changes an earlier architect collected for approval is closed: item
+/// changes are reviewed now.
 fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
@@ -373,8 +374,8 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
                 return Err("an answer says something".into());
             }
             let answer = json!({ "by": "owner", "at": at, "text": text });
-            // An ask that held no wake and no matter, as an earlier architect put open questions, comes back to the
-            // queue as the owner's words.
+            // An ask that held no work of the architect and no matter, as an earlier architect put open questions,
+            // comes back to the queue as the owner's words.
             let open = kind == "open" && holds_of(body).is_empty();
             let asked = if kind == "open" {
                 body["choice"].clone()
@@ -469,7 +470,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
 /// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
 /// confirms every decision is a word to the engineer that needs no answer and turns nothing (`informs`). The owner
 /// alone rules on a design card; once the owner confirms every decision, the architect has nothing to look at in it:
-/// the card leaves the architect's queue, unless a wake has it in hand.
+/// the card leaves the architect's queue, unless a work of the architect has it in hand.
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
     let found: Option<(String, i64, String)> = db
         .conn()
@@ -647,10 +648,10 @@ pub fn can_start(conn: &Connection, work: i64) -> Result<String, String> {
     }
 }
 
-/// Pauses the wake of a project's architect that runs, as the owner, as [`pause`] pauses a work; none when no wake of
+/// Pauses the work of a project's architect that runs, as the owner, as [`pause`] pauses a work; none when no work of
 /// it runs or it is paused already.
-pub fn pause_wake(db: &mut Db, project: &str) -> Result<String, String> {
-    let wake: Option<i64> = db
+pub fn pause_architect(db: &mut Db, project: &str) -> Result<String, String> {
+    let work: Option<i64> = db
         .conn()
         .query_row(
             "SELECT max(id) FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL AND paused IS NULL",
@@ -658,7 +659,7 @@ pub fn pause_wake(db: &mut Db, project: &str) -> Result<String, String> {
             |r| r.get(0),
         )
         .map_err(sql)?;
-    match wake {
+    match work {
         Some(w) => pause(db, w, None),
         None => Ok(format!("the architect of {project} has nothing running to pause")),
     }
@@ -828,7 +829,7 @@ mod tests {
 
     // The owner answers in a work's group a question of its engineer's that the architect holds: the answer is the
     // matter's reply, said by the owner, and the matter leaves the queue; a question no architect holds, one of another
-    // work, and one a wake has in hand are refused.
+    // work, and one a work of the architect has in hand are refused.
     #[test]
     fn the_owner_answers_a_question_the_architect_holds() {
         let mut db = setup();
@@ -960,7 +961,7 @@ mod tests {
         assert_eq!(actors, ["owner", "owner"]);
     }
 
-    // The owner pauses a work that goes on, once, and a wake of the architect the same way; why is the owner's words
+    // The owner pauses a work that goes on, once, and a work of the architect the same way; why is the owner's words
     // when given.
     #[test]
     fn the_owner_pauses_a_work_once() {
@@ -980,7 +981,7 @@ mod tests {
         assert!(pause(&mut db, 1, None).is_err());
         assert!(pause(&mut db, 9, None).is_err());
         assert_eq!(
-            pause_wake(&mut db, "p").unwrap(),
+            pause_architect(&mut db, "p").unwrap(),
             "the architect of p has nothing running to pause"
         );
         db.write(Actor::Engine, |tx| {
@@ -991,7 +992,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(pause_wake(&mut db, "p").unwrap(), "work 2 pauses");
+        assert_eq!(pause_architect(&mut db, "p").unwrap(), "work 2 pauses");
         assert_eq!(paused(&db, 2).1.as_deref(), Some("owner"));
         // The owner's words, when given, say why.
         resume(&mut db, 1).unwrap();
@@ -1168,11 +1169,11 @@ mod tests {
         );
     }
 
-    /// An ask the architect of project p put, on the work of a wake, with its body.
+    /// An ask the architect of project p put, on a work of the architect, with its body.
     fn architect_ask(db: &mut Db, body: Value) -> i64 {
         db.write(Actor::Engine, |tx| {
-            let wake: i64 = tx.query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))?;
-            if wake == 0 {
+            let works: i64 = tx.query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))?;
+            if works == 0 {
                 tx.execute(
                     "INSERT INTO works (id, item, flow_version, graph, at, project)
                      VALUES (9, NULL, 1, 'architect', 'A3', 'p')",
@@ -1246,7 +1247,8 @@ mod tests {
     }
 
     // The owner's answer to an ask that held a matter brings the matter back to its architect's queue, with the cell
-    // that asked to go back to; an ask that held neither a matter nor a wake comes back as the owner's words.
+    // that asked to go back to; an ask that held neither a matter nor a work of the architect comes back as the owner's
+    // words.
     #[test]
     fn an_answer_brings_back_the_matter_the_ask_held() {
         let mut db = setup();

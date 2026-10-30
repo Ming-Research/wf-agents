@@ -46,7 +46,7 @@ export type Course = {
   waits: Waits | null;
   /// Its flow version is older than the one the engine runs: when it goes on, it is taken over.
   outdated: boolean;
-  /// The owner started it since every work was last paused (a wake of the architect: the architect): it goes on
+  /// The owner started it since every work was last paused (a work of the architect: the architect): it goes on
   /// whatever the global state.
   started: boolean;
   /// The owner started it while it was paused: its pause is lifted once its machine has a slot free.

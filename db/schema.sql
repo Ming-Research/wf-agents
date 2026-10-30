@@ -243,14 +243,14 @@ CREATE TABLE flow_versions (
 ) STRICT;
 
 CREATE TABLE works (
-  -- One run of a graph of the flow: an engineer's work on an item, one wake of a project's architect, or the setting
-  -- of a project's policy, a task of its own beside the wakes. It holds the current
+  -- One run of a graph of the flow: an engineer's work on an item, one work of a project's architect, or the setting
+  -- of a project's policy, a task of its own beside the architect's works. It holds the current
   -- state the engine needs to take the next step, written in the same transaction as the round that changed it; the
   -- history is in rounds. Which cell brought the work to its cell, whether it is done, what it waits for and when it
   -- started and ended are derived from its rounds. At most one work per item runs at a time.
   -- Read by: the engine at every step.
   id INTEGER PRIMARY KEY,
-  -- The item worked on; NULL for an architect wake, which belongs to no item but to its project.
+  -- The item worked on; NULL for a work of an architect, which belongs to no item but to its project.
   item INTEGER REFERENCES items(id),
   flow_version INTEGER NOT NULL REFERENCES flow_versions(id),
   -- Which graph of that version it runs. Read by: the engine.
@@ -287,8 +287,8 @@ CREATE TABLE works (
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
   -- Read by: the engine, when the owner lets works go on; the owner's interface.
   paused_by TEXT CHECK (paused_by IN ('owner', 'engine')),
-  -- For a wake of the architect, or the setting of a policy, the project whose architect it is; NULL for an
-  -- engineer's work, whose project is its item's. Read by: the engine, which runs one wake of each project's architect
+  -- For a work of the architect, or the setting of a policy, the project whose architect it is; NULL for an
+  -- engineer's work, whose project is its item's. Read by: the engine, which runs one work of each project's architect
   -- at a time, and one setting of its policy, and reads the project's views for them; the architect's views; the
   -- owner's interface.
   project TEXT CHECK (project IS NULL OR graph IN ('architect', 'policy'))
@@ -299,9 +299,9 @@ CREATE TABLE sessions (
   -- which the session manager gives the cell's rules and inputs again; it starts a new session at a cell the flow says
   -- it starts one at, when its session's context is past the configuration's limit, when the model its rounds run on
   -- changed, whose prompt cache it would have to write again whole, and when the owner asks for one. Each project's
-  -- architect's line goes on in one CLI session across the project's wakes: each wake has a row of its own with the
-  -- same cli_session, until a new policy ends it. A cell on no line has a session of its own for each round, ended
-  -- once the round has.
+  -- architect's line goes on in one CLI session across the works of the project's architect: each has a row of its
+  -- own with the same cli_session, until a new policy ends it. A cell on no line has a session of its own for each
+  -- round, ended once the round has.
   -- Hidden from agents.
   -- Read by: the session manager, to resume a line, to start a new session and to keep a waiting session warm; the
   -- owner's interface.
@@ -319,10 +319,11 @@ CREATE TABLE sessions (
   -- Why it started: line, the line had no session going on (its first round in the work, or after its session
   -- ended); cell, the round is the work's first at a cell the line starts a new session at; limit, the context of the
   -- line's session before it was past the configuration's limit; model, the line's rounds run on another model than its
-  -- session before; wake, a wake of a project's architect going on in the CLI session the project's last wake left;
+  -- session before; carried, a work of a project's architect going on in the CLI session the project's previous
+  -- architect work left;
   -- owner, the owner asked for a new session with the round's Start or Step on the page. Read by: the owner's
   -- interface.
-  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'model', 'wake', 'owner'))
+  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'owner'))
 ) STRICT;
 
 CREATE TABLE pings (
@@ -577,11 +578,12 @@ CREATE TABLE architect_matters (
   -- design card to look at, a failure, the owner's words, a message from another project's architect, slots free with
   -- nothing of the project ready, or a place its understanding found to set straight. The project's queue is its
   -- matters not handled; its architect picks among them by the constitution and the policy, not by the order they
-  -- came. A matter in the queue wakes the project's architect, but for flow feedback, the project's own or forwarded by
-  -- another project's architect, which waits for a wake something else started and is picked only when it came before
-  -- that wake started.
-  -- Read by: the engine, which wakes the architect, picks a lone matter, routes each to its path, hands it its material
-  -- and takes its replies back; the architect's cells through architect_queue and wake_handled; the owner's interface.
+  -- came. A matter in the queue starts a work of the project's architect when none runs, but for flow feedback, the
+  -- project's own or forwarded by another project's architect, which waits for a work something else started and is
+  -- picked only when it came before that work started.
+  -- Read by: the engine, which starts the architect's works, picks a lone matter, routes each to its path, hands it its
+  -- material and takes its replies back; the architect's cells through architect_queue and work_handled; the owner's
+  -- interface.
   id INTEGER PRIMARY KEY,
   -- The project whose architect it is for.
   project TEXT NOT NULL,
@@ -591,11 +593,11 @@ CREATE TABLE architect_matters (
   -- What more its kind says: an engineer's question's own kind (split, duplicate, ...); a report's (a side report's
   -- kind, followup for a report's what to do next, answer for an engineer's answer to what the architect said to its
   -- work, flow_feedback for what agents said was wrong with their cells, or fault for a fault of wf-agents forwarded
-  -- to it, by the owner or by the owner's setting, which wakes it as a report does); a failure's (tool_failed,
-  -- environment_changed); the owner's words' (said, answer, release, approved_changes); a message's (message, reply,
-  -- or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to set straight.
-  -- NULL when there is nothing more. Read by: the engine, for the matter's material and whether it wakes the
-  -- architect; the owner's interface.
+  -- to it, by the owner or by the owner's setting, which starts a work of it as a report does); a failure's
+  -- (tool_failed, environment_changed); the owner's words' (said, answer, release, approved_changes); a message's
+  -- (message, reply, or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to
+  -- set straight. NULL when there is nothing more. Read by: the engine, for the matter's material and whether it starts a work of
+  -- the architect; the owner's interface.
   detail TEXT,
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,
@@ -631,7 +633,7 @@ CREATE TABLE architect_matters (
   -- A reply that waits for the item changes of its round to be made, JSON, as the round handed it in: it becomes the
   -- reply, with the numbers of the items they made, once the review of their batch lets them be made. NULL otherwise.
   reply_held TEXT CHECK (reply_held IS NULL OR json_valid(reply_held)),
-  -- The architect's round that handled it: its wake and the round that closed it; NULL while it is not handled.
+  -- The architect's round that handled it: its work and the round that closed it; NULL while it is not handled.
   handled_work INTEGER,
   handled_round INTEGER,
   -- Why it left the queue unhandled: the work it waits on, which raised it (a question, a failure, a design card),
@@ -649,7 +651,7 @@ CREATE TABLE architect_matters (
 CREATE TABLE blockers (
   -- What a stopped task waits on, one row for each stop: an engineer's question, an engine tool's failure, an ask of the
   -- owner, a wait for items to deliver, or a wait for the owner's ruling on a design card. A task is an engineer's work
-  -- or the setting of a policy; a wake of the architect is never one. A blocker belongs to the task and the cell that raised it, and has exactly one
+  -- or the setting of a policy; a work of the architect's graph is never one. A blocker belongs to the task and the cell that raised it, and has exactly one
   -- holder at a time, who must act: the work's advisor, a project's architect, the owner, or the items it waits for,
   -- whose merge resolves it. A task stops on one blocker at a time, and stands at its holder's cell while it waits;
   -- every move of a blocker is a row of the task's graph, which the engine records here.
@@ -716,7 +718,7 @@ CREATE TABLE architect_item_changes (
   -- once the review of the whole batch finds it sound, and kept as the log of every change made or dropped.
   -- Read by: the engine, which gives the batch to the review and makes the changes; the owner's interface.
   id INTEGER PRIMARY KEY,
-  -- The round that handed it in: a wake's round on a matter's path, or a revision of the batch.
+  -- The round that handed it in: an architect work's round on a matter's path, or a revision of the batch.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
   -- The matter it came from.
@@ -1107,7 +1109,7 @@ CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
   -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
   -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer, and whether it is urgent. Read by: cells `W0` and `Q0`; the engine, which wakes each
+  -- answer, and whether it is urgent. Read by: cells `W0` and `Q0`; the engine, which starts the works of each
   -- project's architect and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
@@ -1192,8 +1194,8 @@ CREATE VIEW architect_last_fit AS
       AND json_extract(r.output, '$.outcome.fit') IS NOT NULL)
   WHERE k = 1;
 
-CREATE VIEW wake_handled AS
-  -- The matters each wake of an architect handled, in the order it handled them: each matter, its kind, the cell and
+CREATE VIEW work_handled AS
+  -- The matters each work of an architect handled, in the order it handled them: each matter, its kind, the cell and
   -- the round that closed it, and what that round said it did. Read by: cell `E1`; the owner's interface.
   SELECT m.handled_work AS work, m.handled_round AS round, m.id AS matter, m.kind, m.detail, m.what, r.cell,
     json_extract(r.output, '$.progress') AS said
@@ -1202,7 +1204,7 @@ CREATE VIEW wake_handled AS
 
 CREATE VIEW policy_current AS
   -- Each project's policy in force: the text written, or put together from a correction, last before the owner's latest
-  -- approval in a setting of the project's policy (in a wake of its architect, before the setting was a task of its
+  -- approval in a setting of the project's policy (in a work of its architect, before the setting was a task of its
   -- own), with the round of that approval; none before the first policy takes effect. A correction hands in only what it changes, and the engine puts the text together (`P5`); a
   -- correction of a flow version before that held the whole text. Older versions stay readable in the rounds and are
   -- given to no agent. Read by: the engine, for the architect's cells; the owner's interface.
@@ -1256,12 +1258,12 @@ CREATE VIEW policy_draft AS
                  AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers'));
 
 CREATE VIEW policy_text AS
-  -- The text of each wake's version of the policy being set, without its probes. Read by: cell `P5`; the
+  -- The text of each work's version of the policy being set, without its probes. Read by: cell `P5`; the
   -- engine, to check a reading of it.
   SELECT work, round, policy FROM policy_draft;
 
 CREATE VIEW policy_probes_asked AS
-  -- The probes of each wake's version of the policy being set, the questions only, without the answers the architect
+  -- The probes of each work's version of the policy being set, the questions only, without the answers the architect
   -- holds right. Read by: cell `P6`, the new architect that reads the policy, which is given nothing besides them.
   SELECT d.work,
     json_group_array(json_object('id', json_extract(p.value, '$.id'), 'ask', json_extract(p.value, '$.ask'))) AS probes
@@ -1269,7 +1271,7 @@ CREATE VIEW policy_probes_asked AS
   GROUP BY d.work;
 
 CREATE VIEW policy_trials AS
-  -- Each wake's version of the policy being set, with every reading of it by a new architect since it was written and
+  -- Each work's version of the policy being set, with every reading of it by a new architect since it was written and
   -- the architect's judgment of each, oldest first. Read by: cells `P9`, `P11` and `P12`; policy_readings; the
   -- owner's interface.
   SELECT d.work, d.round, d.policy, d.probes,
@@ -1286,7 +1288,7 @@ CREATE VIEW policy_trials AS
   FROM policy_draft d;
 
 CREATE VIEW policy_readings AS
-  -- The readings of each wake's version of the policy being set by new architects since it was written, each with the
+  -- The readings of each work's version of the policy being set by new architects since it was written, each with the
   -- architect's judgment of it, oldest first, without the text and the probes they read. Read by: cell `P7`, which
   -- weighs a reading beside every reading of the version, and cell `P8`, which fixes what they left.
   SELECT work, readings FROM policy_trials;
@@ -1322,7 +1324,7 @@ CREATE VIEW conversation_entries AS
   -- tell and ask the owner and each other about the work, the architect's messages while it handles a matter of the
   -- work, the owner's words to either or both and replies, the design cards and the rulings on them, and the engine's
   -- notices about it); the owner's one-to-one with each project's architect (the owner's words to it, what it tells and
-  -- asks the owner about no work, in its wakes and in the settings of its policy); one for the architects of projects
+  -- asks the owner about no work, in its works and in the settings of its policy); one for the architects of projects
   -- the configuration connects (what they say to each other, and the owner's words to them); and one of wf-agents
   -- itself (its faults, and what the engine tells the owner about no work). The owner's words said to the architect's
   -- work in hand or to its policy setting while it runs, and its answers to them, are in the one-to-one, whatever

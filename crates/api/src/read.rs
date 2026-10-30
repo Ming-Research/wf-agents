@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, Handled, HandledAction, InputsNow,
-    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
-    Matter, MatterCard, NamedText, NextPlan, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyInForce,
-    PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput, RoundOutcome,
-    RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun, Waits, Wake, WorkDetail, WorkSession,
-    WorkState, WorkSummary,
+    Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, Handled, HandledAction,
+    InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
+    LinkedItem, Matter, MatterCard, NamedText, NextPlan, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping,
+    PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput,
+    RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun, Waits, WorkDetail,
+    WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -553,7 +553,7 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
     Ok(out)
 }
 
-/// Every work but the architect's wakes, which its tab shows, oldest first.
+/// Every work but the architect's works, which its tab shows, oldest first.
 pub fn works(conn: &Connection, flows: &Flows) -> Result<Vec<WorkSummary>> {
     work_summaries(conn, flows, "WHERE w.graph NOT IN ('architect', 'policy')")
 }
@@ -573,7 +573,7 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        r.work, w.flow_version, w.graph, s.cli, s.cli_session, r.config_commit, r.input, r.output, r.usage,
        json_extract(r.input, '$.engine.not_applicable'), r.session, json_extract(r.input, '$.call.level'),
        json_extract(r.input, '$.call.command'),
-       CASE WHEN s.started <> 'wake'
+       CASE WHEN s.started <> 'carried'
          AND r.n = (SELECT min(x.n) FROM rounds x WHERE x.work = r.work AND x.session = r.session)
        THEN s.started END,
        CASE WHEN r.session IS NULL THEN json_extract(r.input, '$.engine.new_session') END
@@ -1732,7 +1732,8 @@ pub fn architect(
     tags: Vec<Tag>,
     own: bool,
 ) -> Result<Architect> {
-    // The project's wakes, and the settings of its policy beside them, by their numbers: the filter takes numbers only.
+    // The works of the project's architect, and the settings of its policy beside them, by their numbers: the filter
+    // takes numbers only.
     let mine: Vec<i64> = {
         let mut st =
             conn.prepare("SELECT id FROM works WHERE graph IN ('architect', 'policy') AND project = ?1 ORDER BY id")?;
@@ -1740,14 +1741,14 @@ pub fn architect(
             .collect::<rusqlite::Result<_>>()?
     };
     let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
-    let mut wakes = summaries(conn, flows, &format!("WHERE w.id IN ({})", listed.join(", ")), &[])?;
-    wakes.reverse();
+    let mut architect_works = summaries(conn, flows, &format!("WHERE w.id IN ({})", listed.join(", ")), &[])?;
+    architect_works.reverse();
     let handled = counts(
         conn,
         "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
     )?;
-    let mut woke = woke_for(conn, project)?;
-    // The settings of the project's policy, each a task of its own beside the wakes, and the one that runs.
+    let mut started = started_for(conn, project)?;
+    // The settings of the project's policy, each a task of its own beside the architect's works, and the one that runs.
     let settings: Vec<(i64, bool)> = {
         let mut st = conn.prepare(
             "SELECT w.id, w.ended IS NULL AND NOT EXISTS (
@@ -1759,8 +1760,9 @@ pub fn architect(
     };
     let running = settings.iter().rev().find(|x| x.1).map(|x| x.0);
     // A new policy is being set while a setting of it runs; before the setting was a task of its own, while the latest
-    // wake, not over, was at the stage the study of one is in, past the check of the policy in force that opens it.
-    let setting = match (running, wakes.first()) {
+    // work of the architect, not over, was at the stage the study of one is in, past the check of the policy in force
+    // that opens it.
+    let setting = match (running, architect_works.first()) {
         (Some(p), _) => Some(setting(conn, p)?),
         (None, Some((_, s))) if !over(s) && s.stage.is_some() && !db::is_cell("architect", "P1", &s.at) => {
             let study = flows.graph(conn, s.flow_version, &s.graph).and_then(|g| {
@@ -1777,11 +1779,11 @@ pub fn architect(
         }
         (None, _) => None,
     };
-    let mut out_wakes = Vec::new();
-    for (_, s) in wakes {
+    let mut out_works = Vec::new();
+    for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
-        out_wakes.push(Wake {
-            woke_for: woke.remove(&s.id).unwrap_or_default(),
+        out_works.push(ArchitectWork {
+            started_for: started.remove(&s.id).unwrap_or_default(),
             handled: handled.get(&s.id).copied().unwrap_or(0),
             handling,
             work: s,
@@ -1792,7 +1794,7 @@ pub fn architect(
     Ok(Architect {
         project: project.to_string(),
         projects,
-        wakes: out_wakes,
+        works: out_works,
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
@@ -1826,8 +1828,9 @@ fn returned(output: Option<String>, field: Option<&str>) -> Value {
     }
 }
 
-/// The matter a wake handles now: the one its latest pick chose, while it is neither handled nor held by an ask.
-pub(crate) fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
+/// The matter a work of the architect handles now: the one its latest pick chose, while it is neither handled nor held
+/// by an ask.
+pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
     let picked: Option<Option<i64>> = conn
         .query_row(
             &format!(
@@ -1838,7 +1841,7 @@ pub(crate) fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
                 db::cells_sql("architect", &["Q0"]),
                 db::cells_sql("architect", &["Q1"])
             ),
-            [wake],
+            [work],
             |r| r.get(0),
         )
         .optional()?;
@@ -1852,9 +1855,9 @@ pub(crate) fn handling(conn: &Connection, wake: i64) -> Result<Option<i64>> {
     Ok((open > 0).then_some(m))
 }
 
-/// What each wake of a project's architect was given of the queue at its first round, by wake: the matters that woke
-/// it.
-fn woke_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>>> {
+/// What each work of a project's architect was given of the queue at its first round, by work: the matters it started
+/// for.
+fn started_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>>> {
     let mut st = conn.prepare(
         "SELECT r.work, r.input FROM rounds r JOIN works w ON w.id = r.work
          WHERE w.graph = 'architect' AND w.project = ?1 AND r.n = 1",
@@ -2159,8 +2162,8 @@ pub(crate) fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyIn
         .optional()?)
 }
 
-/// The policy a wake is setting: its latest study, and its latest text with the readings of it, unless a newer study
-/// has sent the text back to be written again.
+/// The policy a work of the architect is setting: its latest study, and its latest text with the readings of it,
+/// unless a newer study has sent the text back to be written again.
 fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
     let study = conn
         .query_row(
@@ -2182,7 +2185,7 @@ fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
             },
         )
         .optional()?;
-    // The cell of each round of the wake, which each part of the policy being set names.
+    // The cell of each round of the work, which each part of the policy being set names.
     let cells: HashMap<i64, String> = {
         let mut st = conn.prepare("SELECT n, coalesce(cell, '') FROM rounds WHERE work = ?1")?;
         st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -2970,7 +2973,7 @@ mod tests {
         assert!(d.shown.iter().all(|x| x.cell == "R1"));
     }
 
-    /// Two wakes of project p's architect: one over, which handled an engineer's question, and one at the owner's
+    /// Two works of project p's architect: one over, which handled an engineer's question, and one at the owner's
     /// reading of the study of a new policy; the matters it has not handled, a hold on new works, an item change made
     /// and two observations, one closed.
     fn architect_setup(name: &str) -> Setup {
@@ -2982,8 +2985,8 @@ mod tests {
         let none = json!({ "inputs": [{ "from": [{ "db": "architect_queue", "by": "project" }], "value": [] }],
                            "given": {} });
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
-        let wake = [
-            ("W0", queued.to_string(), Some("{}".to_string()), Some("woke")),
+        let architect_work = [
+            ("W0", queued.to_string(), Some("{}".to_string()), Some("started")),
             ("W1", "{}".into(), Some("{}".into()), Some("not_understood")),
             (
                 "U1",
@@ -3064,7 +3067,7 @@ mod tests {
                  (NULL, 1, 'policy', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
                 &[],
             )?;
-            for (work, rounds) in [(2_i64, &wake[..]), (3, &setting[..])] {
+            for (work, rounds) in [(2_i64, &architect_work[..]), (3, &setting[..])] {
                 for (i, (cell, input, output, transition)) in rounds.iter().enumerate() {
                     let n = i as i64 + 1;
                     let at = work * 100 + n;
@@ -3134,9 +3137,10 @@ mod tests {
 
     // The owner's conversations: the one-to-ones with the architects and wf-agents' own first, then a group for each
     // work. The architect's one-to-one holds the owner's words, still waiting for it, and its asks, waiting for the
-    // owner where they were asked, beside a card for each of its matters, where it stands; what a wake told the owner
-    // while it handled a matter of a work, and what the work's engineer told the owner and asked the architect, are in
-    // the work's group, with a card for each stage the work went through. Another project's are its own.
+    // owner where they were asked, beside a card for each of its matters, where it stands; what a work of the architect
+    // told the owner while it handled a matter of a work, and what the work's engineer told the owner and asked the
+    // architect, are in the work's group, with a card for each stage the work went through. Another project's are its
+    // own.
     #[test]
     fn the_owner_s_conversations_gather_what_was_said_by_subject() {
         let s = architect_setup("talk");
@@ -3293,10 +3297,10 @@ mod tests {
         );
     }
 
-    // The works list leaves the wakes out; a wake reads as a work on no item.
+    // The works list leaves the architect's works out; an architect's work reads as a work on no item.
     #[test]
-    fn the_architect_wakes_are_its_tab_s_not_the_works_list_s() {
-        let s = architect_setup("wakes");
+    fn the_architect_works_are_its_tab_s_not_the_works_list_s() {
+        let s = architect_setup("works");
         let cache = Flows::default();
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!(ws.iter().map(|w| w.id).collect::<Vec<_>>(), [1]);
@@ -3306,11 +3310,11 @@ mod tests {
         assert!(r.limits.is_empty());
     }
 
-    // A project's tab: its wakes newest first, with what woke each and what it handled; its queue, then what an ask
-    // holds; its holds; its asks; its log newest first; the item changes made; the policy being set; where things
+    // A project's tab: its works newest first, with what each started for and what it handled; its queue, then what an
+    // ask holds; its holds; its asks; its log newest first; the item changes made; the policy being set; where things
     // stand; its observations, open ones first. Another project's are not in it.
     #[test]
-    fn the_architect_says_its_wakes_queue_log_policy_understanding_and_observations() {
+    fn the_architect_says_its_works_queue_log_policy_understanding_and_observations() {
         let s = architect_setup("architect");
         let tags = vec![Tag {
             name: "perf".into(),
@@ -3326,15 +3330,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!((a.project.as_str(), a.projects.len(), a.tags.len()), ("p", 2, 1));
-        assert_eq!(a.wakes.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
-        let (now, last) = (&a.wakes[0], &a.wakes[1]);
+        assert_eq!(a.works.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
+        let (now, last) = (&a.works[0], &a.works[1]);
         assert_eq!(
             (now.work.state, &now.work.waits),
             (WorkState::Asking, &Some(Waits::Answer { ask: 1 }))
         );
         assert_eq!(last.work.state, WorkState::Done);
         assert_eq!(
-            last.woke_for,
+            last.started_for,
             [Queued {
                 matter: 1,
                 kind: "engineer_question".into(),
@@ -3343,7 +3347,7 @@ mod tests {
                 item: Some(1),
             }]
         );
-        assert!(now.woke_for.is_empty());
+        assert!(now.started_for.is_empty());
         assert_eq!((last.handled, now.handled), (1, 0));
         assert_eq!((last.handling, now.handling), (None, None));
 

@@ -78,8 +78,8 @@ pub fn read(r: &rusqlite::Row<'_>) -> rusqlite::Result<Round> {
     })
 }
 
-/// The rounds run in a CLI session, oldest first: the architect's line goes on in one CLI session across its wakes,
-/// each wake with a session row of its own, so these are the rounds of every work whose session has it.
+/// The rounds run in a CLI session, oldest first: the architect's line goes on in one CLI session across its works,
+/// each work with a session row of its own, so these are the rounds of every work whose session has it.
 pub fn of_cli_session(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
     let mut st = conn
         .prepare(&format!(

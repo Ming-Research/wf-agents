@@ -406,7 +406,7 @@ pub fn asked(gathered: &[Gathered]) -> Vec<Value> {
 }
 
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
-/// and merges in what ran before. A wake of an architect is on no item: it runs what reads.
+/// and merges in what ran before. A work of an architect is on no item: it runs what reads.
 pub fn run_tools(
     e: &mut Engine,
     w: &Work,

@@ -20,8 +20,8 @@ fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
     .ok()
 }
 
-/// Whether a work is a wake of the architect, whose tab shows it.
-fn wake(conn: &Connection, work: i64) -> bool {
+/// Whether a work is a work of the architect, whose tab shows it.
+fn is_architect_work(conn: &Connection, work: i64) -> bool {
     conn.query_row(
         "SELECT graph IN ('architect', 'policy') FROM works WHERE id = ?1",
         [work],
@@ -33,8 +33,8 @@ fn wake(conn: &Connection, work: i64) -> bool {
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
 /// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
-/// (its matters, what stops new works, the item changes its batches made, the observations, and a wake with its rounds,
-/// asks and what it told the owner) makes the architect's event too.
+/// (its matters, what stops new works, the item changes its batches made, the observations, and a work of it with its
+/// rounds, asks and what it told the owner) makes the architect's event too.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -87,7 +87,9 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
             Some(Event::Ask { work, .. } | Event::OwnerMessage { work, .. }) => *work,
             _ => None,
         };
-        let also = of.is_some_and(|w| wake(conn, w)).then_some(Event::Architect);
+        let also = of
+            .is_some_and(|w| is_architect_work(conn, w))
+            .then_some(Event::Architect);
         for e in event.into_iter().chain(also) {
             if !out.contains(&e) {
                 out.push(e);
@@ -152,8 +154,8 @@ mod tests {
         );
     }
 
-    // A wake's round names the wake and the architect's tab; the architect's matters, what stops new works and the
-    // observations name the tab alone, once.
+    // A round of the architect's work names the work and the architect's tab; the architect's matters, what stops new
+    // works and the observations name the tab alone, once.
     #[test]
     fn what_the_architect_tab_shows_names_it_too() {
         let mut db = Db::in_memory().unwrap();

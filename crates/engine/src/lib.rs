@@ -6,7 +6,7 @@
 //! outbox in that transaction and carried out after it, so a crash loses none. A round that ends in no return the
 //! cell takes is handled as the flow's rounds section says.
 //!
-//! Each project's architect's wakes run its graph on no item, one at a time for each project and holding no slot,
+//! Each project's architect's works run its graph on no item, one at a time for each project and holding no slot,
 //! started when the project's queue of matters has one ([`architect`]).
 //!
 //! In this version the engine and the session manager are one process on one machine, and the engine takes one work
@@ -58,11 +58,11 @@ use hub::GitHub;
 /// The graph works on items run.
 pub const ENGINEER: &str = "engineer";
 
-/// The graph the architect's wakes run, on no item, and the line its session goes on in.
+/// The graph the architect's works run, on no item, and the line its session goes on in.
 pub const ARCHITECT: &str = "architect";
 
-/// The graph the setting of a project's policy runs, a task of its own beside the project's wakes, and the line its
-/// session goes on in.
+/// The graph the setting of a project's policy runs, a task of its own beside the project's architect works, and the
+/// line its session goes on in.
 pub const POLICY: &str = "policy";
 
 /// The line of the search of observations, which runs at the observer's level.
@@ -233,8 +233,8 @@ impl Engine {
                 })
                 .map_err(|e| e.to_string())?;
             (self.say)(&format!("work {id} stopped: {why}"));
-            // A wake stopped leaves no hold of its own behind: setting its project straight and a policy being set
-            // are the wake's; the next wake asks its questions afresh.
+            // An architect work stopped leaves no hold of its own behind: setting its project straight and a policy
+            // being set are the work's; the architect's next work asks its questions afresh.
             if w.graph == ARCHITECT || w.graph == POLICY {
                 let project = w.project.clone();
                 self.db
@@ -425,7 +425,7 @@ impl Engine {
         Item::load(self.db.conn(), id)
     }
 
-    /// The item a work is on; none for a wake of the architect, which is on no item.
+    /// The item a work is on; none for a work of the architect, which is on no item.
     pub fn subject(&self, w: &Work) -> Result<Option<Item>, String> {
         match w.item {
             Some(id) => Item::load(self.db.conn(), id).map(Some),
@@ -615,7 +615,7 @@ impl Engine {
         Ok(self.slots_by_machine()?.values().sum())
     }
 
-    /// Each machine's free slots, as the session manager reports them from the works holding one: a wake of the
+    /// Each machine's free slots, as the session manager reports them from the works holding one: a work of the
     /// architect holds none, and a work holds none while it waits.
     pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
         let mut holding = Vec::new();
@@ -762,24 +762,24 @@ impl Engine {
         self.config.config.projects.keys().cloned().collect()
     }
 
-    /// A wake of a project's architect to start now: none of the project runs, and its queue has a matter once what
-    /// the engine raises itself is queued; the first such project's. Gives the wake started.
-    fn wake_due(&mut self) -> Result<Option<i64>, String> {
+    /// A work of a project's architect to start now: none of the project runs, and its queue has a matter once what
+    /// the engine raises itself is queued; the first such project's. Gives the work started.
+    fn architect_work_due(&mut self) -> Result<Option<i64>, String> {
         architect::queue_due(self)?;
         for project in self.projects() {
             if architect::running(self, &project)?.is_some() || !architect::queue_has(self, &project)? {
                 continue;
             }
             let id = architect::start(self, &project, false)?;
-            (self.say)(&format!("work {id}: the architect of {project} wakes"));
+            (self.say)(&format!("work {id}: a work of the architect of {project} starts"));
             return Ok(Some(id));
         }
         Ok(None)
     }
 
-    /// The owner's step of a project's architect: the next round of the wake of it that runs, or, when none runs and
-    /// its queue has a matter, a new wake started paused by the owner, and its first round. Nothing runs when the
-    /// architect has nothing to wake for.
+    /// The owner's step of a project's architect: the next round of the work of it that runs, or, when none runs and
+    /// its queue has a matter, a new work started paused by the owner, and its first round. Nothing runs when the
+    /// architect has nothing to start a work for.
     pub fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
@@ -796,7 +796,7 @@ impl Engine {
         let mark = self.rounds_mark()?;
         let id = architect::start(self, project, true)?;
         (self.say)(&format!(
-            "work {id}: the architect of {project} wakes, as the owner steps it"
+            "work {id}: a work of the architect of {project} starts, as the owner steps it"
         ));
         self.take_step(id, true)?;
         actions::run_outbox(self)?;
@@ -810,8 +810,8 @@ impl Engine {
     }
 
     /// One pass over every work: reads the configuration again, carries out the outbox, takes over the works that go
-    /// on on an older flow version, wakes the architect when a matter is due, starts works on ready items while slots
-    /// are free, and takes each active work one step. Gives whether anything moved.
+    /// on on an older flow version, starts a work of the architect when a matter is due, starts works on ready items
+    /// while slots are free, and takes each active work one step. Gives whether anything moved.
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
@@ -823,7 +823,7 @@ impl Engine {
             self.take_over(&old)?;
             moved = true;
         }
-        if self.wake_due()?.is_some() {
+        if self.architect_work_due()?.is_some() {
             moved = true;
         }
         while self.free_slots()? > 0 {
@@ -850,8 +850,8 @@ impl Engine {
     /// works that go on by themselves round by round, reading between two steps what the owner asked: one round of
     /// one work, which is an agent's round, a step of the engine's own, a run of a tool cell, or starting a work. It
     /// first carries out the outbox; then, when works that go on are on an older flow version, it takes them over and
-    /// takes the first step of the first new work, when one started; else, when no wake of the architect runs and a
-    /// matter is due for it, it starts a wake and takes its first step; else, when a slot is free and an item is
+    /// takes the first step of the first new work, when one started; else, when no work of the architect runs and a
+    /// matter is due for it, it starts one and takes its first step; else, when a slot is free and an item is
     /// ready, it starts a work on that item and takes the work's first step; otherwise it takes the next step of the
     /// first active work that has one, in the order of the works' ids, beginning after `after` and going round to the
     /// lowest, so that every work gets its turn as in a pass. The outbox the step filled is carried out after it.
@@ -879,7 +879,7 @@ impl Engine {
                 cell,
             });
         }
-        if let Some(id) = self.wake_due()? {
+        if let Some(id) = self.architect_work_due()? {
             self.advance(id)?;
             actions::run_outbox(self)?;
             let (rounds, cell) = self.rounds_since(&mark)?;
@@ -979,11 +979,11 @@ impl Engine {
     }
 
     /// While every work is paused, one step of the works the owner started (`started`), and of the architects of the
-    /// projects the owner started them for (`architects`): when no wake of such a project runs and its queue has a
-    /// matter, a wake starts and takes its first step; otherwise the next step of the first of those works, and of
-    /// the wakes that run, that has one, in the order of the works' ids beginning after `after`, as [`Engine::step`]
-    /// goes round the works that go on. A started work paused by itself takes no step, and no new work starts on a
-    /// ready item.
+    /// projects the owner started them for (`architects`): when no architect work of such a project runs and its queue
+    /// has a matter, one starts and takes its first step; otherwise the next step of the first of those works, and of
+    /// the architect works that run, that has one, in the order of the works' ids beginning after `after`, as
+    /// [`Engine::step`] goes round the works that go on. A started work paused by itself takes no step, and no new work
+    /// starts on a ready item.
     pub fn step_started(
         &mut self,
         after: Option<i64>,
@@ -1003,7 +1003,7 @@ impl Engine {
             }
             let id = architect::start(self, project, false)?;
             (self.say)(&format!(
-                "work {id}: the architect of {project} wakes, as the owner started it"
+                "work {id}: a work of the architect of {project} starts, as the owner started it"
             ));
             self.advance(id)?;
             actions::run_outbox(self)?;
@@ -1015,14 +1015,14 @@ impl Engine {
                 cell,
             });
         }
-        let mut wakes = BTreeSet::new();
+        let mut architect_works = BTreeSet::new();
         for project in architects {
-            wakes.extend(architect::running(self, project)?);
+            architect_works.extend(architect::running(self, project)?);
         }
         let (later, earlier): (Vec<i64>, Vec<i64>) = self
             .active()?
             .into_iter()
-            .filter(|id| started.contains(id) || wakes.contains(id))
+            .filter(|id| started.contains(id) || architect_works.contains(id))
             .partition(|id| after.is_some_and(|a| *id > a));
         for id in later.into_iter().chain(earlier) {
             self.advance(id)?;
@@ -1041,11 +1041,11 @@ impl Engine {
     }
 
     /// Lifts, as the owner, the pause of each work the owner started (`releasing`) that is still paused, once it may
-    /// hold a slot: a work on an item holds none while it is paused, so its pause is lifted only while its machine has a
-    /// slot free; and of the wake that runs of each project whose architect the owner started (`architects`), which
-    /// holds none. A work the architect stopped is the owner's release of it, which the architect is told. Gives the
-    /// works the owner's Start is done with, lifted or found not paused, and the projects whose architect's it is done
-    /// with.
+    /// hold a slot: a work on an item holds none while it is paused, so its pause is lifted only while its machine has
+    /// a slot free; and of the architect work that runs of each project whose architect the owner started
+    /// (`architects`), which holds none. A work the architect stopped is the owner's release of it, which the architect
+    /// is told. Gives the works the owner's Start is done with, lifted or found not paused, and the projects whose
+    /// architect's it is done with.
     pub fn release_started(
         &mut self,
         releasing: &BTreeSet<i64>,

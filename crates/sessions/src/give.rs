@@ -313,7 +313,7 @@ impl<'a> Giver<'a> {
                 .collect(),
             None => {
                 // The round is the work's, or one of an earlier work the session went on from, such as an earlier
-                // wake of the project's architect.
+                // work of the project's architect.
                 let input = match self.rounds.iter().find(|r| r.id == v.round) {
                     Some(r) => r.input.clone(),
                     None => self

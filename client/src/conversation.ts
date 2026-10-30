@@ -5,16 +5,16 @@
 // new for the owner to be told of, and where a fault of wf-agents can go and went.
 
 import type {
+  ArchitectWork,
   Conversation,
   ConversationDetail,
   ConversationEntry,
   Forwarded,
   Forwarding,
   StageCard,
-  Wake,
   WorkSummary,
 } from './api';
-import { overWake } from './architect';
+import { overWork } from './architect';
 import { words } from './labelled';
 import { t } from './messages';
 
@@ -199,9 +199,9 @@ export type LiveWork = { work: number; to: 'architect' | 'policy'; waits: boolea
 
 /// The architect's works not over, which take what the owner says to them while they run: its work in hand first, then
 /// its policy setting; none while nothing of it runs or waits for the owner.
-export function liveWorks(wakes: Wake[]): LiveWork[] {
-  const live = wakes
-    .filter((w) => !overWake(w.work))
+export function liveWorks(works: ArchitectWork[]): LiveWork[] {
+  const live = works
+    .filter((w) => !overWork(w.work))
     .map((w): LiveWork => {
       const policy = w.work.graph === 'policy';
       return {

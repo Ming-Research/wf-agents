@@ -510,7 +510,7 @@ function ForwardLine({ f }: { f: Forwarded }) {
       {p.round !== null ? (
         <>
           {' '}
-          <Link to={architectHref({ project: f.project, wake: f.handled_work, round: f.handled_round })} muted>
+          <Link to={architectHref({ project: f.project, work: f.handled_work, round: f.handled_round })} muted>
             {p.round}
           </Link>
         </>
@@ -602,7 +602,7 @@ function Pinned({ d }: { d: ConversationDetail }) {
 /// and the words go where they go.
 function useArchitectBox(c: Conversation) {
   const r = useResource<Architect>('architect', c.kind === 'architect' ? forProject('/api/v1/architect', c.project) : null);
-  const live: LiveWork[] = c.kind === 'architect' && r.data !== undefined && r.data.project === c.project ? liveWorks(r.data.wakes) : [];
+  const live: LiveWork[] = c.kind === 'architect' && r.data !== undefined && r.data.project === c.project ? liveWorks(r.data.works) : [];
   const modes = boxModes(live);
   const [chosen, setMode] = useState<BoxMode>('interject');
   const mode = modes.includes(chosen) ? chosen : modes[0];

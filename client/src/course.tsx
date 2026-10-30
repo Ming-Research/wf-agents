@@ -64,19 +64,19 @@ export function useNewSession(key: string): [boolean, (on: boolean) => void] {
   return [on, set];
 }
 
-/// The key of a work's session choice: the architect's for one of its wakes, whose new session is its wake's.
+/// The key of a work's session choice: the architect's for one of its works, whose new session is its work's.
 export function sessionKey(w: WorkSummary): string {
   return w.graph === 'architect' ? 'architect' : `work:${w.id}`;
 }
 
 /// The owner's Start, Pause and Step of a work, each a request, and what failed. With `ask`, Start and Step ask first
 /// what they will do (the cell that runs again, the round that runs, the takeover, the architect's stop the owner
-/// lifts); without, the place they are pressed from has said it. A wake of the architect is started and paused as the
-/// architect is: its later wakes go on the same way.
+/// lifts); without, the place they are pressed from has said it. A work of the architect is started and paused as the
+/// architect is: its later works go on the same way.
 export function useActions(w: WorkSummary, status: Status | null, ask: boolean) {
   const c = course(w, status);
   const can = controls(c, status);
-  const wake = w.graph === 'architect';
+  const arch = w.graph === 'architect';
   const [newSession, setNewSession] = useNewSession(sessionKey(w));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,12 +100,12 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
     window.confirm(
       t('confirm_takeover', { id: w.id, version: w.flow_version, now: status?.flow_version ?? '', item: w.item ?? '' }),
     );
-  const pause = () => post(wake ? forProject('/api/v1/architect/pause', w.project) : `/api/v1/works/${w.id}/pause`, {});
+  const pause = () => post(arch ? forProject('/api/v1/architect/pause', w.project) : `/api/v1/works/${w.id}/pause`, {});
   const start = () => {
     if (c.outdated && !takeover()) return;
     if (c.held === 'architect' && !window.confirm(t('start_release_confirm', { id: w.id }))) return;
     if (!c.outdated && c.held === 'engine' && !window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
-    post(wake ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
+    post(arch ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
       setNewSession(false),
     );
   };
@@ -121,7 +121,7 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
 
 /// What opens the round the owner's Step asked for once it has ended, where it ran: in the work that took the asked
 /// one over, when it was on an older flow version. What it returns marks the Step sent at `at`; `asked` is the work
-/// stepped, or null for the architect's Step, which may wake a new wake.
+/// stepped, or null for the architect's Step, which may start a new work of the architect.
 export function useOpenStepped(
   status: Status | null,
   asked: number | null,

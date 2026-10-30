@@ -4,25 +4,26 @@
 // in the order the owner reads them, and what an answer to an ask of the architect's sends.
 
 import type {
+  ArchitectWork,
   Handled,
   JsonValue,
   Matter,
   MatterCard,
   Observation,
-  Wake,
   WorkSummary,
 } from './api';
 import { isObj, str, words, type Obj } from './labelled';
 import { type Key, t } from './messages';
 import type { ArchitectTab } from './route';
 
-/// A wake goes on no more once it reached its end or was ended.
-export const overWake = (w: WorkSummary): boolean => w.state === 'done' || w.state === 'ended';
+/// A work of the architect goes on no more once it reached its end or was ended.
+export const overWork = (w: WorkSummary): boolean => w.state === 'done' || w.state === 'ended';
 
-/// The wake the page shows: the one the address names; else the one not over; else the latest; none before the first.
-export function shownWake(wakes: Wake[], named: number | null): Wake | null {
-  const asked = named !== null ? wakes.find((x) => x.work.id === named) : undefined;
-  return asked ?? wakes.find((x) => !overWake(x.work)) ?? wakes[0] ?? null;
+/// The architect's work the page shows: the one the address names; else the one not over; else the latest; none before
+/// the first.
+export function shownWork(works: ArchitectWork[], named: number | null): ArchitectWork | null {
+  const asked = named !== null ? works.find((x) => x.work.id === named) : undefined;
+  return asked ?? works.find((x) => !overWork(x.work)) ?? works[0] ?? null;
 }
 
 /// An architect's queue in its two parts: the matters in its queue, in the order they came; and those an ask of the
@@ -120,24 +121,24 @@ export function cardWords(c: MatterCard): string {
 }
 
 export type ArchitectState =
-  /// It never woke.
+  /// It never worked.
   | { kind: 'never'; waiting: number }
-  /// Its last wake is over, since when.
-  | { kind: 'asleep'; since: number | null; waiting: number }
-  /// A wake goes on, handling a matter or none.
-  | { kind: 'awake'; wake: WorkSummary; handling: Matter | null; waiting: number };
+  /// Its last work is over, since when.
+  | { kind: 'idle'; since: number | null; waiting: number }
+  /// A work of it goes on, handling a matter or none.
+  | { kind: 'working'; work: WorkSummary; handling: Matter | null; waiting: number };
 
-/// How an architect stands: never woken; asleep since its last wake ended; or awake in a wake, with the matter it
-/// handles; and how many matters are in its queue.
-export function architectState(wakes: Wake[], queue: Matter[]): ArchitectState {
+/// How an architect stands: never worked; no work of it running since its last one ended; or a work of it running,
+/// with the matter it handles; and how many matters are in its queue.
+export function architectState(works: ArchitectWork[], queue: Matter[]): ArchitectState {
   const waiting = queueParts(queue).waiting.length;
-  const awake = wakes.find((w) => !overWake(w.work));
-  if (awake !== undefined) {
-    const handling = awake.handling !== null ? (queue.find((m) => m.id === awake.handling) ?? null) : null;
-    return { kind: 'awake', wake: awake.work, handling, waiting };
+  const going = works.find((w) => !overWork(w.work));
+  if (going !== undefined) {
+    const handling = going.handling !== null ? (queue.find((m) => m.id === going.handling) ?? null) : null;
+    return { kind: 'working', work: going.work, handling, waiting };
   }
-  if (wakes.length === 0) return { kind: 'never', waiting };
-  return { kind: 'asleep', since: wakes[0].work.last_at, waiting };
+  if (works.length === 0) return { kind: 'never', waiting };
+  return { kind: 'idle', since: works[0].work.last_at, waiting };
 }
 
 /// One kind of outcome of a matter handled, on one line: what it is, what came of it, and the tab that holds the rest of

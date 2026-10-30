@@ -427,7 +427,7 @@ export function AnswerThere({ conversation, what }: { conversation: string; what
   );
 }
 
-/// The conversation an ask is in: an architect's one-to-one for what its wake or the setting of its policy asked, else
+/// The conversation an ask is in: an architect's one-to-one for what its work or the setting of its policy asked, else
 /// the group of the work that asked.
 export function askConversation(a: OwnerAsk): string {
   const body = isObj(a.body) ? a.body : {};

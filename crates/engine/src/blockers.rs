@@ -388,7 +388,7 @@ pub fn invariants(e: &mut Engine) -> Result<Vec<String>, String> {
     for b in &all {
         by_work.entry(b.work).or_default().push(b);
     }
-    // An ended work is not loaded: loading one copies its graph, and the ended works, every wake of an architect
+    // An ended work is not loaded: loading one copies its graph, and the ended works, every work of an architect
     // among them, soon outnumber the others.
     let works: Vec<(i64, bool)> = query_json(
         e.db.conn(),
@@ -553,11 +553,11 @@ fn cycle(waits: &BTreeMap<i64, BTreeSet<i64>>) -> Option<Vec<i64>> {
 }
 
 /// How long an architect may hold a blocker before the task weighs whether to wait longer, in the architect's own
-/// time: the time its wakes' rounds ran, while it was awake and not paused, since it took the blocker. Provisional:
-/// two hours, until how long the architect takes has been measured.
+/// time: the time its works' rounds ran, while a work of it ran and was not paused, since it took the blocker.
+/// Provisional: two hours, until how long the architect takes has been measured.
 pub const ARCHITECT_WAIT: i64 = 2 * 3_600_000;
 
-/// The time the architect of `project` had to act on a blocker since `since`, up to `now`: the time its wakes' rounds
+/// The time the architect of `project` had to act on a blocker since `since`, up to `now`: the time its works' rounds
 /// ran in that span, in milliseconds.
 pub fn architect_time(conn: &Connection, project: &str, since: i64, now: i64) -> Result<i64, String> {
     conn.query_row(

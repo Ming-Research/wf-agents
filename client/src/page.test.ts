@@ -248,12 +248,12 @@ describe('how a work goes on', () => {
     expect([slot.held, heldName(slot).name]).toEqual(['you', 'started, waiting for a free slot']);
     expect([controls(slot, status({})).pause, controls(slot, status({})).start]).toEqual([true, false]);
     expect(controls(slot, status({})).step).toBe(false);
-    // A wake of an architect goes on while the owner started that project's architect, and not for another's.
-    const wake = course(
+    // A work of an architect goes on while the owner started that project's architect, and not for another's.
+    const arch = course(
       work({ graph: 'architect', item: null, project: 'p' }),
       status({ paused: true, architects_started: ['p'] }),
     );
-    expect([wake.held, wake.started]).toEqual([null, true]);
+    expect([arch.held, arch.started]).toEqual([null, true]);
     const other = course(
       work({ graph: 'architect', item: null, project: 'q' }),
       status({ paused: true, architects_started: ['p'] }),

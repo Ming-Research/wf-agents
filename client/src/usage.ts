@@ -41,7 +41,7 @@ export type SessionRow = {
   line: string;
   /// Its place among its line's sessions, from 1.
   nth: number;
-  /// Why it started, as the session manager recorded it: line, cell, limit, model, wake or owner; none when not
+  /// Why it started, as the session manager recorded it: line, cell, limit, model, carried or owner; none when not
   /// recorded.
   started: string | null;
   /// The cell of its first round.

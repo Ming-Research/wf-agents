@@ -2,7 +2,7 @@
 // and starts, pauses and steps it in its one-to-one in the messages view, which the page's line leads to. Its line
 // says, with more than one project, whose architect it is, with the switch to another's; what the architect does now
 // in words (the matter it handles and at which cell, or that it is idle, paused or held back), with no word of its
-// wakes, which to the owner are only how it is run; what stops the project's new works from starting; and the switch
+// works, which to the owner are only how it is run; what stops the project's new works from starting; and the switch
 // between the stretches it worked in (when each began, what it was for, how many matters it handled, what it cost),
 // whose rounds the chart shows. Under the line, its graph fills the window with the stretch shown placed on it as a
 // work is, and the column docked at its right holds the architect's panel, where what is open on the chart takes the
@@ -27,17 +27,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   Architect as ArchitectRead,
+  ArchitectWork,
   Compiled,
   CompiledGraph,
   FlowView,
   ItemChange,
   Observation,
   RoundSummary,
-  Wake,
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWake, shownWake } from '../architect';
+import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWork, shownWork } from '../architect';
 import { course, heldName, Loaded } from '../components';
 import { runningWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
@@ -53,13 +53,13 @@ import { bringIntoView } from './Decide';
 import { RoundView } from './RoundView';
 import { Timeline, useHalo, workMarks } from './Work';
 
-/// The graph the architect's wakes run, as the flow names it.
+/// The graph the architect's works run, as the flow names it.
 const GRAPH = 'architect';
 
 /// What the bare graph marks: nothing.
 const BARE = { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() };
 
-/// No rounds, for the halo while no wake is shown.
+/// No rounds, for the halo while no work is shown.
 const NO_ROUNDS: RoundSummary[] = [];
 
 /// The time now, ticking every second while `ticking`.
@@ -73,13 +73,13 @@ function useNow(ticking: boolean): number {
   return now;
 }
 
-/// What the architect does now, on its line, in words, with no word of its wakes: the matter it handles and the cell
+/// What the architect does now, on its line, in words, with no word of its works: the matter it handles and the cell
 /// it is at, a round running and for how long, or what holds it back; else idle, or held back with matters waiting.
 function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) {
   const status = useStatus();
-  const state = architectState(a.wakes, a.queue);
+  const state = architectState(a.works, a.queue);
   const now = useNow(current?.running !== null && current?.running !== undefined);
-  if (state.kind === 'awake' && current !== null) {
+  if (state.kind === 'working' && current !== null) {
     const c = course(current, status);
     const at = `${current.at} ${current.at_title ?? ''}`;
     const what = state.handling !== null ? matterSentence(state.handling) : null;
@@ -115,13 +115,13 @@ function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) 
 /// it, and the switch between the stretches it worked in.
 function Line({ a, shown, current, pop, setPop }: {
   a: ArchitectRead;
-  shown: Wake | null;
+  shown: ArchitectWork | null;
   /// The stretch going on, as freshly read as the page has it.
   current: WorkSummary | null;
-  pop: 'wakes' | null;
-  setPop: (p: 'wakes' | null) => void;
+  pop: 'works' | null;
+  setPop: (p: 'works' | null) => void;
 }) {
-  const state = architectState(a.wakes, a.queue);
+  const state = architectState(a.works, a.queue);
   return (
     <div className="work-line arch-line">
       {a.projects.length > 1 ? (
@@ -141,7 +141,7 @@ function Line({ a, shown, current, pop, setPop }: {
         </Select>
       ) : null}
       <span className="work-state course">
-        <Now a={a} current={state.kind === 'awake' ? current : null} />
+        <Now a={a} current={state.kind === 'working' ? current : null} />
       </span>
       {state.waiting > 0 ? <span className="muted">{t('talk_queue_left', { n: state.waiting })}</span> : null}
       {a.holds.length > 0 ? (
@@ -161,13 +161,13 @@ function Line({ a, shown, current, pop, setPop }: {
       {shown !== null ? (
         <Button
           size="small"
-          className="arch-wake-switch"
+          className="arch-work-switch"
           trailingAction={TriangleDownIcon}
-          aria-expanded={pop === 'wakes'}
-          title={t('arch_wakes_hint')}
-          onClick={() => setPop(pop === 'wakes' ? null : 'wakes')}
+          aria-expanded={pop === 'works'}
+          title={t('arch_works_hint')}
+          onClick={() => setPop(pop === 'works' ? null : 'works')}
         >
-          {t('arch_wake_shown', { at: time(shown.work.started_at) })}
+          {t('arch_work_shown', { at: time(shown.work.started_at) })}
         </Button>
       ) : null}
     </div>
@@ -186,7 +186,7 @@ const TAB_NAMES: Record<ArchitectTab, Key> = {
 /// The stretches the architect worked in, newest first: when each began, what it was for, how many matters it
 /// handled, its rounds and cost; a click shows that stretch's rounds on the chart, and the one shown by default follows
 /// the one going on again.
-function WakeList({ a, shown, tab, project, onClose }: {
+function WorkList({ a, shown, tab, project, onClose }: {
   a: ArchitectRead;
   shown: number | null;
   tab: ArchitectTab;
@@ -194,17 +194,17 @@ function WakeList({ a, shown, tab, project, onClose }: {
   project: string | null;
   onClose: () => void;
 }) {
-  const followed = shownWake(a.wakes, null)?.work.id ?? null;
+  const followed = shownWork(a.works, null)?.work.id ?? null;
   return (
-    <div className="arch-wakes" role="dialog" aria-labelledby="arch-wakes-title">
-      <Heading as="h2" variant="small" id="arch-wakes-title">
-        {t('arch_wakes', { n: a.wakes.length })}
+    <div className="arch-works" role="dialog" aria-labelledby="arch-works-title">
+      <Heading as="h2" variant="small" id="arch-works-title">
+        {t('arch_works', { n: a.works.length })}
       </Heading>
-      <div className="arch-wakes-list">
+      <div className="arch-works-list">
         <table className="list">
           <thead>
             <tr>
-              <th>{t('arch_col_woke')}</th>
+              <th>{t('arch_col_started_for')}</th>
               <th>{t('arch_col_why')}</th>
               <th className="num">{t('arch_col_handled')}</th>
               <th className="num">{t('col_rounds')}</th>
@@ -212,21 +212,21 @@ function WakeList({ a, shown, tab, project, onClose }: {
             </tr>
           </thead>
           <tbody>
-            {a.wakes.map((x) => {
-              const why = [...new Set(x.woke_for.map((m) => matterKind(m.kind, null)))].join(', ');
-              const whyAll = x.woke_for.map((m) => `${matterKind(m.kind, m.detail)}: ${m.what}`);
+            {a.works.map((x) => {
+              const why = [...new Set(x.started_for.map((m) => matterKind(m.kind, null)))].join(', ');
+              const whyAll = x.started_for.map((m) => `${matterKind(m.kind, m.detail)}: ${m.what}`);
               return (
                 <tr
                   key={x.work.id}
                   className={`clickable${x.work.id === shown ? ' selected' : ''}`}
                   onClick={() => {
-                    navigate(architectHref({ project, wake: x.work.id === followed ? null : x.work.id, tab }));
+                    navigate(architectHref({ project, work: x.work.id === followed ? null : x.work.id, tab }));
                     onClose();
                   }}
                 >
                   <td className="nowrap">
                     {time(x.work.started_at)}{' '}
-                    {!overWake(x.work) ? <Label variant="accent">{t('arch_wake_going')}</Label> : null}
+                    {!overWork(x.work) ? <Label variant="accent">{t('arch_work_going')}</Label> : null}
                   </td>
                   <td className="clip" title={whyAll.join('\n')}>
                     {why !== '' ? why : '–'}
@@ -240,7 +240,7 @@ function WakeList({ a, shown, tab, project, onClose }: {
           </tbody>
         </table>
       </div>
-      <div className="arch-wakes-actions">
+      <div className="arch-works-actions">
         <Button size="small" onClick={onClose}>
           {t('close')}
         </Button>
@@ -392,7 +392,7 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
 function Panel({ route, a, d, g, go, onRound }: {
   route: ArchitectRoute;
   a: ArchitectRead;
-  /// The wake shown, in full; none before the first wake.
+  /// The work shown, in full; none before the architect's first work.
   d: WorkDetail | null;
   g: CompiledGraph;
   go: (to: Partial<ArchitectRoute>) => void;
@@ -457,15 +457,15 @@ function Panel({ route, a, d, g, go, onRound }: {
         {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
         {route.tab === 'rounds' ? (
           d === null ? (
-            <p className="muted">{a.wakes.length === 0 ? t('arch_never_woke') : t('loading')}</p>
+            <p className="muted">{a.works.length === 0 ? t('arch_never_worked') : t('loading')}</p>
           ) : (
             <Timeline
               work={d.work.id}
               rounds={d.rounds}
               g={g}
               stale={status !== null && status.running !== d.work.id}
-              selected={route.wake === d.work.id ? route.round : null}
-              onRound={(x) => go({ wake: d.work.id, round: x.n, cell: null })}
+              selected={route.work === d.work.id ? route.round : null}
+              onRound={(x) => go({ work: d.work.id, round: x.n, cell: null })}
             />
           )
         ) : null}
@@ -474,13 +474,13 @@ function Panel({ route, a, d, g, go, onRound }: {
   );
 }
 
-/// The architect's graph filling the window, with the wake shown placed on it, and the docked column: the panel in its
+/// The architect's graph filling the window, with the work shown placed on it, and the docked column: the panel in its
 /// upper half, the conversation in its lower half. A circle to or from another graph goes to that cell on the flow
 /// page, which draws every graph.
-function Chart({ route, a, wake, d, compiled, version, view, go }: {
+function Chart({ route, a, shown, d, compiled, version, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
-  wake: Wake | null;
+  shown: ArchitectWork | null;
   d: WorkDetail | null;
   compiled: Compiled;
   /// The stored flow version the chart draws.
@@ -489,8 +489,8 @@ function Chart({ route, a, wake, d, compiled, version, view, go }: {
   go: (to: Partial<ArchitectRoute>) => void;
 }) {
   const status = useStatus();
-  // The chart draws the graph of the work shown: a wake's, or a policy task's, whose cells (P2 to P12) the architect
-  // graph no longer holds, so that a round chosen of either is found on it.
+  // The chart draws the graph of the work shown: an architect work's, or a policy task's, whose cells (P2 to P12) the
+  // architect graph no longer holds, so that a round chosen of either is found on it.
   const name = d?.work.graph ?? GRAPH;
   const g = compiled.graphs.find((x) => x.name === name);
   const v = view.graphs.find((x) => x.name === name);
@@ -498,10 +498,10 @@ function Chart({ route, a, wake, d, compiled, version, view, go }: {
   const c = d !== null ? course(d.work, status) : null;
   const halo = useHalo(d?.work ?? null, d?.rounds ?? NO_ROUNDS, c);
   if (!g || !v) return <p className="muted page">{t('arch_no_graph')}</p>;
-  const id = wake?.work.id ?? null;
+  const id = shown?.work.id ?? null;
   const roundCell = route.round !== null && d !== null ? (d.rounds.find((x) => x.n === route.round)?.cell ?? null) : null;
-  // A round of any wake opens on the chart of that wake.
-  const onRound: OpenRound = (work, round) => go({ wake: work, round, cell: null });
+  // A round of any work of the architect opens on the chart of that work.
+  const onRound: OpenRound = (work, round) => go({ work, round, cell: null });
   return (
     <FlowScreen
       key={id ?? 'none'}
@@ -510,7 +510,7 @@ function Chart({ route, a, wake, d, compiled, version, view, go }: {
       legend={d !== null ? 'work' : 'flow'}
       marks={[
         d !== null && c !== null
-          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.wake === id ? route.round : null, compiled)
+          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.work === id ? route.round : null, compiled)
           : BARE,
       ]}
       cell={route.cell}
@@ -518,8 +518,8 @@ function Chart({ route, a, wake, d, compiled, version, view, go }: {
       start={roundCell ?? d?.work.at ?? null}
       work={id ?? undefined}
       rounds={d?.rounds}
-      round={route.wake === id ? route.round : null}
-      onRound={(x) => go(x !== null ? { wake: id, round: x, cell: null } : { round: null })}
+      round={route.work === id ? route.round : null}
+      onRound={(x) => go(x !== null ? { work: id, round: x, cell: null } : { round: null })}
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
       list={t(TAB_NAMES[route.tab])}
       side={(open) => open ?? <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
@@ -532,16 +532,16 @@ function Chart({ route, a, wake, d, compiled, version, view, go }: {
 
 function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   const status = useStatus();
-  const wake = shownWake(a.wakes, route.wake);
-  const id = wake?.work.id ?? null;
+  const shown = shownWork(a.works, route.work);
+  const id = shown?.work.id ?? null;
   const detail = useResource<WorkDetail>(id !== null ? `work:${id}` : null, id !== null ? `/api/v1/works/${id}` : null);
-  const version = wake?.work.flow_version ?? status?.flow_version ?? null;
+  const version = shown?.work.flow_version ?? status?.flow_version ?? null;
   const compiled = useResource<Compiled>(null, version !== null ? `/api/v1/flows/${version}` : null);
   const view = useResource<FlowView>(null, version !== null ? `/api/v1/flows/${version}/view` : null);
   const d = detail.data !== undefined && detail.data.work.id === id ? detail.data : null;
-  const going = a.wakes.find((w) => !overWake(w.work)) ?? null;
+  const going = a.works.find((w) => !overWork(w.work)) ?? null;
   const current = going !== null && d !== null && d.work.id === going.work.id ? d.work : (going?.work ?? null);
-  const [pop, setPop] = useState<'wakes' | null>(null);
+  const [pop, setPop] = useState<'works' | null>(null);
   const go = (to: Partial<ArchitectRoute>) => navigate(href({ ...route, ...to }), true);
   // A link to an ask on this page brings it into view once the page is there.
   const ready = compiled.data !== undefined && view.data !== undefined;
@@ -557,16 +557,16 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   return (
     <CellTitles.Provider value={titles}>
       <div className="arch-screen">
-        <Line a={a} shown={wake} current={current} pop={pop} setPop={setPop} />
-        {pop === 'wakes' ? (
-          <WakeList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
+        <Line a={a} shown={shown} current={current} pop={pop} setPop={setPop} />
+        {pop === 'works' ? (
+          <WorkList a={a} shown={id} tab={route.tab} project={route.project} onClose={() => setPop(null)} />
         ) : null}
         <div className="screen">
           <Loaded r={compiled}>
             {(c) => (
               <Loaded r={view}>
                 {(v) => (
-                  <Chart route={route} a={a} wake={wake} d={d} compiled={c} version={version} view={v} go={go} />
+                  <Chart route={route} a={a} shown={shown} d={d} compiled={c} version={version} view={v} go={go} />
                 )}
               </Loaded>
             )}

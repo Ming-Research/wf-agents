@@ -199,7 +199,7 @@ fn heavy() -> Vec<String> {
 }
 
 /// The review and the advisor, which look at a work's worktree, and every line of a project's architect, which reads
-/// the project in worktrees of its own at main: the wake's, the review of its item changes, the search of
+/// the project in worktrees of its own at main: its work's, the review of its item changes, the search of
 /// observations and the setting of a policy.
 fn read_only() -> Vec<String> {
     [

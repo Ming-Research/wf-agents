@@ -164,9 +164,9 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
   const group = m.work !== null ? href({ page: 'messages', open: `work:${m.work}` }) : null;
   const where =
     m.state === 'working' && m.cell !== null
-      ? architectHref({ project, wake: m.wake, round: m.round, cell: m.cell })
+      ? architectHref({ project, work: m.architect_work, round: m.round, cell: m.cell })
       : m.handled !== null
-        ? architectHref({ project, wake: m.handled.work, round: m.handled.round })
+        ? architectHref({ project, work: m.handled.work, round: m.handled.round })
         : null;
   const label =
     m.state === 'working'

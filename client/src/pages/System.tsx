@@ -185,7 +185,7 @@ function WorkRows({ list, status, at }: { list: WorkSummary[]; status: Status | 
   );
 }
 
-/// Each project's architect: working, paused or idle, with no word of its wakes; how many matters wait in its queue,
+/// Each project's architect: working, paused or idle, with no word of its works; how many matters wait in its queue,
 /// which its one-to-one holds, and how long the oldest has waited.
 function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
   if (list.length === 0) return null;
@@ -206,11 +206,11 @@ function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
               <Link to={architectHref({ project: a.project })}>{a.project}</Link>
             </td>
             <td>
-              {a.wake === null ? (
-                t('sys_asleep')
+              {a.work === null ? (
+                t('sys_idle')
               ) : (
-                <Link to={architectHref({ project: a.project, wake: a.wake })}>
-                  {t(a.paused ? 'sys_awake_paused' : 'sys_awake', { wake: a.wake })}
+                <Link to={architectHref({ project: a.project, work: a.work })}>
+                  {t(a.paused ? 'sys_working_paused' : 'sys_working', { work: a.work })}
                 </Link>
               )}
             </td>
@@ -390,7 +390,7 @@ function WeekTable({ weeks }: { weeks: Week[] }) {
   );
 }
 
-/// Where the money goes: what the period spent, the engineers' works and the architects' wakes apart, and per item
+/// Where the money goes: what the period spent, the engineers' works and the architects' works apart, and per item
 /// merged; over more than one week, both week by week; then, folded, by line and model, by item, and the ten costliest
 /// cells.
 function Spend({ s }: { s: SystemData }) {
@@ -563,9 +563,9 @@ function summed(list: WorkCount[]): { n: number; cost: number } {
 }
 
 /// Where a work's rounds or pings are shown: an engineer's work's page as `engineer` names it, or the architect's
-/// view, its rounds there, named by no wake.
+/// view, its rounds there, named by no work.
 function workPlace(c: WorkCount, engineer: string): string {
-  return c.graph === 'architect' ? architectHref({ project: c.project, wake: c.work }) : engineer;
+  return c.graph === 'architect' ? architectHref({ project: c.project, work: c.work }) : engineer;
 }
 
 /// Where to save: how much of the agents' input the prompt cache gave, and the rounds that missed it; the rounds sent
@@ -648,7 +648,7 @@ function Counts({ list, head, to }: { list: WorkCount[]; head: string; to: (c: W
             <td>
               <Link to={to(c)}>{c.graph === 'architect' ? t('sys_architect_link') : `#${c.work}`}</Link>
             </td>
-            <td>{c.item !== null ? <ItemRef id={c.item} title={c.title} /> : t('sys_wake_of', { project: c.project ?? '' })}</td>
+            <td>{c.item !== null ? <ItemRef id={c.item} title={c.title} /> : t('sys_architect_of', { project: c.project ?? '' })}</td>
             <td className="num">{c.n}</td>
             <td className="num">{cost(c.cost_usd)}</td>
           </tr>
@@ -732,7 +732,7 @@ function AnomalyRows({ list }: { list: Anomaly[] }) {
             <td>
               {a.graph === 'architect' ? (
                 <Link
-                  to={architectHref({ project: a.project, wake: a.work, round: a.round })}
+                  to={architectHref({ project: a.project, work: a.work, round: a.round })}
                   className={a.round !== null ? 'round-link' : undefined}
                 >
                   {a.round !== null ? roundName(a.work, a.round) : t('sys_architect_link')}
@@ -743,7 +743,7 @@ function AnomalyRows({ list }: { list: Anomaly[] }) {
                 <Link to={workHref(a.work)}>#{a.work}</Link>
               )}
             </td>
-            <td>{a.item !== null ? <ItemRef id={a.item} title={a.title} /> : t('sys_wake_of', { project: a.project ?? '' })}</td>
+            <td>{a.item !== null ? <ItemRef id={a.item} title={a.title} /> : t('sys_architect_of', { project: a.project ?? '' })}</td>
             <td>{anomalyWords(a)}</td>
           </tr>
         ))}

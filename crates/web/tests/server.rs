@@ -128,11 +128,11 @@ fn it_serves_its_own_address_and_refuses_other_sites() {
         200
     );
     assert_eq!(get(s.port, "/api/v1/works/7", &here, "").0, 404);
-    // The System view reads an empty database: the configuration's project has an architect, asleep.
+    // The System view reads an empty database: the configuration's project has an architect, no work of it running.
     let (status, system) = get(s.port, "/api/v1/system?weeks=4&tz=480", &here, "");
     assert_eq!(status, 200, "{system}");
     assert!(
-        system.contains(r#""architects":[{"project":"p","wake":null"#),
+        system.contains(r#""architects":[{"project":"p","work":null"#),
         "{system}"
     );
     assert_eq!(get(s.port, "/api/v1/nothing", &here, "").0, 404);

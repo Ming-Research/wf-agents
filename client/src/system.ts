@@ -47,7 +47,7 @@ export function systemPath(period: Period, tz: number): string {
   return `/api/v1/system?tz=${tz}${weeks !== null ? `&weeks=${weeks}` : ''}`;
 }
 
-/// What the period's weeks spent: the engineers' works, the architects' wakes, and both.
+/// What the period's weeks spent: the engineers' works, the architects' works, and both.
 export function spentIn(weeks: Week[]): { engineers: number; architects: number; total: number } {
   const engineers = weeks.reduce((a, w) => a + w.engineers_usd, 0);
   const architects = weeks.reduce((a, w) => a + w.architects_usd, 0);

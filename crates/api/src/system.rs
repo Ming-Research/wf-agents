@@ -703,7 +703,7 @@ fn tally(t: &mut Tally, work: i64, cost: f64) {
     e.1 += cost;
 }
 
-/// Adds what a round or a ping of a work cost to its week: an architect's wake's or an engineer's work's.
+/// Adds what a round or a ping of a work cost to its week: an architect's work's or an engineer's work's.
 fn spent_in(week: &mut Week, w: Option<&WorkOf>, cost: f64) {
     if w.is_some_and(|w| w.graph == ARCHITECT) {
         week.architects_usd += cost;
@@ -891,32 +891,32 @@ fn main_red(conn: &Connection, works: &HashMap<i64, WorkOf>, since: i64) -> Resu
     Ok(out)
 }
 
-/// Each project's architect now: its wake not over, while it is awake, and its queue. The projects are those of the
-/// configuration, and any other a wake or a matter names.
+/// Each project's architect now: its work not over, while one runs, and its queue. The projects are those of the
+/// configuration, and any other an architect's work or a matter names.
 fn architects(conn: &Connection, flows: &Flows, projects: &[String]) -> Result<Vec<ArchitectNow>> {
     let mut st = conn.prepare("SELECT project, count(*), min(at) FROM architect_queue GROUP BY project")?;
     let queued: HashMap<String, (i64, Option<i64>)> = st
         .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
         .collect::<rusqlite::Result<_>>()?;
-    let mut awake: HashMap<String, (i64, bool)> = HashMap::new();
+    let mut working: HashMap<String, (i64, bool)> = HashMap::new();
     for w in work_summaries(conn, flows, "WHERE w.graph = 'architect' AND w.ended IS NULL")? {
         if let Some(project) = &w.project
             && !over(&w)
         {
-            awake.insert(project.clone(), (w.id, w.paused.is_some()));
+            working.insert(project.clone(), (w.id, w.paused.is_some()));
         }
     }
-    let names: BTreeSet<&String> = projects.iter().chain(queued.keys()).chain(awake.keys()).collect();
+    let names: BTreeSet<&String> = projects.iter().chain(queued.keys()).chain(working.keys()).collect();
     Ok(names
         .into_iter()
         .map(|project| {
             let (queue, oldest) = queued.get(project).copied().unwrap_or((0, None));
-            let (wake, paused) = awake
+            let (work, paused) = working
                 .get(project)
                 .map_or((None, false), |&(id, paused)| (Some(id), paused));
             ArchitectNow {
                 project: project.clone(),
-                wake,
+                work,
                 paused,
                 queue,
                 oldest,
@@ -1188,12 +1188,12 @@ mod tests {
             assert!(what.contains(&&kind), "{kind:?} in {what:?}");
         }
 
-        // Now: the architect asleep with its queue, and what waits for the owner.
+        // Now: the architect, while no work of it runs, with its queue, and what waits for the owner.
         assert_eq!(
             s.now.architects,
             [ArchitectNow {
                 project: "p".into(),
-                wake: None,
+                work: None,
                 paused: false,
                 queue: 1,
                 oldest: Some(at(1)),

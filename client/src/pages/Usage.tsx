@@ -126,8 +126,8 @@ function startedText(s: SessionRow): string {
       return t('us_started_cell', { cell: s.cell ?? '' });
     case 'limit':
       return s.before !== null ? t('us_started_limit_at', { n: tokens(s.before) }) : t('us_started_limit');
-    case 'wake':
-      return t('us_started_wake');
+    case 'carried':
+      return t('us_started_carried');
     case 'model':
       return t('us_started_model');
     case 'owner':

@@ -32,7 +32,7 @@ pub struct Source {
     /// before the graph's own rules.
     #[serde(default)]
     pub rules: Vec<Rule>,
-    /// The graphs: the engineer's, which works on items run, and the architect's, which its wakes run.
+    /// The graphs: the engineer's, which works on items run, and the architect's, which its works run.
     pub flows: Vec<Flow>,
 }
 
@@ -275,7 +275,7 @@ pub struct Flow {
     pub rounds: Option<Rounds>,
     /// What a stopped task of this graph waits on: the cells it stands at while each holder holds its blocker.
     pub blockers: Option<Blockers>,
-    /// The holder whose own work this graph is, as the architect's wakes are the architect's: a holder never stops
+    /// The holder whose own work this graph is, as the architect's works are the architect's: a holder never stops
     /// while it holds a blocker, so no row of this graph waits but for the owner's Start after a pause, and an ask of
     /// the owner holds only what it is about, going on without the answer.
     pub holds: Option<String>,
@@ -732,7 +732,7 @@ pub struct Node {
     pub checks: Option<Vec<Check>>,
     /// Paths of the output that the cell hands to whoever takes over.
     pub handoff: Option<Vec<String>>,
-    /// Paths of the output the owner's page shows: on the item the work is on, or for a wake of the architect, which
+    /// Paths of the output the owner's page shows: on the item the work is on, or for a work of the architect, which
     /// is on no item, on the architect's view. The owner reads them there.
     pub shown: Option<Vec<String>>,
     /// The values the engine knows that the cell's rows or prompt read: each a list of values with what each

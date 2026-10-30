@@ -20,7 +20,7 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// The project a work runs in: its item's, or for a wake of the architect, its own.
+/// The project a work runs in: its item's, or for a work of the architect, its own.
 fn project_of(conn: &Connection, work: i64) -> Result<Option<String>, String> {
     conn.query_row(
         "SELECT coalesce(i.project, w.project) FROM works w LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",

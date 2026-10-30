@@ -514,9 +514,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         // The session manager opens the new session as the round at the cell the row leads to starts, at the work's
         // first round there: the cell's `new_session`, which the compiler sets from this action.
         "open_session" => {}
-        "wake_architect" => {
+        "queue_for_architect" => {
             // Each side report is one matter of the kind report for the architect of the work's project, queued once,
-            // which wakes it when no wake of it runs; its queue marks one urgent.
+            // which starts a work of it when none runs; its queue marks one urgent.
             let Some(item) = &ctx.item else { return Ok(()) };
             let reports = ctx.unwrapped["side_reports"].as_array().cloned().unwrap_or_default();
             for (index, r) in reports.iter().enumerate() {
@@ -666,7 +666,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "queue_flow_feedback" => {
             // What the round said was wrong with its cell joins its project's architect's flow feedback, by cell, which
-            // wakes no architect; none is nothing to add.
+            // starts no work of the architect; none is nothing to add.
             let said = at_value.as_ref().and_then(Value::as_str).unwrap_or_default().trim();
             if crate::architect::says_none(said) {
                 return Ok(());

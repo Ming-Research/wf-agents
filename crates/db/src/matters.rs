@@ -28,8 +28,8 @@ pub struct Matter {
     pub raised: Option<(i64, i64)>,
 }
 
-/// Queues a matter for a project's architect, and gives its id. A matter in the queue wakes the project's architect
-/// when no wake of it runs, but for flow feedback, which waits for a wake something else started.
+/// Queues a matter for a project's architect, and gives its id. A matter in the queue starts a work of the project's
+/// architect when none runs, but for flow feedback, which waits for a work something else started.
 pub fn queue_matter(tx: &Transaction<'_>, m: &Matter) -> Result<i64> {
     tx.execute(
         "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at)
@@ -90,8 +90,8 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
 }
 
 /// Says something to a project's architect, as the owner: the words come to its queue as a matter of the kind
-/// owner_words, which wakes it. Where it was said goes with it: in the conversation about a work, the work and its item;
-/// on an item's page, the item.
+/// owner_words, which starts a work of it. Where it was said goes with it: in the conversation about a work, the work
+/// and its item; on an item's page, the item.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,

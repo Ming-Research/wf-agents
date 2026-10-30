@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  ArchitectWork,
   CompiledGraph,
   FlowDiff,
   GraphView,
   Handled,
   Matter,
   Observation,
-  Wake,
   WorkSummary,
 } from './api';
 import {
@@ -22,7 +22,7 @@ import {
   matterSteps,
   queueParts,
   rulingAnswer,
-  shownWake,
+  shownWork,
 } from './architect';
 import { architectBoxHint, boxModes, interjectFirst, liveWorks } from './conversation';
 import { inGraph, subjectKey } from './flow/context';
@@ -40,7 +40,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   graph: 'architect',
   flow_version: 2,
   at: 'E2',
-  at_title: 'This wake is done',
+  at_title: 'This work is done',
   stage: 'record',
   state: 'done',
   paused: null,
@@ -62,9 +62,9 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   ...extra,
 });
 
-const wake = (id: number, extra: Partial<WorkSummary> = {}, handling: Wake['handling'] = null): Wake => ({
+const architectWork = (id: number, extra: Partial<WorkSummary> = {}, handling: ArchitectWork['handling'] = null): ArchitectWork => ({
   work: work(id, extra),
-  woke_for: [],
+  started_for: [],
   handled: 0,
   handling,
 });
@@ -150,12 +150,12 @@ describe('a matter in words', () => {
 
 describe("the box of the one-to-one with an architect", () => {
   // Its work in hand runs a round; its policy setting waits for the owner's ruling, or studies.
-  const handling = wake(10, { state: 'running', at: 'H3' }, 1);
-  const ruling = wake(11, { graph: 'policy', state: 'asking', at: 'P11', waits: { kind: 'answer', ask: 4 } });
-  const studying = wake(11, { graph: 'policy', state: 'ready', at: 'P2' });
+  const handling = architectWork(10, { state: 'running', at: 'H3' }, 1);
+  const ruling = architectWork(11, { graph: 'policy', state: 'asking', at: 'P11', waits: { kind: 'answer', ask: 4 } });
+  const studying = architectWork(11, { graph: 'policy', state: 'ready', at: 'P2' });
 
   it('only adds to the queue while nothing of the architect runs or waits for the owner', () => {
-    const live = liveWorks([wake(9), wake(7)]);
+    const live = liveWorks([architectWork(9), architectWork(7)]);
     expect(live).toEqual([]);
     expect(boxModes(live)).toEqual(['queue']);
     expect(interjectFirst(live)).toEqual([]);
@@ -163,7 +163,7 @@ describe("the box of the one-to-one with an architect", () => {
   });
 
   it('interjects, at first, into the one work that runs, with no one to tick, or adds to the queue', () => {
-    const live = liveWorks([handling, wake(9)]);
+    const live = liveWorks([handling, architectWork(9)]);
     expect(live).toEqual([{ work: 10, to: 'architect', waits: false, runs: true }]);
     expect(boxModes(live)).toEqual(['interject', 'queue']);
     expect(interjectFirst(live)).toEqual([10]);
@@ -172,7 +172,7 @@ describe("the box of the one-to-one with an architect", () => {
   });
 
   it('names whom Interject is for when two works are live: the policy setting while it waits for the owner, else what runs', () => {
-    const live = liveWorks([ruling, handling, wake(9)]);
+    const live = liveWorks([ruling, handling, architectWork(9)]);
     expect(live.map((l) => [l.work, l.to, l.waits])).toEqual([
       [10, 'architect', false],
       [11, 'policy', true],
@@ -187,13 +187,13 @@ describe("the box of the one-to-one with an architect", () => {
 });
 
 describe("the architect's page", () => {
-  it('shows the wake the address names, else the one going on, else the latest', () => {
-    const wakes = [wake(9), wake(8, { state: 'asking', at: 'P3' }), wake(7)];
-    expect(shownWake(wakes, 7)?.work.id).toBe(7);
-    expect(shownWake(wakes, null)?.work.id).toBe(8);
-    expect(shownWake(wakes, 99)?.work.id).toBe(8);
-    expect(shownWake([wake(9), wake(7)], null)?.work.id).toBe(9);
-    expect(shownWake([], null)).toBeNull();
+  it("shows the architect's work the address names, else the one going on, else the latest", () => {
+    const works = [architectWork(9), architectWork(8, { state: 'asking', at: 'P3' }), architectWork(7)];
+    expect(shownWork(works, 7)?.work.id).toBe(7);
+    expect(shownWork(works, null)?.work.id).toBe(8);
+    expect(shownWork(works, 99)?.work.id).toBe(8);
+    expect(shownWork([architectWork(9), architectWork(7)], null)?.work.id).toBe(9);
+    expect(shownWork([], null)).toBeNull();
   });
 
   it('splits the queue into what is in it and what an ask of the owner holds, and says how the architect stands', () => {
@@ -206,18 +206,18 @@ describe("the architect's page", () => {
     const parts = queueParts(queue);
     expect(parts.waiting.map((m) => m.id)).toEqual([1, 2, 4]);
     expect(parts.held.map((m) => m.id)).toEqual([3]);
-    // Asleep since its last wake ended.
-    expect(architectState([wake(9), wake(7)], queue)).toEqual({ kind: 'asleep', since: 950, waiting: 3 });
+    // Idle since its last work ended.
+    expect(architectState([architectWork(9), architectWork(7)], queue)).toEqual({ kind: 'idle', since: 950, waiting: 3 });
     expect(architectState([], queue)).toEqual({ kind: 'never', waiting: 3 });
-    // Awake, handling the matter its latest pick chose.
-    const awake = wake(10, { state: 'running', at: 'H3' }, 1);
-    expect(architectState([awake, wake(9)], queue)).toEqual({
-      kind: 'awake',
-      wake: awake.work,
+    // A work of it runs, handling the matter its latest pick chose.
+    const going = architectWork(10, { state: 'running', at: 'H3' }, 1);
+    expect(architectState([going, architectWork(9)], queue)).toEqual({
+      kind: 'working',
+      work: going.work,
       handling: queue[0],
       waiting: 3,
     });
-    expect(architectState([wake(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
+    expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
   it('shows the observations of the tag chosen and the words searched for, those closed only when asked', () => {
@@ -263,11 +263,11 @@ describe("the architect's page", () => {
     expect(againstInOrder(null)).toEqual([]);
   });
 
-  it('has an address that names the project, the wake, the tab, the round and the cell', () => {
+  it('has an address that names the project, the work, the tab, the round and the cell', () => {
     const architect = {
       page: 'architect' as const,
       project: null,
-      wake: null,
+      work: null,
       tab: 'rounds' as const,
       round: null,
       cell: null,
@@ -276,23 +276,23 @@ describe("the architect's page", () => {
       architect,
       { ...architect, tab: 'policy' },
       { ...architect, project: 'p', tab: 'observations' },
-      { ...architect, wake: 12, round: 3, tab: 'next' },
-      { ...architect, wake: 12, cell: 'H3' },
+      { ...architect, work: 12, round: 3, tab: 'next' },
+      { ...architect, work: 12, cell: 'H3' },
     ];
     for (const r of routes) {
       const at = href(r);
       const i = at.indexOf('?');
       expect(i < 0 ? parse(at, '') : parse(at.slice(0, i), at.slice(i))).toEqual(r);
     }
-    expect(href({ ...architect, wake: 12, round: 3 })).toBe('/architect?wake=12&round=R12-3');
+    expect(href({ ...architect, work: 12, round: 3 })).toBe('/architect?work=12&round=R12-3');
     expect(href(architect)).toBe('/architect');
-    expect(href({ ...architect, project: 'p', wake: 12 })).toBe('/architect?project=p&wake=12');
-    // A round of another wake, or one with no wake named, opens none; a tab the page does not know, such as the asks, the
+    expect(href({ ...architect, project: 'p', work: 12 })).toBe('/architect?project=p&work=12');
+    // A round of another work, or one with no work named, opens none; a tab the page does not know, such as the asks, the
     // conversation and the queue it had before, is its rounds, which the page opens on.
     expect(parse('/architect', '?tab=asks')).toEqual(architect);
     expect(parse('/architect', '?tab=conversation')).toEqual(architect);
     expect(parse('/architect', '?tab=queue')).toEqual(architect);
-    expect(parse('/architect', '?wake=12&round=R11-3&tab=x')).toEqual({ ...architect, wake: 12 });
+    expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, work: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);
   });
 

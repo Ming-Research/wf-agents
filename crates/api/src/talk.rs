@@ -687,15 +687,15 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
 }
 
 /// The matter cards of a project's architect, the latest two hundred matters, each where it stands: queued, held by
-/// an ask of the owner, worked on at the cell its wake is at, handled with what became of it, or withdrawn with why; a
-/// matter about a work names that work, whose group holds it in full.
+/// an ask of the owner, worked on at the cell the architect's work is at, handled with what became of it, or withdrawn
+/// with why; a matter about a work names that work, whose group holds it in full.
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
         .map(|h| (h.matter, h))
         .collect();
-    // The wake going on, the cell it is at and the matter it handles there.
-    let wake: Option<(i64, String, i64)> = conn
+    // The architect's work going on, the cell it is at and the matter it handles there.
+    let architect_work: Option<(i64, String, i64)> = conn
         .query_row(
             "SELECT id, at, flow_version FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
              ORDER BY id DESC LIMIT 1",
@@ -703,7 +703,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
-    let working = match &wake {
+    let working = match &architect_work {
         Some((w, at, version)) => read::handling(conn, *w)?.map(|m| {
             let title = flows
                 .graph(conn, *version, "architect")
@@ -761,7 +761,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             state: state.into(),
             cell: now.map(|w| w.2.clone()),
             cell_title: now.and_then(|w| w.3.clone()),
-            wake: now.map(|w| w.1),
+            architect_work: now.map(|w| w.1),
             round: now.and_then(|w| w.4),
             work,
             item,

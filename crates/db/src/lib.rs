@@ -73,6 +73,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0040.sql"),
     include_str!("../../../db/migrations/0041.sql"),
     include_str!("../../../db/migrations/0042.sql"),
+    include_str!("../../../db/migrations/0043.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1764,8 +1765,8 @@ mod tests {
         assert_eq!(n, 0);
     }
 
-    // Taken to version 20, a database of one project gives its architect's wakes that project, ends the wake still open
-    // at a cell of the old graph with its round and answers the asks only that wake waited for or that asked to approve
+    // Taken to version 20, a database of one project gives its architect's works that project, ends the work still open
+    // at a cell of the old graph with its round and answers the asks only that work waited for or that asked to approve
     // changes; a matter not handled takes the kind of the new graph with its old kind as its detail, one held for
     // approval is back in the queue, one held by an ask still waiting stays held, to go back to the cell that decides
     // it (by its name, once cells have names), and one handled stays as it was; the architect's hold on new starts is
@@ -1802,8 +1803,8 @@ mod tests {
             ] {
                 tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 1, ?1)", [body])?;
             }
-            // Each matter's kind, the engineer's work that raised it, how it is held and by which ask, and the wake
-            // that handled it.
+            // Each matter's kind, the engineer's work that raised it, how it is held and by which ask, and the
+            // architect's work that handled it.
             type Old<'a> = (&'a str, Option<i64>, Option<&'a str>, Option<i64>, Option<i64>);
             let matters: [Old; 4] = [
                 ("split", Some(1), None, None, None),
@@ -2043,5 +2044,33 @@ mod tests {
                 (4, "M1".into(), "items".into(), "items".into(), waited, None),
             ]
         );
+    }
+
+    // A session a work of the architect went on in from the project's previous architect work, recorded before version
+    // 43 under the name its start reason had then, says carried; the others keep why they started.
+    #[test]
+    fn a_session_carried_over_from_the_previous_architect_work_says_so() {
+        let mut old = at_version(42);
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for at in ["1", "2"] {
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', ?1, 'p')",
+                    [at],
+                )?;
+            }
+            for (work, started) in [(1, "line"), (2, "wake")] {
+                tx.execute(
+                    "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', 'c', 's', ?2)",
+                    params![work, started],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old.conn().prepare("SELECT started FROM sessions ORDER BY id").unwrap();
+        let started: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(started, ["line", "carried"]);
     }
 }

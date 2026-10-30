@@ -645,7 +645,7 @@ struct Said {
 }
 
 /// Says something to a project's architect, as the owner, as the command line does: it comes to its queue, and the
-/// engine is woken, so that a wake starts when works go on.
+/// engine is woken, so that a work of the architect starts when works go on.
 async fn say_to_architect(
     State(app): State<App>,
     Query(q): Query<OfProject>,
@@ -681,8 +681,8 @@ async fn interject_architect(
     .await
 }
 
-/// Runs one round of a project's architect: the next round of its wake that runs, or, when none runs and its queue
-/// would wake it, a wake started paused by the owner and its first round; in a new session for its wake as the owner
+/// Runs one round of a project's architect: the next round of its work that runs, or, when none runs and its queue
+/// would start one, a work started paused by the owner and its first round; in a new session for its work as the owner
 /// chose.
 async fn step_architect(
     State(app): State<App>,
@@ -696,8 +696,8 @@ async fn step_architect(
         .map_err(|e| Fail::new(StatusCode::CONFLICT, e))
 }
 
-/// Starts a project's architect, as the owner, as a work is started: its wake goes on, and one starts when its queue
-/// has a matter, whatever the global state; its next round resumes its session or starts a new one for its wake as the
+/// Starts a project's architect, as the owner, as a work is started: its work goes on, and one starts when its queue
+/// has a matter, whatever the global state; its next round resumes its session or starts a new one for its work as the
 /// owner chose.
 async fn start_architect(
     State(app): State<App>,
@@ -734,13 +734,13 @@ async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::
     .await
 }
 
-/// Pauses a project's architect, as the owner: its wake that runs is paused as a work is, and the owner's Start of the
+/// Pauses a project's architect, as the owner: its work that runs is paused as a work is, and the owner's Start of the
 /// architect is over.
 async fn pause_architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Done>, Fail> {
     let (project, _) = project_of(&app, &q)?;
     app.control.pause(&api::Fresh::Architect(project.clone()));
     tell_status(&app);
-    decide(&app, move |db| api::pause_wake(db, &project)).await
+    decide(&app, move |db| api::pause_architect(db, &project)).await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

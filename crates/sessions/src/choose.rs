@@ -21,8 +21,8 @@ pub enum Start {
     Limit,
     /// The line's rounds run on another model than its session's, whose prompt cache holds nothing of it.
     Model,
-    /// A wake of the architect goes on in the CLI session the last wake left.
-    Wake,
+    /// A new work of the architect goes on in the CLI session the project's previous architect work left.
+    Carried,
     /// The owner asked for a new session with the round's Start or Step on the page.
     Owner,
 }
@@ -34,7 +34,7 @@ impl Start {
             Start::Cell => "cell",
             Start::Limit => "limit",
             Start::Model => "model",
-            Start::Wake => "wake",
+            Start::Carried => "carried",
             Start::Owner => "owner",
         }
     }
@@ -43,9 +43,9 @@ impl Start {
 /// Where a round runs.
 #[derive(Debug)]
 pub enum Plan {
-    /// In its line's session going on: its row, the CLI's id for it, its rounds oldest first (those of earlier wakes
-    /// too, for the architect's line), what it holds, and whether the CLI started it, so that it is resumed; a
-    /// session the CLI never started is started under the id kept for it.
+    /// In its line's session going on: its row, the CLI's id for it, its rounds oldest first (those of the architect's
+    /// earlier works too, for the architect's line), what it holds, and whether the CLI started it, so that it is
+    /// resumed; a session the CLI never started is started under the id kept for it.
     Going {
         id: i64,
         cli_session: String,
@@ -174,11 +174,11 @@ pub fn begin(conn: &Connection, work: i64, line: &str, cli: &str, cli_session: &
     Ok(())
 }
 
-/// A wake of a project's architect goes on in the CLI session the project's last wake left, unless a new policy ended
-/// it: its line's session is a row of this wake's with the same CLI session, which the next round of the line resumes.
-/// The project's first wake, and the first after a new policy took effect, start a new one at their first round; so
-/// does a wake that comes back to its start after its new policy ended its session.
-pub fn wake(conn: &Connection, work: i64) -> Result<(), String> {
+/// A work of a project's architect goes on in the CLI session the project's previous architect work left, unless a new
+/// policy ended it: its line's session is a row of this work's with the same CLI session, which the next round of the
+/// line resumes. The project's first architect work, and the first after a new policy took effect, start a new one at
+/// their first round; so does a work that comes back to its start after its new policy ended its session.
+pub fn carry_over(conn: &Connection, work: i64) -> Result<(), String> {
     let had: i64 = conn
         .query_row(
             "SELECT count(*) FROM sessions WHERE work = ?1 AND line = 'architect'",
@@ -203,7 +203,7 @@ pub fn wake(conn: &Connection, work: i64) -> Result<(), String> {
     if let Some((cli, cli_session, None)) = last {
         conn.execute(
             "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', ?2, ?3, ?4)",
-            params![work, cli, cli_session, Start::Wake.name()],
+            params![work, cli, cli_session, Start::Carried.name()],
         )
         .map_err(|e| e.to_string())?;
     }

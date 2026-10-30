@@ -7,7 +7,7 @@
 //! Each work follows the global pause and start, unless the owner started it or paused it, and the later of the two
 //! wins: the global pause stops every work and makes those the owner started follow it again, a work's Start runs it
 //! whatever the global state, and a work's own pause, which the database keeps, holds until the owner starts it again.
-//! Each project's architect's wakes are taken the same way.
+//! Each project's architect's works are taken the same way.
 
 use std::collections::BTreeSet;
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -31,16 +31,16 @@ pub struct Asked {
     /// The works the owner started whose own pause the engine is still to lift, as the owner: a work on an item holds no
     /// slot while it is paused, so its pause is lifted once its machine has a slot free.
     pub releasing: BTreeSet<i64>,
-    /// The projects whose architect the owner started since every work was last paused: its wakes go on, and one starts
+    /// The projects whose architect the owner started since every work was last paused: its works go on, and one starts
     /// when its queue has a matter, whatever the global state.
     pub architects_started: BTreeSet<String>,
-    /// The projects whose architect's wake that runs the engine is still to lift the pause of, as the owner, who
+    /// The projects whose architect's work that runs the engine is still to lift the pause of, as the owner, who
     /// started it.
     pub architects_releasing: BTreeSet<String>,
     /// The work whose round the owner asked for, until the loop has taken it.
     pub step: Option<i64>,
-    /// The project whose architect's round the owner asked for, until the loop has taken it: the next round of its wake
-    /// that runs, or a wake started paused and its first round when its queue would wake it.
+    /// The project whose architect's round the owner asked for, until the loop has taken it: the next round of its work
+    /// that runs, or a work started paused and its first round when its queue would start one.
     pub architect: Option<String>,
     /// How many times the owner decided something the engine reads, such as an answer or a ruling: each wakes the
     /// loop, so that works that go on go on at once.
@@ -74,9 +74,9 @@ impl Asked {
     }
 
     /// Whether the owner's global pause holds a work back now: every work is paused and the owner did not start it
-    /// since; `wake` names the project of a work that is a wake of its architect.
-    pub fn holds(&self, work: i64, wake: Option<&str>) -> bool {
-        self.paused && !self.started.contains(&work) && !wake.is_some_and(|p| self.architects_started.contains(p))
+    /// since; `architect` names the project of a work that is its architect's.
+    pub fn holds(&self, work: i64, architect: Option<&str>) -> bool {
+        self.paused && !self.started.contains(&work) && !architect.is_some_and(|p| self.architects_started.contains(p))
     }
 }
 
@@ -180,7 +180,7 @@ impl Control {
         self.changed.notify_all();
     }
 
-    /// The engine lifted, or found nothing to lift of, the pauses of these works the owner started, and of the wakes of
+    /// The engine lifted, or found nothing to lift of, the pauses of these works the owner started, and of the works of
     /// these projects' architects.
     pub fn released(&self, works: &[i64], architects: &[String]) {
         let mut a = lock(&self.asked);
@@ -218,9 +218,9 @@ impl Control {
         Ok(())
     }
 
-    /// Asks for the round of a project's architect: the next round of its wake that runs, or, when none runs and its
-    /// queue would wake it, a wake started paused by the owner and its first round; in a new session for its wake when
-    /// `new_session`; only once the round asked for before has been taken.
+    /// Asks for the round of a project's architect: the next round of its work that runs, or, when none runs and its
+    /// queue would start one, a work started paused by the owner and its first round; in a new session for its work
+    /// when `new_session`; only once the round asked for before has been taken.
     pub fn ask_step_architect(&self, project: &str, new_session: bool) -> Result<(), String> {
         let mut a = lock(&self.asked);
         if let Some(w) = a.step {

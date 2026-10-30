@@ -51,7 +51,7 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
-    /// The projects whose architect the owner started since every work was last paused: its wakes go on whatever the
+    /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
     /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
@@ -118,7 +118,8 @@ pub enum Event {
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
-    /// What the architect's tab shows changed: its queue, what stops new works, or a wake, its rounds or its asks.
+    /// What the architect's tab shows changed: its queue, what stops new works, or a work of the architect, its rounds
+    /// or its asks.
     Architect,
     /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
     /// reports it: a tool it uses, or what it says.
@@ -201,7 +202,7 @@ pub enum Waits {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct WorkSummary {
     pub id: i64,
-    /// The item worked on, its title and its project; for a wake of an architect, no item and the architect's project.
+    /// The item worked on, its title and its project; for a work of an architect, no item and the architect's project.
     pub item: Option<i64>,
     pub title: Option<String>,
     pub project: Option<String>,
@@ -413,7 +414,7 @@ pub struct OwnerMessage {
     /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
     pub ask: Option<i64>,
     pub ask_kinds: Vec<AskKind>,
-    /// For one that came of a wake of an architect, told by one of its rounds or the engine's notice of one: the
+    /// For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
     /// architect's project; none otherwise.
     pub architect: Option<String>,
 }
@@ -437,7 +438,7 @@ pub struct Forwarded {
     pub by: String,
     /// The matter it is in that architect's queue.
     pub matter: i64,
-    /// `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its wake
+    /// `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its work
     /// and its number; `withdrawn`.
     pub state: String,
     pub handled_work: Option<i64>,
@@ -588,8 +589,8 @@ pub struct Session {
 pub struct WorkSession {
     pub id: i64,
     pub line: String,
-    /// Why it started: line, cell, limit, or wake (a wake of the architect going on in the CLI session the last wake
-    /// left).
+    /// Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
+    /// previous architect work left).
     pub started: String,
     /// When it ended, so that the line's next round started a new one; none while it goes on.
     pub ended: Option<i64>,
@@ -894,22 +895,22 @@ pub struct Shown {
     pub value: Value,
 }
 
-/// A project's architect, as its tab shows it: its wakes, its queue, what it asked the owner, its log, the item changes
-/// its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations. A
-/// wake is a work of the architect's graph for the project, on no item.
+/// A project's architect, as its tab shows it: its works, its queue, what it asked the owner, its log, the item changes
+/// its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations.
+/// Its works are works of the architect's graph for the project, on no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
     /// The project whose architect it is.
     pub project: String,
     /// Every project of the configuration, each of which has its architect.
     pub projects: Vec<String>,
-    /// Its wakes, newest first.
-    pub wakes: Vec<Wake>,
+    /// Its works, newest first.
+    pub works: Vec<ArchitectWork>,
     /// The matters it has not handled: those in its queue, in the order they came; then those an ask of the owner holds.
     pub queue: Vec<Matter>,
     /// What stops the project's new works from starting, oldest first.
     pub holds: Vec<DispatchHold>,
-    /// What its wakes asked the owner, oldest first.
+    /// What its works asked the owner, oldest first.
     pub asks: Vec<OwnerAsk>,
     /// The matters it handled, newest first, each with what became of it.
     pub handled: Vec<Handled>,
@@ -917,7 +918,7 @@ pub struct Architect {
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// The policy a wake is setting now; none while no wake sets one.
+    /// The policy a work of it is setting now; none while no work of it sets one.
     pub setting: Option<PolicySetting>,
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
@@ -1076,10 +1077,11 @@ pub struct MatterProgress {
     pub what: String,
     /// queued, held, working, done or withdrawn.
     pub state: String,
-    /// While it is worked on: the cell the architect is at, with its title, and the wake's round there.
+    /// While it is worked on: the cell the architect is at, with its title, and the round of the architect's work
+    /// there.
     pub cell: Option<String>,
     pub cell_title: Option<String>,
-    pub wake: Option<i64>,
+    pub architect_work: Option<i64>,
     pub round: Option<i64>,
     /// The work it is about, whose group holds it in full, and that work's item.
     pub work: Option<i64>,
@@ -1143,12 +1145,12 @@ pub struct ReadTo {
     pub at: i64,
 }
 
-/// One wake of an architect.
+/// One work of an architect.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Wake {
+pub struct ArchitectWork {
     pub work: WorkSummary,
-    /// What woke it: the matters its queue held when it woke, as its first round was given them.
-    pub woke_for: Vec<Queued>,
+    /// What it started for: the matters its queue held when it started, as its first round was given them.
+    pub started_for: Vec<Queued>,
     /// How many matters it handled.
     pub handled: i64,
     /// The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
@@ -1156,7 +1158,7 @@ pub struct Wake {
     pub handling: Option<i64>,
 }
 
-/// A matter as an architect's queue gave it to a wake.
+/// A matter as an architect's queue gave it to a work of the architect.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Queued {
     pub matter: i64,
@@ -1226,7 +1228,7 @@ pub struct DispatchHold {
     pub why: Option<String>,
 }
 
-/// What a round of an architect handed back: its wake, its number in the wake, its cell, when it ended, and its answer.
+/// What a round of an architect handed back: its work, its number in the work, its cell, when it ended, and its answer.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Said {
     pub work: i64,
@@ -1244,7 +1246,7 @@ pub struct Handled {
     pub kind: String,
     pub detail: Option<String>,
     pub what: String,
-    /// The round that closed it: its wake, its number and its cell, and when it ended.
+    /// The round that closed it: its work, its number and its cell, and when it ended.
     pub work: i64,
     pub round: i64,
     pub cell: String,
@@ -1282,7 +1284,7 @@ pub struct HandledAction {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ItemChange {
     pub id: i64,
-    /// The round that handed it in: its wake and its number.
+    /// The round that handed it in: its work and its number.
     pub work: i64,
     pub round: i64,
     /// The cell of that round.
@@ -1332,7 +1334,8 @@ pub struct CloseObservation {
     pub why: String,
 }
 
-/// The policy in force: its text, and the round of the wake in which it took effect, after the owner approved it.
+/// The policy in force: its text, and the round of the architect's work in which it took effect, after the owner
+/// approved it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct PolicyInForce {
     pub work: i64,
@@ -1343,8 +1346,8 @@ pub struct PolicyInForce {
     pub policy: Value,
 }
 
-/// A new policy as a wake sets it: the latest study of it, and the latest text with its probes and every reading of it
-/// by a new architect since, with the architect's verdict on each.
+/// A new policy as a work of the architect sets it: the latest study of it, and the latest text with its probes and
+/// every reading of it by a new architect since, with the architect's verdict on each.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct PolicySetting {
     pub work: i64,
@@ -1414,9 +1417,9 @@ pub struct SystemNow {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ArchitectNow {
     pub project: String,
-    /// Its wake not over, by its work, while it is awake; none while it sleeps.
-    pub wake: Option<i64>,
-    /// Whether that wake is paused.
+    /// Its work not over, by its id, while one runs; none while none runs.
+    pub work: Option<i64>,
+    /// Whether that work is paused.
     pub paused: bool,
     /// The matters in its queue, and when the oldest of them came.
     pub queue: i64,
@@ -1441,7 +1444,7 @@ pub struct Week {
     pub cancelled: i64,
     /// The pull requests open at its end, or now for the week under way.
     pub open_prs: i64,
-    /// What the engineers' works and the architects' wakes spent in it, their keep-warm pings included, in US dollars.
+    /// What the engineers' works and the architects' works spent in it, their keep-warm pings included, in US dollars.
     pub engineers_usd: f64,
     pub architects_usd: f64,
 }

@@ -64,7 +64,7 @@ pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, mo
         sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
         sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
         sessions::Start::Model => format!("the model changed to {model}"),
-        sessions::Start::Wake => "the architect goes on in the session it had".into(),
+        sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
     }
 }
@@ -93,8 +93,9 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
-    // A new session of the architect's line in the middle of a wake understands the project first: the cell's row for
-    // that, recorded with why the session would start afresh; a flow version without the row goes back unrecorded.
+    // A new session of the architect's line in the middle of an architect work understands the project first: the
+    // cell's row for that, recorded with why the session would start afresh; a flow version without the row goes back
+    // unrecorded.
     if let Some(why) = crate::architect::understand_first(e, w, g, cell)? {
         let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
             return crate::architect::back_to_understanding(e, w, g, cell);
@@ -121,7 +122,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
     }
     let item = e.subject(w)?;
-    // A work on an item runs in its project; a wake of the architect is on no item and in no project.
+    // A work on an item runs in its project; a work of the architect is on no item and in no project.
     let project = match &item {
         Some(_) => Some(e.project_of(w)?),
         None => None,
@@ -638,8 +639,8 @@ struct Composed {
     line: String,
     /// Where the round runs, as the session manager chose it.
     plan: Plan,
-    /// The session's rounds, oldest first: those of earlier wakes too, for the architect's line; none for a new
-    /// session.
+    /// The session's rounds, oldest first: those of earlier architect works too, for the architect's line; none for a
+    /// new session.
     line_rounds: Vec<Round>,
     given: Map<String, Value>,
     /// The interjections waiting for the line.
@@ -656,7 +657,8 @@ struct Composed {
 
 /// Builds the message of an agent's round at a cell from the work as it stands, running and recording nothing. The
 /// session manager chooses the session it runs in and says what that session holds; the architect's line goes on in
-/// one CLI session across its wakes, so what its session holds is read from the rounds of every work that ran in it.
+/// one CLI session across the architect's works, so what its session holds is read from the rounds of every work that
+/// ran in it.
 fn compose(
     e: &Engine,
     w: &Work,
@@ -667,8 +669,8 @@ fn compose(
     let line = sessions::choose::line_of(cell);
     let model = level_of(e, g, cell, item)?.1.model;
     let limit = e.config.config.install.agents.context_limit;
-    let wake = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let mut plan = e.sessions.plan(e.db.conn(), w.id, wake, cell, limit, &model)?;
+    let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
+    let mut plan = e.sessions.plan(e.db.conn(), w.id, architect, cell, limit, &model)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
@@ -1106,8 +1108,8 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_wake") | Some("stop_work") | Some("end_policy") => json!({}),
-        Some("wake") => architect::wake(e, w)?,
+        Some("end_work") | Some("end_architect_work") | Some("stop_work") | Some("end_policy") => json!({}),
+        Some("wait_for_matter") => architect::carry_over(e, w)?,
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some("put_draft_together") => architect::put_draft_together(e, w)?,

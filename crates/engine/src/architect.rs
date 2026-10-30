@@ -1,11 +1,12 @@
-//! The architects' side of the engine. Each project has its architect; a wake is a work of the architect's graph for a
-//! project, on no item: the engine starts one when none of the project runs and the project's queue has a matter, one
-//! at a time for each project, and a wake holds no slot. What puts a matter in a project's queue is here and in the
-//! actions: an engineer's question or failure, a side report, a report's what to do next, a design card, the owner's
-//! words and answers, an engineer's answer to the architect, another project's architect's message, slots free with
-//! fewer items of the project ready, and a place the understanding found to set straight. Here too are the steps, inputs, values, checks and actions of the
-//! architect's graph, its asks of the owner, and the batch of item changes a review looks at before they are made. A
-//! project's architect's line goes on in one CLI session across the project's wakes until a new policy ends it.
+//! The architects' side of the engine. Each project has its architect; a work of the architect is a work of its graph
+//! for a project, on no item: the engine starts one when none of the project runs and the project's queue has a matter,
+//! one at a time for each project, and such a work holds no slot. What puts a matter in a project's queue is here and
+//! in the actions: an engineer's question or failure, a side report, a report's what to do next, a design card, the
+//! owner's words and answers, an engineer's answer to the architect, another project's architect's message, slots free
+//! with fewer items of the project ready, and a place the understanding found to set straight. Here too are the steps,
+//! inputs, values, checks and actions of the architect's graph, its asks of the owner, and the batch of item changes a
+//! review looks at before they are made. A project's architect's line goes on in one CLI session across the architect's
+//! works until a new policy ends it.
 //!
 //! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
 //! the queue (`Q0`) and the pick (`Q1`), which say the matter picked; the understanding
@@ -37,7 +38,7 @@ pub const INPUTS: [&str; 24] = [
     "constitution",
     "guide",
     "cited_nodes",
-    "since_last_wake",
+    "since_last_work",
     "board",
     "numbers",
     "observations_overview",
@@ -64,8 +65,8 @@ pub const INPUTS: [&str; 24] = [
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
 
-/// The input that gives the state of things as the architect last wrote it: when the wake's understanding
-/// (`U1`) wrote it, as the places of that round's return, which the wake's session holds, with what was
+/// The input that gives the state of things as the architect last wrote it: when this work's understanding
+/// (`U1`) wrote it, as the places of that round's return, which this work's session holds, with what was
 /// learned and noted since read from `architect_state`; otherwise that view whole.
 pub const STATE: &str = "state_of_things";
 
@@ -92,9 +93,9 @@ fn policy_stays(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         .map(|r| json!({ "study": r["study"], "owner": r["ruling"] })))
 }
 
-/// Why the policy is set again, for the setting of it: what the wake that started it found of the policy in force
-/// against the constitution, article by article, and each reason it may no longer govern, as its latest round of
-/// `P1` that set it again handed them in, before the setting started.
+/// Why the policy is set again, for the setting of it: what the architect's work that started it found of the policy
+/// in force against the constitution, article by article, and each reason it may no longer govern, as its latest round
+/// of `P1` that set it again handed them in, before the setting started.
 fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let started: i64 = count(
         e.db.conn(),
@@ -118,7 +119,7 @@ fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Strin
     Ok(rows.into_iter().next())
 }
 
-/// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the wake's
+/// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the work's
 /// round that wrote it (`P4`) handed it in, or as the engine put it together (`P5`) from a
 /// correction (`P8`) or a minor fix a reading found (`P7`), which hand in only their edits; and its probes, as the
 /// round that wrote them handed them in, or as the engine put them together from a correction, which hands in only those
@@ -182,7 +183,7 @@ const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "B4";
 const REVIEW: &str = "B2";
 
-/// The architect's line, whose session goes on across its project's wakes; the cell that asks whether that session
+/// The architect's line, whose session goes on across the architect's works; the cell that asks whether that session
 /// understood the project; and the stage of the cells that set a new policy, after the check of the policy in force
 /// that opens it.
 const LINE: &str = "architect";
@@ -191,7 +192,7 @@ const SETTING_POLICY: &str = "policy";
 const POLICY_CHECK: &str = "P1";
 
 /// The cell a new policy takes effect at, and what to do next under it, which a new session takes up straight after,
-/// given the state of things the wake wrote and the new policy.
+/// given the state of things the architect's work wrote and the new policy.
 const TAKES_EFFECT: &str = "P12";
 const NEXT: &str = "N1";
 
@@ -252,9 +253,9 @@ fn utc_minute(ms: i64) -> String {
 // Where the architect works.
 
 /// The worktree a project's architect reads the project in for the works of a graph: `worktrees/<graph>/<project>` in
-/// the data directory, which its git leaves out, detached at the project's main. The wake and the setting of a policy
-/// each have their own, since they go on side by side and a refresh for one must not move the files the other reads;
-/// the lines of a wake take turns in the wake's.
+/// the data directory, which its git leaves out, detached at the project's main. The architect's work and the setting
+/// of a policy each have their own, since they go on side by side and a refresh for one must not move the files the
+/// other reads; the lines of the architect's work take turns in the work's.
 pub fn worktree(data: &Path, graph: &str, project: &str) -> PathBuf {
     config::worktrees(data).join(graph).join(project)
 }
@@ -302,18 +303,18 @@ pub fn refresh(e: &Engine, graph: &str, project: &str) -> Result<PathBuf, String
     Ok(dir)
 }
 
-/// The project whose architect a wake is.
+/// The project whose architect a work is.
 pub fn project_of(w: &Work) -> Result<&str, String> {
     w.project
         .as_deref()
         .ok_or_else(|| format!("work {} names no project for its architect", w.id))
 }
 
-// Wakes.
+// The architect's works.
 
-/// The wake of a project's architect that runs: the project's newest wake not stopped, unless it reached its end. A
-/// wake starts only while none of its project runs, so an older one has ended or reached its end. A paused wake still
-/// runs.
+/// The work of a project's architect that runs: the project's newest architect work not stopped, unless it reached its
+/// end. A work of the architect starts only while none of its project runs, so an older one has ended or reached its
+/// end. A paused work still runs.
 pub fn running(e: &mut Engine, project: &str) -> Result<Option<i64>, String> {
     let newest: Option<i64> =
         e.db.conn()
@@ -328,8 +329,8 @@ pub fn running(e: &mut Engine, project: &str) -> Result<Option<i64>, String> {
     Ok((!e.done(&w)?).then_some(id))
 }
 
-/// Whether a project's queue has a matter that wakes its architect: any but flow feedback, its own or forwarded by
-/// another project's architect, which a wake takes when something else woke it.
+/// Whether a project's queue has a matter that starts a work of its architect: any but flow feedback, its own or
+/// forwarded by another project's architect, which a work of the architect takes when something else started it.
 pub fn queue_has(e: &Engine, project: &str) -> Result<bool, String> {
     Ok(count(
         e.db.conn(),
@@ -348,7 +349,7 @@ pub const FLOW_FEEDBACK: &str = "flow_feedback";
 /// The kinds of matter that may hold flow feedback, as an SQL list.
 const FEEDBACK_KINDS: &str = "('report', 'other_architect')";
 
-/// Whether a matter of the queue holds flow feedback, which waits for a wake something else started.
+/// Whether a matter of the queue holds flow feedback, which waits for a work of the architect something else started.
 fn is_flow_feedback(kind: &Value, detail: &Value) -> bool {
     (kind == "report" || kind == "other_architect") && detail == FLOW_FEEDBACK
 }
@@ -361,7 +362,7 @@ pub fn says_none(feedback: &str) -> bool {
 
 /// Adds one round's flow feedback, `entry`, to its project's architect's flow feedback, under its graph and cell: to the
 /// matter of the kind report that holds it and is not handled, withdrawn, held by an ask or the pick of the project's
-/// running wake, or else to a new one. It wakes no architect ([`queue_has`]).
+/// running architect work, or else to a new one. It starts no work of the architect ([`queue_has`]).
 pub fn add_flow_feedback(
     tx: &Transaction<'_>,
     project: &str,
@@ -444,7 +445,7 @@ pub fn add_flow_feedback(
     Ok(())
 }
 
-/// Starts a wake of a project's architect: a work of the architect's graph for the project, on no item, at its start,
+/// Starts a work of a project's architect: a work of the architect's graph for the project, on no item, at its start,
 /// on the flow version new works start on; paused by the owner when the owner's step started it.
 pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<i64, String> {
     let v = e.flow_now;
@@ -534,12 +535,12 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
     Ok(())
 }
 
-/// Cell `W0`: the wake goes on in the CLI session the project's last wake left, unless a new policy ended it:
-/// its line's session is a row of this wake's with the same CLI session, which the next round of the line resumes.
-pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
+/// Cell `W0`: the work goes on in the CLI session the project's previous architect work left, unless a new policy ended
+/// it: its line's session is a row of this work's with the same CLI session, which the next round of the line resumes.
+pub fn carry_over(e: &mut Engine, w: &Work) -> Result<Value, String> {
     let id = w.id;
     e.db.write(Actor::Engine, |tx| {
-        sessions::choose::wake(tx, id).map_err(db::Error::Abort)
+        sessions::choose::carry_over(tx, id).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
     Ok(json!({}))
@@ -547,8 +548,8 @@ pub fn wake(e: &mut Engine, w: &Work) -> Result<Value, String> {
 
 // The queue and the batch.
 
-/// The matter the latest pick in a wake chose before round `before`, or before none: the lone matter the queue held
-/// (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the queue
+/// The matter the latest pick in a work of the architect chose before round `before`, or before none: the lone matter
+/// the queue held (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the queue
 /// found none, or many with no pick after it.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(String, Option<String>)> = conn
@@ -570,12 +571,12 @@ pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Resul
     })
 }
 
-/// The matter a wake's latest pick chose.
+/// The matter an architect work's latest pick chose.
 pub fn picked(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     picked_before(conn, work, None)
 }
 
-/// The round a wake's batch began after: its latest rethink, which ends a batch; 0 when it had none.
+/// The round an architect work's batch began after: its latest rethink, which ends a batch; 0 when it had none.
 fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     count(
         conn,
@@ -584,7 +585,7 @@ fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     )
 }
 
-/// How many matters a wake's batch handled, those the look at the queue closed without a look left out.
+/// How many matters an architect work's batch handled, those the look at the queue closed without a look left out.
 fn handled_in_batch(conn: &Connection, work: i64) -> Result<i64, String> {
     let from = batch_start(conn, work)?;
     count(
@@ -598,7 +599,7 @@ fn handled_in_batch(conn: &Connection, work: i64) -> Result<i64, String> {
 /// An item change of a batch: its row's id, the round that handed it in, the matter it came from and the change.
 type Change = (i64, i64, i64, Value);
 
-/// The item changes a wake's batch collected, in order.
+/// The item changes an architect work's batch collected, in order.
 fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
     let rows = query_json(
         conn,
@@ -619,8 +620,9 @@ fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
         .collect())
 }
 
-/// The items a change collected in a wake's open batch names, on which the engine starts no work until the batch ends:
-/// the item it changes, the item a split splits or another is moved under, and the items a merge keeps and absorbs.
+/// The items a change collected in an architect work's open batch names, on which the engine starts no work until the
+/// batch ends: the item it changes, the item a split splits or another is moved under, and the items a merge keeps and
+/// absorbs.
 pub fn held_by_batches(conn: &Connection) -> Result<BTreeSet<i64>, String> {
     let rows = query_json(
         conn,
@@ -655,11 +657,11 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
     )? > 0)
 }
 
-/// The matters of a project's queue that the wake `wake` can pick now, oldest first: every one, flow feedback, its own
-/// or forwarded, only when it came before the wake started, which waits for the next wake otherwise; but while new
-/// starts are held to set the project straight and some matter sets it straight or has an agent stopped waiting, only
-/// those.
-fn pickable(conn: &Connection, project: &str, wake: i64) -> Result<Vec<Value>, String> {
+/// The matters of a project's queue that the architect's work `work` can pick now, oldest first: every one, flow
+/// feedback, its own or forwarded, only when it came before the work started, which waits for the architect's next work
+/// otherwise; but while new starts are held to set the project straight and some matter sets it straight or has an
+/// agent stopped waiting, only those.
+fn pickable(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
     let rows = query_json(
         conn,
         &format!(
@@ -668,7 +670,7 @@ fn pickable(conn: &Connection, project: &str, wake: i64) -> Result<Vec<Value>, S
                  AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
              ORDER BY q.matter"
         ),
-        &[&project, &wake, &FLOW_FEEDBACK],
+        &[&project, &work, &FLOW_FEEDBACK],
         100_000,
     )?;
     if !held_straight(conn, project)? {
@@ -683,7 +685,7 @@ fn pickable(conn: &Connection, project: &str, wake: i64) -> Result<Vec<Value>, S
 }
 
 /// Closes the design card matters of a project's queue whose card needs no look any longer, confirmed by the owner or
-/// replaced by another, as handled in the wake's round that runs now; gives each, with why.
+/// replaced by another, as handled in this work's round that runs now; gives each, with why.
 fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<String>, String> {
     let conn = e.db.conn();
     let rows = query_json(
@@ -726,9 +728,9 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
-/// The matters of a policy set that the question what to do next (`N1`) answered since they came, in any wake of the
-/// project, closed by the round that looks at the queue, saying why: a new policy that took effect is thought through
-/// by the understanding of the new session it ends the old one for.
+/// The matters of a policy set that the question what to do next (`N1`) answered since they came, in any architect work
+/// of the project, closed by the round that looks at the queue, saying why: a new policy that took effect is thought
+/// through by the understanding of the new session it ends the old one for.
 fn close_settled_policies(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<String>, String> {
     let conn = e.db.conn();
     let rows = query_json(
@@ -843,8 +845,8 @@ fn next_in_batch(e: &Engine, w: &Work) -> Result<&'static str, String> {
     })
 }
 
-/// How many reviews of a wake's batch found something to fix.
-/// How many times a wake corrected the text of the policy it sets since the text was last written.
+/// How many reviews of an architect work's batch found something to fix.
+/// How many times a work corrected the text of the policy it sets since the text was last written.
 fn corrections(conn: &Connection, work: i64) -> Result<i64, String> {
     count(
         conn,
@@ -854,7 +856,7 @@ fn corrections(conn: &Connection, work: i64) -> Result<i64, String> {
     )
 }
 
-/// Whether a wake's last round that ended is the judgment of a reading that found a minor fix, which the text is put
+/// Whether a work's last round that ended is the judgment of a reading that found a minor fix, which the text is put
 /// together for without a new reading.
 fn minor_fix_last(conn: &Connection, work: i64) -> Result<bool, String> {
     let last: Option<(Option<String>, Option<String>)> = conn
@@ -890,8 +892,8 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sess
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, &model)
 }
 
-/// Whether the session the wake goes on in answered the understanding question since it started or was last
-/// compacted: a new one, or one the next round would leave for a new one, did not. A round that asked for tools or
+/// Whether the session the architect's work goes on in answered the understanding question since it started or was
+/// last compacted: a new one, or one the next round would leave for a new one, did not. A round that asked for tools or
 /// paused answered nothing, as the state of things the views read has it.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
     let sessions::Plan::Going { held, .. } = plan_at_understanding(e, w, g)? else {
@@ -915,8 +917,8 @@ fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
 }
 
 /// How the work came to the understanding question: from a rethink after a batch; in a session compacted since it
-/// last understood the project; or in a new one, at the project's first wake (before any answer of the question, a
-/// round that asked for tools or paused being none), after a new policy, or for another reason.
+/// last understood the project; or in a new one, at the project's first architect work (before any answer of the
+/// question, a round that asked for tools or paused being none), after a new policy, or for another reason.
 fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let conn = e.db.conn();
     let last: Option<String> = conn
@@ -1018,14 +1020,14 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
     }))
 }
 
-/// Whether the wake goes back to understanding the project before a round of the architect's line at a cell: the round
-/// would start a new session there (the owner asked for one, the last was past the limit, or the model changed), past
-/// the understanding and outside the setting of a policy, and a new session holds no state of things and no notes. A
-/// new policy that just took effect goes straight on to what to do next, whose new session is given the state of things
-/// the wake wrote.
+/// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
+/// cell: the round would start a new session there (the owner asked for one, the last was past the limit, or the model
+/// changed), past the understanding and outside the setting of a policy, and a new session holds no state of things and
+/// no notes. A new policy that just took effect goes straight on to what to do next, whose new session is given the
+/// state of things the work wrote.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
-/// names them here. Gives why the session would start afresh, in words; none when the wake goes on.
+/// names them here. Gives why the session would start afresh, in words; none when the work goes on.
 pub fn understand_first(
     e: &Engine,
     w: &Work,
@@ -1055,9 +1057,9 @@ pub fn understand_first(
     })
 }
 
-/// Sends the wake back to the cell that asks whether its session understood the project, which a new session has not,
-/// and takes that cell's step: the matter picked goes back to the queue, not handled, to be picked again once the new
-/// session understood the project.
+/// Sends the architect's work back to the cell that asks whether its session understood the project, which a new
+/// session has not, and takes that cell's step: the matter picked goes back to the queue, not handled, to be picked
+/// again once the new session understood the project.
 pub fn back_to_understanding(
     e: &mut Engine,
     w: &Work,
@@ -1073,7 +1075,7 @@ pub fn back_to_understanding(
     e.db.write(Actor::Engine, |tx| back.save_position(tx).map_err(db::Error::Abort))
         .map_err(sql)?;
     (e.say)(&format!(
-        "work {}: a new session would start at cell {}: the wake understands the project first",
+        "work {}: a new session would start at cell {}: the work understands the project first",
         w.id, cell.id
     ));
     let back = e.work(w.id)?;
@@ -1194,10 +1196,10 @@ fn answered_as(cell: &CompiledCell, answer: &Value) -> Value {
 
 /// The owner's cells of the architect's graph (asking, reading a study, approving a policy): what the architect asks,
 /// or puts before the owner to read or approve, becomes an ask of the owner. An ask from a cell on a matter's path
-/// holds only that matter: the ask records the cell that asked, the round ends at once, and the wake goes on without
-/// it; the matter is back in the queue once the owner answers. Any other waits for the answer, holding no slot; what
-/// the owner says meanwhile to the setting of a policy takes it to the cell that answers it, and it comes back to wait
-/// for the same ask.
+/// holds only that matter: the ask records the cell that asked, the round ends at once, and the architect's work goes
+/// on without it; the matter is back in the queue once the owner answers. Any other waits for the answer, holding no
+/// slot; what the owner says meanwhile to the setting of a policy takes it to the cell that answers it, and it comes
+/// back to wait for the same ask.
 pub fn ask_owner(
     e: &mut Engine,
     w: &Work,
@@ -1256,7 +1258,7 @@ pub fn ask_owner(
         return Ok(Advance::Waits(format!("ask {ask} waits for the owner")));
     }
     let project = project_of(w)?.to_string();
-    // A wake of the architect never waits for the owner: its ask holds only the matter of the path that asked. The
+    // A work of the architect never waits for the owner: its ask holds only the matter of the path that asked. The
     // setting of a policy is a task, which stops on the ask, its blocker held by the owner.
     let holds = if w.graph == ARCHITECT {
         picked(e.db.conn(), w.id)?
@@ -1325,7 +1327,7 @@ pub fn ask_owner(
     let given = values::given(e, w, g, cell, None, &gathered)?;
     let text = format!(
         "The ask is with the owner as ask {id}. Matter {m} waits for the answer out of the queue, and comes back to the \
-         cell that asked with it; the wake goes on with the other matters."
+         cell that asked with it; the work goes on with the other matters."
     );
     let output = json!({ "reply": { "text": text } });
     let row = g.take(&cell.id, &output, &given)?.clone();
@@ -1369,12 +1371,12 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
 }
 
 /// Cell `A2`: the work's blocker, held by an architect: the question, or the tool's failure, is queued for the
-/// architect that holds it as a matter, which wakes it if it sleeps, saying which project and work it is for and how
-/// it moved; the work waits, holding no slot. A matter that stands for the blocker in that architect's queue already,
-/// as when the work comes back from weighing whether to wait longer, is not queued again; a blocker the owner handed
-/// back goes with the owner's decision to the cell that carries it out. Each time the engine takes the work's step
-/// here it works out where the question stands (the value `held`) and takes that row: the reply goes back to the cell
-/// that asked unchanged, a hand-over passes the work on, and the rest withdraw it.
+/// architect that holds it as a matter, which starts a work of it when none runs, saying which project and work it is
+/// for and how it moved; the work waits, holding no slot. A matter that stands for the blocker in that architect's
+/// queue already, as when the work comes back from weighing whether to wait longer, is not queued again; a blocker the
+/// owner handed back goes with the owner's decision to the cell that carries it out. Each time the engine takes the
+/// work's step here it works out where the question stands (the value `held`) and takes that row: the reply goes back
+/// to the cell that asked unchanged, a hand-over passes the work on, and the rest withdraw it.
 pub fn ask_architect(
     e: &mut Engine,
     w: &Work,
@@ -1545,12 +1547,12 @@ pub fn count_trials(e: &mut Engine, w: &Work) -> Result<Value, String> {
 
 // The architect's actions.
 
-/// The wake an action is carried out for, and its project.
-fn wake_of(ctx: &Ctx) -> Result<(i64, String), String> {
+/// The work of the architect an action is carried out for, and its project.
+fn architect_work_of(ctx: &Ctx) -> Result<(i64, String), String> {
     Ok((ctx.work.id, project_of(&ctx.work)?.to_string()))
 }
 
-/// The matter a wake picked, which the action is about.
+/// The matter an architect work picked, which the action is about.
 fn matter_of(tx: &Transaction<'_>, work: i64) -> Result<i64, String> {
     picked(tx, work)?.ok_or_else(|| format!("work {work}: no matter is picked"))
 }
@@ -1608,8 +1610,8 @@ fn release(tx: &Transaction<'_>, project: &str, reason: &str) -> Result<(), Stri
     Ok(())
 }
 
-/// Releases the hold to set a project straight once no matter that sets it straight is left and the wake's batch
-/// holds no item change still to be made.
+/// Releases the hold to set a project straight once no matter that sets it straight is left and the architect work's
+/// batch holds no item change still to be made.
 fn settle_hold(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), String> {
     if !held_straight(tx, project)? {
         return Ok(());
@@ -1718,7 +1720,8 @@ fn observe(tx: &Transaction<'_>, project: &str, matter: i64, o: &Value) -> Resul
     Ok(())
 }
 
-/// Whether the matter a wake handles holds flow feedback, so that what its path sends on is flow feedback forwarded.
+/// Whether the matter an architect work handles holds flow feedback, so that what its path sends on is flow feedback
+/// forwarded.
 fn forwards_feedback(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
     let (kind, detail): (String, Option<String>) = tx
         .query_row(
@@ -1743,10 +1746,10 @@ fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str
     queue_matter(tx, &m).map_err(sql)
 }
 
-/// Carries out the effects of an answer on a matter's path: item changes are collected into the wake's batch; changes
-/// to observations, actions and messages are made at once; notes are the round's own, which the views read.
+/// Carries out the effects of an answer on a matter's path: item changes are collected into the architect work's batch;
+/// changes to observations, actions and messages are made at once; notes are the round's own, which the views read.
 fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(), String> {
-    let (w, project) = wake_of(ctx)?;
+    let (w, project) = architect_work_of(ctx)?;
     let matter = matter_of(tx, w)?;
     for c in items(effects.get("item_changes")) {
         tx.execute(
@@ -1761,7 +1764,8 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
     for a in items(effects.get("actions")) {
         act_now(tx, &project, &a)?;
     }
-    // What a matter of flow feedback has sent on is flow feedback forwarded: it waits for a wake, as the project's own.
+    // What a matter of flow feedback has sent on is flow feedback forwarded: it waits for a work of the architect, as
+    // the project's own.
     let detail = if forwards_feedback(tx, matter)? {
         FLOW_FEEDBACK
     } else {
@@ -1794,8 +1798,8 @@ fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
     r
 }
 
-/// Makes the given rows of a wake's batch, as the architect, each in order; a key a change made the item under is
-/// given its number. Gives the keys and the numbers they were given.
+/// Makes the given rows of an architect work's batch, as the architect, each in order; a key a change made the item
+/// under is given its number. Gives the keys and the numbers they were given.
 fn make(
     tx: &Transaction<'_>,
     rows: &[Change],
@@ -1900,7 +1904,7 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
 /// dropped with what it found, and the owner is asked about them in an ask that holds the matters they came from, each
 /// to go back, with the answer, to the cell that decides it.
 fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
-    let (w, project) = wake_of(ctx)?;
+    let (w, project) = architect_work_of(ctx)?;
     let review = items(ctx.unwrapped.get("review"));
     let (sound, dropped) = sorted_by_review(collected(tx, w)?, &review);
     let keys = make(tx, &sound, &ctx.projects)?;
@@ -1969,7 +1973,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 .map(|u| format!("- {}: {}", text(&u["what"]), text(&u["why"])))
                 .collect();
             if !rows.is_empty() {
-                let (_, project) = wake_of(ctx)?;
+                let (_, project) = architect_work_of(ctx)?;
                 let said = format!(
                     "What the architect of {project} could not settle about the project now:\n{}",
                     rows.join("\n")
@@ -1983,7 +1987,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "queue_fixes" => {
-            let (_, project) = wake_of(ctx)?;
+            let (_, project) = architect_work_of(ctx)?;
             let fit = &ctx.unwrapped["fit"];
             // One matter for each place, with every step the understanding meant to take there.
             for fix in items(at) {
@@ -2009,11 +2013,11 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 }
             }
         }
-        "hold_to_set_straight" => hold(tx, &wake_of(ctx)?.1, "set_straight", None)?,
-        "release_straight_hold" => release(tx, &wake_of(ctx)?.1, "set_straight")?,
-        "settle_straight_hold" => settle_hold(tx, w, &wake_of(ctx)?.1)?,
-        "hold_for_policy" => hold(tx, &wake_of(ctx)?.1, "policy", None)?,
-        "release_policy_hold" => release(tx, &wake_of(ctx)?.1, "policy")?,
+        "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, "set_straight", None)?,
+        "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, "set_straight")?,
+        "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
+        "hold_for_policy" => hold(tx, &architect_work_of(ctx)?.1, "policy", None)?,
+        "release_policy_hold" => release(tx, &architect_work_of(ctx)?.1, "policy")?,
         "close_matter" => {
             let m = matter_of(tx, w)?;
             tx.execute(
@@ -2053,7 +2057,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let Some(words) = at.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) else {
                 return Ok(true);
             };
-            let (_, project) = wake_of(ctx)?;
+            let (_, project) = architect_work_of(ctx)?;
             let m = matter_of(tx, w)?;
             let body: String = tx
                 .query_row("SELECT body FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
@@ -2119,7 +2123,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "apply_batch" => {
-            let (_, project) = wake_of(ctx)?;
+            let (_, project) = architect_work_of(ctx)?;
             let rows = collected(tx, w)?;
             let keys = make(tx, &rows, &ctx.projects)?;
             let matters: BTreeSet<i64> = rows.iter().map(|r| r.2).collect();
@@ -2129,11 +2133,12 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "apply_reviewed" => give_up(ctx, tx)?,
         "new_architect_session" => {
             if ctx.work.graph == crate::POLICY {
-                // The setting ends the session the project's wakes go on in: the next round of a wake starts anew.
+                // The setting ends the session the project's architect works go on in: the next round of an architect
+                // work starts anew.
                 tx.execute(
                     "UPDATE sessions SET ended = ?2 WHERE line = 'architect' AND ended IS NULL
                        AND work IN (SELECT id FROM works WHERE graph = 'architect' AND project = ?1)",
-                    params![wake_of(ctx)?.1, db::now()],
+                    params![architect_work_of(ctx)?.1, db::now()],
                 )
                 .map_err(sql)?;
             } else {
@@ -2141,7 +2146,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "start_policy" => {
-            let (_, project) = wake_of(ctx)?;
+            let (_, project) = architect_work_of(ctx)?;
             let running = count(
                 tx,
                 "SELECT count(*) FROM works WHERE graph = 'policy' AND project = ?1 AND ended IS NULL
@@ -2157,7 +2162,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "queue_policy_set" => {
-            let (_, project) = wake_of(ctx)?;
+            let (_, project) = architect_work_of(ctx)?;
             let stays = ctx.cell.id == "P3";
             let (detail, what) = if stays {
                 (
@@ -2210,7 +2215,7 @@ fn names_article(principle: &str, article: &str) -> bool {
     by_number || (!title.is_empty() && p.contains(title))
 }
 
-/// The texts of the owner's words in a wake's asks and in the owner's matters: what a policy may not quote.
+/// The texts of the owner's words in a work's asks and in the owner's matters: what a policy may not quote.
 fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
     let rows = query_json(
         conn,
@@ -2327,7 +2332,7 @@ fn revised(c: &checks::Ctx<'_>, at: Option<&str>) -> Result<Option<Value>, Strin
     Ok(applied(&draft, &items(Some(&edits))).ok())
 }
 
-/// The text of the policy a wake is setting as it stands, whole, with the round that holds it: the latest the
+/// The text of the policy a work is setting as it stands, whole, with the round that holds it: the latest the
 /// architect wrote (`P4`) or the engine put together (`P5`); none before one is written.
 fn draft_now(conn: &Connection, work: i64) -> Result<Option<(i64, Value)>, String> {
     let rows = query_json(
@@ -2377,7 +2382,7 @@ pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
     Ok(json!({ "draft": { "policy": text, "probes": probes } }))
 }
 
-/// The probes of the policy a wake is setting as they stand: as the engine last put them together (`P5`), or as the
+/// The probes of the policy a work is setting as they stand: as the engine last put them together (`P5`), or as the
 /// round that wrote them handed them in (`P4`), whichever came last; none before any is written.
 fn probes_now(conn: &Connection, work: i64) -> Result<Vec<Value>, String> {
     let rows = query_json(
@@ -2995,7 +3000,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "constitution" => Ok(constitution(e, project).map(Value::String)),
         "guide" => guide(e, project).map(Some),
         "cited_nodes" => cited_nodes(e, w, project),
-        "since_last_wake" => since_last_wake(e, w, project).map(Some),
+        "since_last_work" => since_last_work(e, w, project).map(Some),
         "board" => board(e, project).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
@@ -3250,8 +3255,8 @@ fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
     Ok(json!({ "waits_for": waits_for, "waited_by": waited_by }))
 }
 
-/// When a wake started: its first round's start; now, before it has one.
-fn wake_start(conn: &Connection, work: i64) -> Result<i64, String> {
+/// When a work started: its first round's start; now, before it has one.
+fn work_start(conn: &Connection, work: i64) -> Result<i64, String> {
     let at: Option<i64> = conn
         .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [work], |r| {
             r.get(0)
@@ -3263,10 +3268,10 @@ fn wake_start(conn: &Connection, work: i64) -> Result<i64, String> {
 /// What was said in the groups of a project's works since its architect last read it, at its last pick or wrap-up
 /// (`Q1`, `E1`), other than to the architect, oldest first: the owner's words to the engineers, what the engineers told
 /// the owner, and the owner's answers, to the engineers' asks and, in a group, to a question the architect held; each
-/// with its work and item. The architect gets it as information, which wakes it for nothing and needs no answer:
-/// everything said in a group reaches all three. A wake with one matter picks it with no pick of the architect's, and
-/// every wake ends at its wrap-up, so the wrap-up takes what no pick took. The first time, the week before the wake;
-/// none when nothing was said.
+/// with its work and item. The architect gets it as information, which starts no work of it and needs no answer:
+/// everything said in a group reaches all three. A work of the architect with one matter picks it with no pick of the
+/// architect's, and every such work ends at its wrap-up, so the wrap-up takes what no pick took. The first time, the
+/// week before the work; none when nothing was said.
 fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let last: Option<i64> = conn
@@ -3283,7 +3288,7 @@ fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Stri
         .map_err(sql)?;
     let since = match last {
         Some(t) => t,
-        None => wake_start(conn, w.id)? - 7 * 24 * HOUR,
+        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
     };
     let said = query_json(
         conn,
@@ -3333,8 +3338,9 @@ fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Stri
     Ok(Some(json!({ "since": utc_minute(since), "said": said })))
 }
 
-/// What happened in a project since its architect's last wake started; at its first wake, in the week before it.
-fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
+/// What happened in a project since its architect's last work started; at the architect's first work, in the week
+/// before it.
+fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let last: Option<i64> = conn
         .query_row(
@@ -3347,7 +3353,7 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
     let first = last.is_none();
     let since = match last {
         Some(t) => t,
-        None => wake_start(conn, w.id)? - 7 * 24 * HOUR,
+        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
     };
     let p = e.config.config.projects.get(project);
     let log = |args: &[&str]| -> Value {
@@ -3432,21 +3438,22 @@ fn since_last_wake(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         "reports": reports,
     });
     if first {
-        out["first_wake"] = json!(true);
+        out["first_work"] = json!(true);
     }
     Ok(out)
 }
 
-/// The numbers the engine measures for a project, each as the wake started and earlier for the trend, so that they hold
-/// through the wake: the size of its design paths and of every file on main; its items made, merged and cancelled, and
-/// what its items' works and its architect's wakes spent, each for the four weeks before the wake one by one.
+/// The numbers the engine measures for a project, each as the architect's work started and earlier for the trend, so
+/// that they hold through the work: the size of its design paths and of every file on main; its items made, merged and
+/// cancelled, and what its items' works and its architect's works spent, each for the four weeks before the work one by
+/// one.
 fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
-    let now = wake_start(conn, w.id)?;
+    let now = work_start(conn, w.id)?;
     let mut weeks = Vec::new();
     for k in 0..4 {
-        // Each week ends the millisecond before the next begins, the last before the wake.
+        // Each week ends the millisecond before the next begins, the last before the work.
         let (to, from) = (now - k * week - 1, now - (k + 1) * week);
         let made = count(
             conn,
@@ -3470,7 +3477,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
                AND json_extract(c.old_row, '$.cancelled') IS NULL",
             &[&project, &from, &to],
         )?;
-        let (items, wakes): (f64, f64) = conn
+        let (items, architect): (f64, f64) = conn
             .query_row(
                 "SELECT coalesce(sum(CASE WHEN w.graph = 'engineer' THEN json_extract(r.usage, '$.cost_usd') END), 0),
                         coalesce(sum(CASE WHEN w.graph = 'architect' THEN json_extract(r.usage, '$.cost_usd') END), 0)
@@ -3483,7 +3490,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         let usd = |x: f64| (x * 100.0).round() / 100.0;
         weeks.push(json!({
             "weeks_ago": k, "items_made": made, "merged": merged, "cancelled": cancelled,
-            "spent_usd": { "items": usd(items), "architect": usd(wakes) },
+            "spent_usd": { "items": usd(items), "architect": usd(architect) },
         }));
     }
     let size = e.config.config.projects.get(project).map(|p| {
@@ -3745,7 +3752,7 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     )?;
     let mut matters = Map::new();
     for r in rows {
-        // Flow feedback that came after the wake started waits for the next wake.
+        // Flow feedback that came after the work started waits for the architect's next work.
         let later = is_flow_feedback(&r["kind"], &r["detail"])
             && started.is_some_and(|s| r["at"].as_i64().is_some_and(|at| at >= s));
         let id = r["matter"].as_i64().unwrap_or_default();
@@ -3760,7 +3767,7 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
             m["urgent"] = json!(true);
         }
         if later {
-            m["not_now"] = json!("flow feedback that came after this wake started: the next wake takes it");
+            m["not_now"] = json!("flow feedback that came after this work started: the architect's next work takes it");
         } else if !can.contains(&id) {
             m["not_now"] = json!("set straight first");
         }
@@ -4095,7 +4102,7 @@ fn item_log(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let rows = query_json(
         conn,
         "SELECT h.matter, h.kind, h.what, 'R' || h.work || '-' || h.round AS round, h.cell, h.said
-         FROM wake_handled h JOIN architect_matters m ON m.id = h.matter
+         FROM work_handled h JOIN architect_matters m ON m.id = h.matter
          WHERE m.item = ?1 ORDER BY h.work DESC, h.round DESC LIMIT 12",
         &[&item],
         12,
@@ -4238,8 +4245,8 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 }
 
 /// What the cell before this one on the matter picked's path answered of it: the last round of that cell after the
-/// matter was picked, in whichever wake, its own answer given as a place of that round's return, so that a session
-/// that holds it is only referred to it. None when that cell gave no answer on this matter.
+/// matter was picked, in whichever architect work, its own answer given as a place of that round's return, so that a
+/// session that holds it is only referred to it. None when that cell gave no answer on this matter.
 pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, String> {
     let conn = e.db.conn();
     let Some(m) = picked(conn, w.id)? else {
@@ -4263,7 +4270,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
     else {
         return Ok(None);
     };
-    let wakes = query_json(
+    let rounds = query_json(
         conn,
         &format!(
             "SELECT DISTINCT r.work, r.n FROM rounds r JOIN works x ON x.id = r.work
@@ -4275,7 +4282,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
         &[&project_of(w)?, &format!("$.{}.{field}", g.within)],
         1000,
     )?;
-    for r in wakes {
+    for r in rounds {
         let (work, n) = (
             r["work"].as_i64().unwrap_or_default(),
             r["n"].as_i64().unwrap_or_default(),
@@ -4305,7 +4312,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
     Ok(None)
 }
 
-/// The item changes of a wake's batch, numbered from 1, each with the matter it came from and its kind.
+/// The item changes of an architect work's batch, numbered from 1, each with the matter it came from and its kind.
 fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
     let conn = e.db.conn();
     let rows = collected(conn, w.id)?;

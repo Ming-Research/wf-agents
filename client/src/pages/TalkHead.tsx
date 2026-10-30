@@ -6,7 +6,7 @@
 // project's new works and its queue (how many matters are left, the oldest wait and how many it handled today), which
 // opens under the row to the list with the matter in hand marked; wf-agents' own says where each new fault
 // goes as it comes, which the owner sets there. The architect is always there to the owner: the page never names its
-// wakes.
+// works.
 
 import { BlockedIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
 import { Button, Label, Select } from '@primer/react';
@@ -135,13 +135,13 @@ function WorkControls({ w, status }: { w: WorkSummary; status: Status | null }) 
 /// current round's; while it is idle, Start lets it work by itself whatever the global state, Pause holds it back, and
 /// Step runs its next round while a matter waits, asking first, since a real round runs on the owner's account.
 function ArchitectControls({ a, status }: { a: Architect; status: Status | null }) {
-  const state = architectState(a.wakes, a.queue);
-  const going = state.kind === 'awake' ? state.wake : null;
-  if (going !== null) return <WakeControls w={going} status={status} />;
+  const state = architectState(a.works, a.queue);
+  const going = state.kind === 'working' ? state.work : null;
+  if (going !== null) return <ArchitectWorkControls w={going} status={status} />;
   return <IdleControls a={a} status={status} waiting={state.waiting} />;
 }
 
-function WakeControls({ w, status }: { w: WorkSummary; status: Status | null }) {
+function ArchitectWorkControls({ w, status }: { w: WorkSummary; status: Status | null }) {
   const a = useActions(w, status, true);
   return (
     <span className="talk-head-controls">
@@ -188,9 +188,9 @@ function IdleControls({ a, status, waiting }: { a: Architect; status: Status | n
       {canPause ? <Control icon="pause" hint={t('arch_pause_hint')} onClick={() => send('/api/v1/architect/pause', {})} disabled={busy} /> : null}
       <Control
         icon="step"
-        hint={whyNot ?? t('arch_wake_hint')}
+        hint={whyNot ?? t('arch_step_hint')}
         onClick={() => {
-          if (window.confirm(t('arch_wake_confirm'))) send('/api/v1/architect/step', { new_session: fresh });
+          if (window.confirm(t('arch_step_confirm'))) send('/api/v1/architect/step', { new_session: fresh });
         }}
         disabled={busy || whyNot !== null}
       />
@@ -202,12 +202,12 @@ function IdleControls({ a, status, waiting }: { a: Architect; status: Status | n
 
 /// What the architect does now, in a few words and as a Label: it handles a matter at a cell; it works at a cell with
 /// no matter in hand; it is paused or held back; or it is idle, with nothing in its queue or matters waiting for it to
-/// take them up. Its wakes are never named.
+/// take them up. Its works are never named.
 function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
-  const state = architectState(a.wakes, a.queue);
-  if (state.kind === 'awake') {
-    const c = course(state.wake, status);
-    const at = `${state.wake.at} ${state.wake.at_title ?? ''}`;
+  const state = architectState(a.works, a.queue);
+  if (state.kind === 'working') {
+    const c = course(state.work, status);
+    const at = `${state.work.at} ${state.work.at_title ?? ''}`;
     const what = state.handling !== null ? matterSentence(state.handling) : null;
     return (
       <>
@@ -281,8 +281,8 @@ function QueueSummary({ a, open, toggle }: { a: Architect; open: boolean; toggle
 /// the owner holds.
 function QueueList({ a }: { a: Architect }) {
   const { waiting, held } = queueParts(a.queue);
-  const state = architectState(a.wakes, a.queue);
-  const handling = state.kind === 'awake' ? (state.handling?.id ?? null) : null;
+  const state = architectState(a.works, a.queue);
+  const handling = state.kind === 'working' ? (state.handling?.id ?? null) : null;
   return (
     <ol className="talk-queue-list">
       {[...waiting, ...held].map((m) => (

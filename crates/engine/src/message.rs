@@ -108,7 +108,7 @@ pub struct Context<'a> {
     pub w: &'a Work,
     pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
-    /// The item the work is on; none for a wake of the architect.
+    /// The item the work is on; none for a work of the architect.
     pub item: Option<&'a Item>,
     /// This round.
     pub round: RoundId,
@@ -405,7 +405,7 @@ impl Context<'_> {
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
         // of each setting the formats and the rules name is written beside its name, and the kinds of question the
-        // project cannot meet are left out of the formats. A wake of an architect is for its project.
+        // project cannot meet are left out of the formats. A work of an architect is for its project.
         let named = item
             .map(|i| i.project.as_str())
             .or(w.project.as_deref())

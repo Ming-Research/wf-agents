@@ -10,12 +10,12 @@
   min-height: 0;
 }
 
-.arch-wake-switch {
+.arch-work-switch {
   margin-left: auto;
 }
 
 /* The stretches the architect worked in, floating under the line at its right, as the flow's choice of comparison floats. */
-.arch-wakes {
+.arch-works {
   position: absolute;
   top: calc(var(--control-small-size) + 2 * var(--base-size-8) + var(--base-size-4));
   right: var(--base-size-12);
@@ -31,16 +31,16 @@
   box-shadow: var(--shadow-floating-small);
 }
 
-.arch-wakes-list {
+.arch-works-list {
   max-height: 60vh;
   overflow: auto;
 }
 
-.arch-wakes-list td.clip {
+.arch-works-list td.clip {
   max-width: 260px;
 }
 
-.arch-wakes-actions {
+.arch-works-actions {
   display: flex;
   justify-content: flex-end;
 }

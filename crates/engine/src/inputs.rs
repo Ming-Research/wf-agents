@@ -186,7 +186,7 @@ pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<V
         .collect())
 }
 
-/// Gathers every input of a cell. A wake of the architect is on no item but for a project, so an input read for the
+/// Gathers every input of a cell. A work of the architect is on no item but for a project, so an input read for the
 /// item has nothing for it, and one read for the project is its project's.
 pub fn gather(
     e: &Engine,
@@ -199,7 +199,7 @@ pub fn gather(
     for x in &cell.inputs {
         let mut parts: Vec<Part> = Vec::new();
         for s in &x.from {
-            // The state of things: the wake's own understanding as its return, with what came since; or the view.
+            // The state of things: the work's own understanding as its return, with what came since; or the view.
             if matches!(s, Src::Engine(n) if n == crate::architect::STATE) {
                 let view = Src::Db {
                     relation: "architect_state".into(),
@@ -317,7 +317,7 @@ fn source(
             })
         }
         Src::Itself => None,
-        // A setting of the item's project, or for a wake of an architect, of the wake's.
+        // A setting of the item's project, or for a work of an architect, of the work's.
         Src::Config(n) => {
             let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
             let project = named.and_then(|p| e.config.config.projects.get(p));
@@ -335,7 +335,7 @@ fn source(
         }),
         Src::Db { relation, .. } if relation == HISTORY => None,
         // What is read for the item has nothing for a work on no item; what is read for the project, for a work on no
-        // item, is the wake's project's.
+        // item, is the work's project's.
         Src::Db { by: Some(col), .. }
             if col != "work" && item.is_none() && (col != "project" || w.project.is_none()) =>
         {
@@ -484,7 +484,7 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
     out
 }
 
-/// The rows of a table or view for the item, work or project at hand: for a wake of an architect, which is on no item,
+/// The rows of a table or view for the item, work or project at hand: for a work of an architect, which is on no item,
 /// none of the item's, and its own project's.
 pub fn db_rows(
     e: &Engine,

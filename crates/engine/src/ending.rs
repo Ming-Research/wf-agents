@@ -40,8 +40,8 @@ const WAITING_ON_IT: &str = "('engineer_question', 'failure', 'design_card')";
 /// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
 /// the pull request is closed with a comment saying why its work ended, while a work done at its end had its pull
-/// request merged, or closed by the sub-items that took it over. Its branch stays. A wake of the architect holds no
-/// worktree or pull request, and its line's session goes on in the project's next wake. A work done at its end that
+/// request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds no
+/// worktree or pull request, and its line's session goes on in the architect's next work. A work done at its end that
 /// stops later, as when its item is cancelled, let go of what it held at its end, and a work already ended is left as
 /// it is. `projects` are the configuration's, which say where each project's checkout and repository are.
 pub fn end(

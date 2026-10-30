@@ -1,12 +1,12 @@
 // An ask an architect put to the owner, as the owner reads and answers it, by its kind: a question, laid out as an
-// engineer's ask is, with the matters it holds; an open choice, which holds no wake; the study of a new policy to read;
-// and the policy to approve, with its probes and every reading of it by a new architect. Every kind but the question,
-// which the card every ask shares heads, is a block under its number, kind and the cell and round that put it. In the
-// conversation it is in, it is the architect's bubble, answered in that bubble by a button (an option, or one of the
-// choices its cell offers: satisfied, study on or no change; approved or not good enough) and the owner's words in a
-// small box, needed unless the owner agrees; elsewhere it says where it is answered. Each answer goes to the
-// interface's answer of an ask, and the engine goes on. The documents an ask is about (the study, the policy to approve
-// and what changed in it since the owner last read it) are folded, each as one document.
+// engineer's ask is, with the matters it holds; an open choice, which holds no work of the architect; the study of a
+// new policy to read; and the policy to approve, with its probes and every reading of it by a new architect. Every kind
+// but the question, which the card every ask shares heads, is a block under its number, kind and the cell and round
+// that put it. In the conversation it is in, it is the architect's bubble, answered in that bubble by a button (an
+// option, or one of the choices its cell offers: satisfied, study on or no change; approved or not good enough) and the
+// owner's words in a small box, needed unless the owner agrees; elsewhere it says where it is answered. Each answer
+// goes to the interface's answer of an ask, and the engine goes on. The documents an ask is about (the study, the
+// policy to approve and what changed in it since the owner last read it) are folded, each as one document.
 
 import { Label } from '@primer/react';
 
@@ -57,7 +57,7 @@ function Answered({ a }: { a: OwnerAsk }) {
 }
 
 /// An open choice: the question, the options with the one recommended, how sure the architect is, and what it leaves
-/// alone until the owner answers; it holds no wake.
+/// alone until the owner answers; it holds no work of the architect.
 function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
   const choice = isObj(body.choice) ? body.choice : {};
   const options = objs(choice.options);
@@ -172,8 +172,9 @@ function PolicyAsk({ a, body, onRound, revisions }: {
   );
 }
 
-/// An ask of the architect's, by its kind; its rounds open by `onRound` where the page shows them, else on the wake's
-/// page; for the policy to approve, the corrections of its text since the owner last read it (`revisions`).
+/// An ask of the architect's, by its kind; its rounds open by `onRound` where the page shows them, else on the page of
+/// the architect's work; for the policy to approve, the corrections of its text since the owner last read it
+/// (`revisions`).
 export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; onRound?: OpenRound; revisions?: JsonValue }) {
   const body = isObj(a.body) ? a.body : {};
   switch (str(body.kind)) {

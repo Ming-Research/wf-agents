@@ -13,7 +13,7 @@ use crate::{ARCHITECT, Engine, values};
 
 /// The owner's global pause, while it holds, as keeping sessions warm reads it: whether the owner keeps the sessions of
 /// waiting works warm meanwhile (the switch beside the pause, on at first), the works the owner started, which run on
-/// despite it, and the projects whose architect the owner started, whose wakes then do.
+/// despite it, and the projects whose architect the owner started, whose architect works then do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GlobalPause {
     pub warm: bool,
@@ -136,14 +136,16 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
         if w.flow_version != e.flow_now || e.done(&w)? {
             continue;
         }
-        let wake = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
-        if e.sessions.asked_new(w.id, wake) {
+        let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
+        if e.sessions.asked_new(w.id, architect) {
             continue;
         }
         let g = e.graph_of(&w)?;
         let waited = match waited_on(e, &w, &g)? {
             Some(x) => x,
-            None if pause.is_some_and(|p| !p.runs.contains(&id) && !wake.is_some_and(|x| p.architects.contains(x))) => {
+            None if pause
+                .is_some_and(|p| !p.runs.contains(&id) && !architect.is_some_and(|x| p.architects.contains(x))) =>
+            {
                 Waited {
                     cell: w.pos.at.clone(),
                     on: "pause".to_string(),
