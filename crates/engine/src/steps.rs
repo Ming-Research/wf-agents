@@ -1609,7 +1609,10 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         "all"
     } else if changed_since(&reviews) {
         "changed"
-    } else if answers_after(&reviews, &["disagree", "cannot_verify"]) {
+    } else if answers_after(&reviews, &["disagree", "cannot_verify"])
+        || !crate::message::unverified_last(e, w, g).is_empty()
+    {
+        // The findings disputed, and the columns the last review could not verify, which it decides again.
         "disputes"
     } else {
         "none"

@@ -905,6 +905,33 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 None => Ok(()),
             }
         }
+        "unverified_decided" => {
+            // The columns the engineer could not verify either: rows of the fix since the last review that came from
+            // a column that review could not verify, answered cannot_verify.
+            let since = c.accepted("T4")?.first().map(|r| r.id);
+            let mut both = BTreeSet::new();
+            for fix in c.accepted("T6")?.into_iter().filter(|r| since.is_none_or(|s| r.id > s)) {
+                let table = table_of(&fix);
+                for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
+                    let given = table.iter().find(|t| t["row"] == row["id"]);
+                    if row["answer"] == "cannot_verify"
+                        && let Some(t) = given.filter(|t| t["from"] == "T4·columns[cannot_verify]")
+                    {
+                        both.extend(t["column"].as_str().map(str::to_string));
+                    }
+                }
+            }
+            match items(v)
+                .iter()
+                .find_map(|col| col["id"].as_str().filter(|id| both.contains(*id)))
+            {
+                Some(id) => fail(format!(
+                    "column {id}: the engineer could not verify it either; decide it now, a pass on what the work \
+                     shows or findings that say what evidence is needed and how to get it, not cannot_verify again"
+                )),
+                None => Ok(()),
+            }
+        }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
             let chose = c.last("D9", "T1")?.is_some_and(|a| a["verdict"] == "needed");

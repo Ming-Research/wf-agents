@@ -1303,6 +1303,59 @@ fn a_settled_row_leaves_the_fix_table() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The judgment whether a work may enter the merge queue reads the newest review, as the fix table does: a column the
+// first review could not verify sends the work to the fix; the re-review that looks only at disputes is given that
+// column again, and only it; and once it hands in no table, the first review's column no longer sends the work to a
+// fix with nothing to answer, as in the sixth trial.
+#[test]
+fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
+    let s = setup("newest-review");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
+    let (work, _, _) = state(&e, item).unwrap();
+    let returned = |outcome: Value| json!({ "outcome": outcome, "progress": "p", "tell_owner": [], "side_reports": [], "flow_feedback": "none" });
+    let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
+                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+            )?;
+            tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, at])?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let took = |e: &Engine| -> String {
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'M1' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    let first = returned(json!({ "columns": [
+        { "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } },
+        { "id": "4", "verdict": "cannot_verify", "reason": "Nothing was measured." },
+    ] }));
+    add(&mut e, "T4", &first, "done", "M1");
+    e.step_work(work).unwrap();
+    assert_eq!(took(&e), "fix", "{}", said.borrow().join("\n"));
+    let disputes = json!({ "plan": { "review": "disputes", "adversarial": "skipped" } });
+    add(&mut e, "T7", &disputes, "review_first", "T4");
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert_eq!(columns(&m), ["4"], "{m}");
+    let again = returned(json!({ "previous": [{ "fid": "F1", "verdict": "withdraw" }] }));
+    add(&mut e, "T4", &again, "done", "M1");
+    e.step_work(work).unwrap();
+    let log = said.borrow().join("\n");
+    assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A single step runs exactly one round: starting the work is the first, and each later one is the next round of the
 // work that has a step to take.
 #[test]

@@ -823,8 +823,9 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
 }
 
 /// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
-/// at disputes only has none; one that looks at what changed has them all, since which columns a change concerns is
-/// not worked out in this version. A work on no item reviews nothing.
+/// at disputes only has the columns the last review could not verify, by their numbers, and none when it verified
+/// them all; one that looks at what changed has them all, since which columns a change concerns is not worked out in
+/// this version. A work on no item reviews nothing.
 pub fn columns(
     e: &Engine,
     w: &Work,
@@ -841,6 +842,8 @@ pub fn columns(
             .unwrap_or_default()
     };
     let mut cols: Vec<String> = Vec::new();
+    // At a re-review of disputes only, the columns the last table review could not verify.
+    let mut only: Option<Vec<String>> = None;
     match cell.id.as_str() {
         "T4" => {
             let review = crate::inputs::last_return(e, w, g, "T7", "plan")
@@ -848,7 +851,7 @@ pub fn columns(
                 .flatten()
                 .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
             if review.as_ref().and_then(Value::as_str) == Some("disputes") {
-                return Vec::new();
+                only = Some(unverified_last(e, w, g));
             }
             let table = rule("review_table");
             let project = e.config.config.projects.get(&item.project);
@@ -943,6 +946,21 @@ pub fn columns(
     cols.into_iter()
         .enumerate()
         .map(|(i, c)| ((i + 1).to_string(), c))
+        .filter(|(id, _)| only.as_ref().is_none_or(|o| o.contains(id)))
+        .collect()
+}
+
+/// The numbers of the columns the last table review that handed in a table could not verify.
+pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
+    let last = crate::inputs::returns_holding(e, w, g, "T4", "columns")
+        .unwrap_or_default()
+        .into_iter()
+        .find_map(|(_, r)| crate::inputs::at_path(&r, "columns"));
+    last.and_then(|c| c.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| c["verdict"] == "cannot_verify")
+        .filter_map(|c| c["id"].as_str().map(str::to_string))
         .collect()
 }
 

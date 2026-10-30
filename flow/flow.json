@@ -2960,6 +2960,7 @@
       "columns_answered": "There is exactly one row for each column the engine listed in this round; with no column listed, none is handed in.",
       "evidence_holds": "The evidence is there; the files and lines cited are in the diff; the nodes listed exist; for a changed node, its ancestors were read too.",
       "previous_findings_answered": "At a re-review, there is a row for each finding of last time.",
+      "unverified_decided": "At a re-review, a column the engineer could not verify either, answering cannot_verify to the last review's cannot_verify, is decided: a pass or findings, not cannot_verify again.",
       "no_adversarial_when_due": "At the first review of a change whose design chose no adversarial testing and ran none late, no_adversarial is handed in; at a re-review, only does_not_stand; otherwise none.",
       "blind_findings_carried": "After a blind review, each of its findings is either among some column's findings with the same number, or withdrawn; every number withdrawn is one the blind review handed in.",
       "table_answered": "Every row of the table is answered once, with an answer the table allows for that row.",
@@ -3964,12 +3965,12 @@
           "name": "review_table",
           "desc": "Which columns the engine lists for the table review: one table for a work that delivers a change and one for a report, and a further round for a work that changes the design tree",
           "text": [
-            "The review table is the list the engine puts in the question for the review: one number per column, one row of answer per column. Below is which columns the engine lists. At a re-review it lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, none.",
+            "The review table is the list the engine puts in the question for the review: one number per column, one row of answer per column. Below is which columns the engine lists. At a re-review it lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, the columns the last review could not verify, by their numbers, and none when it verified them all.",
             "Every work that delivers a change has these columns:",
             "The change matches the design: it does everything the design and the design card say, and nothing more.",
             "The implementation is correct: its behaviour is general, with no path special to one test, example, customer or measurement, and no fallback that hides an unsupported feature; correctness is judged against an independent reference, not against the code's own earlier output.",
             "The tests catch errors: a wrong result turns a test red; a bug fix has an example that is red before the change and green after; new behaviour is covered for normal use, errors and edge cases; the fast CI reaches the change.",
-            "A measured slowdown: always a finding, however small; only the owner can accept a slowdown.",
+            "A measured slowdown: always a finding, however small; only the owner can accept a slowdown. When nothing was measured (the design decided without measuring and no measurement ran), this column rests on the design's reason that no measurement was needed: pass when that reason holds for the change as made, a finding that asks for the measurement when it does not; never cannot be verified for want of a measurement.",
             "Replies were followed: the replies of the advisor, the architect and the owner on this work, and each way on the engineer chose; a reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding.",
             "Design in the code is governed by nodes: review by the four points on code against decisions in the design tree review (decisions in the code, contradiction, orphans, incomplete); a work that does not change the design tree is reviewed too.",
             "Repository hygiene: anything added at the root was agreed by the owner; a dependency's version that moved says which version and why, and that version is on its repository's main; no local paths, machine addresses or credentials; each new file can say whom it is for and when it will be removed; the documents changed with the code.",
@@ -7785,7 +7786,7 @@
             "design_tree_review"
           ],
           "prompt": [
-            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
+            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "promptBy": {
             "by": "deliver",
@@ -7802,7 +7803,7 @@
             {
               "$ref": "review_columns",
               "optional": true,
-              "desc": "The review table, its columns listed by the review_table rule: one row for each column the engine lists in the question, none left out. At a re-review the engine lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, none, and then this is left out"
+              "desc": "The review table, its columns listed by the review_table rule: one row for each column the engine lists in the question, none left out. At a re-review the engine lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, the columns the last review could not verify, and when there are none this is left out"
             },
             {
               "name": "withdrawn",
@@ -7962,6 +7963,10 @@
               "check": "previous_findings_answered"
             },
             {
+              "at": "columns[cannot_verify]",
+              "check": "unverified_decided"
+            },
+            {
               "at": "no_adversarial",
               "check": "no_adversarial_when_due"
             },
@@ -8107,49 +8112,85 @@
           "title": "Judge whether it may enter the merge queue",
           "inputs": [
             {
-              "id": "review",
-              "name": "Review table",
-              "what": "The review table: the verdict of each column the table review listed; none at a re-review that looked only at disputes",
+              "id": "findings",
+              "name": "Table review findings",
+              "what": "The columns the newest table review found problems in, each with its findings; none when it found none, or looked only at disputes and listed no column",
               "from": [
                 [
                   "T4",
-                  "columns"
+                  "columns[findings]"
                 ]
               ],
               "maybe": true
             },
             {
-              "id": "tree",
-              "name": "Design tree review table",
-              "what": "The design tree review's table: the verdict of each column; none when the change to review touched no design tree node",
+              "id": "unverified",
+              "name": "Table review columns not verified",
+              "what": "The columns the newest table review could not verify; none when it verified every column it listed",
+              "from": [
+                [
+                  "T4",
+                  "columns[cannot_verify]"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "id": "tree_findings",
+              "name": "Design tree review findings",
+              "what": "The columns the newest design tree review found problems in, each with its findings; none when it found none, or no change touched a design tree node",
               "from": [
                 [
                   "T5",
-                  "columns"
+                  "columns[findings]"
                 ]
               ],
               "maybe": true
             },
             {
-              "id": "re",
-              "name": "Answers to earlier findings",
-              "what": "At a re-review, the answer to each finding of the round before; none at the first round",
+              "id": "tree_unverified",
+              "name": "Design tree review columns not verified",
+              "what": "The columns the newest design tree review could not verify; none when it verified them all, or no change touched a design tree node",
+              "from": [
+                [
+                  "T5",
+                  "columns[cannot_verify]"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "id": "not_fixed",
+              "name": "Findings not fixed",
+              "what": "At a re-review, the findings of the review before that the engineer said were fixed and are not; none at the first review",
               "from": [
                 [
                   "T4",
-                  "previous"
+                  "previous[not_fixed]"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "id": "insist",
+              "name": "Findings insisted on",
+              "what": "At a re-review, the findings of the review before that the review still insists on; none at the first review",
+              "from": [
+                [
+                  "T4",
+                  "previous[insist]"
                 ]
               ],
               "maybe": true
             },
             {
               "id": "skip",
-              "name": "Judgment on skipping adversarial testing",
-              "what": "The review's judgment on skipping dedicated adversarial testing; none if the design chose adversarial testing, for a report or a change to the design paths only, after late adversarial testing, or at a re-review that did not change the judgment",
+              "name": "Skipping adversarial testing not accepted",
+              "what": "The newest table review's judgment that skipping dedicated adversarial testing does not stand, with why; none when the design chose adversarial testing, the review accepted the skip, the work delivers a report or a change to the design paths only, or the newest review did not judge it",
               "from": [
                 [
                   "T4",
-                  "no_adversarial"
+                  "no_adversarial[does_not_stand]"
                 ]
               ],
               "maybe": true
@@ -8193,25 +8234,43 @@
                   [
                     [
                       "any",
-                      "@review.verdict",
+                      "@findings.verdict",
                       [
-                        "findings",
+                        "findings"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@unverified.verdict",
+                      [
                         "cannot_verify"
                       ]
                     ],
                     [
                       "any",
-                      "@tree.verdict",
+                      "@tree_findings.verdict",
                       [
-                        "findings",
+                        "findings"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@tree_unverified.verdict",
+                      [
                         "cannot_verify"
                       ]
                     ],
                     [
                       "any",
-                      "@re.verdict",
+                      "@not_fixed.verdict",
                       [
-                        "not_fixed",
+                        "not_fixed"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@insist.verdict",
+                      [
                         "insist"
                       ]
                     ]
@@ -8250,25 +8309,43 @@
               "if": [
                 [
                   "none",
-                  "@review.verdict",
+                  "@findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@tree.verdict",
+                  "@tree_findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree_unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@re.verdict",
+                  "@not_fixed.verdict",
                   [
-                    "not_fixed",
+                    "not_fixed"
+                  ]
+                ],
+                [
+                  "none",
+                  "@insist.verdict",
+                  [
                     "insist"
                   ]
                 ],
@@ -8306,25 +8383,43 @@
                   [
                     [
                       "any",
-                      "@review.verdict",
+                      "@findings.verdict",
                       [
-                        "findings",
+                        "findings"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@unverified.verdict",
+                      [
                         "cannot_verify"
                       ]
                     ],
                     [
                       "any",
-                      "@tree.verdict",
+                      "@tree_findings.verdict",
                       [
-                        "findings",
+                        "findings"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@tree_unverified.verdict",
+                      [
                         "cannot_verify"
                       ]
                     ],
                     [
                       "any",
-                      "@re.verdict",
+                      "@not_fixed.verdict",
                       [
-                        "not_fixed",
+                        "not_fixed"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@insist.verdict",
+                      [
                         "insist"
                       ]
                     ]
@@ -8362,25 +8457,43 @@
               "if": [
                 [
                   "none",
-                  "@review.verdict",
+                  "@findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@tree.verdict",
+                  "@tree_findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree_unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@re.verdict",
+                  "@not_fixed.verdict",
                   [
-                    "not_fixed",
+                    "not_fixed"
+                  ]
+                ],
+                [
+                  "none",
+                  "@insist.verdict",
+                  [
                     "insist"
                   ]
                 ],
@@ -8427,25 +8540,43 @@
               "if": [
                 [
                   "none",
-                  "@review.verdict",
+                  "@findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@tree.verdict",
+                  "@tree_findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree_unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@re.verdict",
+                  "@not_fixed.verdict",
                   [
-                    "not_fixed",
+                    "not_fixed"
+                  ]
+                ],
+                [
+                  "none",
+                  "@insist.verdict",
+                  [
                     "insist"
                   ]
                 ],
@@ -8491,25 +8622,43 @@
               "if": [
                 [
                   "none",
-                  "@review.verdict",
+                  "@findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@tree.verdict",
+                  "@tree_findings.verdict",
                   [
-                    "findings",
+                    "findings"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree_unverified.verdict",
+                  [
                     "cannot_verify"
                   ]
                 ],
                 [
                   "none",
-                  "@re.verdict",
+                  "@not_fixed.verdict",
                   [
-                    "not_fixed",
+                    "not_fixed"
+                  ]
+                ],
+                [
+                  "none",
+                  "@insist.verdict",
+                  [
                     "insist"
                   ]
                 ],
@@ -9039,7 +9188,7 @@
           "prompt": [
             "Answer every row of the table you are given, by the row's number (F1, F2, ...), as its kind asks, and hand in no answer for a row that is not in it:",
             "- A finding of the review, by its column and the finding's number: fix it and answer fixed; or, when you think it wrong, answer disagree with your reason and what it rests on, or cannot_verify. A finding the review insisted on is not answered disagree again: ask the advisor, and once the advisor has ruled, answer advisor_ruled.",
-            "- A column the review could not verify: give it what it lacked, such as the evidence or a test, and answer fixed, or answer cannot_verify with why.",
+            "- A column the review could not verify: give it what it lacked, such as the evidence or a test, and answer fixed, or answer cannot_verify with why; the review then decides it.",
             "- A test adversarial testing wrote that is red after the change, or whose result before the change does not fit its kind: fix the implementation and answer fixed, or answer test_wrong when the test itself is wrong. A test adversarial testing insisted on goes to the advisor when neither side gives way.",
             "- A conflict while catching up with main: merge main into the branch, resolve every file in conflict, commit the merge and answer resolved with that commit; if you cannot resolve it, ask with the kind unresolvable_conflict.",
             "- A red or flaky check: fix what turned it red and answer fixed; when this change did not cause it, answer not_caused_by_change with the evidence, such as the same check red on main, or unrelated_flake.",
@@ -9114,11 +9263,11 @@
                     ],
                     [
                       "changed",
-                      "The part of the PR's own change that differs from what was reviewed last, plus the findings the engineer answered disagree or cannot_verify"
+                      "The part of the PR's own change that differs from what was reviewed last, plus the findings the engineer answered disagree or cannot_verify, and the columns the last review could not verify"
                     ],
                     [
                       "disputes",
-                      "The change did not change; it only caught up with main: only the findings the engineer answered disagree or cannot_verify"
+                      "The change did not change; it only caught up with main: only the findings the engineer answered disagree or cannot_verify, and the columns the last review could not verify"
                     ],
                     [
                       "none",
