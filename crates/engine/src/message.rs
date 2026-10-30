@@ -25,7 +25,7 @@
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
-//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:architect` for where an architect works),
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:<graph>` for where an architect's line works),
 //! `format:common`, `format:<cell>` and `inputs:<cell>`. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
@@ -443,12 +443,16 @@ impl Context<'_> {
                 rules.push(m.give(format!("rule:{}", rule.name), Value::String(text)));
             }
         }
-        // A line the configuration keeps from changing anything only reads the worktree. An architect works in a
-        // directory of its own, with its project's checkout to read.
+        // A line the configuration keeps from changing anything only reads the worktree. An architect reads its
+        // project in its graph's worktree at main; its cell on no line, which knows only what its inputs hold, runs in
+        // an empty directory and is told of none.
         let line = crate::line_of(g, c);
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
-        let workspace = if g.name == ARCHITECT || g.name == crate::POLICY {
-            Some(m.give("work:architect".into(), Value::String(architect_workspace(e, named))))
+        let workspace = if item.is_none() && c.line.is_none() {
+            None
+        } else if g.name == ARCHITECT || g.name == crate::POLICY {
+            let text = architect_workspace(e, &g.name, named);
+            Some(m.give(format!("work:{}", g.name), Value::String(text)))
         } else {
             workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
@@ -620,23 +624,25 @@ impl Writer {
     }
 }
 
-/// Where a project's architect works, what `work:architect` gives: a directory of its own, in which it only reads, and
-/// its project's checkout, which it may read, with the branch the flow calls main there. Other projects it reads with
-/// the query tool.
-fn architect_workspace(e: &Engine, project: &str) -> String {
-    let dir = crate::architect::workdir(&e.data, project);
+/// Where a project's architect works, what `work:<graph>` gives: its graph's worktree, at the project's main and
+/// brought to the latest main before each round, in which it only reads; other branches it reads there with git,
+/// without switching, and other projects with the query tool.
+fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
+    let dir = crate::architect::worktree(&e.data, graph, project);
+    let main = e
+        .config
+        .config
+        .projects
+        .get(project)
+        .map_or("main", |p| p.main.as_str());
     let mut out = format!(
-        "You are the architect of the project {project}. Your working directory is {}, a directory of your own: you \
-         only read, and change and commit nothing, there or anywhere.",
+        "You are the architect of the project {project}. Your working directory is {}, a worktree of your own at the \
+         project's main, the branch {main}, which the engine brings to the latest main before each round: you only \
+         read, and change and commit nothing, there or anywhere. Read another branch there without switching: `git \
+         fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git diff origin/{main}...origin/<branch>` \
+         or `git log origin/<branch>`.",
         dir.display()
     );
-    if let Some(p) = e.config.config.projects.get(project) {
-        out.push_str(&format!(
-            " You may read the project's checkout, {}, whose main is the branch {}.",
-            p.checkout.display(),
-            p.main
-        ));
-    }
     let others: Vec<&String> = e.config.config.projects.keys().filter(|n| *n != project).collect();
     if !others.is_empty() {
         let names: Vec<&str> = others.iter().map(|n| n.as_str()).collect();

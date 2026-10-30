@@ -650,11 +650,20 @@ fn gh(
     if let Some(why) = gh_refusal(&e.config.config.install.gh.allow, &args) {
         return Ok(json!({ "ran": { "verdict": "not_allowed", "why": why } }));
     }
-    // A work runs gh in its worktree; an architect in its own directory.
+    // A work runs gh in its worktree, where gh knows the repository; a work on no item, in the worktree of its
+    // project's architect for its graph, made when it is not there.
     let dir = match (&w.worktree, project) {
         (Some(wt), _) => wt.clone(),
         (None, Some(p)) => p.checkout.clone(),
-        (None, None) => crate::architect::workdir(&e.data, w.project.as_deref().unwrap_or_default()),
+        (None, None) => {
+            let architect = w.project.as_deref().unwrap_or_default();
+            let dir = crate::architect::worktree(&e.data, &w.graph, architect);
+            if dir.join(".git").exists() {
+                dir
+            } else {
+                crate::architect::refresh(e, &w.graph, architect).map_err(|x| (Failure::other(x), String::new()))?
+            }
+        }
     };
     let (code, out) = attempts(e, round, "gh", req, || {
         let (code, out) = e.github.gh(&dir, &args)?;

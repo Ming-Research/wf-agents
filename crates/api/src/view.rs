@@ -382,7 +382,11 @@ impl<'a> Ways<'a> {
                     format!("rule:{}", r.name),
                 ));
             }
-            out.push(given(CellInputOf::Workspace, "work:‹id›".into()));
+            // A cell of an architect's on no line knows only what its inputs hold, and is told of no working directory.
+            let blind = c.line.is_none() && matches!(self.g.name.as_str(), "architect" | "policy");
+            if !blind {
+                out.push(given(CellInputOf::Workspace, "work:‹id›".into()));
+            }
         }
         for (i, x) in c.inputs.iter().enumerate() {
             for (j, s) in x.from.iter().enumerate() {

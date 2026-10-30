@@ -1,7 +1,7 @@
 //! Where a work's agents work: the session manager sets up a work's worktree and branch on a machine with a free slot,
 //! says whether the head a round handed in is the worktree's and nothing is left uncommitted, and removes the worktree
-//! once the work has ended. Worktrees are caches that can be made again: the database and the branch on GitHub are the
-//! state.
+//! once the work has ended; it brings a worktree that only reads, as a project's architect's, to the latest main.
+//! Worktrees are caches that can be made again: the database and the branch on GitHub are the state.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -57,6 +57,33 @@ pub fn take_over_worktree(checkout: &Path, dir: &Path, branch: &str) -> Result<S
         )?;
         git(checkout, &["worktree", "add", "-q", "-b", branch, &d, &remote])?;
     }
+    head(dir)
+}
+
+/// Brings a worktree that only reads, as a project's architect's, to the latest main: fetches main, then detaches the
+/// worktree at it, dropping whatever was changed there, or makes it detached at it when it is not there; gives the
+/// commit it stands at. A directory there that is no worktree, such as the empty one an architect worked in before it
+/// had a worktree, gives way to it.
+pub fn at_main(checkout: &Path, dir: &Path, main: &str) -> Result<String, String> {
+    git(checkout, &["fetch", "-q", "origin", main])?;
+    let base = format!("origin/{main}");
+    if dir.join(".git").exists() {
+        git(dir, &["checkout", "-q", "--force", "--detach", &base])?;
+        git(dir, &["clean", "-q", "-ffdx"])?;
+        return head(dir);
+    }
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    // A worktree removed by hand is still registered until pruned, and its path cannot be added again.
+    git(checkout, &["worktree", "prune"])?;
+    git(
+        checkout,
+        &["worktree", "add", "-q", "--detach", &dir.to_string_lossy(), &base],
+    )?;
     head(dir)
 }
 
@@ -252,5 +279,67 @@ mod tests {
         std::fs::write(dir.join("b"), "new").unwrap();
         assert_eq!(handed_in(&dir, &second), Err(Unfit::Uncommitted));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A worktree that only reads is made detached at main where an empty directory stood, and each time after is
+    // brought to the latest main, whatever was changed in it dropped; the checkout stays where it was.
+    #[test]
+    fn a_worktree_that_only_reads_is_brought_to_the_latest_main() {
+        let root = std::env::temp_dir().join(format!("wf-agents-sessions-at-main-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let run = |dir: &Path, args: &[&str]| -> String {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        let origin = root.join("origin.git");
+        let source = root.join("source");
+        let checkout = root.join("checkout");
+        run(&root, &["init", "-q", "--bare", &origin.to_string_lossy()]);
+        run(&root, &["init", "-q", &source.to_string_lossy()]);
+        std::fs::write(source.join("a"), "1").unwrap();
+        run(&source, &["add", "-A"]);
+        run(&source, &["commit", "-q", "-m", "one"]);
+        run(
+            &source,
+            &["push", "-q", &origin.to_string_lossy(), "HEAD:refs/heads/main"],
+        );
+        run(&origin, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+        );
+        let first = run(&checkout, &["rev-parse", "HEAD"]);
+        let dir = root.join("worktrees").join("architect").join("p");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(at_main(&checkout, &dir, "main"), Ok(first.clone()));
+        assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "1");
+        std::fs::write(source.join("a"), "2").unwrap();
+        run(&source, &["commit", "-q", "-am", "two"]);
+        run(
+            &source,
+            &["push", "-q", &origin.to_string_lossy(), "HEAD:refs/heads/main"],
+        );
+        let second = run(&source, &["rev-parse", "HEAD"]);
+        std::fs::write(dir.join("a"), "changed").unwrap();
+        std::fs::write(dir.join("b"), "left").unwrap();
+        assert_eq!(at_main(&checkout, &dir, "main"), Ok(second));
+        assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "2");
+        assert!(!dir.join("b").exists());
+        assert_eq!(is_clean(&dir), Ok(true));
+        assert_eq!(run(&checkout, &["rev-parse", "HEAD"]), first);
+        assert_eq!(run(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

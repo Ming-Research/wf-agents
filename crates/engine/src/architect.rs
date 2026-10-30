@@ -251,16 +251,54 @@ fn utc_minute(ms: i64) -> String {
 
 // Where the architect works.
 
-/// A project's architect's working directory: `worktrees/architect/<project>` in the data directory, which its git
-/// leaves out.
-pub fn workdir(data: &Path, project: &str) -> PathBuf {
-    config::worktrees(data).join(ARCHITECT).join(project)
+/// The worktree a project's architect reads the project in for the works of a graph: `worktrees/<graph>/<project>` in
+/// the data directory, which its git leaves out, detached at the project's main. The wake and the setting of a policy
+/// each have their own, since they go on side by side and a refresh for one must not move the files the other reads;
+/// the lines of a wake take turns in the wake's.
+pub fn worktree(data: &Path, graph: &str, project: &str) -> PathBuf {
+    config::worktrees(data).join(graph).join(project)
 }
 
-/// A project's architect's working directory, made when it is not there yet.
-pub fn made_workdir(data: &Path, project: &str) -> Result<PathBuf, String> {
-    let dir = workdir(data, project);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+/// Where a round of a project's architect at a cell runs: its graph's worktree; for a cell on no line, which knows
+/// only what its inputs hold, as the new architect that reads a policy, an empty directory of its own,
+/// `worktrees/<cell>/<project>`.
+pub fn workdir(data: &Path, g: &CompiledGraph, cell: &CompiledCell, project: &str) -> PathBuf {
+    match cell.line {
+        Some(_) => worktree(data, &g.name, project),
+        None => config::worktrees(data).join(&cell.id).join(project),
+    }
+}
+
+/// Readies where a round of a project's architect runs, before the round: its graph's worktree brought to the latest
+/// main, whatever was changed there dropped, or the empty directory of a cell on no line made afresh.
+pub fn ready(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<(), String> {
+    let project = project_of(w)?;
+    let dir = workdir(&e.data, g, cell, project);
+    if cell.line.is_none() {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).map_err(|x| format!("{}: {x}", dir.display()))?;
+        }
+        return std::fs::create_dir_all(&dir).map_err(|x| format!("{}: {x}", dir.display()));
+    }
+    refresh(e, &g.name, project).map(|_| ())
+}
+
+/// Brings the worktree of a project's architect for the works of a graph to the latest main, making it when it is
+/// not there; gives where it is.
+pub fn refresh(e: &Engine, graph: &str, project: &str) -> Result<PathBuf, String> {
+    let p = e
+        .config
+        .config
+        .projects
+        .get(project)
+        .ok_or_else(|| format!("no project {project} in the configuration"))?;
+    let dir = worktree(&e.data, graph, project);
+    sessions::worktree::at_main(&p.checkout, &dir, &p.main).map_err(|x| {
+        format!(
+            "the architect's worktree {} could not be brought to main: {x}",
+            dir.display()
+        )
+    })?;
     Ok(dir)
 }
 

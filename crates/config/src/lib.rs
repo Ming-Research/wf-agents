@@ -198,12 +198,49 @@ fn heavy() -> Vec<String> {
     .collect()
 }
 
+/// The review and the advisor, which look at a work's worktree, and every line of a project's architect, which reads
+/// the project in worktrees of its own at main: the wake's, the review of its item changes, the search of
+/// observations and the setting of a policy.
 fn read_only() -> Vec<String> {
-    ["review", "advisor", "architect"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "review",
+        "advisor",
+        "architect",
+        "architect_review",
+        "observer",
+        "policy",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
+
+/// The tools that edit files, which a line that only reads is refused.
+pub const EDIT_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+
+/// The git commands that change the repository, which a line that only reads is refused; those that only read, such
+/// as show, diff and log, it may run.
+pub const GIT_CHANGES: [&str; 19] = [
+    "add",
+    "commit",
+    "reset",
+    "checkout",
+    "switch",
+    "restore",
+    "stash",
+    "merge",
+    "rebase",
+    "rm",
+    "mv",
+    "cherry-pick",
+    "revert",
+    "tag",
+    "branch",
+    "worktree",
+    "apply",
+    "am",
+    "clean",
+];
 
 impl Permissions {
     /// What a round on `line` may not use, as the CLI's tool rules name it: each heavy command, and for a line that
@@ -211,34 +248,8 @@ impl Permissions {
     pub fn refused(&self, line: &str) -> Vec<String> {
         let mut out: Vec<String> = self.heavy.iter().map(|c| format!("Bash({c} *)")).collect();
         if self.read_only.iter().any(|l| l == line) {
-            out.extend(
-                ["Edit", "Write", "MultiEdit", "NotebookEdit"]
-                    .iter()
-                    .map(|t| t.to_string()),
-            );
-            for g in [
-                "add",
-                "commit",
-                "reset",
-                "checkout",
-                "switch",
-                "restore",
-                "stash",
-                "merge",
-                "rebase",
-                "rm",
-                "mv",
-                "cherry-pick",
-                "revert",
-                "tag",
-                "branch",
-                "worktree",
-                "apply",
-                "am",
-                "clean",
-            ] {
-                out.push(format!("Bash(git {g} *)"));
-            }
+            out.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
+            out.extend(GIT_CHANGES.iter().map(|g| format!("Bash(git {g} *)")));
         }
         out
     }
@@ -1268,6 +1279,35 @@ asks = 9
             ..cli.clone()
         };
         assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
+    }
+
+    // A line that only reads, as the setting of a policy and every other line of an architect, is refused every tool
+    // that edits a file and every git command that changes the repository, and may still read with git; the engineer
+    // is refused neither.
+    #[test]
+    fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
+        let p = Permissions::default();
+        for line in [
+            "policy",
+            "architect",
+            "architect_review",
+            "observer",
+            "review",
+            "advisor",
+        ] {
+            let refused = p.refused(line);
+            for t in EDIT_TOOLS {
+                assert!(refused.iter().any(|r| r == t), "{line}: {t}");
+            }
+            for g in GIT_CHANGES {
+                assert!(refused.contains(&format!("Bash(git {g} *)")), "{line}: git {g}");
+            }
+            for g in ["show", "diff", "log", "fetch"] {
+                assert!(!refused.contains(&format!("Bash(git {g} *)")), "{line}: git {g}");
+            }
+        }
+        let engineer = p.refused("engineer");
+        assert!(!engineer.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
     }
 
     // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level

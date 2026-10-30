@@ -376,8 +376,9 @@ impl GitHub for FakeHub {
         Ok(())
     }
 
-    fn gh(&self, _dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
-        Ok((0, args.join(" ")))
+    /// Says the command and the directory it ran in, where the real gh reads which repository it is about.
+    fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
+        Ok((0, format!("{} in {}", args.join(" "), dir.display())))
     }
 }
 
@@ -3707,6 +3708,156 @@ fn a_new_policy_ends_the_setting_and_the_architect_thinks_anew_under_it() {
     assert_eq!(path[u..u + 3], ["U1", "P1", "N1"], "{log}");
     let m = message_at(&e, wake, "U1", false);
     assert!(m.contains("A new policy took effect"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// What an agent's round of an architect saw as it ran: its request, and in its working directory the text of
+/// `src/lib.txt`, the commit it stood at and whether a file left there earlier was still there.
+struct Saw {
+    r: Request,
+    lib: String,
+    head: String,
+    left: bool,
+}
+
+/// Scripts that keep what the rounds of the cells named saw; the study of a policy asks gh at its first round.
+fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'static str]) -> Rc<RefCell<Vec<Saw>>> {
+    let seen = Rc::new(RefCell::new(Vec::<Saw>::new()));
+    for &cell in cells {
+        let kept = seen.clone();
+        let then = agents.remove(cell);
+        agents.insert(
+            cell,
+            Box::new(move |r: &Request, n: usize| {
+                let wt = &r.worktree;
+                kept.borrow_mut().push(Saw {
+                    r: r.clone(),
+                    lib: std::fs::read_to_string(wt.join("src/lib.txt")).unwrap_or_default(),
+                    head: if wt.join(".git").exists() {
+                        git(wt, &["rev-parse", "HEAD"])
+                    } else {
+                        String::new()
+                    },
+                    left: wt.join("left.txt").exists(),
+                });
+                if r.cell == "P2" && n == 1 {
+                    let tools = json!([{ "tool": "gh", "command": "pr view 1" }]);
+                    return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+                }
+                then.as_ref().map(|f| f(r, n)).unwrap_or_default()
+            }),
+        );
+    }
+    seen
+}
+
+// Each line of a project's architect reads the project in a worktree of its own, detached at main and brought to the
+// latest main before each round, whatever was changed there dropped: the wake's in one, the setting of a policy's in
+// another, so that one's refresh moves no file the other reads. The setting's line edits nothing and changes no
+// repository, and gh for a work on no item runs in its worktree, where gh knows the repository.
+#[test]
+fn an_architect_s_lines_read_the_latest_main_each_in_a_worktree_of_its_own() {
+    let s = setup("architect-worktrees");
+    let mut agents = scripts();
+    let seen = keep_what_they_saw(&mut agents, &["U1", "P1", "P2"]);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let wake = wake_at(&mut e, "U1");
+    let setting = setting_at(&mut e, "P2");
+    let worktrees = s.data.join("worktrees");
+    main_moves_on(&s.root, &[("src/lib.txt", "one\n")], "One");
+    e.advance(wake).unwrap();
+    e.advance(setting).unwrap();
+    let main = git(&s.origin, &["rev-parse", "main"]);
+    {
+        let seen = seen.borrow();
+        let log = said.borrow().join("\n");
+        assert_eq!(seen.len(), 2, "{log}");
+        let (u1, p2) = (&seen[0], &seen[1]);
+        assert_eq!((u1.r.cell.as_str(), p2.r.cell.as_str()), ("U1", "P2"), "{log}");
+        assert_eq!(u1.r.worktree, worktrees.join("architect").join("p"));
+        assert_eq!(p2.r.worktree, worktrees.join("policy").join("p"));
+        for saw in [u1, p2] {
+            assert_eq!((saw.lib.as_str(), saw.head.as_str()), ("one\n", main.as_str()));
+            // The project's checkout is no longer a directory added beside where it runs.
+            assert_eq!(saw.r.readable.len(), 2, "{:?}", saw.r.readable);
+        }
+        for t in config::EDIT_TOOLS {
+            assert!(p2.r.refused.iter().any(|x| x == t), "{t}: {:?}", p2.r.refused);
+        }
+        for g in config::GIT_CHANGES {
+            assert!(p2.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
+        }
+        assert!(
+            p2.r.prompt.contains(&p2.r.worktree.display().to_string()),
+            "{}",
+            p2.r.prompt
+        );
+    }
+    e.advance(setting).unwrap();
+    let ran: Value =
+        e.db.conn()
+            .query_row(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'X1' AND transition IS NOT NULL",
+                [setting],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|o| serde_json::from_str(&o).unwrap())
+            .unwrap();
+    let policy = worktrees.join("policy").join("p");
+    assert_eq!(
+        ran["results"][0]["ran"]["output"],
+        format!("pr view 1 in {}", policy.display()),
+        "{ran}"
+    );
+    // What is changed in a worktree is dropped as it is brought to the latest main for the next round.
+    let architect = worktrees.join("architect").join("p");
+    write(&architect, "src/lib.txt", "changed\n");
+    write(&architect, "left.txt", "left\n");
+    main_moves_on(&s.root, &[("src/lib.txt", "two\n")], "Two");
+    for _ in 0..5 {
+        if seen.borrow().len() > 2 {
+            break;
+        }
+        e.advance(wake).unwrap();
+    }
+    let seen = seen.borrow();
+    let log = said.borrow().join("\n");
+    let next = seen.get(2).expect(&log);
+    assert_eq!(next.r.worktree, architect, "{log}");
+    assert_eq!(
+        (next.lib.as_str(), next.head.as_str(), next.left),
+        ("two\n", git(&s.origin, &["rev-parse", "main"]).as_str(), false),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The new architect that reads a policy knows only what it is given: it runs in an empty directory, is told of no
+// worktree, and edits nothing, as the setting's line.
+#[test]
+fn the_new_architect_that_reads_a_policy_runs_in_an_empty_directory() {
+    let s = setup("reader-directory");
+    let mut agents = scripts();
+    agents.insert("P4", writes_a_policy());
+    let seen = keep_what_they_saw(&mut agents, &["P6"]);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let setting = setting_at(&mut e, "P4");
+    for _ in 0..10 {
+        if !seen.borrow().is_empty() {
+            break;
+        }
+        e.step_work(setting).unwrap();
+    }
+    let seen = seen.borrow();
+    let log = said.borrow().join("\n");
+    let p6 = seen.first().expect(&log);
+    let dir = s.data.join("worktrees").join("P6").join("p");
+    assert_eq!(p6.r.worktree, dir, "{log}");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    assert!(!p6.r.prompt.contains("Worktree:"), "{}", p6.r.prompt);
+    assert!(p6.r.refused.iter().any(|x| x == "Edit"), "{:?}", p6.r.refused);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

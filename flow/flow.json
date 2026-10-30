@@ -11740,7 +11740,8 @@
           "A wake goes on in the session the project's last wake left. A new session starts at the project's first wake, when a new policy takes effect, when the owner asks for one, past the context limit and when the model changes; the understanding question is asked once in a session, and again only after a compaction or when a batch's rethink says so.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
-          "When the architect hands in pause, the wake waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again."
+          "When the architect hands in pause, the wake waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
+          "The wake's lines only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
         ]
       },
       "rules": [
@@ -15991,7 +15992,8 @@
         ],
         "rules": [
           "The setting of a policy is a task of its own: a work of this graph for one project, which the understanding of a wake starts when the policy in force may no longer hold (`P1` `set_again`), at most one for a project at a time. Its rounds go on in a session of their own, so that the wake goes on with its queue under the policy in force meanwhile; no new work of the project starts while it runs.",
-          "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, given only what its cell's inputs hold.",
+          "The setting only reads, in a worktree of its own beside the wake's, at the project's main, which the engine brings to the latest main before each round.",
+          "The new architect that reads a policy is on no line: each of its rounds starts a session of its own, in an empty directory, given only what its cell's inputs hold.",
           "When the task ends, the architect's queue gets a matter that says so: a new policy that took effect ends the architect's session, whose next round understands the project afresh and thinks what to do next under it; the policy in force staying goes to what to do next in the session as it is."
         ]
       },

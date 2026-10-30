@@ -37,10 +37,10 @@ flow as the engine stores it, which the page's tests read and git leaves out).
 The program is installed on its own, never in the data directory: build the page (`npm ci` and `npm run build` in
 `client/`), then `cargo build --release`, and copy `target/release/wf-agents` to a directory on the `PATH`, such as
 `~/.local/bin`; the `build` workflow's artifact is the same binary for macOS. The data directory, named by `--data` or
-`WF_AGENTS_DATA`, holds the configuration, the database, the files the database refers to, and the works' worktrees
-under `worktrees/`, which its git leaves out. Once the configuration is committed, `wf-agents init` makes the
-database; it is the only command that does, and every command that works on the database, the engine included, fails
-when there is none, so a wrong `--data` is an error and not an empty view.
+`WF_AGENTS_DATA`, holds the configuration, the database, the files the database refers to, and the works' and the
+architects' worktrees under `worktrees/`, which its git leaves out. Once the configuration is committed,
+`wf-agents init` makes the database; it is the only command that does, and every command that works on the database,
+the engine included, fails when there is none, so a wrong `--data` is an error and not an empty view.
 
 ## The agents' own configuration
 

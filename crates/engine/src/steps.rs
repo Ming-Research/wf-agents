@@ -153,6 +153,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
+    // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
+    // first. Where it cannot be, the work waits for the owner, with why.
+    if item.is_none()
+        && let Err(why) = architect::ready(e, w, g, cell)
+    {
+        return failed::pause(e, w, &format!("cell {}: {why}", cell.id));
+    }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();
@@ -554,7 +561,8 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
 /// What an agent's round at a cell is sent with, but for its message, its session and its hooks: the CLI and the model
 /// of the level the cell runs at, the CLI's configuration directory, the effort, the structured-output schemas, the
 /// tools and commands its line refuses, the directories outside where it runs that it may read, and where it runs: a
-/// work in its worktree, a project's architect in a directory of its own, with its project's checkout to read. What of
+/// work in its worktree, a project's architect in its graph's worktree at the project's main, and a cell of the
+/// architect's on no line in an empty directory ([`architect::workdir`]). What of
 /// it the command line puts before the session is the same for every cell of a line, but for the effort, which the
 /// flow's check keeps from turning thinking on or off, or the line's session reads nothing from the prompt cache at a
 /// change of cell; a test holds every line of the flow to that.
@@ -574,17 +582,9 @@ pub fn cell_request(
     let worktree = match (&w.worktree, &project) {
         (Some(wt), _) => wt.clone(),
         (None, Some(p)) => p.checkout.clone(),
-        (None, None) => architect::made_workdir(&e.data, architect::project_of(w)?)?,
+        (None, None) => architect::workdir(&e.data, g, cell, architect::project_of(w)?),
     };
-    let mut readable = readable_dirs(e);
-    if g.name == ARCHITECT {
-        readable.extend(
-            w.project
-                .as_ref()
-                .and_then(|p| e.config.config.projects.get(p))
-                .and_then(|p| std::fs::canonicalize(&p.checkout).ok()),
-        );
-    }
+    let readable = readable_dirs(e);
     Ok(Request {
         work: w.id,
         cell: cell.id.clone(),
