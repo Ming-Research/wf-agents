@@ -409,7 +409,7 @@ fn waits_for_reply(conn: &Connection, project: &str, wait: u64) -> Result<Option
     let Some((matter, held)) = db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? else {
         return Ok(None);
     };
-    // The owner said more in the one-to-one since the talk was held, or since its last reply: the architect has it.
+    // The owner added an entry to the talk since it was held, or since its last reply: the architect has it.
     let since: Option<i64> = conn.query_row(
         &format!(
             "SELECT CASE WHEN ?2 THEN m.talk_held ELSE (
@@ -423,10 +423,8 @@ fn waits_for_reply(conn: &Connection, project: &str, wait: u64) -> Result<Option
         |r| r.get(0),
     )?;
     let said: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM architect_matters WHERE project = ?1 AND kind = 'owner_words'
-           AND json_extract(body, '$.where') = 'page' AND id <> ?2 AND handled_round IS NULL AND withdrawn IS NULL
-           AND at > coalesce(?3, 0))",
-        params![project, matter, since],
+        "SELECT EXISTS (SELECT 1 FROM talk_entries WHERE matter = ?1 AND taken_round IS NULL AND at > coalesce(?2, 0))",
+        params![matter, since],
         |r| r.get(0),
     )?;
     if said {

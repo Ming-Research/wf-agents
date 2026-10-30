@@ -91,7 +91,9 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
 
 /// Says something to a project's architect, as the owner: the words come to its queue as a matter of the kind
 /// owner_words, which starts a work of it. Where it was said goes with it: in the conversation about a work, the work
-/// and its item; on an item's page, the item.
+/// and its item; on an item's page, the item. Said in their one-to-one while a talk with the owner is open
+/// ([`open_talk`]), the words are an entry of that talk instead, its next words, and no matter of their own, so that
+/// one talk is one matter in the queue; a talk held is due again with them.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,
@@ -119,10 +121,24 @@ pub fn say_to_architect(
         item,
         ..Matter::default()
     };
-    let id = db
-        .write(Actor::Owner, |tx| queue_matter(tx, &m))
+    let one_to_one = work.is_none() && item.is_none();
+    let (id, talk) = db
+        .write(Actor::Owner, |tx| {
+            if one_to_one && let Some((t, _)) = open_talk(tx, project)? {
+                tx.execute(
+                    "INSERT INTO talk_entries (matter, text, at) VALUES (?1, ?2, ?3)",
+                    params![t, text, now()],
+                )?;
+                return Ok((t, true));
+            }
+            Ok((queue_matter(tx, &m)?, false))
+        })
         .map_err(|e| e.to_string())?;
-    Ok(format!("the architect of {project} has it as matter {id}"))
+    Ok(if talk {
+        format!("the architect of {project} has it in the talk of matter {id}")
+    } else {
+        format!("the architect of {project} has it as matter {id}")
+    })
 }
 
 /// The talk with the owner a project's architect has open, about the words the owner said to it, which it took first

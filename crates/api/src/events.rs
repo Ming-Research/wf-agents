@@ -33,8 +33,8 @@ fn is_architect_work(conn: &Connection, work: i64) -> bool {
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
 /// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
-/// (its matters, what stops new works, the item changes its batches made, the observations, and a work of it with its
-/// rounds, asks and what it told the owner) makes the architect's event too.
+/// (its matters and the entries of its talks, what stops new works, the item changes its batches made, the
+/// observations, and a work of it with its rounds, asks and what it told the owner) makes the architect's event too.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -77,7 +77,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
             "flow_versions" => Some(Event::Flow { version: id }),
-            "architect_matters" | "dispatch_holds" | "architect_item_changes" | "observations" => {
+            "architect_matters" | "talk_entries" | "dispatch_holds" | "architect_item_changes" | "observations" => {
                 Some(Event::Architect)
             }
             _ => None,

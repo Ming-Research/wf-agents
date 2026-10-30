@@ -1107,8 +1107,9 @@ pub struct Conversation {
 /// flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
-    /// What it is: message, notice, ask, interjection, words, question, report, reply, card, ruling, between; stage,
-    /// matter, policy or observation. The owner's answer to an ask is in the ask's entry, never one of its own.
+    /// What it is: message, notice, ask, interjection, words, talk (the owner's words added to a talk with the
+    /// architect), question, report, reply, card, ruling, between; stage, matter, policy or observation. The owner's
+    /// answer to an ask is in the ask's entry, never one of its own.
     pub source: String,
     /// Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
     pub id: i64,
@@ -1122,7 +1123,7 @@ pub struct ConversationEntry {
     pub work: Option<i64>,
     pub round: Option<i64>,
     /// For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
-    /// architect's matter, the matter.
+    /// architect's matter, or is an entry of the talk about it, the matter.
     pub ask: Option<i64>,
     pub design_card: Option<i64>,
     pub matter: Option<i64>,

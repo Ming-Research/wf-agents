@@ -3678,9 +3678,10 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
 }
 
 // The owner's words are a talk the architect takes first: once its wait for the owner's reply runs out, the talk goes
-// back to the queue, held there, and the architect goes on; the owner's next words make it due again, first, and its
-// next turn is given them in the session that holds the talk, the words taken into the talk; only the owner ends it,
-// here while it is held, and its last turn hands in what it came to.
+// back to the queue, held there, and the architect goes on; the owner's next words are an entry of the talk, no matter
+// of their own, and make it due again, first, and its next turn is given them in the session that holds the talk,
+// which takes them; only the owner ends it, here while it is held, and its last turn hands in what it came to. Words
+// said once no talk is open start a matter of their own.
 #[test]
 fn a_talk_whose_wait_runs_out_is_held_until_the_owner_says_more() {
     let s = setup("talk-held");
@@ -3717,8 +3718,12 @@ fn a_talk_whose_wait_runs_out_is_held_until_the_owner_says_more() {
     assert!(talk.1.is_some() && talk.2.is_none(), "{talk:?}");
     assert_eq!(matters(&e), [("owner_words".to_string(), false, false)], "{log}");
     assert_eq!(e.step(None).unwrap().work, None, "{log}");
-    // The owner says more: the talk is due again, first, its next turn given the new words.
-    db::say_to_architect(&mut e.db, "p", None, None, "And the tests?").unwrap();
+    // The owner says more: an entry of the talk, which is due again, first, its next turn given the new words.
+    assert_eq!(
+        db::say_to_architect(&mut e.db, "p", None, None, "And the tests?").unwrap(),
+        format!("the architect of p has it in the talk of matter {}", talk.0)
+    );
+    assert_eq!(matters(&e), [("owner_words".to_string(), true, false)], "{log}");
     let second = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, second)),
@@ -3728,14 +3733,14 @@ fn a_talk_whose_wait_runs_out_is_held_until_the_owner_says_more() {
     let log = said.borrow().join("\n");
     assert_eq!(path_of(&e, second)[..5], ["S1", "Q0", "Q2", "H8", "H11"], "{log}");
     assert!(message_at(&e, second, "H8", false).contains("And the tests?"), "{log}");
-    assert_eq!(
-        matters(&e),
-        [
-            ("owner_words".to_string(), false, false),
-            ("owner_words".to_string(), false, true)
-        ],
-        "{log}"
-    );
+    assert_eq!(matters(&e), [("owner_words".to_string(), false, false)], "{log}");
+    let taken: (i64, Option<i64>) =
+        e.db.conn()
+            .query_row("SELECT matter, taken_work FROM talk_entries", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(taken, (talk.0, Some(second)), "{log}");
     // The owner ends the talk while it is held: its last turn hands in what it came to.
     api::end_talk(&mut e.db, "p").unwrap();
     let third = e.step(None).unwrap().work.unwrap();
@@ -3752,6 +3757,68 @@ fn a_talk_whose_wait_runs_out_is_held_until_the_owner_says_more() {
     );
     assert!(matters(&e).iter().all(|m| m.2), "{log}");
     assert!(api::end_talk(&mut e.db, "p").is_err());
+    // No talk is open now: the owner's words start a matter of their own.
+    db::say_to_architect(&mut e.db, "p", None, None, "Now the docs.").unwrap();
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), true, false)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's reply while the architect waits for it at `H11` is an entry of the talk, not a matter of its own: the
+// architect's next turn, in the same work, is given it and takes it, and the queue keeps one matter for the talk, which
+// the owner's Done ends.
+#[test]
+fn the_owner_s_reply_while_the_architect_waits_is_an_entry_of_the_talk() {
+    let s = setup("talk-reply");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    db::say_to_architect(&mut e.db, "p", None, None, "Should the parser come first?").unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    let waits = |e: &mut Engine, turns: usize| {
+        stands_at(e, arch, "H11")
+            && cells_of(e, arch).last().unwrap().1.as_deref() == Some("waits")
+            && path_of(e, arch).iter().filter(|c| *c == "H8").count() == turns
+    };
+    assert!(steps_until(&mut e, 40, |e| waits(e, 1)), "{}", said.borrow().join("\n"));
+    let talk: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM architect_matters WHERE kind = 'owner_words'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(
+        db::say_to_architect(&mut e.db, "p", None, None, "And the tests?").unwrap(),
+        format!("the architect of p has it in the talk of matter {talk}")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(matters(&e), [("owner_words".to_string(), true, false)], "{log}");
+    assert!(steps_until(&mut e, 10, |e| waits(e, 2)), "{}", said.borrow().join("\n"));
+    let log = said.borrow().join("\n");
+    assert!(message_at(&e, arch, "H8", true).contains("And the tests?"), "{log}");
+    let taken: (i64, Option<i64>) =
+        e.db.conn()
+            .query_row("SELECT matter, taken_work FROM talk_entries", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(taken, (talk, Some(arch)), "{log}");
+    assert_eq!(matters(&e), [("owner_words".to_string(), true, false)], "{log}");
+    api::end_talk(&mut e.db, "p").unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, arch, "H8"), ["replied", "replied", "done"], "{log}");
+    assert_eq!(matters(&e), [("owner_words".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

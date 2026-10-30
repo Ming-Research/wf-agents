@@ -805,8 +805,9 @@ export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w:
     if (last !== undefined && last.cards === cards) last.entries.push(e);
     else runs.push({ cards, entries: [e] });
   }
-  // Words added to the queue wait their turn; those interjected say on themselves that they are not taken up yet.
-  const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words');
+  // Words added to the queue or to a talk wait their turn; those interjected say on themselves that they are not taken
+  // up yet.
+  const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words' || e.source === 'talk');
   return (
     <>
       <AwayLine away={away} list={list} />

@@ -235,8 +235,8 @@ const REVIEW: &str = "B2";
 const TALK: &str = "H8";
 const TALK_ENDS: &str = "('done', 're_plan', 'new_policy', 'to_setting', 're_understand')";
 
-/// The owner's words to a project's architect said in their one-to-one, which are the next words of the talk open when
-/// they come, as a condition on `architect_matters`.
+/// The owner's words to a project's architect said in their one-to-one as matters of their own, as a condition on
+/// `architect_matters`: an engine before made them so while a talk was open too, and the talk's turn took them.
 const ONE_TO_ONE: &str = "kind = 'owner_words' AND json_extract(body, '$.where') = 'page'";
 
 /// The architect's line, whose session goes on across the architect's works; the cell that asks whether that session
@@ -1426,17 +1426,13 @@ fn talk_over(conn: &Connection, t: i64, before: Option<i64>) -> Result<bool, Str
     Ok(detail.as_deref() != Some("said") || ended.is_some_and(|at| before.is_none_or(|b| at < b)))
 }
 
-/// The owner's words to a project's architect in their one-to-one not taken yet, but `t`, the talk's own, oldest first:
-/// the next words of the talk open.
-fn words_waiting(conn: &Connection, project: &str, t: i64) -> Result<Vec<Value>, String> {
+/// The entries the owner added to the talk about the owner's words `t` that no turn of it took yet, oldest first: the
+/// next words of the talk.
+fn words_waiting(conn: &Connection, t: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
-        &format!(
-            "SELECT id, at, json_extract(body, '$.text') AS text FROM architect_matters
-             WHERE project = ?1 AND {ONE_TO_ONE} AND id <> ?2 AND handled_round IS NULL AND withdrawn IS NULL
-             ORDER BY id"
-        ),
-        &[&project, &t],
+        "SELECT id, at, text FROM talk_entries WHERE matter = ?1 AND taken_round IS NULL ORDER BY id",
+        &[&t],
         ROWS,
     )
 }
@@ -1452,7 +1448,7 @@ fn reply_now(e: &Engine, w: &Work) -> Result<&'static str, String> {
     if talk_over(conn, t, None)? {
         return Ok("ended");
     }
-    if !words_waiting(conn, project_of(w)?, t)?.is_empty() {
+    if !words_waiting(conn, t)?.is_empty() {
         return Ok("said");
     }
     let replied: Option<i64> = conn
@@ -1475,13 +1471,18 @@ fn reply_now(e: &Engine, w: &Work) -> Result<&'static str, String> {
     })
 }
 
-/// The owner's words in the one-to-one a round of a talk took, which it marked handled, as entries of the talk.
+/// The entries of the talk about the owner's words `t` a round of it took, in order; with them, the owner's words in
+/// the one-to-one an engine before made matters of their own while the talk was open, which the round marked handled.
 fn words_taken(conn: &Connection, round: RoundId, t: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
         &format!(
-            "SELECT id, at, json_extract(body, '$.text') AS text FROM architect_matters
-             WHERE {ONE_TO_ONE} AND handled_work = ?1 AND handled_round = ?2 AND id <> ?3 ORDER BY id"
+            "SELECT at, text FROM (
+               SELECT at, text, id FROM talk_entries WHERE matter = ?3 AND taken_work = ?1 AND taken_round = ?2
+               UNION ALL
+               SELECT at, json_extract(body, '$.text'), id FROM architect_matters
+               WHERE {ONE_TO_ONE} AND handled_work = ?1 AND handled_round = ?2 AND id <> ?3)
+             ORDER BY at, id"
         ),
         &[&round.work, &round.n, &t],
         ROWS,
@@ -1543,7 +1544,7 @@ pub fn talk_of(conn: &Connection, project: &str, t: i64) -> Result<Value, String
         });
     }
     if m["handled_round"].is_null() {
-        entries.extend(words_waiting(conn, project, t)?.iter().map(said));
+        entries.extend(words_waiting(conn, t)?.iter().map(said));
     }
     let mut out = Map::new();
     out.insert("started".into(), started);
@@ -2635,9 +2636,8 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "hold_for_policy" => hold(tx, &architect_work_of(ctx)?.1, "policy", None)?,
         "release_policy_hold" => release(tx, &architect_work_of(ctx)?.1, "policy")?,
         "take_words" => {
-            // The owner's words in the one-to-one that came before this round started, which it was given as the next
-            // words of its talk; the talk's own matter stays open until its last turn.
-            let (_, project) = architect_work_of(ctx)?;
+            // The entries the owner added to the talk before this round started, which it was given as the next words
+            // of its talk; the talk's own matter stays open until its last turn.
             let t = matter_of(tx, w)?;
             let started: i64 = tx
                 .query_row(
@@ -2647,12 +2647,9 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 )
                 .map_err(sql)?;
             tx.execute(
-                &format!(
-                    "UPDATE architect_matters SET handled_work = ?1, handled_round = ?2
-                     WHERE project = ?3 AND {ONE_TO_ONE} AND id <> ?4 AND handled_round IS NULL AND withdrawn IS NULL
-                       AND at < ?5"
-                ),
-                params![ctx.round.work, ctx.round.n, project, t, started],
+                "UPDATE talk_entries SET taken_work = ?1, taken_round = ?2
+                 WHERE matter = ?3 AND taken_round IS NULL AND at < ?4",
+                params![ctx.round.work, ctx.round.n, t, started],
             )
             .map_err(sql)?;
         }
@@ -2870,8 +2867,8 @@ fn names_article(principle: &str, article: &str) -> bool {
     by_number || (!title.is_empty() && p.contains(title))
 }
 
-/// The texts of the owner's words in the asks of the work's project's architect and in the owner's matters: what a
-/// policy may not quote.
+/// The texts of the owner's words in the asks of the work's project's architect, in the owner's matters and in the
+/// entries of its talks: what a policy may not quote.
 fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
     let rows = query_json(
         conn,
@@ -2879,7 +2876,8 @@ fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
            JOIN works x ON x.id = ?1
          WHERE w.project = x.project AND w.graph IN ('architect', 'policy') AND a.answer IS NOT NULL
          UNION ALL SELECT json_extract(body, '$.text') FROM architect_matters WHERE kind = 'owner_words'
-         UNION ALL SELECT json_extract(body, '$.answer') FROM architect_matters WHERE kind = 'owner_words'",
+         UNION ALL SELECT json_extract(body, '$.answer') FROM architect_matters WHERE kind = 'owner_words'
+         UNION ALL SELECT text FROM talk_entries",
         &[&work],
         10_000,
     )?;

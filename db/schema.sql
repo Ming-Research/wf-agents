@@ -677,6 +677,28 @@ CREATE TABLE architect_matters (
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
 ) STRICT;
 
+CREATE TABLE talk_entries (
+  -- What the owner said to a project's architect in their one-to-one while a talk with the owner was open (the
+  -- architect answering at cell `H8` or waiting for the owner's reply at `H11`, or the talk held out of the queue and
+  -- not ended): an entry of that talk, after the owner's words that started it, and no matter of its own, so that one
+  -- talk is one matter in the queue. Words said while no talk is open start a matter of their own.
+  -- Read by: the engine, which gives the architect's next turn of the talk the entries it did not take yet, in order,
+  -- and marks them taken; architect_queue, in which a talk held is due again once it has an entry not taken; the
+  -- owner's interface, which shows them in the one-to-one.
+  id INTEGER PRIMARY KEY,
+  -- The talk: the matter of the owner's words that started it.
+  matter INTEGER NOT NULL REFERENCES architect_matters(id),
+  -- What the owner said.
+  text TEXT NOT NULL,
+  -- When the owner said it.
+  at INTEGER NOT NULL,
+  -- The architect's turn of the talk that took it, by its work and round; NULL while no turn took it.
+  taken_work INTEGER,
+  taken_round INTEGER,
+  CHECK ((taken_work IS NULL) = (taken_round IS NULL)),
+  FOREIGN KEY (taken_work, taken_round) REFERENCES rounds (work, n)
+) STRICT;
+
 CREATE TABLE blockers (
   -- What a stopped task waits on, one row for each stop: an engineer's question, an engine tool's failure, an ask of the
   -- owner, a wait for items to deliver, or a wait for the owner's ruling on a design card. A task is an engineer's work,
@@ -856,6 +878,8 @@ CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE hand
 CREATE INDEX architect_matters_settings ON architect_matters (project, id) WHERE kind = 'set_policy';
 -- Where each fault of wf-agents was forwarded: to each project's architect once.
 CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
+-- The entries of each talk with the owner.
+CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
 -- The item changes of a batch still waiting for its review.
@@ -1142,8 +1166,8 @@ CREATE VIEW architect_queue AS
   -- not held by a talk with the owner that waits for the owner's reply, each with who waits for it (an agent: an
   -- engineer stopped at the architect's cell for its question; the owner, for the owner's words; or no one), when it
   -- came and how long it has waited, whether it comes back with the owner's answer and to which cell, and whether it
-  -- is urgent. A talk held is due again once the owner said more to the architect in their one-to-one since, or ended
-  -- it. Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect
+  -- is urgent. A talk held is due again once the owner added an entry to it that no turn of it took yet, or ended it.
+  -- Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect
   -- runs no work, and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
@@ -1163,9 +1187,7 @@ CREATE VIEW architect_queue AS
   WHERE m.handled_round IS NULL AND m.withdrawn IS NULL
     AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))
     AND (m.talk_held IS NULL OR m.talk_ended IS NOT NULL OR EXISTS (
-      SELECT 1 FROM architect_matters x
-      WHERE x.project = m.project AND x.kind = 'owner_words' AND json_extract(x.body, '$.where') = 'page'
-        AND x.handled_round IS NULL AND x.withdrawn IS NULL AND x.at > m.talk_held))
+      SELECT 1 FROM talk_entries e WHERE e.matter = m.id AND e.taken_round IS NULL))
   ORDER BY m.id;
 
 CREATE VIEW architect_notes AS
@@ -1397,28 +1419,29 @@ CREATE VIEW conversation_entries AS
   -- work, whose members are the owner, its engineer and its project's architect (what the engineer and the architect
   -- tell and ask the owner and each other about the work, the architect's messages while it handles a matter of the
   -- work, the owner's words to either or both and replies, the design cards and the rulings on them, and the engine's
-  -- notices about it); the owner's one-to-one with each project's architect (the owner's words to it, what it tells and
-  -- asks the owner about no work, in its works and in the settings of its policy); one for the architects of projects
-  -- the configuration connects (what they say to each other, and the owner's words to them); and one of wf-agents
-  -- itself (its faults, and what the engine tells the owner about no work). The owner's words said to the architect's
-  -- work in hand or to its policy setting while it runs, and its answers to them, are in the one-to-one, whatever
-  -- matter it handles. A work's helpers (its advisor, review and adversarial testing) are in no group: what they and
-  -- the engineer say to each other is in the work's rounds.
+  -- notices about it); the owner's one-to-one with each project's architect (the owner's words to it, those said while
+  -- a talk with it was open being entries of that talk, what it tells and asks the owner about no work, in its works
+  -- and in the settings of its policy); one for the architects of projects the configuration connects (what they say
+  -- to each other, and the owner's words to them); and one of wf-agents itself (its faults, and what the engine tells
+  -- the owner about no work). The owner's words said to the architect's work in hand or to its policy setting while it
+  -- runs, and its answers to them, are in the one-to-one, whatever matter it handles. A work's helpers (its advisor,
+  -- review and adversarial testing) are in no group: what they and the engineer say to each other is in the work's
+  -- rounds.
   -- Hidden from agents.
   -- Read by: the owner's interface, which lists the conversations, counts what waits and what is unread in each, and
   -- shows each.
   -- conversation is work:<id>, architect:<project>, architects:<project>[|<project>] (the projects' architects; the
   -- interface takes it to the group of every project the configuration connects them with), or wf-agents. source is
-  -- what the entry is (message, notice, ask, interjection, words, question, report, reply, card, ruling or between) and
-  -- id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never an entry of
-  -- its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of the
-  -- owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
+  -- what the entry is (message, notice, ask, interjection, words, talk, question, report, reply, card, ruling or
+  -- between) and id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never
+  -- an entry of its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of
+  -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
-  -- matter the entry is, or holds the owner's words of. waiting: it waits for the owner (an ask that stands for an open
-  -- blocker the owner holds, or an architect's ask that holds a matter, not answered; a design card not ruled while its
-  -- work goes on; a fault not read). pending: the owner's words not taken up yet. undelivered: the owner's words to an
-  -- agent that its work ended without taking in. answerable: an engineer's question the architect holds now, which the
-  -- owner may answer in the group instead.
+  -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. waiting: it waits for the
+  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter, not
+  -- answered; a design card not ruled while its work goes on; a fault not read). pending: the owner's words not taken
+  -- up yet. undelivered: the owner's words to an agent that its work ended without taking in. answerable: an
+  -- engineer's question the architect holds now, which the owner may answer in the group instead.
   SELECT CASE WHEN w.graph = 'engineer' THEN 'work:' || w.id
               WHEN r.transition = 'answers' THEN 'architect:' || w.project
               ELSE coalesce((SELECT 'work:' || x.work FROM architect_matters x JOIN works y ON y.id = x.work
@@ -1493,6 +1516,10 @@ CREATE VIEW conversation_entries AS
   WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.text') IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM interjections j WHERE j.matter = m.id)
     AND (json_extract(m.body, '$.where') IS NOT 'projects' OR json_extract(m.body, '$.to[0]') = m.project)
+  UNION ALL
+  SELECT 'architect:' || m.project, m.project, 'talk', e.id, 'owner', 'architect', e.text, e.at, NULL, NULL, NULL,
+    NULL, e.matter, NULL, 0, e.taken_round IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL, 0, 0, NULL
+  FROM talk_entries e JOIN architect_matters m ON m.id = e.matter
   UNION ALL
   SELECT 'work:' || m.work, m.project, CASE WHEN m.kind = 'report' THEN 'report' ELSE 'question' END, m.id,
     coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session

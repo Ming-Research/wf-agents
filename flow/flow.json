@@ -3095,7 +3095,7 @@
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
-      "take_words": "Marks as handled by this round the owner's words to the architect in the one-to-one that came before the round started, which it was given as the next words of its talk; the matter in hand stays open.",
+      "take_words": "Marks as taken by this round the entries the owner added to its talk in the one-to-one before the round started, which it was given as the next words of the talk; the matter in hand stays open.",
       "reply_to_owner": "Puts the reply in the owner's one-to-one with the architect, with what it will do if the owner ends the talk there, as the architect's message, and notifies the owner.",
       "hold_talk": "Holds the talk out of the queue, waiting for the owner's reply: the owner's next words to the architect, or Done, make it due again, first, back to its talk.",
       "queue_measures": "Queues each new measure the signals of the policy being written need as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it."
@@ -3253,6 +3253,7 @@
         "desc": "What waits for the project's architect, each matter with what became of it, and the replies to engineers",
         "relations": [
           "architect_matters",
+          "talk_entries",
           "architect_queue",
           "work_handled"
         ],
