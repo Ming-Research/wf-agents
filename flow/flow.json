@@ -2794,7 +2794,7 @@
     {
       "name": "query",
       "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden",
-      "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition",
+      "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
       "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
         {
@@ -2849,7 +2849,7 @@
                   "name": "error",
                   "title": "Error",
                   "type": "text",
-                  "desc": "The error as reported: a statement that writes, a timeout and a hidden table all give errors"
+                  "desc": "The error as reported: a statement that writes, a timeout and a hidden table all give errors; a column or table not there is followed by the columns of the tables and views the query names"
                 }
               ]
             }

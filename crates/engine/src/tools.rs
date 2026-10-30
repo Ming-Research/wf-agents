@@ -703,9 +703,49 @@ fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Fa
                 }
                 json!({ "ran": ran })
             }
-            Err(why) => json!({ "ran": { "verdict": "error", "error": why } }),
+            Err(why) => {
+                let error = match named_columns(&text, &why) {
+                    Some(hint) => format!("{why}. {hint}"),
+                    None => why,
+                };
+                json!({ "ran": { "verdict": "error", "error": error } })
+            }
         })
     })
+}
+
+/// What a query that names a column or a table there is not is told beside its error, from the index of the tables
+/// and views agents read that `format:common` gives them: the columns of each one the query names, and for a table
+/// there is not, the name of every one; none for any other error. In the sixth trial agents guessed columns
+/// (`work_state.paused_by`, `rounds.round`, `architect_queue.id`) that the index, in a message of 80,000 characters,
+/// listed, and each guess cost a round; told the columns, the next round names them right.
+fn named_columns(sql: &str, error: &str) -> Option<String> {
+    let no_table = error.contains("no such table");
+    if !no_table && !error.contains("no such column") {
+        return None;
+    }
+    let index = db::index_of(db::SCHEMA).ok()?;
+    let words: std::collections::BTreeSet<String> = sql
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map(str::to_lowercase)
+        .collect();
+    let named: Vec<String> = index
+        .iter()
+        .filter(|(name, _, _)| words.contains(name))
+        .map(|(name, columns, _)| format!("{name} ({})", columns.join(", ")))
+        .collect();
+    let mut said = Vec::new();
+    if !named.is_empty() {
+        said.push(format!(
+            "The columns of the tables and views it names: {}",
+            named.join("; ")
+        ));
+    }
+    if no_table {
+        let all: Vec<&str> = index.iter().map(|(name, _, _)| name.as_str()).collect();
+        said.push(format!("The tables and views there are: {}", all.join(", ")));
+    }
+    (!said.is_empty()).then(|| said.join(". "))
 }
 
 // Cell `T2`.
@@ -895,6 +935,30 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A query that names a column there is not is told the columns of the tables and views it names; one that names a
+    // table there is not, every table's and view's name too; any other error, nothing more.
+    #[test]
+    fn a_query_naming_what_is_not_there_is_told_the_columns() {
+        let hint = named_columns(
+            "SELECT q.id FROM architect_queue q JOIN works w ON w.project = q.project",
+            "no such column: q.id",
+        )
+        .unwrap();
+        assert!(
+            hint.starts_with("The columns of the tables and views it names: ")
+                && hint.contains("architect_queue (project, matter, kind,")
+                && hint.contains("works (id,"),
+            "{hint}"
+        );
+        assert!(!hint.contains("The tables and views there are"), "{hint}");
+        let hint = named_columns("SELECT * FROM work_rounds", "no such table: work_rounds").unwrap();
+        assert!(
+            hint.starts_with("The tables and views there are: ") && hint.contains("rounds"),
+            "{hint}"
+        );
+        assert_eq!(named_columns("SELECT 1", "interrupted"), None);
+    }
 
     #[test]
     fn a_command_line_is_split_as_a_shell_would() {
