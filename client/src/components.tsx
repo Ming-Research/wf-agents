@@ -210,13 +210,13 @@ export const WORK_TONE: Record<WorkState, Tone> = {
   waiting_for_slot: 'attention',
   paused: 'attention',
   done: 'success',
-  ended: 'danger',
+  ended: 'neutral',
 };
 
 /// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
 /// shows a work's state as an icon, as the UI spec names it. Ready is a ring at rest, the running halo's ring still;
 /// asking a question; waiting a clock; waiting for a free slot an hourglass; paused two bars; done a tick in a ring;
-/// ended GitHub's mark of a run stopped before its end.
+/// ended GitHub's mark of a run stopped before its end, grey as GitHub draws a run cancelled.
 export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ready: CircleIcon,
   asking: QuestionIcon,

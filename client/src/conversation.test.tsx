@@ -757,7 +757,7 @@ describe('the marks of the list of conversations', () => {
       waiting_for_slot: { icon: 'hourglass', tone: 'attention', says: 'waiting for a free slot' },
       paused: { icon: 'pause', tone: 'attention', says: 'paused' },
       done: { icon: 'check-circle', tone: 'success', says: 'done' },
-      ended: { icon: 'stop', tone: 'danger', says: 'ended' },
+      ended: { icon: 'stop', tone: 'neutral', says: 'ended' },
     };
     for (const [state, mark] of Object.entries(marks)) {
       expect(markOf(renderToStaticMarkup(<StateMark state={state as WorkState} />))).toEqual(mark);
