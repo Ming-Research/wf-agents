@@ -43,7 +43,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (29, 112, 154));
+    assert_eq!((s.cells, s.rows, s.states), (30, 119, 164));
     let g = c.graph("architect").unwrap();
     for gone in ["E1", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11"] {
         assert!(g.cell(gone).is_none(), "{gone}");
@@ -221,6 +221,53 @@ fn the_owner_s_words_are_answered_in_one_round() {
     waits.as_object_mut().unwrap().remove("until");
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(e.contains("the architect's own graph stops: Q0 waits"), "{e}");
+}
+
+// What was said in the works' groups, other than to the architect, is a matter of its own (`group_talk`), which the
+// cell the architect waits at to start queues (`S0`'s `queue_group_talk`) and the router sends to its cell (`H12`): it
+// may do nothing more, interject in its effects, plan again or check the policy, each a matter it queues at the head of
+// the queue, back to the batch; the pick is given it no longer.
+#[test]
+fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    assert!(g.cell("S0").unwrap().actions.iter().any(|a| a == "queue_group_talk"));
+    let given = Map::from_iter([("route".to_string(), Value::String("H12".into()))]);
+    assert_eq!(g.take("Q2", &serde_json::json!({}), &given).unwrap().to, "H12");
+    let does = |name: &str| {
+        let r = g
+            .cell("H12")
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .clone();
+        (
+            r.to.clone(),
+            r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>(),
+        )
+    };
+    for (name, then) in [
+        ("done", vec!["close_matter"]),
+        ("re_plan", vec!["queue_make_plan", "close_matter"]),
+        ("new_policy", vec!["queue_check_policy", "close_matter"]),
+    ] {
+        assert_eq!(
+            does(name),
+            ("B1".to_string(), then.iter().map(|x| x.to_string()).collect()),
+            "{name}"
+        );
+    }
+    let reads = |cell: &str| {
+        g.cell(cell).unwrap().inputs.iter().any(|x| {
+            x.from
+                .iter()
+                .any(|s| matches!(s, flow::format::Src::Engine(n) if n == "group_talk"))
+        })
+    };
+    assert!(reads("H12"));
+    assert!(!reads("Q1"));
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

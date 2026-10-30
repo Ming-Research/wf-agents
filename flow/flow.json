@@ -2850,9 +2850,9 @@
       "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
-      "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again.",
+      "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
       "end_architect_work": "Ends the architect's work.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -2908,7 +2908,8 @@
       "queue_measures": "Queues each new measure the signals of the policy being written need as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it.",
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
-      "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval."
+      "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
+      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect, and a work picks it only when it came before that work started."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2985,7 +2986,7 @@
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
       "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
-      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
+      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked."
     },
@@ -3504,6 +3505,9 @@
       ],
       "ask_approval": [
         "owner_asks",
+        "architect_queue"
+      ],
+      "queue_group_talk": [
         "architect_queue"
       ]
     },
@@ -11418,6 +11422,7 @@
             "H8",
             "H9",
             "H10",
+            "H12",
             "B1"
           ],
           "entries": [
@@ -11599,7 +11604,8 @@
               "H7",
               "H8",
               "H9",
-              "H10"
+              "H10",
+              "H12"
             ]
           },
           {
@@ -11943,14 +11949,17 @@
             "due": [
               [
                 "nothing_due",
-                "No matter is due: the queue holds none, or only matters held by an ask the owner has not answered, or only flow feedback, which a work of the architect takes when something else started it"
+                "No matter is due: the queue holds none, or only matters held by an ask the owner has not answered, or only flow feedback and what was said in the works' groups, which a work of the architect takes when something else started it"
               ],
               [
                 "due",
-                "A matter in the queue is due, flow feedback aside"
+                "A matter in the queue is due, flow feedback and what was said in the works' groups aside"
               ]
             ]
-          }
+          },
+          "do": [
+            "queue_group_talk"
+          ]
         },
         {
           "id": "S1",
@@ -13292,16 +13301,6 @@
               "maybe": true
             },
             {
-              "name": "Said in the works' groups",
-              "what": "What was said in the groups of your project's works since your last pick, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item. It is for you to know and needs no answer; none when nothing was said",
-              "from": [
-                {
-                  "engine": "group_talk"
-                }
-              ],
-              "maybe": true
-            },
-            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -13554,6 +13553,19 @@
               "main": true
             },
             {
+              "name": "to_group_talk",
+              "if": [
+                [
+                  "inp",
+                  "route",
+                  [
+                    "H12"
+                  ]
+                ]
+              ],
+              "to": "H12"
+            },
+            {
               "name": "to_policy_check",
               "if": [
                 [
@@ -13648,6 +13660,10 @@
               [
                 "H10",
                 "Slots free with fewer of the project's items ready than slots, or one back with the owner's answer"
+              ],
+              [
+                "H12",
+                "What was said in the works' groups since the architect last read it"
               ],
               [
                 "P1",
@@ -15431,6 +15447,193 @@
           ]
         },
         {
+          "id": "H12",
+          "kind": "agent",
+          "title": "What was said in the groups",
+          "effort": "medium",
+          "line": "architect",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "name": "Said in the works' groups",
+              "what": "What was said in the groups of your project's works since you last read it, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item",
+              "from": [
+                {
+                  "engine": "group_talk"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Policy in force",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "from": [
+                {
+                  "engine": "policy"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "This round reads what was said in your project's works' groups since you last read it, which you are a member of with the owner and each work's engineer, and which was not said to you: it needs no answer of yours. Hand in done when it calls for nothing, or for something you do now in effects, such as interjecting to a work's engineer, which shows in its group; re_plan when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy when it touches the direction itself, and whether the policy still holds is checked. Each of these two is a matter at the head of the queue, with why."
+          ],
+          "out": [
+            {
+              "name": "heard",
+              "title": "What it calls for",
+              "type": "union",
+              "by": "way",
+              "desc": "What what was said in the groups calls for",
+              "branches": [
+                {
+                  "value": "done",
+                  "desc": "Nothing more, or what you do now in effects",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why, in a sentence"
+                    }
+                  ]
+                },
+                {
+                  "value": "re_plan",
+                  "desc": "What to do next is planned again under the policy in force, as a matter at the head of the queue",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why to plan again",
+                      "type": "text",
+                      "desc": "What was said that changes what comes first"
+                    }
+                  ]
+                },
+                {
+                  "value": "new_policy",
+                  "desc": "Whether the policy still holds is checked, as a matter at the head of the queue",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why to check the policy",
+                      "type": "text",
+                      "desc": "What was said that touches the direction"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "$ref": "arch_effects"
+            }
+          ],
+          "cases": [
+            {
+              "name": "done",
+              "if": [
+                [
+                  "is",
+                  "heard.way",
+                  [
+                    "done"
+                  ]
+                ]
+              ],
+              "to": "B1",
+              "main": true,
+              "do": [
+                "close_matter"
+              ]
+            },
+            {
+              "name": "re_plan",
+              "if": [
+                [
+                  "is",
+                  "heard.way",
+                  [
+                    "re_plan"
+                  ]
+                ]
+              ],
+              "to": "B1",
+              "do": [
+                {
+                  "at": "heard[re_plan].why",
+                  "do": "queue_make_plan"
+                },
+                "close_matter"
+              ],
+              "note": "The plan of what to do next is made again, as a matter at the head of the queue, why being what was said."
+            },
+            {
+              "name": "new_policy",
+              "if": [
+                [
+                  "is",
+                  "heard.way",
+                  [
+                    "new_policy"
+                  ]
+                ]
+              ],
+              "to": "B1",
+              "do": [
+                {
+                  "at": "heard[new_policy].why",
+                  "do": "queue_check_policy"
+                },
+                "close_matter"
+              ],
+              "note": "Whether the policy still holds is checked, as a matter at the head of the queue, why being what was said."
+            }
+          ],
+          "always": [
+            {
+              "at": "effects",
+              "do": "apply_effects"
+            }
+          ],
+          "checks": [
+            {
+              "at": "effects",
+              "check": "effects_valid"
+            }
+          ],
+          "shown": [
+            "heard"
+          ],
+          "rules": [
+            "policy_scope"
+          ],
+          "without": [
+            "ask"
+          ]
+        },
+        {
           "id": "B1",
           "kind": "engine",
           "title": "Where the batch stands",
@@ -15858,7 +16061,7 @@
         {
           "id": "B4",
           "kind": "agent",
-          "title": "Whether to rethink state and policy",
+          "title": "Whether to plan again",
           "effort": "medium",
           "line": "architect",
           "inputs": [

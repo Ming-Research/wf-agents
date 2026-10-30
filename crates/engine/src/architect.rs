@@ -12,7 +12,8 @@
 //! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
 //! the queue (`Q0`) and the pick (`Q1`), which say the matter picked; the understanding
 //! (`U1`); the rethink after a batch (`B4`), which ends a batch; the review of the batch
-//! (`B2`); and the first and deciding cell of each kind's path ([`KINDS`]).
+//! (`B2`); the writing of a new policy (`P2`) and where it takes effect (`P12`), which the router tells apart by the
+//! owner's reply; and the first and deciding cell of each kind's path ([`KINDS`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -67,7 +68,7 @@ pub const BEFORE: &str = "before";
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
-pub const KINDS: [(&str, &str, &str); 10] = [
+pub const KINDS: [(&str, &str, &str); 11] = [
     ("set_straight", "H1", "H1"),
     ("engineer_question", "H2", "H3"),
     ("report", "H4", "H5"),
@@ -76,9 +77,15 @@ pub const KINDS: [(&str, &str, &str); 10] = [
     ("owner_words", "H8", "H8"),
     ("other_architect", "H9", "H9"),
     ("slots_free", "H10", "H10"),
+    (GROUP_TALK, "H12", "H12"),
     (CHECK, "P1", "P1"),
     (PLAN, "N1", "N1"),
 ];
+
+/// The kind of matter that holds what was said in the groups of a project's works since its architect last read it,
+/// other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
+/// feedback, it starts no work of the architect and waits for one something else started.
+const GROUP_TALK: &str = "group_talk";
 
 /// The kinds of matter that come at the head of the queue, taken in this order before any other but the owner's words,
 /// a matter back with the owner's reply and the wait for a question just put: the check of whether the policy in force
@@ -262,15 +269,16 @@ pub fn running(e: &mut Engine, project: &str) -> Result<Option<i64>, String> {
 }
 
 /// Whether a project's queue has a matter that starts a work of its architect: any but flow feedback, its own or
-/// forwarded by another project's architect, which a work of the architect takes when something else started it.
+/// forwarded by another project's architect, and what was said in the works' groups, which a work of the architect
+/// takes when something else started it.
 pub fn queue_has(e: &Engine, project: &str) -> Result<bool, String> {
     Ok(count(
         e.db.conn(),
         &format!(
             "SELECT count(*) FROM architect_queue
-             WHERE project = ?1 AND NOT (kind IN {FEEDBACK_KINDS} AND detail IS ?2)"
+             WHERE project = ?1 AND NOT (kind IN {FEEDBACK_KINDS} AND detail IS ?2) AND kind <> ?3"
         ),
-        &[&project, &FLOW_FEEDBACK],
+        &[&project, &FLOW_FEEDBACK, &GROUP_TALK],
     )? > 0)
 }
 
@@ -284,6 +292,12 @@ const FEEDBACK_KINDS: &str = "('report', 'other_architect')";
 /// Whether a matter of the queue holds flow feedback, which waits for a work of the architect something else started.
 fn is_flow_feedback(kind: &Value, detail: &Value) -> bool {
     (kind == "report" || kind == "other_architect") && detail == FLOW_FEEDBACK
+}
+
+/// Whether a matter of the queue waits for a work of the architect something else started, and is picked only when it
+/// came before that work started: flow feedback, and what was said in the works' groups.
+fn waits_for_a_work(kind: &Value, detail: &Value) -> bool {
+    is_flow_feedback(kind, detail) || kind == GROUP_TALK
 }
 
 /// Whether flow feedback says there is nothing: empty, or none.
@@ -384,13 +398,22 @@ pub fn waits_to_start(e: &Engine, project: &str) -> Result<&'static str, String>
 }
 
 /// Takes the rows of the cell a project's architect waits at to start (`S0`) for a project whose architect runs no
-/// work, without a round, as the engine takes the engineer's for an item that waits: when the row it takes leads on, a
+/// work, without a round, as the engine takes the engineer's for an item that waits, once its action queued what was
+/// said in the works' groups ([`queue_group_talk`]): when the row it takes leads on, a
 /// work of the architect's graph starts for the project, on no item and on the flow version new works start on, at the
 /// cell that row leads to, paused by the owner when the owner's step started it. Gives the work started; none while
 /// the project waits there. A flow version whose start is no such cell starts the work at its start when one is due.
 pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<Option<i64>, String> {
-    let due = waits_to_start(e, project)?;
     let v = e.flow_now;
+    let queues_talk = e
+        .flow(v)?
+        .graph(ARCHITECT)
+        .and_then(|g| g.cell(&g.start))
+        .is_some_and(|c| c.actions.iter().any(|a| a == "queue_group_talk"));
+    if queues_talk {
+        queue_group_talk(e, project)?;
+    }
+    let due = waits_to_start(e, project)?;
     let g = e.flow(v)?.graph(ARCHITECT).ok_or("the flow has no architect's graph")?;
     let at = match g.cell(&g.start) {
         Some(c) if c.inenums.contains_key(DUE) => {
@@ -598,19 +621,19 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
 }
 
 /// The matters of a project's queue that the architect's work `work` can pick now, oldest first: every one, flow
-/// feedback, its own or forwarded, only when it came before the work started, which waits for the architect's next work
-/// otherwise; but while new starts are held to set the project straight and some matter sets it straight or has an
-/// agent stopped waiting, only those.
+/// feedback, its own or forwarded, and what was said in the works' groups only when they came before the work started,
+/// which wait for the architect's next work otherwise; but while new starts are held to set the project straight and
+/// some matter sets it straight or has an agent stopped waiting, only those.
 fn pickable(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
     let rows = query_json(
         conn,
         &format!(
             "SELECT * FROM architect_queue q WHERE q.project = ?1
-               AND NOT (q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3
+               AND NOT ((q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3 OR q.kind = ?4)
                  AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
              ORDER BY q.matter"
         ),
-        &[&project, &work, &FLOW_FEEDBACK],
+        &[&project, &work, &FLOW_FEEDBACK, &GROUP_TALK],
         100_000,
     )?;
     if !held_straight(conn, project)? {
@@ -2929,31 +2952,30 @@ fn work_start(conn: &Connection, work: i64) -> Result<i64, String> {
     Ok(at.unwrap_or_else(db::now))
 }
 
-/// What was said in the groups of a project's works since its architect last read it, at its last pick (`Q1`) or at the
-/// wrap-up a flow version before had (`E1`), other than to the architect, oldest first: the owner's words to the
-/// engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks and, in a group, to a
-/// question the architect held; each with its work and item. The architect gets it as information, which starts no
-/// work of it and needs no answer: everything said in a group reaches all three. The first time, the week before the
-/// work; none when nothing was said.
-fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let last: Option<i64> = conn
-        .query_row(
-            &format!(
-                "SELECT max(r.started_at) FROM rounds r JOIN works x ON x.id = r.work
-                 WHERE x.graph = 'architect' AND x.project = ?1 AND x.id <= ?2 AND r.cell IN {}
-                   AND r.ended_at IS NOT NULL",
-                db::cells_sql(ARCHITECT, &["Q1", "E1"])
-            ),
-            params![project, w.id],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
-    let since = match last {
-        Some(t) => t,
-        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
-    };
-    let said = query_json(
+/// When a project's architect last read what was said in the groups of its works, in its works up to `upto`: the start
+/// of its latest round that was given it, or referred to it, as the round recorded its inputs: at its cell (`H12`), or
+/// at the pick (`Q1`) or the wrap-up (`E1`) a flow version before gave it to. None before the first.
+fn last_read(conn: &Connection, project: &str, upto: i64) -> Result<Option<i64>, String> {
+    conn.query_row(
+        &format!(
+            "SELECT max(r.started_at) FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'architect' AND x.project = ?1 AND x.id <= ?2 AND r.cell IN {}
+               AND r.ended_at IS NOT NULL
+               AND EXISTS (SELECT 1 FROM json_each(r.input, '$.conditional') c
+                           WHERE json_extract(c.value, '$.address') LIKE '%·engine·group_talk')",
+            db::cells_sql(ARCHITECT, &["H12", "Q1", "E1"])
+        ),
+        params![project, upto],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
+/// What was said in the groups of a project's works after `since`, other than to its architect, oldest first: the
+/// owner's words to the engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks
+/// and, in a group, to a question the architect held; each with its work and item.
+fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Value>, String> {
+    query_json(
         conn,
         "SELECT * FROM (
            SELECT j.work, w.item, i.title, 'owner' AS who, 'engineer' AS \"to\", j.text, NULL AS asked,
@@ -2982,7 +3004,51 @@ fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Stri
          WHERE at > ?2 ORDER BY at",
         &[&project, &since],
         ROWS,
+    )
+}
+
+/// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what was said in the
+/// groups of the project's works since its architect last read it, other than to it, as one matter of the kind
+/// group_talk, when there is such talk and none is open; new talk joins the one open, whose material is worked out when
+/// it is handled ([`group_talk`]). The first time, the week before now.
+fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
+    let conn = e.db.conn();
+    let open = count(
+        conn,
+        "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = ?2 AND handled_round IS NULL
+           AND withdrawn IS NULL",
+        &[&project, &GROUP_TALK],
     )?;
+    if open > 0 {
+        return Ok(());
+    }
+    let since = last_read(conn, project, i64::MAX)?.unwrap_or_else(|| db::now() - 7 * 24 * HOUR);
+    if said_in_groups(conn, project, since)?.is_empty() {
+        return Ok(());
+    }
+    let m = Matter {
+        project: project.to_string(),
+        kind: GROUP_TALK.into(),
+        detail: None,
+        what: format!("What was said in the groups of {project}'s works since its architect last read it"),
+        body: json!({}),
+        ..Matter::default()
+    };
+    e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
+    Ok(())
+}
+
+/// What was said in the groups of a project's works since its architect last read it ([`last_read`]), other than to
+/// the architect, oldest first ([`said_in_groups`]), the material of the matter that holds it (`H12`). The architect
+/// gets it as information, which needs no answer: everything said in a group reaches all three. The first time, the
+/// week before the work; none when nothing was said.
+fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let since = match last_read(conn, project, w.id)? {
+        Some(t) => t,
+        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
+    };
+    let said = said_in_groups(conn, project, since)?;
     if said.is_empty() {
         return Ok(None);
     }
@@ -3415,8 +3481,9 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     )?;
     let mut matters = Map::new();
     for r in rows {
-        // Flow feedback that came after the work started waits for the architect's next work.
-        let later = is_flow_feedback(&r["kind"], &r["detail"])
+        // Flow feedback and what was said in the groups that came after the work started wait for the architect's next
+        // work.
+        let later = waits_for_a_work(&r["kind"], &r["detail"])
             && started.is_some_and(|s| r["at"].as_i64().is_some_and(|at| at >= s));
         let id = r["matter"].as_i64().unwrap_or_default();
         let mut m = json!({
@@ -3430,7 +3497,7 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
             m["urgent"] = json!(true);
         }
         if later {
-            m["not_now"] = json!("flow feedback that came after this work started: the architect's next work takes it");
+            m["not_now"] = json!("it came after this work started: the architect's next work takes it");
         } else if !can.contains(&id) {
             m["not_now"] = json!("set straight first");
         }

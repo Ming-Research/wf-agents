@@ -112,6 +112,7 @@ describe('a matter in words', () => {
     expect(matterKind('design_card', null)).toBe('Look at a design card');
     expect(matterKind('check_policy', null)).toBe('Check whether the policy still holds');
     expect(matterKind('make_plan', null)).toBe('Plan what to do next');
+    expect(matterKind('group_talk', null)).toBe('Read what was said in the groups');
     expect(matterKind('report', 'followup')).toBe('Go through side reports');
     expect(matterKind('report', 'fault')).toBe('Look into a fault of wf-agents');
     expect(matterKind('owner_words', 'said')).toBe('Your words');

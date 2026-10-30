@@ -4360,6 +4360,74 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// What was said in a work's group, other than to the architect, is a matter of its own: the engine queues it as the
+// architect waits to start, and it starts no work of the architect; a work something else started picks it, as it
+// came before that work, and its cell is given what was said.
+#[test]
+fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
+    let s = setup("group-talk");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    let v = e.flow_now;
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by) VALUES (?1, ?2, 'engineer', 'R1', 'later', 'owner')",
+            params![item, v],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Keep the parser small.')",
+            [tx.last_insert_rowid()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(e.step(None).unwrap().work, None);
+    // In the queue, not handled; and no work of the architect started for it.
+    let talk = |e: &Engine| -> (bool, bool) {
+        e.db.conn()
+            .query_row(
+                "SELECT id IN (SELECT matter FROM architect_queue), handled_round IS NOT NULL
+                 FROM architect_matters WHERE kind = 'group_talk'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    };
+    assert_eq!(talk(&e), (true, false));
+    assert!(architect_works(&e).is_empty());
+    // It came before the work something else starts.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET at = at - 1000 WHERE kind = 'group_talk'",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    from_q(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
+    assert!(
+        message_at(&e, arch, "H12", false).contains("Keep the parser small."),
+        "{log}"
+    );
+    assert!(
+        !message_at(&e, arch, "Q1", false).contains("Keep the parser small."),
+        "{log}"
+    );
+    assert_eq!(talk(&e), (false, true), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's words come before the matters at the head of the queue: words answered with planning again queue the
 // plan, and words answered with a new policy queue the check, each with what the owner asks; a new session's
 // understanding queued both already, so each is queued once and takes the owner's why beside the understanding's, and

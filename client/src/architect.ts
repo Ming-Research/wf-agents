@@ -43,6 +43,7 @@ const MATTER_KINDS: Record<string, Key> = {
   owner_words: 'matter_kind_owner_words',
   other_architect: 'matter_kind_other_architect',
   slots_free: 'matter_kind_slots_free',
+  group_talk: 'matter_kind_group_talk',
   check_policy: 'matter_kind_check_policy',
   make_plan: 'matter_kind_make_plan',
   set_policy: 'matter_kind_set_policy',

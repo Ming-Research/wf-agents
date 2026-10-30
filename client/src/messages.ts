@@ -1298,6 +1298,7 @@ const messages = {
   matter_kind_owner_words: 'Your words',
   matter_kind_other_architect: 'Message from another architect',
   matter_kind_slots_free: 'Slots free',
+  matter_kind_group_talk: 'Read what was said in the groups',
   matter_kind_set_policy: 'Set a new policy',
   matter_kind_check_policy: 'Check whether the policy still holds',
   matter_kind_make_plan: 'Plan what to do next',
