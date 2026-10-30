@@ -4309,7 +4309,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
 
 /// A round of an engineer's work under way, in milliseconds: from when it started, to when it ended, none while it
 /// is still under way.
-struct Running {
+struct RoundSpan {
     work: i64,
     from: i64,
     to: Option<i64>,
@@ -4317,7 +4317,7 @@ struct Running {
 
 /// The rounds of the engineer's works on a project's items that were under way at some time from `from` to `to`, but
 /// those at which a work waits for an answer, which stay open for as long as the answer takes.
-fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<Running>, String> {
+fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<RoundSpan>, String> {
     let mut st = conn
         .prepare(&format!(
             "SELECT r.work, r.started_at, r.ended_at
@@ -4328,7 +4328,7 @@ fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Resul
         ))
         .map_err(sql)?;
     st.query_map(params![project, from, to], |r| {
-        Ok(Running {
+        Ok(RoundSpan {
             work: r.get(0)?,
             from: r.get(1)?,
             to: r.get(2)?,
@@ -4342,7 +4342,7 @@ fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Resul
 /// From `from` to `to`, both included: the most works that had a round under way at the same moment, and for how many
 /// milliseconds two or more had. A round under way at either end counts from `from` or up to `to`; rounds of one work
 /// count the work once, and a round that ends where another starts overlaps nothing.
-fn running_together(runs: &[Running], from: i64, to: i64) -> (i64, i64) {
+fn running_together(runs: &[RoundSpan], from: i64, to: i64) -> (i64, i64) {
     // A round counts from the millisecond it starts up to, not including, the millisecond it ends; one under way at
     // `to` ends at the millisecond after it.
     let mut events: Vec<(i64, i64, i64)> = Vec::new();
@@ -5405,8 +5405,8 @@ mod tests {
         assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
     }
 
-    fn run(work: i64, from: i64, to: Option<i64>) -> Running {
-        Running { work, from, to }
+    fn run(work: i64, from: i64, to: Option<i64>) -> RoundSpan {
+        RoundSpan { work, from, to }
     }
 
     // Works run together for as long as rounds of two of them are under way at once: the largest number of works is
@@ -5414,7 +5414,7 @@ mod tests {
     // make two, and no rounds make none.
     #[test]
     fn works_run_together_while_their_rounds_overlap() {
-        let together = |runs: &[Running]| running_together(runs, 0, 99_999);
+        let together = |runs: &[RoundSpan]| running_together(runs, 0, 99_999);
         assert_eq!(
             together(&[run(1, 0, Some(10_000)), run(2, 4_000, Some(12_000))]),
             (2, 6_000)
