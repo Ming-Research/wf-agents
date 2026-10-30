@@ -611,7 +611,10 @@ fn cost_total_on_a_tie_rounds_as_a_row_does() {
     );
     let total = last_column(&printed(&halves, "cost"), "total");
     let row = last_column(&printed(&whole, "cost"), "1");
-    assert!(row == "0.12" || row == "0.13", "the tie is rounded to a cent, not {row}");
+    assert!(
+        row == "0.12" || row == "0.13",
+        "the tie is rounded to a cent, not {row}"
+    );
     assert_eq!(total, row);
     let _ = std::fs::remove_dir_all(&halves);
     let _ = std::fs::remove_dir_all(&whole);
