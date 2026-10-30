@@ -100,12 +100,15 @@ function limitsOf(m: Measures): Limits {
 /// The most each graph's layout may measure: a tenth over what it measured on the flow of e9bddd0 (CI run
 /// 40865042355), each cell laid out with what is drawn beside it, so that a change that makes the layout worse fails
 /// here; for the architect graph, on the flow of 962c176 (CI run 40995651263), once the setting of a policy was a
-/// stage of it, which made it a graph of more cells and longer rows. Before cells were laid out so, on the flow of
-/// 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384, run 1046, bends 214, far 388, beside 5522, and
-/// the architect graph rows 82062, run 1731, bends 286, far 198, beside 1539.
+/// stage of it, which made it a graph of more cells and longer rows; and the length of a row, for both, on the flow of
+/// f138150 (CI run 40997637730), once each cell had the stores it reads or writes beside it, which made the cells'
+/// units taller and the rows between them longer (the engineer graph's 506 to 576, the architect graph's 1853 to 2311).
+/// Before cells were laid out so, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384,
+/// run 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside
+/// 1539.
 const MOST: Record<string, Limits> = {
-  engineer: { rowLength: 590, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 76 },
-  architect: { rowLength: 2039, run: 4650, bendsPerArrow: 3.18, far: 49, besideEach: 24 },
+  engineer: { rowLength: 634, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 76 },
+  architect: { rowLength: 2542, run: 4650, bendsPerArrow: 3.18, far: 49, besideEach: 24 },
 };
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {
