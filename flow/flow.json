@@ -16946,6 +16946,15 @@
               ]
             },
             {
+              "name": "Slots",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
+              "from": [
+                {
+                  "engine": "slots"
+                }
+              ]
+            },
+            {
               "name": "What the project is now",
               "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
               "from": [

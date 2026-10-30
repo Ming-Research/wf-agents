@@ -8384,8 +8384,9 @@ fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The cells that judge what runs and what starts are told, with the slots, whether the engine runs works or the owner
-// paused every work, and which run despite it; and every cell that hands in item changes is told, with the batch, the
+// The cells that judge what runs and what starts, and the rethink after a batch, are told, with the slots, whether the
+// engine runs works or the owner paused every work, and which run despite it; and every cell that hands in item
+// changes is told, with the batch, the
 // changes collected so far, each whole with the key of an item it creates, not made until the review: in the sixth
 // trial `N1` and `H10` were told two slots were free while three works stood mid-flow and could not tell whether the
 // engine ran, and `H12` could not cancel an item made earlier in the batch, for want of its key.
@@ -8442,6 +8443,15 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
         "{batch}"
     );
     e.global_pause = None;
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let slots = given_value(&m, "·engine·slots").expect(&m);
+    assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
+    // The rethink after a batch, which judges whether that calls for planning again, is told the same.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'B4' WHERE id = ?1", [arch])?;
+        Ok(())
+    })
+    .unwrap();
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
