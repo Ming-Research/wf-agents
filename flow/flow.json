@@ -12730,6 +12730,15 @@
               ]
             },
             {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped with what came of them; the items running and queued show none not made yet, so plan from the items as the changes not dropped will leave them, knowing the review may still drop one",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
+            },
+            {
               "name": "Observations overview",
               "what": "The project's observations: how many are open under each tag and how many times they were reported, those recorded or reported again lately, and those closed lately with why",
               "from": [

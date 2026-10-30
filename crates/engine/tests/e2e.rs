@@ -8440,10 +8440,11 @@ fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced
 
 // The cells that judge what runs and what starts, and the rethink after a batch, are told, with the slots, whether the
 // engine runs works or the owner paused every work, and which run despite it; and every cell that hands in item
-// changes is told, with the batch, the
+// changes, and the plan, is told, with the batch, the
 // changes collected so far, each whole with the key of an item it creates, not made until the review: in the sixth
 // trial `N1` and `H10` were told two slots were free while three works stood mid-flow and could not tell whether the
-// engine ran, and `H12` could not cancel an item made earlier in the batch, for want of its key.
+// engine ran, `H12` could not cancel an item made earlier in the batch, for want of its key, and `N1`, given no batch,
+// planned as if the changes it had seen earlier in the batch were sure to be made.
 #[test]
 fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
     let s = setup("engine-state");
@@ -8509,6 +8510,20 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
+    // The plan is told the batch's changes so far with their state, as every cell that hands in item changes is.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'N1' WHERE id = ?1", [arch])?;
+        Ok(())
+    })
+    .unwrap();
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let batch = given_value(&m, "·engine·batch").expect(&m);
+    let change = &batch["item_changes"]["1"];
+    assert_eq!(
+        (&change["state"], &change["change"]["key"]),
+        (&json!("collected"), &json!("cover")),
+        "{batch}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
