@@ -15186,11 +15186,15 @@
           "inputs": [
             {
               "name": "The matter picked",
-              "what": "The matter picked: the owner's words or the lone matter the look at the queue took, or the one the pick chose",
+              "what": "The matter picked: the owner's words, the matter back with the owner's answer or the lone matter the look at the queue took, or the one the pick chose",
               "from": [
                 [
                   "Q0",
                   "queue[owner_words].matter"
+                ],
+                [
+                  "Q0",
+                  "queue[answered].matter"
                 ],
                 [
                   "Q0",
