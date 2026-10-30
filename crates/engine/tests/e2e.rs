@@ -5760,10 +5760,17 @@ fn the_numbers_say_how_many_works_ran_together_and_ended_without_a_merge() {
             &projects,
         )
         .map_err(db::Error::Abort)?;
-        // At the end of the graph with no merge, this week and the week before, and one that merged.
-        a_work_that_ran(tx, v, "p", "E1", &[("E1", None, now - 3 * hour, Some(now - 2 * hour))])?;
-        a_work_that_ran(tx, v, "p", "E1", &[("E1", None, now - 8 * day, Some(now - 8 * day))])?;
-        a_work_that_ran(
+        // At the end of the graph with all the work given to sub-items, so with no merge, this week and the week
+        // before; and one that delivers a report, which is merged through a pull request and has its merged round.
+        let to_sub_items = |from: i64, to: i64| {
+            [
+                ("T7", Some("all_to_sub_items"), from - hour, Some(from)),
+                ("E1", None, from, Some(to)),
+            ]
+        };
+        a_work_that_ran(tx, v, "p", "E1", &to_sub_items(now - 3 * hour, now - 2 * hour))?;
+        a_work_that_ran(tx, v, "p", "E1", &to_sub_items(now - 8 * day, now - 8 * day))?;
+        let report = a_work_that_ran(
             tx,
             v,
             "p",
@@ -5772,6 +5779,10 @@ fn the_numbers_say_how_many_works_ran_together_and_ended_without_a_merge() {
                 ("M2", Some("merged"), now - 3 * hour, Some(now - 3 * hour)),
                 ("E1", None, now - hour, Some(now - hour)),
             ],
+        )?;
+        tx.execute(
+            "UPDATE items SET deliver = 'report' WHERE id = (SELECT item FROM works WHERE id = ?1)",
+            [report],
         )?;
         Ok(())
     })

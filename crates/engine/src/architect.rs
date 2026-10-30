@@ -4374,8 +4374,9 @@ fn running_together(runs: &[RoundSpan], from: i64, to: i64) -> (i64, i64) {
 
 /// The works of the engineer's graph on a project's items that ended without a merge, each with its kind and when it
 /// ended, from `from` to `to`: a work stopped before the end of its graph, by the kind it records, when the change
-/// to its `ended` was made; a work that reached the end of its graph and never merged, by the end of its last round.
-/// A work with a round that merged never counts, even when its item was cancelled after it.
+/// to its `ended` was made; a work that reached the end of its graph and never merged, which the flow has only when
+/// all of its work went to sub-items, by the end of its last round. A work with a round that merged never counts,
+/// even when its item was cancelled after it, and a work that delivers a report is merged as any other.
 fn unmerged_ends(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<(&'static str, i64)>, String> {
     let merged = format!(
         "NOT EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell IN {} AND r.transition = 'merged')",
@@ -5608,13 +5609,27 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        // At the end of its graph: one that never merged, and one that did.
+        // At the end of its graph, which the flow reaches by the merge and the watch of main after it, or by the work
+        // all given to sub-items. Only the second never merged. A work that delivers a report is merged through a
+        // pull request as one that delivers a change is, so that it has its merged round and is not counted.
+        let to_sub_items = an_engineer_work(&mut db, "p", "E1");
+        a_round(&mut db, to_sub_items, 1, "T7", Some("all_to_sub_items"), 100, Some(700));
+        a_round(&mut db, to_sub_items, 2, "E1", None, 700, Some(777));
         let report = an_engineer_work(&mut db, "p", "E1");
-        a_round(&mut db, report, 1, "T7", None, 100, Some(700));
-        a_round(&mut db, report, 2, "E1", None, 700, Some(777));
-        let merged = an_engineer_work(&mut db, "p", "E1");
-        a_round(&mut db, merged, 1, "M2", Some("merged"), 1, Some(2));
-        a_round(&mut db, merged, 2, "E1", None, 3, Some(4));
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE items SET deliver = 'report' WHERE id = (SELECT item FROM works WHERE id = ?1)",
+                [report],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let change = an_engineer_work(&mut db, "p", "E1");
+        for work in [report, change] {
+            a_round(&mut db, work, 1, "M2", Some("merged"), 1, Some(2));
+            a_round(&mut db, work, 2, "L1", Some("green"), 2, Some(3));
+            a_round(&mut db, work, 3, "E1", None, 3, Some(4));
+        }
         let all = unmerged_ends(db.conn(), "p", 0, i64::MAX).unwrap();
         let mut kinds: Vec<&str> = all.iter().map(|(k, _)| *k).collect();
         kinds.sort();
