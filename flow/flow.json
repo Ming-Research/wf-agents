@@ -3177,18 +3177,19 @@
       "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
       "next_reading": "Whether a new architect reads the text put together, or it was put together for a minor fix a reading found, and the reading just judged counts.",
       "question": "The kind of question an engineer asks, as its matter says.",
+      "reply": "Whether the owner said more to the architect since its reply, ended the talk, or neither yet, and whether the wait for the owner's reply ran out.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer; the setting of a new policy goes on from the cell it stood at when a new session would have started there.",
       "setting": "Whether a new policy is being set for the project: the matter of its setting is open.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
+      "talk_turn": "Whether the owner said something the architect has not answered yet, or ended the talk.",
       "tree": "Whether the change to review touches design tree nodes.",
-      "turn": "Whether the owner said something the architect has not answered yet, or ended the talk.",
+      "turn": "Whether the work is first in its project's merge queue.",
       "understanding": "Whether the session the architect's work goes on in answered the understanding question since it started or was last compacted.",
       "waited": "Whether every item waited for is merged.",
-      "work": "What the work changes: the implementation, the design paths only, or a report.",
-      "reply": "Whether the owner said more to the architect since its reply, ended the talk, or neither yet, and whether the wait for the owner's reply ran out."
+      "work": "What the work changes: the implementation, the design paths only, or a report."
     },
     "needs": {
       "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
@@ -3802,6 +3803,12 @@
           "architect_queue"
         ]
       },
+      "reply": {
+        "says": "the owner's words since the reply; Done; how long it has waited",
+        "stores": [
+          "architect_queue"
+        ]
+      },
       "report": {
         "says": "the kind of report picked: beside a work, what to do next, an answer, flow feedback, or a fault",
         "stores": [
@@ -3837,6 +3844,12 @@
           "batch"
         ]
       },
+      "talk_turn": {
+        "says": "the talk: Done, or a decision on the setting that waited",
+        "stores": [
+          "architect_queue"
+        ]
+      },
       "tree": {
         "says": "the branch: design paths changed since the last review",
         "stores": [
@@ -3844,9 +3857,9 @@
         ]
       },
       "turn": {
-        "says": "the talk: Done, or a decision on the setting that waited",
+        "says": "the project's merge queue: another work ahead",
         "stores": [
-          "architect_queue"
+          "place"
         ]
       },
       "understanding": {
@@ -3866,12 +3879,6 @@
         "says": "what the item delivers; the design's verdict on the design tree",
         "stores": [
           "items"
-        ]
-      },
-      "reply": {
-        "says": "the owner's words since the reply; Done; how long it has waited",
-        "stores": [
-          "architect_queue"
         ]
       }
     }
@@ -16639,7 +16646,7 @@
             "policy_scope"
           ],
           "promptBy": {
-            "by": "turn",
+            "by": "talk_turn",
             "cases": {
               "said": [
                 "The owner said something you have not answered yet, the latest words in the talk: answer it in reply, and say in if_we_end, in one sentence, what you will do if the owner ends the talk here. Hand in no effects and leave tell_owner empty: the reply is your message to the owner, and what you do waits for the talk to end."
@@ -16650,7 +16657,7 @@
             }
           },
           "inenums": {
-            "turn": [
+            "talk_turn": [
               [
                 "said",
                 "The owner said something to you that you have not answered yet: the words that started the talk, or a reply"

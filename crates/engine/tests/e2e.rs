@@ -165,11 +165,11 @@ impl Agents for Scripted {
         };
         let mut pick: BTreeMap<String, String> =
             pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        // The architect's turn in a talk with the owner: a reply while the owner talks on, done once the owner ended
-        // it, unless the script says otherwise.
+        // The architect's turn in a talk with the owner: a reply to what the owner said, else done, the owner having
+        // ended it, unless the script says otherwise; a return sent back is handed in again the same way.
         if r.cell == "H8" && !pick.contains_key("outcome") && !pick.contains_key("outcome.talk") {
-            let ended = r.prompt.contains("The owner ended the talk");
-            pick.insert("outcome.talk".into(), if ended { "done" } else { "reply" }.into());
+            let said = r.prompt.contains("The owner said something you have not answered yet");
+            pick.insert("outcome.talk".into(), if said { "reply" } else { "done" }.into());
         }
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
@@ -5981,8 +5981,10 @@ fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
     .map(|p| p["id"].clone())
     .collect();
     assert_eq!(probes, [json!("x")]);
+    // The owner decides by the button alone: what to fix is what the owner said in their talks, none here, and the
+    // architect judges by itself.
     let fix = api::Answer {
-        text: "Say what principle 1 weighs.".into(),
+        text: String::new(),
         why: None,
         reply: None,
         choice: Some("fix_text".into()),
@@ -6004,8 +6006,6 @@ fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
         Some("gaps_left"),
         "{log}"
     );
-    let corrected = message_at(&e, work, "P8", true);
-    assert!(corrected.contains("Say what principle 1 weighs."), "{corrected}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

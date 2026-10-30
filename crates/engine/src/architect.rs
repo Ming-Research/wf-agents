@@ -1273,7 +1273,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         .into(),
         "entry" => entry(e, w, g)?,
         "route" => route(e, w, g)?,
-        "turn" => match talk_in_hand(conn, w.id)? {
+        "talk_turn" => match talk_in_hand(conn, w.id)? {
             Some(t) if talk_over(conn, t, None)? => "ended",
             _ => "said",
         }
