@@ -35,7 +35,7 @@ pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
 /// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 28] = [
+pub const INPUTS: [&str; 29] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -64,6 +64,7 @@ pub const INPUTS: [&str; 28] = [
     "setting_waits",
     "setting_talk",
     "open_gaps",
+    "told_owner",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -1546,6 +1547,33 @@ pub fn talk_of(conn: &Connection, project: &str, t: i64) -> Result<Value, String
         );
     }
     Ok(Value::Object(out))
+}
+
+/// What a project's architect told the owner lately: its latest messages to the owner, by their numbers, each with when
+/// and at which cell, oldest first, as an object by number, so that a session that holds them is given only those new
+/// to it; none before the first.
+fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let rows = query_json(
+        e.db.conn(),
+        "SELECT m.id, m.text, r.cell, coalesce(r.ended_at, r.started_at) AS at FROM owner_messages m
+         JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+         WHERE w.graph = 'architect' AND w.project = ?1
+         ORDER BY m.id DESC LIMIT 30",
+        &[&project],
+        30,
+    )?;
+    let told: Map<String, Value> = rows
+        .iter()
+        .rev()
+        .map(|r| {
+            let at = r["at"].as_i64().map(utc_minute);
+            (
+                format!("#{}", r["id"]),
+                json!({ "at": at, "cell": r["cell"], "text": r["text"] }),
+            )
+        })
+        .collect();
+    Ok((!told.is_empty()).then_some(Value::Object(told)))
 }
 
 /// The talk the work has in hand, as [`talk_of`] gives it; none when it has none.
@@ -3736,6 +3764,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "talk" => talk(e, w, project),
         "setting_waits" => setting_waits(e, project),
         "setting_talk" => setting_talk(e, w, project),
+        "told_owner" => told_owner(e, project),
         "open_gaps" => match setting_of(e.db.conn(), w.id)? {
             Some(m) => open_gaps(e.db.conn(), m),
             None => Ok(None),

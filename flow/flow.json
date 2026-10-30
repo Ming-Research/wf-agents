@@ -3189,7 +3189,8 @@
       "talk": "The talk with the owner the matter picked is: the owner's words that started it, with where they were said, then each of the owner's words to the architect in the one-to-one and each of the architect's replies, in order; and whether the owner ended it.",
       "setting_waits": "While the setting of a new policy waits for the owner at its study (`P3`) or its approval (`P11`): the study, or the text with the probes, every reading and the gaps left open.",
       "setting_talk": "The talks with the owner held while the setting of the policy being set waited for the owner, since it last went to the owner, or since it started when it never did: each the owner's words, the architect's replies and what it came to.",
-      "open_gaps": "The gaps of the text of the policy being set that the readings of its version left open: each reading's, those that passed included, as the judgment of it found them."
+      "open_gaps": "The gaps of the text of the policy being set that the readings of its version left open: each reading's, those that passed included, as the judgment of it found them.",
+      "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -12214,7 +12215,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, and nothing this return does not do: that you put something in your notes, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return or of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notes, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -12455,6 +12456,16 @@
                   "@from",
                   "talk[re_understand].conclusion"
                 ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
               ],
               "maybe": true
             }
@@ -12714,6 +12725,16 @@
                   "by": "project"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -13020,6 +13041,16 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -13296,6 +13327,16 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -13500,6 +13541,16 @@
                   "engine": "numbers"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -13837,6 +13888,16 @@
                   "engine": "draft_probes"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -14175,6 +14236,16 @@
                   "engine": "draft_probes"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -14494,6 +14565,16 @@
               "from": [
                 {
                   "engine": "open_gaps"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
                 }
               ],
               "maybe": true
@@ -14980,6 +15061,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -15415,6 +15506,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -15577,6 +15678,16 @@
                   "engine": "similar_items"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -15759,6 +15870,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -15910,6 +16031,16 @@
                   "engine": "matter_items"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16062,6 +16193,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16275,6 +16416,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16406,6 +16557,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16554,6 +16715,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16874,6 +17045,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16996,6 +17177,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -17510,6 +17701,16 @@
                   "engine": "batch_changes"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -17583,6 +17784,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -17699,6 +17910,16 @@
               "from": [
                 {
                   "engine": "group_talk"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What you told the owner",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "from": [
+                {
+                  "engine": "told_owner"
                 }
               ],
               "maybe": true

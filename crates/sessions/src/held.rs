@@ -50,8 +50,9 @@ const GUIDE_INPUT: &str = "engine·project_guide";
 
 /// What the engine computes for the architect's cells that is standard context: large and much the same from round to
 /// round, so that its line's session is given it once and after that only what changed in it; a talk with the owner
-/// grows by its entries, so that each turn of it is given only the owner's new words.
-const ARCHITECT_STANDARD: [&str; 11] = [
+/// grows by its entries, so that each turn of it is given only the owner's new words, and what the architect told the
+/// owner by its messages.
+const ARCHITECT_STANDARD: [&str; 12] = [
     "constitution",
     "guide",
     "policy",
@@ -63,6 +64,7 @@ const ARCHITECT_STANDARD: [&str; 11] = [
     "queue",
     "batch",
     "talk",
+    "told_owner",
 ];
 
 /// The entries of an input of the standard context that every version of it given as what changed carries whole,
