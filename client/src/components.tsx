@@ -4,6 +4,7 @@ import {
   CheckCircleIcon,
   CircleIcon,
   ClockIcon,
+  HourglassIcon,
   type Icon,
   PauseIcon,
   QuestionIcon,
@@ -35,10 +36,18 @@ export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | fa
 
 /// A work's state as it is now: a round of it runs only while the engine takes its step; a round left open while the
 /// engine runs nothing of it (one the engine stopped in) is not running, and the work is ready, its next round closing
-/// that round first.
+/// that round first; and a work the engine's status names as waiting for a free slot, what it waited for come, waits
+/// for that slot, though as read it is ready or still waiting.
 export function liveState(w: WorkSummary, status: Status | null): WorkState {
-  if (w.state === 'running' && status !== null && status.running !== w.id) return 'ready';
-  return w.state;
+  const state = w.state === 'running' && status !== null && status.running !== w.id ? 'ready' : w.state;
+  if (forSlot(w, status) && (state === 'ready' || state === 'waiting' || state === 'asking')) return 'waiting_for_slot';
+  return state;
+}
+
+/// Whether the engine's status names a work as waiting for a free slot: what it waited for came, and it goes on once
+/// its machine has a slot free, before any new work starts.
+function forSlot(w: WorkSummary, status: Status | null): boolean {
+  return status !== null && status.waiting_for_slot.includes(w.id);
 }
 
 /// How a work goes on, in the owner's terms. Two things are kept apart: what holds it back though it could go on (the
@@ -53,7 +62,11 @@ export type Course = {
   /// the one the owner asked for.
   running: 'goes_on' | 'pausing' | 'step' | null;
   held: 'you' | 'all' | 'engine' | 'architect' | null;
+  /// What it waits for, after which it goes on by itself; none once it came, though the work waits on for a slot.
   waits: Waits | null;
+  /// What it waited for came, and it waits, holding no slot, until its machine has a slot free, as the engine's status
+  /// says: it then goes on before any new work starts.
+  slot: boolean;
   /// Its flow version is older than the one the engine runs: when it goes on, it is taken over.
   outdated: boolean;
   /// The owner started it since every work was last paused (a work of the architect: the architect): it goes on
@@ -65,13 +78,23 @@ export type Course = {
 
 export function course(w: WorkSummary, status: Status | null): Course {
   if (w.state === 'done' || w.state === 'ended') {
-    return { over: true, running: null, held: null, waits: null, outdated: false, started: false, releasing: false };
+    return {
+      over: true,
+      running: null,
+      held: null,
+      waits: null,
+      slot: false,
+      outdated: false,
+      started: false,
+      releasing: false,
+    };
   }
   const started =
     status !== null &&
     (status.started.includes(w.id) ||
       (w.graph === 'architect' && w.project !== null && status.architects_started.includes(w.project)));
   const releasing = status !== null && status.releasing.includes(w.id);
+  const slot = forSlot(w, status);
   const held: Course['held'] =
     w.paused_by === 'engine'
       ? 'engine'
@@ -90,7 +113,8 @@ export function course(w: WorkSummary, status: Status | null): Course {
     over: false,
     running,
     held,
-    waits: w.waits,
+    waits: slot ? null : w.waits,
+    slot,
     outdated: status !== null && w.flow_version !== status.flow_version,
     started,
     releasing,
@@ -183,6 +207,7 @@ export const WORK_TONE: Record<WorkState, Tone> = {
   ready: 'neutral',
   asking: 'attention',
   waiting: 'attention',
+  waiting_for_slot: 'attention',
   paused: 'attention',
   done: 'success',
   ended: 'danger',
@@ -190,12 +215,13 @@ export const WORK_TONE: Record<WorkState, Tone> = {
 
 /// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
 /// shows a work's state as an icon, as the UI spec names it. Ready is a ring at rest, the running halo's ring still;
-/// asking a question; waiting a clock; paused two bars; done a tick in a ring; ended GitHub's mark of a run stopped
-/// before its end.
+/// asking a question; waiting a clock; waiting for a free slot an hourglass; paused two bars; done a tick in a ring;
+/// ended GitHub's mark of a run stopped before its end.
 export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ready: CircleIcon,
   asking: QuestionIcon,
   waiting: ClockIcon,
+  waiting_for_slot: HourglassIcon,
   paused: PauseIcon,
   done: CheckCircleIcon,
   ended: StopIcon,
@@ -245,8 +271,14 @@ const OUTCOME_TONE: Record<RoundOutcome, Tone> = {
   ended: 'neutral',
 };
 
+/// A work's state as its chip; waiting for a free slot says on hovering why the work does not move, what it waited for
+/// come.
 export function WorkBadge({ state }: { state: WorkState }) {
-  return <StateChip tone={WORK_TONE[state]}>{t(`state_${state}`)}</StateChip>;
+  return (
+    <StateChip tone={WORK_TONE[state]} title={state === 'waiting_for_slot' ? t('course_slot_why') : undefined}>
+      {t(`state_${state}`)}
+    </StateChip>
+  );
 }
 
 export function ItemBadge({ state }: { state: ItemState }) {

@@ -330,9 +330,9 @@ export function held(c: Course, w: WorkSummary): string | null {
 
 /// Why a work waits at the cell it is at while no round of it runs, for the tag beside that cell on its chart, in a
 /// few words and in full: stopped by the engine or the architect, which the owner looks at first; what it waits for,
-/// after which it goes on by itself; a free slot for the Start the owner gave; or, held back by the owner's pause or
-/// every work's, Step while Step can run a round of it now, and else paused. None for a work that runs, goes on by
-/// itself or is over.
+/// after which it goes on by itself; a free slot, what it waited for come; a free slot for the Start the owner gave;
+/// or, held back by the owner's pause or every work's, Step while Step can run a round of it now, and else paused.
+/// None for a work that runs, goes on by itself or is over.
 export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait | null {
   if (c.over || c.running !== null) return null;
   const why = held(c, w) ?? '';
@@ -350,6 +350,7 @@ export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait |
             : t('wait_row');
     return { tag, why: waitsWords(c.waits) };
   }
+  if (c.slot) return { tag: t('wait_slot'), why: t('course_slot_why') };
   if (c.releasing) return { tag: t('wait_slot'), why };
   if (c.held === null) return null;
   const can = controls(c, status);

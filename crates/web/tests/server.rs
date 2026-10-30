@@ -307,6 +307,7 @@ fn status() -> api::Status {
         keep_warm: true,
         started: Vec::new(),
         releasing: Vec::new(),
+        waiting_for_slot: Vec::new(),
         architects_started: Vec::new(),
         running: None,
         stepping: None,

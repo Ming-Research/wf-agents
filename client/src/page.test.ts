@@ -238,6 +238,7 @@ describe('how a work goes on', () => {
     keep_warm: true,
     started: [],
     releasing: [],
+    waiting_for_slot: [],
     architects_started: [],
     running: null,
     stepping: null,
@@ -319,6 +320,15 @@ describe('how a work goes on', () => {
     expect(waitOf(items, work({}), status({}))?.tag).toBe('waiting for other items');
     const reply = course(work({ waits: { kind: 'architect', matter: 2 } }), status({}));
     expect(waitOf(reply, work({}), status({}))?.tag).toBe('waiting for the architect');
+    // What it waited for came while its machine has no slot free, as the engine's status names it: it waits for a free
+    // slot and for nothing else, said so beside its cell with why.
+    const forSlot = course(work({ waits: { kind: 'items', items: [3] } }), status({ waiting_for_slot: [5] }));
+    expect([forSlot.slot, forSlot.waits]).toEqual([true, null]);
+    expect(waitOf(forSlot, work({}), status({}))).toEqual({
+      tag: 'waiting for a free slot',
+      why: 'What it waited for came: it goes on once its machine has a slot free, before any new work starts.',
+    });
+    expect(course(work({}), status({})).slot).toBe(false);
     const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5 }));
     expect(pausing.running).toBe('pausing');
     expect(stepWhyNot(pausing, controls(pausing, status({ running: 5 })))).toBe('pausing after this round');

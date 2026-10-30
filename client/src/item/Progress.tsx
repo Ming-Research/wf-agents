@@ -46,9 +46,11 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
       ? 'progress_running'
       : state === 'waiting'
         ? 'progress_waiting'
-        : state === 'asking'
-          ? 'progress_asking'
-          : 'progress_ready';
+        : state === 'waiting_for_slot'
+          ? 'progress_waiting_for_slot'
+          : state === 'asking'
+            ? 'progress_asking'
+            : 'progress_ready';
   return <p className="step-waits muted">{t(key)}</p>;
 }
 

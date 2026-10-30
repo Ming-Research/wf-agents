@@ -658,6 +658,7 @@ describe('the marks of the list of conversations', () => {
     keep_warm: true,
     started: [],
     releasing: [],
+    waiting_for_slot: [],
     architects_started: [],
     running: null,
     stepping: null,
@@ -753,6 +754,7 @@ describe('the marks of the list of conversations', () => {
       ready: { icon: 'circle', tone: 'neutral', says: 'ready' },
       asking: { icon: 'question', tone: 'attention', says: 'asking' },
       waiting: { icon: 'clock', tone: 'attention', says: 'waiting' },
+      waiting_for_slot: { icon: 'hourglass', tone: 'attention', says: 'waiting for a free slot' },
       paused: { icon: 'pause', tone: 'attention', says: 'paused' },
       done: { icon: 'check-circle', tone: 'success', says: 'done' },
       ended: { icon: 'stop', tone: 'danger', says: 'ended' },
@@ -774,6 +776,14 @@ describe('the marks of the list of conversations', () => {
     // A round left open that the engine runs no more: ready, its next round closing it first.
     expect(workMark(5, works, status())).toBe('ready');
     expect(workMark(6, works, status())).toBe('ended');
+    // What it waited for came, and the engine holds it for a free slot: it says so, not ready; held back by its own
+    // pause, it is paused.
+    const answered = [work(8, { graph: 'engineer', state: 'ready' }), work(9, { graph: 'engineer', state: 'waiting' })];
+    expect(workMark(8, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
+    expect(workMark(9, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
+    expect(workMark(8, answered, status())).toBe('ready');
+    const paused = [work(8, { graph: 'engineer', state: 'paused', paused: 'x', paused_by: 'owner' })];
+    expect(workMark(8, paused, status({ waiting_for_slot: [8] }))).toBe('paused');
     expect(workMark(7, works, status())).toBeNull();
     expect(workMark(5, undefined, status())).toBeNull();
   });

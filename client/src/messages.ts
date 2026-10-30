@@ -425,6 +425,7 @@ const messages = {
   state_ready: 'ready',
   state_asking: 'asking',
   state_waiting: 'waiting',
+  state_waiting_for_slot: 'waiting for a free slot',
   state_paused: 'paused',
   state_done: 'done',
   state_ended: 'ended',
@@ -465,6 +466,7 @@ const messages = {
   course_all_why: 'Every work is paused, by Pause all in the bar.',
   course_releasing: 'started, waiting for a free slot',
   course_releasing_why: 'You started it: it goes on once its machine has a slot free.',
+  course_slot_why: 'What it waited for came: it goes on once its machine has a slot free, before any new work starts.',
   course_outdated: 'old flow',
   course_outdated_hint:
     'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it moves to version {now} and goes on at its cell in its sessions if that cell and every return it handed in are unchanged there; else it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
@@ -751,6 +753,7 @@ const messages = {
   progress_stopped_architect: 'Stopped by the architect: {why}',
   progress_running: 'A round runs here now.',
   progress_waiting: 'Waits for other works, or for its turn.',
+  progress_waiting_for_slot: 'What it waited for came: it goes on once its machine has a slot free.',
   progress_asking: 'Waits for the answer it asked for.',
   progress_ready: 'Its next round is due.',
   progress_on_chart: "Its rounds on the work's chart",

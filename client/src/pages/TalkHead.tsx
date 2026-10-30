@@ -14,7 +14,7 @@ import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectNow, architectState, holdWords, matterSentence } from '../architect';
-import { course, heldName, RunningMark, StateChip, WORK_TONE } from '../components';
+import { course, heldName, RunningMark, StateChip, WORK_TONE, WorkBadge } from '../components';
 import { forwardNewChoices } from '../conversation';
 import {
   Control,
@@ -75,7 +75,8 @@ function Tier({ item, level }: { item: number; level: string }) {
   );
 }
 
-/// How a work goes on, in a few words, as its Label: a round running, what holds it back, what it waits for, or over.
+/// How a work goes on, in a few words, as its Label: a round running, what holds it back, that it waits for a free
+/// slot, what it waits for, or over.
 function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   const c = course(w, status);
   if (c.over) return <Label variant={w.state === 'done' ? 'success' : 'danger'}>{t(`state_${w.state}`)}</Label>;
@@ -91,6 +92,7 @@ function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
     const h = heldName(c);
     return <Label variant={h.problem ? 'danger' : 'attention'}>{h.name}</Label>;
   }
+  if (c.slot) return <WorkBadge state="waiting_for_slot" />;
   if (c.waits !== null) return <Label variant="attention" title={waitsWords(c.waits)}>{t('talk_waits')}</Label>;
   return <StateChip tone="neutral">{t('state_ready')}</StateChip>;
 }

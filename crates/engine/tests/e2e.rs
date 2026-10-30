@@ -8853,8 +8853,9 @@ fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
 
 // A work that asked the owner waits for the answer holding no slot, and another work starts in the slot it left; once
 // the answer came, the first goes on only when a slot is free again, so that the machine never runs more works than its
-// slots, and then before any new work starts on a ready item. In the sixth trial a work answered went on at once, and
-// the slots read three used of two.
+// slots, and then before any new work starts on a ready item; meanwhile the engine names it as waiting for a free slot,
+// which the owner's page shows in place of ready. In the sixth trial a work answered went on at once, and the slots read
+// three used of two.
 #[test]
 fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     let s = setup("back-to-a-slot");
@@ -8913,6 +8914,8 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     };
     api::answer(&mut e.db, ask, &answer).unwrap();
     let mut after = None;
+    // Meanwhile the engine names it, for the owner's page, as waiting for a free slot.
+    let mut named = false;
     for _ in 0..20 {
         if state(&e, second).is_some_and(|x| x.1 == "A3") {
             break;
@@ -8921,9 +8924,15 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
         let log = said.borrow().join("\n");
         assert!(e.free_slots().unwrap() >= 0, "{log}");
         assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+        let waiting = e.waiting_for_slot().unwrap();
+        assert!(waiting.iter().all(|&w| w == a), "{waiting:?}\n{log}");
+        named |= waiting == [a];
     }
     let log = said.borrow().join("\n");
+    assert!(named, "{log}");
     assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+    // The slot the second left is free: the first waits for none, and is named so no more.
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
     // The second work goes to ask the owner in turn, holding no slot: the first goes on in the slot it left, to choose
     // the way on with the answer, before a work starts on the third item.
     let next = e.step(after).unwrap();

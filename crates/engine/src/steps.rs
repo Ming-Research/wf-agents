@@ -1124,7 +1124,7 @@ pub fn engine(
             return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
         }
         if slotted && e.waiting(w)? && !e.room_for(w)? {
-            return Ok(waits_for_slot(w));
+            return Ok(waits_for_slot(e, w));
         }
     }
     // The agent paused: the work waits, paused by the engine, for the owner's Start; once the owner started it again
@@ -1211,7 +1211,7 @@ pub fn engine(
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
         }
         if no_slot(e, w, g, &row, slotted)? {
-            return Ok(waits_for_slot(w));
+            return Ok(waits_for_slot(e, w));
         }
         let round =
             e.db.write(Actor::Engine, |tx| {
@@ -1277,8 +1277,10 @@ pub fn no_slot(e: &mut Engine, w: &Work, g: &CompiledGraph, row: &CompiledRow, s
     Ok(!asks && e.waiting(w)? && !e.room_for(w)?)
 }
 
-/// A work that waits on where it waited, what it waited for come, until it may take a slot.
-pub fn waits_for_slot(w: &Work) -> Advance {
+/// A work that waits on where it waited, what it waited for come, until it may take a slot; the engine keeps that it
+/// does until its next step, for the owner's page.
+pub fn waits_for_slot(e: &mut Engine, w: &Work) -> Advance {
+    e.held_for_slot.insert(w.id);
     Advance::Waits(format!(
         "work {} waits for a free slot to go on from cell {}",
         w.id, w.pos.at
@@ -1482,7 +1484,7 @@ fn ask(
                 let given = values::given(e, w, g, cell, Some(item), &gathered)?;
                 if given.get("interjection").and_then(Value::as_str) == Some("yes") {
                     if no_slot(e, w, g, &row, slotted)? {
-                        return Ok(waits_for_slot(w));
+                        return Ok(waits_for_slot(e, w));
                     }
                     return finish(
                         e,
@@ -1533,7 +1535,7 @@ fn ask(
         }
         let row = g.take(&cell.id, &output, &given)?.clone();
         if no_slot(e, w, g, &row, slotted)? {
-            return Ok(waits_for_slot(w));
+            return Ok(waits_for_slot(e, w));
         }
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }

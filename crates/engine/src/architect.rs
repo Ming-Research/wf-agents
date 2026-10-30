@@ -1338,7 +1338,7 @@ pub fn ask_architect(
             _ => json!({}),
         };
         if crate::steps::no_slot(e, w, g, &row, slotted)? {
-            return Ok(crate::steps::waits_for_slot(w));
+            return Ok(crate::steps::waits_for_slot(e, w));
         }
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }

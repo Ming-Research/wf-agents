@@ -124,6 +124,9 @@ pub struct Engine {
     /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
     /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
     replaced: Vec<(i64, i64)>,
+    /// The works whose last step found what they waited for come and waited on, holding no slot, since their machine
+    /// had no slot free ([`steps::waits_for_slot`]); a work leaves it when its next step is taken.
+    held_for_slot: BTreeSet<i64>,
 }
 
 impl Engine {
@@ -170,6 +173,7 @@ impl Engine {
             told: None,
             retry_wait: Duration::from_secs(10),
             replaced: Vec::new(),
+            held_for_slot: BTreeSet::new(),
         };
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
         for name in names {
@@ -218,6 +222,7 @@ impl Engine {
             told: None,
             retry_wait: Duration::from_secs(10),
             replaced: Vec::new(),
+            held_for_slot: BTreeSet::new(),
         })
     }
 
@@ -669,6 +674,7 @@ impl Engine {
 
     /// Takes a work one step further: a paused work only when the owner asked for its round.
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
+        self.held_for_slot.remove(&id);
         let mut w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
@@ -809,6 +815,23 @@ impl Engine {
             &self.config.config.install.machines.hosts,
             &holding,
         ))
+    }
+
+    /// The works whose wait is over and that wait on, holding no slot, until their machine has a slot free, as the last
+    /// step of each found and as each stands now: one since paused or ended, or whose machine has a slot free again,
+    /// which its next step takes, is not among them. The owner's page shows them so, since a work whose answer came
+    /// and that does not move would otherwise look ready.
+    pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
+        let mut out = Vec::new();
+        for id in self.held_for_slot.clone() {
+            let w = self.work(id)?;
+            if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
+                out.push(id);
+            } else {
+                self.held_for_slot.remove(&id);
+            }
+        }
+        Ok(out)
     }
 
     /// Whether a work that holds no slot may take one: its machine has a slot free, or, before it has a machine, any

@@ -10,13 +10,13 @@ import { Flash, PageHeader } from '@primer/react';
 import { Fragment, useEffect, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
-import { DependencyKind, Facts, ItemBadge, Loaded, StateChip, WorkBadge } from '../components';
+import { DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
 import { cost, time } from '../format';
 import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understanding, type Met } from '../item/Shapes';
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str, words } from '../labelled';
 import { waitsWords } from '../course';
-import { useResource } from '../live';
+import { useResource, useStatus } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } from '../parts';
 import { href, Link } from '../route';
@@ -355,6 +355,7 @@ function Linked({ list }: { list: LinkedItem[] }) {
 }
 
 function Works({ works }: { works: ItemDetail['works'] }) {
+  const status = useStatus();
   return (
     <table className="list">
       <tbody>
@@ -364,7 +365,7 @@ function Works({ works }: { works: ItemDetail['works'] }) {
               <Link to={`/works/${w.id}`}>#{w.id}</Link>
             </td>
             <td>
-              <WorkBadge state={w.state} />
+              <WorkBadge state={liveState(w, status)} />
             </td>
             <td>
               <span className="cell-id">{w.at}</span> {w.at_title}
@@ -427,6 +428,7 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
 /// state's chip, its stage, its cell, what it waits for, and its group, where the owner speaks to it and its tier is
 /// set.
 function Head({ d }: { d: ItemDetail }) {
+  const status = useStatus();
   const i = d.item;
   const w = d.works.find((x) => x.state !== 'done' && x.state !== 'ended');
   const changes = d.level_changes.map((c) => t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) }));
@@ -449,7 +451,7 @@ function Head({ d }: { d: ItemDetail }) {
       : joined([
           <span className="item-head-pair">
             <Link to={`/works/${w.id}`}>{t('item_live_work', { id: w.id })}</Link>
-            <WorkBadge state={w.state} />
+            <WorkBadge state={liveState(w, status)} />
           </span>,
           w.stage !== null ? words(w.stage) : null,
           <>

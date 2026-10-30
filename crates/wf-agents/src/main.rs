@@ -559,6 +559,7 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         keep_warm: true,
         started: Vec::new(),
         releasing: Vec::new(),
+        waiting_for_slot: e.waiting_for_slot()?,
         architects_started: Vec::new(),
         running: None,
         stepping: None,

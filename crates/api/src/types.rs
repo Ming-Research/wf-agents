@@ -51,6 +51,11 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
+    /// The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
+    /// wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
+    /// then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
+    /// named here.
+    pub waiting_for_slot: Vec<i64>,
     /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
@@ -143,6 +148,10 @@ pub enum WorkState {
     Asking,
     /// It took a row that waits: for other works, or for its turn.
     Waiting,
+    /// What it waited for came, and it waits on, holding no slot, until its machine has a slot free. The works as read
+    /// never stand so: the engine's status names such works (`waiting_for_slot`), and the page gives a work so named
+    /// this state in place of the one it reads.
+    WaitingForSlot,
     /// The owner, the architect or the engine paused it.
     Paused,
     /// It reached the end of its graph.

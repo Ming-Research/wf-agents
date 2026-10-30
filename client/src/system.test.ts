@@ -39,6 +39,7 @@ const status = (extra: Partial<Status> = {}): Status => ({
   keep_warm: true,
   started: [],
   releasing: [],
+  waiting_for_slot: [],
   architects_started: [],
   running: null,
   stepping: null,
