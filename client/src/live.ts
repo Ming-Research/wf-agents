@@ -2,7 +2,7 @@
 // when an event names something it shows; the stream's ids let a reconnect miss nothing, and when events were lost
 // the interface says to read everything again.
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Event, Status } from './api';
 import { getJson } from './http';
@@ -177,6 +177,39 @@ export function useResource<T>(key: string | null, path: string | null): Resourc
     };
   }, [path, v]);
   return got.path === path ? { data: got.data, error: got.error } : { data: undefined, error: null };
+}
+
+/// Reads each of `items` now, and one again each time an event names its key, as `useResource` reads one; the data in
+/// the order given once every one has been read. One read already and not named since is not read again.
+export function useResources<T>(items: ReadonlyArray<{ key: string; path: string }>): Resource<T[]> {
+  const paths = items.map((x) => x.path).join('\n');
+  const keys = items.map((x) => x.key);
+  const seen = useSyncExternalStore(subscribe, () => keys.map(version).join(' '));
+  const [got, setGot] = useState<{ read: Map<string, { v: number; data: T }>; error: string | null }>(() => ({
+    read: new Map(),
+    error: null,
+  }));
+  // What was asked for, by path, at the count of changes it was asked at.
+  const asked = useRef(new Map<string, number>());
+  useEffect(() => {
+    const vs = seen === '' ? [] : seen.split(' ').map(Number);
+    (paths === '' ? [] : paths.split('\n')).forEach((path, i) => {
+      const v = vs[i] ?? 0;
+      if (asked.current.get(path) === v) return;
+      asked.current.set(path, v);
+      getJson<T>(path).then(
+        (data) =>
+          setGot((old) =>
+            (old.read.get(path)?.v ?? -1) > v ? old : { read: new Map(old.read).set(path, { v, data }), error: null },
+          ),
+        (e: unknown) => setGot((old) => ({ ...old, error: e instanceof Error ? e.message : String(e) })),
+      );
+    });
+  }, [paths, seen]);
+  const all = items.map((x) => got.read.get(x.path));
+  return all.every((x) => x !== undefined)
+    ? { data: all.map((x) => (x as { data: T }).data), error: got.error }
+    : { data: undefined, error: got.error };
 }
 
 /// The time now, ticking every second while `ticking`, so that what runs or waits shows how long it has.

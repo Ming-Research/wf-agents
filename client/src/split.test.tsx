@@ -194,7 +194,7 @@ describe('a round picked beside a chart', () => {
     };
     const html = renderToStaticMarkup(
       <ArchitectChart
-        route={{ page: 'architect', project: null, work: 7, tab: 'rounds', round: 6, cell: null }}
+        route={{ page: 'architect', project: null, work: 7, tab: 'rounds', round: 6, cell: null, only: null, span: '7d' }}
         a={a}
         shown={shown}
         d={d}

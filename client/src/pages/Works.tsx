@@ -6,113 +6,22 @@
 // work it is, how it goes on and where, leads to its group, and to the other works running or waiting with what each
 // needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
 
-import { ArrowLeftIcon, ReplyIcon, XCircleIcon } from '@primer/octicons-react';
-import { CounterLabel, Heading, Label, Link as PrimerLink } from '@primer/react';
-import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { CounterLabel, Heading, Link as PrimerLink } from '@primer/react';
+import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { Status, WorkSummary } from '../api';
-import { type Course, course, heldName, StateChip, TagChip, WorkBadge, Loaded } from '../components';
-import { held, runningWords, takeoverWords, waitsWords } from '../course';
-import { cost, duration, time } from '../format';
-import { useNow, useResource, useStatus } from '../live';
-import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
+import { course, Loaded } from '../components';
+import { held, takeoverWords } from '../course';
+import { cost, time } from '../format';
+import { useResource, useStatus } from '../live';
+import { HeadingLevel, ItemRef, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t, tn } from '../text';
-import { joined } from '../voices';
+import { HeadLine, State, Where, WorksBack } from './HeadLine';
 import { Work } from './Work';
+import { RoundsMarks } from './WorkChart';
 
 const ENDED = new Set(['done', 'ended']);
-
-/// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
-/// waits for, linked to where the owner gives it, and its design cards and asks waiting for the owner as small chips;
-/// then why the engine stopped it or why it ended.
-function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
-  if (c.over) {
-    return (
-      <span className="course">
-        <WorkBadge state={w.state} />
-        {w.ended ? <span className="why">{w.ended}</span> : null}
-      </span>
-    );
-  }
-  const why = held(c, w);
-  const parts: ReactNode[] = [];
-  if (c.running !== null) {
-    parts.push(
-      <Label key="running" variant="accent">
-        {runningWords(c)}
-      </Label>,
-    );
-    if (w.running) {
-      parts.push(
-        <span key="for" className="muted">
-          {duration(Math.max(0, now - w.running.started_at))}
-        </span>,
-      );
-    }
-  } else if (why !== null) {
-    const h = heldName(c);
-    parts.push(
-      <Label key="held" variant={h.problem ? 'danger' : 'attention'} title={why}>
-        {h.name}
-      </Label>,
-    );
-  }
-  const waits = c.waits;
-  if (waits !== null) {
-    const to =
-      waits.kind === 'answer' || waits.kind === 'ruling' || waits.kind === 'architect'
-        ? href({ page: 'messages', open: `work:${w.id}` })
-        : waits.kind === 'items' && waits.items.length > 0
-              ? `/items/${waits.items[0]}`
-              : workHref(w.id);
-    parts.push(
-      <LabelLink key="waits" to={to} variant="attention" title={waitsWords(waits)}>
-        {waitsWords(waits)}
-      </LabelLink>,
-    );
-  }
-  if (c.running === null && why === null && waits === null) {
-    parts.push(
-      c.started ? (
-        <StateChip key="ready" tone="neutral">
-          {t('course_ready_started')}
-        </StateChip>
-      ) : (
-        <WorkBadge key="ready" state="ready" />
-      ),
-    );
-  }
-  // The asks and design cards waiting for the owner that what the work waits for does not name already: they are the
-  // owner's to do, not what holds the work up.
-  const asks = w.open_asks - (waits?.kind === 'answer' ? 1 : 0);
-  const cards = w.open_design_cards - (waits?.kind === 'ruling' ? 1 : 0);
-  if (asks > 0) {
-    parts.push(
-      <LabelLink key="asks" to={href({ page: 'messages', open: `work:${w.id}` })} variant="attention" title={t('open_asks_n', { n: asks })}>
-        {t('open_asks_chip', { n: asks })}
-      </LabelLink>,
-    );
-  }
-  if (cards > 0) {
-    parts.push(
-      <LabelLink
-        key="cards"
-        to={href({ page: 'messages', open: `work:${w.id}` })}
-        variant="attention"
-        title={tn('open_design_cards_later_n', cards)}
-      >
-        {t('open_design_cards_chip', { n: cards })}
-      </LabelLink>,
-    );
-  }
-  return (
-    <span className="course">
-      {parts}
-      {(c.held === 'engine' || c.held === 'architect') && w.paused ? <span className="why">{w.paused}</span> : null}
-    </span>
-  );
-}
 
 /// The project a work's item is of, said after its title only while there is more than one project, as the engine's
 /// configuration has them: with one, it says nothing.
@@ -122,7 +31,7 @@ function projectOf(w: WorkSummary, status: Status | null): string | null {
 
 /// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
 /// its group in the messages view, where the owner acts on it, from its link.
-function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
+function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   const status = useStatus();
   const a = { c: course(w, status) };
   const project = projectOf(w, status);
@@ -143,53 +52,18 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
         )}
       </td>
       <td className="state-cell" title={held(a.c, w) ?? w.ended ?? undefined}>
-        <State w={w} c={a.c} now={now} />
+        <State w={w} c={a.c} />
       </td>
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
-        <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
-          {t('go_to_conversation')}
-        </Link>
+        <ConversationLink w={w} />
       </td>
       <td title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
-        <span className="cell-id">{w.at}</span>{' '}
-        {a.c.outdated ? (
-          <>
-            <Label variant="attention" title={takeoverWords(w, status)}>
-              {t('course_outdated', { version: w.flow_version })}
-            </Label>{' '}
-          </>
-        ) : null}
-        {w.at_title}
+        <Where w={w} c={a.c} />
       </td>
       <td title={stage}>{stage}</td>
       <td className="num" title={String(w.rounds)}>
         {w.rounds}
-        {w.sent_back > 0 ? (
-          <>
-            {' '}
-            <Link
-              to={workHref(w.id, { only: 'sent_back' })}
-              className="rounds-mark rounds-mark-back"
-              title={t('rounds_sent_back_title', { n: w.sent_back })}
-            >
-              <ReplyIcon aria-label={t('outcome_sent_back')} />
-              {w.sent_back}
-            </Link>
-          </>
-        ) : null}
-        {w.failed > 0 ? (
-          <>
-            {' '}
-            <Link
-              to={workHref(w.id, { only: 'failed' })}
-              className="rounds-mark rounds-mark-failed"
-              title={t('rounds_failed_title', { n: w.failed })}
-            >
-              <XCircleIcon aria-label={t('outcome_failed')} />
-              {w.failed}
-            </Link>
-          </>
-        ) : null}
+        <RoundsMarks w={w} to={(only) => workHref(w.id, { only })} />
       </td>
       <td title={time(w.started_at)}>{time(w.started_at)}</td>
       <td title={time(w.last_at)}>{time(w.last_at)}</td>
@@ -315,8 +189,6 @@ function Table({ works, tab, widths, onWidths }: {
   widths: Widths;
   onWidths: (w: Widths) => void;
 }) {
-  const status = useStatus();
-  const now = useNow(works.some((w) => status !== null && status.running === w.id));
   const fixed = COLUMNS.filter((c) => c.width !== null).reduce((sum, c) => sum + widthOf(widths, c.key), 0);
   return (
     <table className="list works-table" style={{ minWidth: fixed + ITEM_MIN }}>
@@ -342,7 +214,7 @@ function Table({ works, tab, widths, onWidths }: {
       </thead>
       <tbody>
         {works.map((w) => (
-          <Row key={w.id} w={w} tab={tab} now={now} />
+          <Row key={w.id} w={w} tab={tab} />
         ))}
       </tbody>
     </table>
@@ -364,85 +236,67 @@ function List({ works, tab, widths, onWidths }: {
   );
 }
 
-/// The line above an open work's chart, which only reads it: back to the list; which work it is; how it goes on; where
-/// it is, its rounds, cost and pull request; and its group in the messages view, where the owner acts on it.
+/// A work's conversation in the messages view, where the owner acts on it.
+function ConversationLink({ w }: { w: WorkSummary }) {
+  return (
+    <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
+      {t('go_to_conversation')}
+    </Link>
+  );
+}
+
+/// The line above an open work's chart, which only reads it, as the shared head line draws it: back to the list; which
+/// work it is; how it goes on; where it is and its stage; its rounds, cost and pull request; and its group in the
+/// messages view, where the owner acts on it.
 function WorkLine({ w }: { w: WorkSummary }) {
   const status = useStatus();
-  const a = { c: course(w, status) };
-  const now = useNow(status !== null && status.running === w.id);
+  const c = course(w, status);
   const repo = w.project !== null ? status?.repos[w.project] : undefined;
   const project = projectOf(w, status);
   const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : `#${w.id}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   const at = `${w.at} ${w.at_title ?? ''}${stage ? ` · ${stage}` : ''}`;
   return (
-    <div className="work-line">
-      <WorksBack />
-      <span className="work-name" title={name}>
-        <strong>#{w.id}</strong>{' '}
-        {w.item !== null ? (
-          <>
-            <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />
-            {project ? <span className="muted"> · {project}</span> : null}
-          </>
-        ) : (
-          w.graph
-        )}
-      </span>
-      <span className="work-state" title={held(a.c, w) ?? w.ended ?? undefined}>
-        <State w={w} c={a.c} now={now} />
-      </span>
-      <span className="work-where" title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
-        <span className="cell-id">{w.at}</span>{' '}
-        {a.c.outdated ? (
-          <>
-            <Label variant="attention" title={takeoverWords(w, status)}>
-              {t('course_outdated', { version: w.flow_version })}
-            </Label>{' '}
-          </>
-        ) : w.moved_from !== null ? (
-          <>
-            <TagChip title={t('course_moved_hint', { from: w.moved_from, version: w.flow_version })}>
-              {t('course_moved', { version: w.flow_version })}
-            </TagChip>{' '}
-          </>
-        ) : null}
-        {w.at_title}
-        {stage ? <span className="muted"> · {stage}</span> : null}
-      </span>
-      <span className="muted">
-        {joined([
-          tn('work_rounds_n', w.rounds),
-          cost(w.cost_usd),
-          w.pr === null ? null : repo !== undefined ? (
-            <PrimerLink
-              key="pr"
-              href={`https://github.com/${repo}/pull/${w.pr}`}
-              target="_blank"
-              rel="noreferrer"
-              muted
-              title={t('work_pr_hint')}
-            >
-              {t('work_pr', { n: w.pr })}
-            </PrimerLink>
+    <HeadLine
+      lead={<WorksBack />}
+      name={
+        <>
+          <strong>#{w.id}</strong>{' '}
+          {w.item !== null ? (
+            <>
+              <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />
+              {project ? <span className="muted"> · {project}</span> : null}
+            </>
           ) : (
-            t('work_pr', { n: w.pr })
-          ),
-          <Link key="talk" to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
-            {t('go_to_conversation')}
-          </Link>,
-        ])}
-      </span>
-    </div>
-  );
-}
-
-/// The way back from a work to the list of works.
-function WorksBack() {
-  return (
-    <Link to="/works" className="work-back" title={t('work_back')}>
-      <ArrowLeftIcon /> {t('nav_works')}
-    </Link>
+            w.graph
+          )}
+        </>
+      }
+      nameHint={name}
+      state={<State w={w} c={c} />}
+      stateHint={held(c, w) ?? w.ended ?? undefined}
+      where={<Where w={w} c={c} stage />}
+      whereHint={c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}
+      facts={[
+        tn('work_rounds_n', w.rounds),
+        cost(w.cost_usd),
+        w.pr === null ? null : repo !== undefined ? (
+          <PrimerLink
+            key="pr"
+            href={`https://github.com/${repo}/pull/${w.pr}`}
+            target="_blank"
+            rel="noreferrer"
+            muted
+            title={t('work_pr_hint')}
+          >
+            {t('work_pr', { n: w.pr })}
+          </PrimerLink>
+        ) : (
+          t('work_pr', { n: w.pr })
+        ),
+      ]}
+      conversation={`work:${w.id}`}
+    />
   );
 }
 

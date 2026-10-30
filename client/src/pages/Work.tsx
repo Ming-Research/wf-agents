@@ -1,208 +1,26 @@
-// A work's page, under its line above the chart, which holds its facts and the owner's controls: the state machine of
-// the flow version it is pinned to, filling the window but for the column docked at its right, with what the work did
-// on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows
-// it took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits at why,
+// A work's page, under its line above the chart, which holds its facts and how it goes on: the state machine of the
+// flow version it is pinned to, filling the window but for the column docked at its right, with what the work did on
+// it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows it
+// took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits at why,
 // in a few words. The page only reads the work: the owner acts on it in its group in the messages view, which its line
-// and what it waits for lead to. The column holds on top the work's panel in tabs: its rounds, under how it goes on;
-// its design cards, the one waiting for the owner's ruling first; what its helpers (the advisor, the review, the
-// adversarial testing) and its engineer said to each other, one thread for each helper, which is in no group; and its
-// usage. A round or a cell opened shows in the column's lower part, its cell brought into view.
+// and what it waits for lead to. The column holds on top the work's panel in tabs: its rounds; its design cards, the
+// one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the adversarial testing)
+// with its engineer, one thread for each helper, which is in no group; and its usage. A round or a cell opened shows in
+// the column's lower part, its cell brought into view. The chart, the panel, the rounds tab, the line and the usage are
+// the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx).
 
-import { CounterLabel, Flash as PrimerFlash, UnderlineNav } from '@primer/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-
-import type {
-  Compiled,
-  CompiledGraph,
-  DesignCard,
-  FlowView,
-  GraphView,
-  RoundSummary,
-  Status,
-  WorkDetail,
-  WorkSummary,
-} from '../api';
-import { type Course, course, heldName, Loaded, OutcomeBadge, StateChip } from '../components';
-import { held, runningWords, takeoverWords, waitOf, waitsWords } from '../course';
-import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration, roundName } from '../format';
-import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
-import { spent } from '../round';
-import { useActivity, useResource, useStatus } from '../live';
-import { By, ItemRef, LinkButton, RoundLink, Section } from '../parts';
-import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
-import { t, tn } from '../text';
-import { Markdown } from '../markdown';
-import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
-import { RoundView } from './RoundView';
+import type { Compiled, CompiledGraph, DesignCard, FlowView, RoundDetail, RoundSummary, WorkDetail } from '../api';
+import { Loaded } from '../components';
+import { useResource } from '../live';
+import { RoundAt, RoundLink, Section } from '../parts';
+import { href, navigate, type WorkRoute, type WorkTab } from '../route';
+import { t } from '../text';
+import { time } from '../format';
+import { Bubble } from './Bubble';
+import { currentCard, DesignCardView, words } from './Decide';
+import { HandedBack, roundUrl } from './RoundView';
 import { Usage } from './Usage';
-
-/// Who did a round's work: an agent, by its line; the engine, also for a gate it answered itself; the tools; the
-/// owner.
-function who(r: RoundSummary, g: CompiledGraph): string {
-  if (r.line !== null && r.not_asked === null) return r.line;
-  const kind = r.cell !== null ? g.cells.find((c) => c.id === r.cell)?.kind : undefined;
-  return kind === 'tool' ? t('round_by_tools') : kind === 'owner' ? t('round_by_owner') : t('round_by_engine');
-}
-
-/// The rounds the list shows: all of them, or only those whose return was sent back, or only those whose run failed or
-/// was cut off, as the list of works counts them.
-export function roundsShown(rounds: RoundSummary[], only: RoundsOnly | null): RoundSummary[] {
-  if (only === 'sent_back') return rounds.filter((r) => r.outcome === 'sent_back');
-  if (only === 'failed') return rounds.filter((r) => r.outcome === 'failed' || r.outcome === 'interrupted');
-  return rounds;
-}
-
-/// Where an agent's round spent its cost, beside its cost in its row: a small bar of the shares read again from the
-/// cache, newly cached and output, and its steps; the whole of it on hovering. None for a round no agent ran.
-function SpentBar({ r }: { r: RoundSummary }) {
-  if (r.tokens === null || r.line === null || r.not_asked !== null) return null;
-  const s = spent(r.tokens, r.model);
-  const sum = s.shares !== null ? s.shares.read + s.shares.written + s.shares.output : 0;
-  const width = (x: number) => `${sum > 0 ? (100 * x) / sum : 0}%`;
-  return (
-    <span className="spent" title={s.parts.map((p) => p.whole).join(' · ')}>
-      {s.shares !== null ? (
-        <span className="spent-bar">
-          <span className="spent-read" style={{ width: width(s.shares.read) }} />
-          <span className="spent-new" style={{ width: width(s.shares.written) }} />
-          <span className="spent-output" style={{ width: width(s.shares.output) }} />
-        </span>
-      ) : null}
-      <span className="spent-steps">{s.steps}</span>
-    </span>
-  );
-}
-
-/// The rounds, newest first: the cell and who did its work, the row it took (a badge only for what is not the usual
-/// course: sent back, failed, cut off, running), whole and wrapped rather than cut, what an agent's round cost, where
-/// its cost went (its key is in the chart's "?") and how long it took. The round chosen, however it was chosen, is
-/// scrolled into view.
-export function Timeline(props: {
-  work: number;
-  rounds: RoundSummary[];
-  g: CompiledGraph;
-  /// Whether a round still open is one left over, not one running: the engine holds and runs nothing of this work.
-  stale: boolean;
-  selected: number | null;
-  onRound: (r: RoundSummary) => void;
-}) {
-  const body = useRef<HTMLTableSectionElement>(null);
-  const { selected } = props;
-  useEffect(() => {
-    if (selected !== null) body.current?.querySelector('tr.selected')?.scrollIntoView({ block: 'nearest' });
-  }, [selected]);
-  if (props.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
-  const newest = [...props.rounds].reverse();
-  return (
-    <table className="list timeline">
-      <tbody ref={body}>
-        {newest.map((r) => {
-          // A row the engine took as a session would start afresh says why after its name.
-          const took = r.transition !== null && r.why !== null ? `${r.transition}: ${r.why}` : (r.transition ?? r.why ?? '');
-          const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : took;
-          return (
-            <tr
-              key={r.n}
-              className={`clickable${r.n === props.selected ? ' selected' : ''}`}
-              onClick={() => props.onRound(r)}
-            >
-              <td className="muted nowrap">{roundName(props.work, r.n)}</td>
-              <td className="nowrap">
-                <span className="cell-id">{r.cell ?? '–'}</span> <span className="muted">{who(r, props.g)}</span>
-              </td>
-              <td className="timeline-what">
-                {r.outcome === 'running' && props.stale ? (
-                  <>
-                    <StateChip tone="neutral" title={t('round_left_open_hint')}>
-                      {t('round_left_open')}
-                    </StateChip>{' '}
-                  </>
-                ) : r.outcome !== 'took' ? (
-                  <>
-                    <OutcomeBadge outcome={r.outcome} />{' '}
-                  </>
-                ) : null}
-                <span className={r.not_asked !== null ? 'muted' : undefined}>{what}</span>
-              </td>
-              <td className="num muted nowrap">
-                <SpentBar r={r} />
-                {r.cost_usd !== null && r.line !== null ? cost(r.cost_usd) : ''}
-              </td>
-              <td className="num muted nowrap">{r.ended_at !== null ? duration(r.ended_at - r.started_at) : ''}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-/// How the work goes on, at the top of its rounds: whether a round of it runs (how long, and what the agent is doing),
-/// what holds it back and why in full, and what it waits for, with where the owner gives it; on an older flow version,
-/// that it is taken over when it goes on. The owner's controls of it are in its line above the chart.
-function Going({ d }: { d: WorkDetail }) {
-  const status = useStatus();
-  const w = d.work;
-  const c = course(w, status);
-  const activity = useActivity(w.id);
-  const [now, setNow] = useState(() => Date.now());
-  const runs = c.running !== null;
-  useEffect(() => {
-    if (!runs) return;
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(tick);
-  }, [runs]);
-  if (c.over) return null;
-  const why = held(c, w);
-  const since = w.running?.started_at ?? null;
-  const head = runs
-    ? runningWords(c)
-    : why !== null
-      ? heldName(c).name
-      : c.waits !== null
-        ? waitsWords(c.waits)
-        : c.started
-          ? t('course_ready_started')
-          : t('state_ready');
-  const waits = c.waits;
-  // A Flash in the colour of how the work goes on: a round running is news, a stop of the engine's is a problem, and
-  // a work held back or waiting waits for someone.
-  const variant = runs ? 'default' : c.held === 'engine' ? 'danger' : why !== null || waits !== null ? 'warning' : 'default';
-  return (
-    <PrimerFlash variant={variant} className="going">
-      <div className="going-head">
-        <strong>{head}</strong>
-        {runs && since !== null ? <span className="muted">{duration(now - since)}</span> : null}
-      </div>
-      {(c.held === 'engine' || c.held === 'architect') && w.paused !== null ? <p className="prose">{w.paused}</p> : null}
-      {c.held === 'you' && why !== t('course_paused') ? <p className="prose">{why}</p> : null}
-      {c.held === 'all' && !runs ? <p>{t('course_note_all')}</p> : null}
-      {c.releasing ? <p>{t('course_releasing_why')}</p> : null}
-      {waits !== null && (runs || why !== null) ? <p className="prose">{waitsWords(waits)}</p> : null}
-      {waits?.kind === 'ruling' || waits?.kind === 'answer' || waits?.kind === 'architect' ? (
-        <p>
-          <Link to={href({ page: 'messages', open: `work:${w.id}` })}>{t('go_to_conversation')}</Link>
-        </p>
-      ) : null}
-      {waits?.kind === 'items' ? (
-        <p className="going-items">
-          {waits.items.map((i) => (
-            <ItemRef key={i} id={i} />
-          ))}
-        </p>
-      ) : null}
-      {c.outdated ? <p>{takeoverWords(w, status)}</p> : null}
-      {runs && activity.length > 0 ? (
-        <ol className="going-activity">
-          {activity.map((x, i) => (
-            <li key={i}>{x.what}</li>
-          ))}
-        </ol>
-      ) : null}
-    </PrimerFlash>
-  );
-}
+import { ChartPanel, RoundsTab, WorkChart } from './WorkChart';
 
 /// The work's design cards, in the card every card shares: the one waiting for the owner's ruling first, then the
 /// others, newest first; the current one (the one waiting, else the newest not replaced) open, every other folded to
@@ -227,241 +45,176 @@ function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) =
   );
 }
 
-/// The rounds of the engineer next to a helper's: the one that asked it, before it, and the one that took up what it
-/// said, after it, the engine's and the tools' rounds between them aside.
-function nextTo(rounds: RoundSummary[], i: number, step: number): RoundSummary | null {
-  for (let k = i + step; k >= 0 && k < rounds.length; k += step) {
-    const r = rounds[k];
-    if (r.line === 'engineer') return r;
-    if (r.line !== null) return null;
+/// The helpers of a work, each the line that runs it: its talk with the engineer is a thread of its own.
+export const HELPERS = ['advisor', 'review', 'adversarial'] as const;
+
+/// A helper's thread with the side across from it, from the work's rounds in order, each round once and in order:
+/// each run of the helper's rounds (those with no round of the engineer's between them); before it, the round that
+/// handed it what it works on: the round that asked it, where the row it took leads to the helper's cell, else the
+/// engineer's latest round that handed in its own return with a commit (`head`), the one reviewed or tested, else the
+/// engineer's latest round; and after it, what that side did with what it said: the last round taken at the first cell
+/// of that side's after the run, up to another agent's cell.
+export function helperThread(rounds: RoundSummary[], line: string, g: CompiledGraph): RoundSummary[] {
+  const cells = new Map(g.cells.map((c) => [c.id, c]));
+  const agent = (r: RoundSummary) => r.line !== null && r.not_asked === null;
+  const rowOf = (r: RoundSummary) =>
+    r.cell !== null && r.transition !== null ? cells.get(r.cell)?.rows.find((x) => x.name === r.transition) : undefined;
+  // A round that handed in its cell's own return, and that return holds the commit it made.
+  const handsHead = (r: RoundSummary) => {
+    const row = rowOf(r);
+    const c = r.cell !== null ? cells.get(r.cell) : undefined;
+    if (row === undefined || row.common || row.fallback === true || c === undefined) return false;
+    const own = (c.forms ?? []).findIndex((f) => f.own === true);
+    const schema = c.schema;
+    const within =
+      schema !== null && schema !== undefined && typeof schema === 'object' && !Array.isArray(schema) ? schema.properties : undefined;
+    const form = within !== null && typeof within === 'object' && !Array.isArray(within) ? within[g.within] : undefined;
+    const alts = form !== null && typeof form === 'object' && !Array.isArray(form) ? form.anyOf : undefined;
+    const ownForm = Array.isArray(alts) && own >= 0 ? alts[own] : form;
+    const props = ownForm !== null && typeof ownForm === 'object' && !Array.isArray(ownForm) ? ownForm.properties : undefined;
+    return props !== null && typeof props === 'object' && !Array.isArray(props) && 'head' in props;
+  };
+  const picked = new Map<number, RoundSummary>();
+  let i = 0;
+  while (i < rounds.length) {
+    if (rounds[i].line !== line) {
+      i += 1;
+      continue;
+    }
+    const first = rounds[i];
+    let last = i;
+    for (let k = i; k < rounds.length && rounds[k].line !== 'engineer'; k += 1) {
+      if (rounds[k].line !== line) continue;
+      // A return sent back, or a run that failed, said nothing to the other side.
+      if (rounds[k].outcome === 'took' || rounds[k].outcome === 'running') picked.set(rounds[k].n, rounds[k]);
+      last = k;
+    }
+    const before = rounds.slice(0, i).reverse();
+    const asker = before.find((r) => agent(r) && r.outcome === 'took');
+    const handed =
+      asker !== undefined && asker.line !== line && rowOf(asker)?.to === first.cell
+        ? asker
+        : (before.find((r) => r.line === 'engineer' && r.outcome === 'took' && handsHead(r)) ??
+          before.find((r) => r.line === 'engineer' && r.outcome === 'took'));
+    if (handed !== undefined) picked.set(handed.n, handed);
+    const side = handed?.line ?? 'engineer';
+    const after = rounds.slice(last + 1);
+    const start = after.findIndex((r) => r.line === side && agent(r));
+    if (start >= 0) {
+      const at = after[start].cell;
+      let took: RoundSummary | undefined;
+      for (const r of after.slice(start)) {
+        if (agent(r) && r.cell !== at) break;
+        if (r.line === side && r.outcome === 'took') took = r;
+      }
+      if (took !== undefined) picked.set(took.n, took);
+    }
+    i = last + 1;
   }
-  return null;
+  return [...picked.values()].sort((a, b) => a.n - b.n);
 }
 
-/// The helpers of a work, each the line that runs it: its talk with the engineer is a thread of its own.
-const HELPERS = ['advisor', 'review', 'adversarial'] as const;
+/// One message of a helper's thread: the round's return word for word in its side's bubble, the helper's on the
+/// right; its head says who, the round at its cell, opening it on the chart, and when.
+function Said({ work, r, line, g, onRound }: {
+  work: number;
+  r: RoundSummary;
+  line: string;
+  g: CompiledGraph;
+  onRound: (round: number) => void;
+}) {
+  const d = useResource<RoundDetail>(`round:${work}-${r.n}`, roundUrl(work, r.n));
+  const cell = r.cell !== null ? g.cells.find((c) => c.id === r.cell) : undefined;
+  const who = r.line ?? 'engineer';
+  return (
+    <Bubble
+      who={who}
+      right={who === line}
+      head={
+        <>
+          <span className="talk-who">{words(who)}</span>
+          <RoundAt round={<RoundLink work={work} round={r.n} onRound={(_, n) => onRound(n)} muted />} cell={r.cell} title={cell?.title} />
+          <span className="talk-when">{time(r.ended_at ?? r.started_at)}</span>
+        </>
+      }
+    >
+      <Loaded r={d}>{(x) => <HandedBack d={x} cell={cell} within={g.within} />}</Loaded>
+    </Bubble>
+  );
+}
 
-/// What a work's helpers and its engineer said to each other, read only, one thread for each helper and never mixed:
-/// each helper's rounds with the engineer's round that asked it before them and the one that took up what it said
-/// after them, each saying who, its round and what it said it did.
-function Helpers({ d, onRound }: { d: WorkDetail; onRound: (round: number) => void }) {
-  const threads = HELPERS.map((line) => {
-    const picked = new Map<number, RoundSummary>();
-    d.rounds.forEach((r, i) => {
-      if (r.line !== line) return;
-      for (const x of [nextTo(d.rounds, i, -1), r, nextTo(d.rounds, i, 1)]) if (x !== null) picked.set(x.n, x);
-    });
-    return { line, rounds: [...picked.values()].sort((a, b) => a.n - b.n) };
-  }).filter((x) => x.rounds.length > 0);
+/// What a work's helpers and its engineer said to each other, read only, one thread for each helper and never mixed,
+/// as a chat: what was handed to the helper, word for word (the question, or the commit and what to review or test),
+/// its answer word for word, and what the engineer did with it next.
+function Helpers({ d, g, onRound }: { d: WorkDetail; g: CompiledGraph; onRound: (round: number) => void }) {
+  const threads = HELPERS.map((line) => ({ line, rounds: helperThread(d.rounds, line, g) })).filter(
+    (x) => x.rounds.some((r) => r.line === x.line),
+  );
   if (threads.length === 0) return <p className="muted">{t('helpers_none')}</p>;
   return (
     <>
       {threads.map((x) => (
-        <Section key={x.line} title={t('helpers_thread', { line: words(x.line) })} n={x.rounds.length} open>
-          {x.rounds.map((r) => (
-            <div key={r.n} className="helper-said">
-              <By who={words(r.line ?? '')} cell={r.cell} at={r.ended_at ?? r.started_at} work={d.work.id} round={r.n} onRound={(_, n) => onRound(n)} />
-              {r.progress !== null && r.progress !== '' ? (
-                <div className="agent-box">
-                  <Markdown text={r.progress} />
-                </div>
-              ) : null}
-            </div>
-          ))}
+        <Section key={x.line} title={t('helpers_thread', { line: words(x.line) })} n={x.rounds.filter((r) => r.line === x.line).length} open>
+          <div className="talk-messages">
+            {x.rounds.map((r) => (
+              <Said key={r.n} work={d.work.id} r={r} line={x.line} g={g} onRound={onRound} />
+            ))}
+          </div>
         </Section>
       ))}
     </>
   );
 }
 
-/// The work's panel, on top of the column docked at the right of its chart: its tabs, the rounds (under how the work
-/// goes on), the design cards, its helpers' talk with its engineer, and its usage.
-function WorkPanel({ d, g, r, go }: {
-  d: WorkDetail;
-  g: CompiledGraph;
-  r: WorkRoute;
-  go: (to: Partial<WorkRoute>) => void;
-}) {
-  const status = useStatus();
-  // What to bring into view once its tab is shown: the design card or the ask the owner was sent to; else a tab shows
-  // from its top.
-  const want = useRef<string | null>(null);
-  const body = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (want.current === null) body.current?.scrollTo({ top: 0 });
-  }, [r.tab]);
-  useEffect(() => {
-    if (want.current !== null && bringIntoView(want.current)) want.current = null;
-  });
-  const show = (tab: WorkTab, at: string | null) => {
-    want.current = at;
-    go({ tab });
-  };
+/// The work's panel, on top of the column docked at the right of its chart: its rounds, its design cards, its helpers'
+/// talk with its engineer, and its usage.
+function WorkPanel({ d, g, r, go }: { d: WorkDetail; g: CompiledGraph; r: WorkRoute; go: (to: Partial<WorkRoute>) => void }) {
   const onRound = (round: number) => go({ round, cell: null });
   const openCards = d.design_cards.filter((c) => c.status === 'open').length;
   const helped = d.rounds.filter((x) => x.line !== null && (HELPERS as readonly string[]).includes(x.line)).length;
-  // Each tab's count, and what in it waits for the owner as a count of its own.
-  const tabs: Array<{ tab: WorkTab; label: string; n: number | null; waiting: number; hint: string }> = [
-    { tab: 'rounds', label: t('rounds'), n: d.rounds.length, waiting: 0, hint: '' },
-    {
-      tab: 'cards',
-      label: t('design_cards'),
-      n: d.design_cards.length,
-      waiting: openCards,
-      hint: t('open_design_cards_n', { n: openCards }),
-    },
-    { tab: 'helpers', label: t('helpers_tab'), n: helped, waiting: 0, hint: '' },
-    { tab: 'usage', label: t('us_tab'), n: null, waiting: 0, hint: '' },
-  ];
-  const shown = roundsShown(d.rounds, r.only);
+  const tab = (x: WorkTab) => href({ ...r, tab: x });
   return (
-    <div className="drawer">
-      <UnderlineNav aria-label={t('work_tabs')} className="drawer-tabs">
-        {tabs.map((x) => (
-          <UnderlineNav.Item
-            key={x.tab}
-            href={href({ ...r, tab: x.tab, round: r.round, cell: r.cell })}
-            aria-current={x.tab === r.tab ? 'page' : undefined}
-            onSelect={(e) => {
-              // A click with a modifier key opens the tab as the browser would.
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              show(x.tab, null);
-            }}
-          >
-            {x.label}
-            {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
-            {x.waiting > 0 ? (
-              <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
-                {x.waiting}
-              </CounterLabel>
-            ) : null}
-          </UnderlineNav.Item>
-        ))}
-      </UnderlineNav>
-      <div className="drawer-body" ref={body}>
-        {r.tab === 'rounds' ? (
-          <>
-            <Going d={d} />
-            {r.only !== null ? (
-              <p className="rounds-only">
-                {tn(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', shown.length)}{' '}
-                <LinkButton onClick={() => go({ only: null })}>{t('rounds_show_all', { n: d.rounds.length })}</LinkButton>
-              </p>
-            ) : null}
-            <Timeline
-              work={d.work.id}
-              rounds={shown}
-              g={g}
-              stale={status !== null && status.running !== d.work.id}
-              selected={r.round}
-              onRound={(x) => onRound(x.n)}
-            />
-          </>
-        ) : null}
-        {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
-        {r.tab === 'helpers' ? <Helpers d={d} onRound={onRound} /> : null}
-        {r.tab === 'usage' ? <Usage d={d} g={g} /> : null}
-      </div>
-    </div>
+    <ChartPanel
+      label={t('work_tabs')}
+      current={r.tab}
+      onTab={(x) => go({ tab: x })}
+      tabs={[
+        { tab: 'rounds', label: t('rounds'), href: tab('rounds'), n: d.rounds.length },
+        {
+          tab: 'cards',
+          label: t('design_cards'),
+          href: tab('cards'),
+          n: d.design_cards.length,
+          waiting: openCards,
+          hint: t('open_design_cards_n', { n: openCards }),
+        },
+        { tab: 'helpers', label: t('helpers_tab'), href: tab('helpers'), n: helped },
+        { tab: 'usage', label: t('us_tab'), href: tab('usage'), n: null },
+      ]}
+    >
+      {r.tab === 'rounds' ? (
+        <RoundsTab d={d} g={g} only={r.only} selected={r.round} onAll={() => go({ only: null })} onRound={onRound} />
+      ) : null}
+      {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
+      {r.tab === 'helpers' ? <Helpers d={d} g={g} onRound={onRound} /> : null}
+      {r.tab === 'usage' ? <Usage works={[d]} cells={new Map(g.cells.map((c) => [c.id, { kind: c.kind, title: c.title }]))} /> : null}
+    </ChartPanel>
   );
 }
 
-/// Whether a round of a work runs now: the engine takes its step, or, at a tool cell, its tool is under way.
-function runsNow(w: WorkSummary, c: Course): boolean {
-  return c.running !== null || w.running?.tool === true;
-}
-
-/// What a work's chart marks: what it did at each cell (the cell it is at, whether a round runs there and why the work
-/// waits there while none does), the cell the halo goes round, how many times it took each arrow, and the arrows the
-/// round chosen came in by and left by.
-export function workMarks(
-  g: CompiledGraph,
-  v: GraphView,
-  w: WorkSummary,
-  rounds: RoundSummary[],
-  c: Course,
-  status: Status | null,
-  halo: string | null,
-  round: number | null = null,
-  flow: Compiled | null = null,
-) {
-  const model = chart(g, v, flow?.engine ?? null);
-  return {
-    overlays: overlays(rounds, w.at, { running: runsNow(w, c), waits: waitOf(c, w, status) }),
-    halo,
-    taken: taken(model, g, rounds),
-    lit: round !== null ? roundArrows(model, g, rounds, round) : undefined,
-    added: new Set<string>(),
-    changed: new Set<string>(),
-  };
-}
-
-/// The rounds kept for the halo to go round, the newest: more than ever come in between two reads.
-const FLASHES_KEPT = 32;
-
-/// The cell the halo goes round on a work's chart (`haloAt`): each round new since the page last read the work's
-/// rounds counts as just run, so that a round of a tool or an engine step, over in milliseconds, is seen; the rounds
-/// there at the first read do not.
-export function useHalo(w: WorkSummary | null, rounds: RoundSummary[], c: Course | null): string | null {
-  const [flashes, setFlashes] = useState<Flash[]>([]);
-  const known = useRef<{ work: number; rounds: Set<number> } | null>(null);
-  const [, setTick] = useState(0);
-  const id = w?.id ?? null;
-  useEffect(() => {
-    if (id === null) return;
-    const k = known.current;
-    if (k === null || k.work !== id) {
-      known.current = { work: id, rounds: new Set(rounds.map((r) => r.n)) };
-      setFlashes([]);
-      return;
-    }
-    const seen = Date.now();
-    const fresh = rounds.filter((r) => !k.rounds.has(r.n)).sort((a, b) => a.n - b.n);
-    for (const r of fresh) k.rounds.add(r.n);
-    const more = fresh.flatMap((r) => (r.cell !== null ? [{ n: r.n, cell: r.cell, seen }] : []));
-    if (more.length > 0) setFlashes((f) => [...f, ...more].slice(-FLASHES_KEPT));
-  }, [id, rounds]);
-  const newest = rounds.reduce<number | null>((m, r) => (m === null || r.n > m ? r.n : m), null);
-  const { cell, next } = haloAt(flashes, Date.now(), {
-    at: w?.at ?? null,
-    runs: w !== null && c !== null && runsNow(w, c),
-    newest,
-  });
-  // Moves on when the halo is due to.
-  useEffect(() => {
-    if (next === null) return;
-    const timer = setTimeout(() => setTick((x) => x + 1), Math.max(0, next - Date.now()) + 20);
-    return () => clearTimeout(timer);
-  }, [next]);
-  return cell;
-}
-
 export function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
-  const status = useStatus();
-  const g = compiled.graphs.find((x) => x.name === d.work.graph);
-  const v = view.graphs.find((x) => x.name === d.work.graph);
-  const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
-  const c = course(d.work, status);
-  const halo = useHalo(d.work, d.rounds, c);
-  if (!g || !v) return <p className="muted page">{t('none')}</p>;
-  const roundCell = r.round !== null ? (d.rounds.find((x) => x.n === r.round)?.cell ?? null) : null;
   const go = (to: Partial<WorkRoute>) => navigate(href({ ...r, ...to }), true);
   return (
-    <FlowScreen
+    <WorkChart
       compiled={compiled}
-      graphs={graphs}
-      legend="work"
-      marks={[workMarks(g, v, d.work, d.rounds, c, status, halo, r.round, compiled)]}
+      view={view}
+      graph={d.work.graph}
+      d={d}
       cell={r.cell}
-      onCell={(c) => go({ round: null, cell: c })}
-      start={roundCell ?? d.work.at}
-      work={d.work.id}
-      rounds={d.rounds}
       round={r.round}
+      onCell={(c) => go({ round: null, cell: c })}
       onRound={(x) => go({ round: x, cell: null })}
-      renderRound={(x) => <RoundView work={d.work.id} n={x} rounds={d.rounds} />}
-      side={<WorkPanel d={d} g={g} r={r} go={go} />}
+      panel={(g) => <WorkPanel d={d} g={g} r={r} go={go} />}
     />
   );
 }

@@ -161,7 +161,8 @@
   gap: var(--base-size-12);
 }
 
-/* A message: an agent's beside its avatar on the left, the owner's on the right. */
+/* A message: an agent's beside its avatar on the left, the owner's on the right, and in a helper's thread with the
+   engineer the helper's on the right, its avatar after it. */
 .talk-row {
   display: flex;
   align-items: flex-start;
@@ -169,7 +170,8 @@
   max-width: 84%;
 }
 
-.talk-row-owner {
+.talk-row-owner,
+.talk-row-right {
   margin-left: auto;
   justify-content: flex-end;
 }
@@ -207,6 +209,10 @@
   background: var(--display-purple-bgColor-emphasis);
 }
 
+.talk-avatar-helper {
+  background: var(--display-pine-bgColor-emphasis);
+}
+
 .talk-bubble {
   min-width: 0;
   padding: var(--base-size-8) var(--base-size-12);
@@ -222,6 +228,11 @@
 .talk-bubble-architect {
   border: var(--borderWidth-thin) solid var(--display-purple-borderColor-muted);
   background: var(--display-purple-bgColor-muted);
+}
+
+.talk-bubble-helper {
+  border: var(--borderWidth-thin) solid var(--display-pine-borderColor-muted);
+  background: var(--display-pine-bgColor-muted);
 }
 
 /* What the owner sends to an agent: the sheet, filled, its edge at its left. */
@@ -501,13 +512,6 @@
 
 .design-none p {
   margin: 0 0 var(--base-size-4);
-}
-
-/* A helper's thread on a work's page. */
-.helper-said {
-  display: grid;
-  gap: var(--base-size-4);
-  margin-bottom: var(--base-size-12);
 }
 
 /* The mark beside what runs now in a conversation's head: the chart's halo, small, in line with the text. */

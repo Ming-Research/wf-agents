@@ -457,12 +457,10 @@ const messages = {
   course_stopped_architect: 'stopped (by the architect)',
   course_stopped_architect_why: 'stopped (by the architect): {why}',
   course_all: 'stopped (global pause)',
-  course_all_why: 'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
+  course_all_why: 'Every work is paused, by Pause all in the bar.',
   course_releasing: 'started, waiting for a free slot',
   course_releasing_why: 'You started it: it goes on once its machine has a slot free.',
-  course_note_all:
-    'Every work is paused: Start runs this one on whatever the global state, Step runs one round of it, and Start all in the bar lets every work go on.',
-  course_outdated: 'flow {version}: older',
+  course_outdated: 'old flow',
   course_outdated_hint:
     'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it moves to version {now} and goes on at its cell in its sessions if that cell and every return it handed in are unchanged there; else it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
   course_moved: 'moved to version {version}',
@@ -1275,7 +1273,7 @@ const messages = {
   chart_graph: "The {graph}'s graph",
   // The architect's page.
   nav_architect: 'Architect',
-  arch_no_graph: 'This flow version has no graph for the architect.',
+  chart_no_graph: 'This flow version has no graph {graph}.',
   arch_of_project: 'The architect of {project}',
   arch_project_hint: 'Each project has its architect: choose whose to show',
   ask_waits: 'waits for your answer',
@@ -1323,6 +1321,9 @@ const messages = {
   arch_tab_observations: 'Observations',
   arch_tab_policy: 'Policy',
   arch_tab_next: 'Next',
+  arch_span_1d: 'the last day',
+  arch_span_7d: 'the last 7 days',
+  arch_span_30d: 'the last 30 days',
   arch_queue_none_waiting: 'No matter waits for the architect now.',
   arch_never_worked: 'The architect has not worked yet: it works once a matter comes to its queue.',
   arch_queue_held: 'Held by an ask of yours',

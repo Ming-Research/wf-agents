@@ -1,20 +1,30 @@
-// A work's usage tab, as the owner's approved mock drew it from work 9: tiles of its cost, time, rounds, tokens and
-// compactions; where its time went, as one stacked bar and as a timeline of its wall time with a block per round; its
-// models, each at the level and effort it ran at; where its cost went, by kind of token and by cell; its sessions, each
-// with why it started and its context after each round; the keep-warm pings sent to them while the work waited; and
-// how long each tool ran. Every mark says what it is on hovering; labels are
-// in HTML so that they keep their size as the charts shrink with the panel; colours come from the page's tokens, in
-// light and dark alike.
+// The usage tab, a work's and an architect's alike, as the owner's approved mock drew it from work 9: tiles of the cost,
+// time, rounds, tokens and compactions; where the time went, as one stacked bar and as a timeline of the wall time with
+// a block per round; the models, each at the level and effort it ran at; where the cost went, by kind of token and by
+// cell; the sessions, each with why it started and its context after each round; the keep-warm pings sent to them
+// while the work waited; and how long each tool ran. An architect's counts the rounds of its works over the span of
+// time the owner picks, as one. Every mark says what it is on hovering; labels are in HTML so that they keep their size
+// as the charts shrink with the panel; colours come from the page's tokens, in light and dark alike.
 
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
-import type { CompiledGraph, WorkDetail } from '../api';
+import type { WorkDetail } from '../api';
 import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
 import { roundAtText } from '../parts';
 import { tokenCount, tokens } from '../round';
 import { t, tn } from '../text';
-import { axisTicks, clockOf, type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
+import {
+  axisTicks,
+  type CellInfo,
+  clockOf,
+  type Gap,
+  gapsOf,
+  type RoundOf,
+  type SessionRow,
+  type Usage as UsageData,
+  usageOf,
+} from '../usage';
 import { modelName } from './RoundView';
 
 /// A time of day, hours and minutes.
@@ -35,9 +45,12 @@ function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
   return [ref, width];
 }
 
-/// The work's wall time, from its first round's start to its last round's end, a block for each round of a model or
-/// of the tools over the time no round ran, with its times marked under it at a step its width has room for.
-function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }) {
+/// A round's name, from its work and its number in the work.
+const nameOf = (r: RoundOf) => roundName(r.work, r.n);
+
+/// The wall time, from the first round's start to the last round's end, a block for each round of a model or of the
+/// tools over the time no round ran, with its times marked under it at a step its width has room for.
+function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
   const x = (ms: number) => pct(ms - u.start, u.wall);
   const [axis, width] = useWidth<HTMLDivElement>();
   const ticks = axisTicks(u.start, u.end, width);
@@ -46,7 +59,7 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
       <div className="us-track">
         {gaps.map((g) => (
           <span
-            key={`gap-${g.before}-${g.after}`}
+            key={`gap-${nameOf(g.before)}-${nameOf(g.after)}`}
             className="us-block us-gap"
             style={{ left: `${x(g.start)}%`, width: `max(${pct(g.end - g.start, u.wall)}%, 2px)` }}
             data-tip={[
@@ -54,8 +67,8 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
                 from: clock(g.start),
                 to: clock(g.end),
                 time: duration(g.end - g.start),
-                before: roundName(work, g.before),
-                after: roundName(work, g.after),
+                before: nameOf(g.before),
+                after: nameOf(g.after),
               }),
               ...g.waited,
             ].join(' · ')}
@@ -65,11 +78,11 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
           .filter((b) => b.doer !== 'engine')
           .map((b) => (
             <span
-              key={b.n}
+              key={nameOf(b)}
               className={b.doer === 'model' ? 'us-block us-model' : 'us-block us-tool'}
               style={{ left: `${x(b.start)}%`, width: `max(${pct(b.end - b.start, u.wall)}%, 2px)` }}
               data-tip={[
-                roundAtText(roundName(work, b.n), b.cell, b.title),
+                roundAtText(nameOf(b), b.cell, b.title),
                 duration(b.end - b.start),
                 b.cost !== null ? cost(b.cost) : null,
               ]
@@ -93,9 +106,15 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
   );
 }
 
-/// What the record shows a work waited on, with when it ended: each answer to an ask of the owner and each ruling on
-/// a design card.
-function waits(d: WorkDetail): Array<{ at: number; what: string }> {
+/// What the record shows the works waited on, with when it ended: each answer to an ask of the owner and each ruling
+/// on a design card.
+function waits(works: WorkDetail[]): Array<{ at: number; what: string }> {
+  const out: Array<{ at: number; what: string }> = [];
+  for (const d of works) out.push(...waitsOf(d));
+  return out;
+}
+
+function waitsOf(d: WorkDetail): Array<{ at: number; what: string }> {
   const out: Array<{ at: number; what: string }> = [];
   for (const a of d.asks) {
     const answer = a.answer;
@@ -144,14 +163,16 @@ function startedText(s: SessionRow): string {
 
 /// Each session's context after each of its rounds, a line per session labelled at its end, a compaction marked
 /// where one happened; the scale and the labels in HTML over the drawing.
-function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour: (line: string) => string }) {
+function ContextChart({ u, colour }: { u: UsageData; colour: (line: string) => string }) {
   const W = 760;
   const H = 180;
   const points = u.sessions.flatMap((s) => s.points);
   if (points.length === 0) return null;
-  const ns = u.blocks.map((b) => b.n);
-  const nMin = Math.min(...ns);
-  const nMax = Math.max(...ns);
+  // Each round at its place among all the rounds counted.
+  const first = u.blocks[0];
+  const last = u.blocks[u.blocks.length - 1];
+  const nMin = 0;
+  const nMax = u.blocks.length - 1;
   const top = Math.max(...points.map((p) => p.context));
   const step = top > 400_000 ? 200_000 : top > 100_000 ? 100_000 : 25_000;
   const yMax = Math.ceil(top / step) * step;
@@ -174,18 +195,18 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
                 fill="none"
                 stroke={colour(s.line)}
                 strokeWidth={2}
-                points={s.points.map((p) => `${X(p.n)},${Y(p.context)}`).join(' ')}
+                points={s.points.map((p) => `${X(p.at)},${Y(p.context)}`).join(' ')}
               />
             ) : null}
             {s.points.map((p) => (
               <circle
-                key={p.n}
-                cx={X(p.n)}
+                key={nameOf(p)}
+                cx={X(p.at)}
                 cy={Y(p.context)}
                 r={p.compacted ? 6 : 4}
                 fill={colour(s.line)}
                 className={p.compacted ? 'us-point us-compacted' : 'us-point'}
-                data-tip={`${roundName(work, p.n)} · ${sessionName(u, s)} · ${t('us_context_tip', { n: tokens(p.context) })}${p.compacted ? ` · ${t('us_compacted')}` : ''}`}
+                data-tip={`${nameOf(p)} · ${sessionName(u, s)} · ${t('us_context_tip', { n: tokens(p.context) })}${p.compacted ? ` · ${t('us_compacted')}` : ''}`}
               />
             ))}
           </g>
@@ -203,17 +224,17 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
           <span
             key={s.id ?? s.line}
             className="us-end-label"
-            style={{ left: `${(100 * (X(p.n) + 8)) / W}%`, top: `${(100 * Y(p.context)) / H}%`, color: colour(s.line) }}
+            style={{ left: `${(100 * (X(p.at) + 8)) / W}%`, top: `${(100 * Y(p.context)) / H}%`, color: colour(s.line) }}
           >
             {sessionName(u, s)}
           </span>
         );
       })}
       <span className="us-x" style={{ left: `${(100 * X(nMin)) / W}%` }}>
-        {roundName(work, nMin)}
+        {first !== undefined ? nameOf(first) : null}
       </span>
       <span className="us-x us-x-end" style={{ left: `${(100 * X(nMax)) / W}%` }}>
-        {roundName(work, nMax)}
+        {last !== undefined ? nameOf(last) : null}
       </span>
     </div>
   );
@@ -231,12 +252,21 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   );
 }
 
-/// The usage of a work, from its rounds.
-export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
+/// The usage of one work, or of several as one, from their rounds, with what each cell is; with `since`, only what
+/// started from then on counts.
+export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cells: Map<string, CellInfo>; since?: number | null }) {
   const tip = useTip();
-  const cells = new Map(g.cells.map((c) => [c.id, { kind: c.kind, title: c.title }]));
-  const u = usageOf(d.rounds, cells, Date.now(), d.sessions, d.pings);
-  const work = d.work.id;
+  const from = (at: number) => since === null || at >= since;
+  const u = usageOf(
+    works.map((d) => ({
+      work: d.work.id,
+      rounds: d.rounds.filter((r) => from(r.started_at)),
+      sessions: d.sessions,
+      pings: d.pings.filter((p) => from(p.started_at)),
+    })),
+    cells,
+    Date.now(),
+  );
   const lines = [...new Set(u.sessions.map((s) => s.line))];
   const colour = (line: string) => LINE_COLOURS[Math.max(lines.indexOf(line), 0) % LINE_COLOURS.length];
   const tk = u.tokens;
@@ -245,7 +275,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
   const kTotal = k !== null ? k.input + k.read + k.written + k.output : 0;
   const top = u.cells.slice(0, 8);
   const rest = u.cells.slice(8);
-  if (d.rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
+  if (u.rounds === 0) return <p className="muted">{t('no_rounds')}</p>;
   return (
     <div className="us" onMouseMove={tip.move} onMouseLeave={tip.leave}>
       <div className="us-tiles">
@@ -279,7 +309,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
             { value: u.time.idle, colour: 'var(--chart-idle)', label: t('us_not_running'), tip: t('us_not_running_tip', { time: duration(u.time.idle) }) },
           ]}
         />
-        <Timeline u={u} work={work} gaps={gapsOf(u.blocks, waits(d))} />
+        <Timeline u={u} gaps={gapsOf(u.blocks, waits(works))} />
       </Section>
       <Section
         title={t('us_models_title')}
@@ -287,7 +317,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           u.subagents.length === 0
             ? t('us_models_note_none')
             : t('us_models_note', {
-                list: u.subagents.map((s) => `${modelName(s.model)} (${s.rounds.map((n) => roundName(work, n)).join(', ')})`).join('; '),
+                list: u.subagents.map((s) => `${modelName(s.model)} (${s.rounds.map(nameOf).join(', ')})`).join('; '),
               })
         }
       >
@@ -407,7 +437,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           </tbody>
         </table>
         <h4 className="sub-heading us-part">{t('us_context_title')}</h4>
-        <ContextChart u={u} work={work} colour={colour} />
+        <ContextChart u={u} colour={colour} />
       </Section>
       {u.pings.length > 0 ? (
         <Section title={t('us_pings_title')} note={t('us_pings_note')}>

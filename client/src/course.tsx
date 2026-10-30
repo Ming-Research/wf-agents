@@ -240,7 +240,14 @@ export function Controls({ a, w, status, onStep }: {
   return (
     <span className="controls">
       {can.start ? <Control icon="start" hint={startHint} onClick={a.start} disabled={a.busy} /> : null}
-      {can.pause ? <Control icon="pause" hint={t('work_pause_hint')} onClick={a.pause} disabled={a.busy} /> : null}
+      {can.pause ? (
+        <Control
+          icon="pause"
+          hint={c.releasing ? `${t('course_releasing_why')}\n${t('work_pause_hint')}` : t('work_pause_hint')}
+          onClick={a.pause}
+          disabled={a.busy}
+        />
+      ) : null}
       {live && onStep !== null ? (
         <Control
           icon="step"

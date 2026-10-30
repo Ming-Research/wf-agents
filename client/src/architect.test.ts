@@ -232,10 +232,14 @@ describe("the architect's page", () => {
       tab: 'rounds' as const,
       round: null,
       cell: null,
+      only: null,
+      span: '7d' as const,
     };
     const routes: Route[] = [
       architect,
       { ...architect, tab: 'policy' },
+      { ...architect, tab: 'usage', span: '30d' },
+      { ...architect, work: 12, only: 'sent_back' },
       { ...architect, project: 'p', tab: 'observations' },
       { ...architect, work: 12, round: 3, tab: 'next' },
       { ...architect, work: 12, cell: 'H3' },

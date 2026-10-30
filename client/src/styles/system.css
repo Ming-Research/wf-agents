@@ -10,13 +10,9 @@
   font-size: var(--text-body-size-small);
 }
 
-/* The period: its name, then each period a link, the one counted over in the text's colour and semibold. It heads the
-   parts it counts for: the line that parts a page's sections is over it, and none between it and the first of them. */
+/* The period the parts after Now count over (the shared period switch): it heads the parts it counts for, the line
+   that parts a page's sections over it, and none between it and the first of them. */
 .sys-period {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--base-size-4) var(--base-size-16);
   margin-top: var(--base-size-24);
 }
 
@@ -24,11 +20,6 @@
   margin-top: var(--base-size-16);
   padding-top: 0;
   border-top: 0;
-}
-
-.sys-period .sys-period-on {
-  color: var(--fgColor-default);
-  font-weight: var(--base-text-weight-semibold);
 }
 
 .sys .us-tiles + .us-tiles {

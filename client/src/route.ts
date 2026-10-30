@@ -24,9 +24,14 @@ export type WorkRoute = {
 };
 
 /// What the architect's panel beside its chart shows: the rounds of the stretch shown, the item changes its batches made,
-/// the project's observations, what to do next, or the policy in force.
-export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'next', 'policy'] as const;
+/// the project's observations, what to do next, the policy in force with the project's constitution, or its usage.
+export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'next', 'policy', 'usage'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
+
+/// The time the architect's usage counts over, back from now: the last day, the last 7 days (the default), the last 30
+/// days, or all time.
+export const SPANS = ['1d', '7d', '30d', 'all'] as const;
+export type Span = (typeof SPANS)[number];
 
 export type ArchitectRoute = {
   page: 'architect';
@@ -38,6 +43,10 @@ export type ArchitectRoute = {
   /// The round of the work shown that is open, by its number in the work; only with a work named.
   round: number | null;
   cell: string | null;
+  /// Which of the rounds of the work shown its list shows besides all of them, as on a work's page.
+  only: RoundsOnly | null;
+  /// The time its usage counts over.
+  span: Span;
 };
 
 /// The period the System view counts what the system did over: the week under way, the last four weeks with it, or all
@@ -111,6 +120,7 @@ export function parse(pathname: string, search: string): Route {
   if (first === 'architect' && parts.length === 1) {
     const work = num(q.get('work'));
     const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'rounds';
+    const only = q.get('only');
     return {
       page: 'architect',
       project: q.get('project'),
@@ -118,6 +128,8 @@ export function parse(pathname: string, search: string): Route {
       tab,
       round: work !== null ? roundOf(work, q.get('round')) : null,
       cell: q.get('cell'),
+      only: only === 'sent_back' || only === 'failed' ? only : null,
+      span: SPANS.find((x) => x === q.get('span')) ?? '7d',
     };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
@@ -170,6 +182,8 @@ export function href(r: Route): string {
         ['project', r.project],
         ['work', r.work],
         ['tab', r.tab === 'rounds' ? null : r.tab],
+        ['only', r.only],
+        ['span', r.span === '7d' ? null : r.span],
         ['round', r.work !== null && r.round !== null ? roundName(r.work, r.round) : null],
         ['cell', r.cell],
       ])}`;
@@ -203,7 +217,17 @@ export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'
 
 /// The address of an architect's page: the work running or the latest, on its asks, or what `more` names.
 export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}): string {
-  return href({ page: 'architect', project: null, work: null, tab: 'rounds', round: null, cell: null, ...more });
+  return href({
+    page: 'architect',
+    project: null,
+    work: null,
+    tab: 'rounds',
+    round: null,
+    cell: null,
+    only: null,
+    span: '7d',
+    ...more,
+  });
 }
 
 /// A path of the interface about a project's architect: for the project named, or with none, the configuration's one

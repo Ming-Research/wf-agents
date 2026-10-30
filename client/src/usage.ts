@@ -1,9 +1,10 @@
-// What a work's usage tab reads from its rounds, its sessions and their keep-warm pings, apart from how it draws it:
-// where its time went, what each model and each session did and cost, where the cost went by kind of token and by
-// cell, how long each tool ran, and what each ping cost and where the work waited. Each round's level is the one it
-// recorded, never the configuration's now; a round's subagents are the models whose count grew in its session during
-// it; the cost by kind of token is weighed by the models' prices as each round's cost line is; the work's cost counts
-// its pings; and each stretch no round ran is a block of its own, with what the record shows the work waited on.
+// What a usage tab reads from the rounds of one work or several, their sessions and their keep-warm pings, apart from
+// how it draws it: where the time went, what each model and each session did and cost, where the cost went by kind of
+// token and by cell, how long each tool ran, and what each ping cost and where the work waited. Each round's level is
+// the one it recorded, never the configuration's now; a round's subagents are the models whose count grew in its
+// session during it; the cost by kind of token is weighed by the models' prices as each round's cost line is; the cost
+// counts the pings; and each stretch no round ran is a block of its own, with what the record shows was waited on.
+// Several works, such as an architect's over a span of time, count as one, their rounds in the order they started.
 
 import type { Ping, RoundSummary, WorkSession } from './api';
 import { costParts, type CostParts } from './round';
@@ -19,7 +20,13 @@ export function doer(r: RoundSummary, cells: Map<string, CellInfo>): Doer {
   return r.cell !== null && cells.get(r.cell)?.kind === 'tool' ? 'tool' : 'engine';
 }
 
-export type Block = { n: number; cell: string; title: string; doer: Doer; start: number; end: number; cost: number | null };
+/// A round as the usage names it: its work and its number in the work.
+export type RoundOf = { work: number; n: number };
+
+/// What one work gives the usage: its number, its rounds in order, its sessions and their keep-warm pings.
+export type WorkPart = { work: number; rounds: RoundSummary[]; sessions?: WorkSession[]; pings?: Ping[] };
+
+export type Block = RoundOf & { cell: string; title: string; doer: Doer; start: number; end: number; cost: number | null };
 
 export type ModelRow = {
   model: string;
@@ -57,7 +64,8 @@ export type SessionRow = {
   /// What its rounds and its keep-warm pings cost.
   cost: number;
   pings: number;
-  points: Array<{ n: number; context: number; compacted: boolean }>;
+  /// Its context after each of its rounds, each at the round's place among all the rounds counted, from 0.
+  points: Array<RoundOf & { at: number; context: number; compacted: boolean }>;
 };
 
 /// A keep-warm ping, with the session it went to as the sessions are numbered by line.
@@ -77,11 +85,12 @@ export type Usage = {
   sentBack: number;
   tokens: { input: number; read: number; written: number; output: number; thinking: number; turns: number };
   compactions: number;
+  /// A block for each round, in the order they started.
   blocks: Block[];
   models: ModelRow[];
   /// The models subagents ran on, each with the rounds they ran in.
-  subagents: Array<{ model: string; rounds: number[] }>;
-  /// What the work's tokens cost by kind, by the models' prices; none when no model had prices.
+  subagents: Array<{ model: string; rounds: RoundOf[] }>;
+  /// What the tokens cost by kind, by the models' prices; none when no model had prices.
   kinds: CostParts | null;
   cells: Array<{ cell: string; title: string; cost: number; rounds: number }>;
   sessions: SessionRow[];
@@ -91,15 +100,21 @@ export type Usage = {
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
-/// A work's usage, from its rounds in order, with what each cell is, its sessions and their keep-warm pings; `now`
-/// ends a round still running.
-export function usageOf(
-  rounds: RoundSummary[],
-  cells: Map<string, CellInfo>,
-  now: number,
-  workSessions: WorkSession[] = [],
-  pings: Ping[] = [],
-): Usage {
+/// The usage of one work or several, from each one's rounds, sessions and keep-warm pings, with what each cell is;
+/// `now` ends a round still running.
+export function usageOf(works: WorkPart[], cells: Map<string, CellInfo>, now: number): Usage {
+  // Every round with its work, in the order they started; a work's own rounds keep their order.
+  const all = works
+    .flatMap((w) => w.rounds.map((r, i) => ({ work: w.work, i, r })))
+    .sort((a, b) => a.r.started_at - b.r.started_at || a.work - b.work || a.i - b.i);
+  const rounds = all.map((x) => x.r);
+  const workOf = new Map(all.map((x) => [x.r, x.work]));
+  const at = new Map(rounds.map((r, i) => [r, i]));
+  const of = (r: RoundSummary): RoundOf => ({ work: workOf.get(r) ?? 0, n: r.n });
+  // A session a work went on in from the work before it, and its pings, are each work's: they count once.
+  const once = <T extends { id: number }>(xs: T[]): T[] => [...new Map(xs.map((x) => [x.id, x])).values()];
+  const workSessions = once(works.flatMap((w) => w.sessions ?? [])).sort((a, b) => a.id - b.id);
+  const pings = once(works.flatMap((w) => w.pings ?? [])).sort((a, b) => a.started_at - b.started_at);
   const end = (r: RoundSummary) => r.ended_at ?? now;
   const start = rounds.length > 0 ? Math.min(...rounds.map((r) => r.started_at)) : now;
   const last = rounds.length > 0 ? Math.max(...rounds.map(end)) : now;
@@ -109,7 +124,7 @@ export function usageOf(
     const d = doer(r, cells);
     time[d] += end(r) - r.started_at;
     blocks.push({
-      n: r.n,
+      ...of(r),
       cell: r.cell ?? '',
       title: r.cell !== null ? (cells.get(r.cell)?.title ?? '') : '',
       doer: d,
@@ -123,7 +138,7 @@ export function usageOf(
   const agent = rounds.filter((r) => r.tokens !== null && r.cost_usd !== null);
   const tok = (f: (x: NonNullable<RoundSummary['tokens']>) => number) => sum(agent.map((r) => (r.tokens !== null ? f(r.tokens) : 0)));
   const models = new Map<string, ModelRow>();
-  const subagents = new Map<string, number[]>();
+  const subagents = new Map<string, RoundOf[]>();
   const kinds: CostParts = { input: 0, read: 0, written: 0, output: 0 };
   let priced = false;
   const byCell = new Map<string, { cell: string; title: string; cost: number; rounds: number }>();
@@ -165,7 +180,7 @@ export function usageOf(
     m.thinking += x.thinking;
     m.cost += cost;
     models.set(key, m);
-    for (const o of x.others) subagents.set(o, [...(subagents.get(o) ?? []), r.n]);
+    for (const o of x.others) subagents.set(o, [...(subagents.get(o) ?? []), of(r)]);
     const parts = costParts(x, r.model);
     if (parts !== null) {
       priced = true;
@@ -205,7 +220,7 @@ export function usageOf(
     s.cost += cost;
     if (x.context_end !== null) {
       s.context = x.context_end;
-      s.points.push({ n: r.n, context: x.context_end, compacted: r.compactions > 0 });
+      s.points.push({ ...of(r), at: at.get(r) ?? 0, context: x.context_end, compacted: r.compactions > 0 });
     }
     s.window = x.window ?? s.window;
     sessions.set(session, s);
@@ -263,9 +278,9 @@ export function usageOf(
   };
 }
 
-/// A stretch of a work's wall time in which no round ran: from when to when, the round that ended last before it and
-/// the round that started after it, and what the record shows the work waited on then.
-export type Gap = { start: number; end: number; before: number; after: number; waited: string[] };
+/// A stretch of the wall time in which no round ran: from when to when, the round that ended last before it and the
+/// round that started after it, and what the record shows was waited on then.
+export type Gap = { start: number; end: number; before: RoundOf; after: RoundOf; waited: string[] };
 
 /// The stretches in which no round ran, each from the latest end of the rounds before it to the next round's start,
 /// those shorter than a second left out; each with the events given that fall in it, such as an ask answered or a
@@ -274,16 +289,16 @@ export function gapsOf(blocks: Block[], events: Array<{ at: number; what: string
   const sorted = [...blocks].sort((a, b) => a.start - b.start);
   const gaps: Gap[] = [];
   let end = -Infinity;
-  let before: number | null = null;
+  let before: RoundOf | null = null;
   for (const b of sorted) {
     if (before !== null && b.start - end >= 1000) {
       const start = end;
       const waited = events.filter((e) => e.at >= start && e.at <= b.start).map((e) => e.what);
-      gaps.push({ start, end: b.start, before, after: b.n, waited });
+      gaps.push({ start, end: b.start, before, after: { work: b.work, n: b.n }, waited });
     }
     if (b.end >= end) {
       end = b.end;
-      before = b.n;
+      before = { work: b.work, n: b.n };
     }
   }
   return gaps;

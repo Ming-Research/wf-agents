@@ -107,7 +107,8 @@ import {
   waitingByKey,
 } from './conversation';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
-import { roundsShown } from './pages/Work';
+import { helperThread } from './pages/Work';
+import { roundsShown } from './pages/WorkChart';
 import { catalog, type Key, t, tn } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
@@ -278,15 +279,13 @@ describe('how a work goes on', () => {
     // Beside its cell: waiting for Step while Step can run a round of it, paused while another step is under way.
     expect(waitOf(all, work({}), status({ paused: true }))).toEqual({
       tag: 'waiting for Step',
-      why: 'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
+      why: 'Every work is paused, by Pause all in the bar.',
     });
     expect(waitOf(all, work({}), status({ paused: true, stepping: 3 }))?.tag).toBe('paused');
     expect([all.held, heldName(all).name]).toEqual(['all', 'stopped (global pause)']);
     expect(controls(all, status({ paused: true }))).toEqual({ pause: false, start: true, step: true, canStep: true });
     expect(stepWhyNot(all, controls(all, status({ paused: true })))).toBe(null);
-    expect(held(all, work({}))).toBe(
-      'Every work is paused: Start runs this one on whatever the global state, and Step runs one round of it.',
-    );
+    expect(held(all, work({}))).toBe('Every work is paused, by Pause all in the bar.');
     // Started by the owner while every work is paused: it goes on, said so; Pause, and Step greyed till it is paused.
     const started = course(work({}), status({ paused: true, started: [5], running: 5 }));
     expect([started.held, started.started, started.running]).toEqual([null, true, 'goes_on']);
@@ -1290,6 +1289,69 @@ describe("a work's rounds", () => {
   });
 });
 
+describe("a helper's thread with the engineer", () => {
+  // An engineer's cell whose own return holds `fields`, which also asks the advisor and runs tools.
+  const said = (id: string, line: string, fields: string[], rows: CompiledRow[]) =>
+    cell(id, [...rows, row('ask_advisor', 'A1', { common: true }), row('tools', 'X1', { common: true })], {
+      line,
+      forms: [{ say: '', own: true }, { say: '', field: 'ask' }],
+      schema: {
+        properties: {
+          outcome: { anyOf: [{ properties: Object.fromEntries(fields.map((f) => [f, {}])) }, { properties: { ask: {} } }] },
+        },
+      },
+    });
+  const g: CompiledGraph = {
+    ...graph,
+    cells: [
+      said('D2', 'engineer', ['design'], [row('done', 'I1')]),
+      said('A1', 'advisor', ['reply'], [row('answered', 'A4')]),
+      said('A4', 'engineer', ['next'], [row('carry_on', 'D2')]),
+      said('I1', 'engineer', ['head', 'conditions'], [row('done', 'T3')]),
+      said('T3', 'review', ['findings'], [row('done', 'T4')]),
+      said('T4', 'review', ['columns'], [row('findings', 'N'), row('done', 'M')]),
+      said('T6', 'engineer', ['rows', 'head'], [row('done', 'T4')]),
+      cell('X1', [], { kind: 'tool', line: null }),
+      cell('N', [], { kind: 'engine', line: null }),
+    ],
+  };
+  const by = (n: number, c: string, line: string | null, outcome: RoundSummary['outcome'], transition: string | null) => ({
+    ...round(n, c, outcome, transition),
+    line,
+  });
+  // As work 9 of a trial went: the engineer asks the advisor while designing and carries on; implements, running tools
+  // on the way; carries on after an interjection; the review finds something; the engineer fixes it, a return sent back
+  // on the way, and the review looks again.
+  const rounds = [
+    by(1, 'D2', 'engineer', 'took', 'ask_advisor'),
+    by(2, 'A1', 'advisor', 'took', 'answered'),
+    by(3, 'A4', 'engineer', 'took', 'carry_on'),
+    by(4, 'D2', 'engineer', 'took', 'done'),
+    by(5, 'I1', 'engineer', 'took', 'tools'),
+    by(6, 'X1', null, 'took', 'ran'),
+    by(7, 'I1', 'engineer', 'took', 'done'),
+    by(8, 'A4', 'engineer', 'took', 'carry_on'),
+    by(9, 'N', null, 'took', 'next'),
+    by(10, 'T3', 'review', 'took', 'done'),
+    by(11, 'T4', 'review', 'took', 'findings'),
+    by(12, 'N', null, 'took', 'fix'),
+    by(13, 'T6', 'engineer', 'took', 'tools'),
+    by(14, 'X1', null, 'took', 'ran'),
+    by(15, 'T6', 'engineer', 'sent_back', null),
+    by(16, 'T6', 'engineer', 'took', 'done'),
+    by(17, 'T4', 'review', 'took', 'done'),
+  ];
+
+  it('holds the question that asked the helper, its answer, and what the asking side did with it next', () => {
+    expect(helperThread(rounds, 'advisor', g).map((r) => r.n)).toEqual([1, 2, 3]);
+  });
+
+  it('holds the commit handed in for review, not a later round that only carried on, and the fix answering it', () => {
+    expect(helperThread(rounds, 'review', g).map((r) => r.n)).toEqual([7, 10, 11, 16, 17]);
+    expect(helperThread(rounds, 'adversarial', g)).toEqual([]);
+  });
+});
+
 describe('an ask', () => {
   it('keeps a command in its text as code, and the rest as prose', () => {
     const what = [
@@ -1583,17 +1645,17 @@ describe("a work's usage", () => {
       ['a', { kind: 'agent', title: 'Implement' }],
       ['t', { kind: 'tool', title: 'Run tools' }],
     ]);
-    const u = usageOf(rounds, cells, 0);
+    const u = usageOf([{ work: 1, rounds }], cells, 0);
     expect(u.time).toEqual({ model: 120_000, tool: 60_000, engine: 0, idle: 180_000 });
     expect([u.agentRounds, u.sentBack, u.compactions]).toEqual([2, 1, 0]);
     expect(u.models.map((m) => [m.model, m.level, m.effort, m.rounds, m.turns])).toEqual([['claude-sonnet-5-5', '2', 'xhigh', 2, 4]]);
-    expect(u.subagents).toEqual([{ model: 'claude-haiku-5-5', rounds: [3] }]);
+    expect(u.subagents).toEqual([{ model: 'claude-haiku-5-5', rounds: [{ work: 1, n: 3 }] }]);
     expect(u.sessions.map((s) => [s.line, s.context, s.points.length])).toEqual([['engineer', 250_000, 2]]);
     expect(u.tools).toEqual([{ cell: 't', title: 'Run tools', ms: 60_000, runs: 1 }]);
     expect(u.kinds !== null && Math.round(u.kinds.read)).toBe(200_000);
     // Each stretch no round ran is a block of its own, between the rounds around it, with what happened in it.
     expect(gapsOf(u.blocks, [{ at: 200_000, what: 'answered' }, { at: 400_000, what: 'later' }])).toEqual([
-      { start: 120_000, end: 300_000, before: 2, after: 3, waited: ['answered'] },
+      { start: 120_000, end: 300_000, before: { work: 1, n: 2 }, after: { work: 1, n: 3 }, waited: ['answered'] },
     ]);
   });
 
@@ -1642,7 +1704,7 @@ describe("a work's usage", () => {
       written: 20,
       error: null,
     };
-    const u = usageOf(rounds, new Map([['a', { kind: 'agent', title: 'Implement' }]]), 0, sessions, [ping]);
+    const u = usageOf([{ work: 1, rounds, sessions, pings: [ping] }], new Map([['a', { kind: 'agent', title: 'Implement' }]]), 0);
     expect(u.sessions.map((s) => [s.id, s.nth, s.started, s.rounds, s.context, s.before, s.pings])).toEqual([
       [1, 1, 'line', 2, 520_000, null, 1],
       [2, 2, 'limit', 1, 40_000, 520_000, 0],

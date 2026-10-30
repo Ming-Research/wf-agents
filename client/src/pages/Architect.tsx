@@ -1,29 +1,28 @@
-// A project's architect's page, laid out as a work's page, read only: the owner speaks to the architect, answers it
-// and starts, pauses and steps it in its one-to-one in the messages view, which the page's line leads to. Its line
-// says, with more than one project, whose architect it is, with the switch to another's; what the architect does now
-// in words (the matter it handles and at which cell, or that it is idle, paused or held back), with no word of its
-// works, which to the owner are only how it is run; what stops the project's new works from starting; and the switch
-// between the stretches it worked in (when each began, what it was for, how many matters it handled, what it cost),
-// whose rounds the chart shows. Under the line, its graph fills the window with the stretch shown placed on it as a
-// work is, and the column docked at its right holds the architect's panel, with what is open on the chart split under
-// it, as on a work's page. The panel's tabs, on one line: its rounds; the item changes its batches
-// made; the project's observations, each leading to the conversation it is closed in; what to do next; and the policy
-// in force, as one document. Each part names the cell that wrote it, and every tab draws its blocks, sections, items
-// and rounds with the page's shared parts.
+// A project's architect's page, laid out as a work's page and drawn with the same parts (the line over the chart, the
+// chart, the panel, its rounds tab and the usage), read only: the owner speaks to the architect, answers it and starts,
+// pauses and steps it in its one-to-one in the messages view, which the page's line leads to. Its line says, with more
+// than one project, whose architect it is, with the switch to another's; what the architect does now in words (the
+// matter it handles and at which cell, or that it is idle, paused or held back), with no word of its works, which to
+// the owner are only how it is run; what stops the project's new works from starting; and the switch between the
+// stretches it worked in (when each began, what it was for, how many matters it handled, its rounds with those sent
+// back or failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window with the
+// stretch shown placed on it as a work is, and the column docked at its right holds the architect's panel, with what is
+// open on the chart split under it, as on a work's page. The panel's tabs, on one line: its rounds; the item changes
+// its batches made; the project's observations, each leading to the conversation it is closed in; what to do next; the
+// policy in force, as one document; and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab draws its
+// blocks, sections, items and rounds with the page's shared parts.
 
 import { BlockedIcon, SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
 import {
   Button,
   Checkbox,
-  CounterLabel,
   FormControl,
   Heading,
   Label,
   Select,
   TextInput,
-  UnderlineNav,
 } from '@primer/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type {
   Architect as ArchitectRead,
@@ -33,75 +32,88 @@ import type {
   FlowView,
   ItemChange,
   Observation,
-  RoundSummary,
   WorkDetail,
   WorkSummary,
 } from '../api';
 import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWork, shownWork } from '../architect';
-import { course, heldName, Loaded, StateChip } from '../components';
-import { runningWords } from '../course';
-import { FlowScreen } from '../flow/FlowScreen';
-import { cost, duration, time } from '../format';
+import { course, Loaded, StateChip } from '../components';
+import { held, runningWords } from '../course';
+import { cost, time } from '../format';
 import { Labelled, words } from '../labelled';
 import { Markdown } from '../markdown';
-import { useNow, useResource, useStatus } from '../live';
-import { type ArchitectRoute, type ArchitectTab, architectHref, forProject, href, Link, navigate } from '../route';
+import { useResource, useResources, useStatus } from '../live';
+import {
+  type ArchitectRoute,
+  type ArchitectTab,
+  architectHref,
+  forProject,
+  href,
+  Link,
+  navigate,
+  type Span,
+  SPANS,
+} from '../route';
 import { t, tn } from '../text';
-import { Block, By, CellTitles, ItemRef, type OpenRound, SubHeading } from '../parts';
+import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, SubHeading } from '../parts';
 import { ChangeBlock, NextView, PolicyText } from './ArchitectViews';
 import { bringIntoView } from './Decide';
-import { RoundView } from './RoundView';
-import { Timeline, useHalo, workMarks } from './Work';
+import { Held, HeadLine, OldFlow, Running } from './HeadLine';
+import { Usage } from './Usage';
+import { ChartPanel, RoundsMarks, RoundsTab, WorkChart } from './WorkChart';
 
 /// The graph the architect's works run, as the flow names it.
 const GRAPH = 'architect';
 
-/// What the bare graph marks: nothing.
-const BARE = { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() };
-
-/// No rounds, for the halo while no work is shown.
-const NO_ROUNDS: RoundSummary[] = [];
-
-/// What the architect does now, on its line, in words, with no word of its works: the matter it handles and the cell
-/// it is at, a round running and for how long, or what holds it back; else idle, or held back with matters waiting.
+/// What the architect does now, on its line, with no word of its works: a round running and for how long, what holds it
+/// back, or that it is between rounds; else idle, or held back with matters waiting.
 function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) {
   const status = useStatus();
   const state = architectState(a.works, a.queue);
-  const now = useNow(current?.running !== null && current?.running !== undefined);
   if (state.kind === 'working' && current !== null) {
     const c = course(current, status);
-    const at = `${current.at} ${current.at_title ?? ''}`;
-    const what = state.handling !== null ? matterSentence(state.handling) : null;
-    return (
-      <>
-        {c.running !== null ? (
-          <>
-            <Label variant="accent">{c.running === 'step' ? runningWords(c) : t('talk_architect_working')}</Label>
-            {current.running ? <span className="muted">{duration(Math.max(0, now - current.running.started_at))}</span> : null}
-          </>
-        ) : c.held !== null ? (
-          <Label variant={heldName(c).problem ? 'danger' : 'attention'}>{heldName(c).name}</Label>
-        ) : (
-          <StateChip tone="neutral">{t('talk_architect_between')}</StateChip>
-        )}
-        <span className="work-where" title={what ?? at}>
-          {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
-        </span>
-      </>
-    );
+    if (c.running !== null) {
+      return (
+        <Running
+          words={c.running === 'step' ? runningWords(c) : t('talk_architect_working')}
+          since={current.running?.started_at ?? null}
+        />
+      );
+    }
+    if (c.held !== null) return <Held c={c} why={held(c, current)} />;
+    return <StateChip tone="neutral">{t('talk_architect_between')}</StateChip>;
   }
   const started = status !== null && status.architects_started.includes(a.project);
-  const held = state.waiting > 0 && status !== null && status.paused && !started;
+  const holds = state.waiting > 0 && status !== null && status.paused && !started;
   return (
-    <StateChip tone={held ? 'attention' : 'neutral'}>
-      {held ? t('talk_architect_held') : state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}
+    <StateChip tone={holds ? 'attention' : 'neutral'}>
+      {holds ? t('talk_architect_held') : state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}
     </StateChip>
   );
 }
 
-/// The line above an architect's chart: with more than one project, whose architect it is and the switch to another's;
-/// what it does now, what stops the project's new works, its one-to-one in the messages view, where the owner acts on
-/// it, and the switch between the stretches it worked in.
+/// Where the architect is while it works: the matter it handles and the cell it is at, and that its stretch is on an
+/// older flow version.
+function At({ a, current }: { a: ArchitectRead; current: WorkSummary }) {
+  const status = useStatus();
+  const c = course(current, status);
+  const state = architectState(a.works, a.queue);
+  const at = `${current.at} ${current.at_title ?? ''}`;
+  const what = state.kind === 'working' && state.handling !== null ? matterSentence(state.handling) : null;
+  return (
+    <>
+      {c.outdated ? (
+        <>
+          <OldFlow w={current} status={status} />{' '}
+        </>
+      ) : null}
+      {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
+    </>
+  );
+}
+
+/// The line above an architect's chart, as the shared head line draws it: with more than one project, whose architect
+/// it is and the switch to another's; what it does now and where; the matters left; what stops the project's new works;
+/// its one-to-one in the messages view, where the owner acts on it; and the switch between the stretches it worked in.
 function Line({ a, shown, current, pop, setPop }: {
   a: ArchitectRead;
   shown: ArchitectWork | null;
@@ -110,56 +122,69 @@ function Line({ a, shown, current, pop, setPop }: {
   pop: 'works' | null;
   setPop: (p: 'works' | null) => void;
 }) {
+  const status = useStatus();
   const state = architectState(a.works, a.queue);
+  const working = state.kind === 'working' ? current : null;
+  const c = working !== null ? course(working, status) : null;
+  const what = state.kind === 'working' && state.handling !== null ? matterSentence(state.handling) : null;
   return (
-    <div className="work-line arch-line">
-      {a.projects.length > 1 ? (
-        <Select
-          size="small"
-          className="arch-project"
-          value={a.project}
-          title={t('arch_project_hint')}
-          aria-label={t('arch_project_hint')}
-          onChange={(e) => navigate(architectHref({ project: e.target.value }))}
-        >
-          {a.projects.map((p) => (
-            <Select.Option key={p} value={p}>
-              {t('arch_of_project', { project: p })}
-            </Select.Option>
-          ))}
-        </Select>
-      ) : null}
-      <span className="work-state course">
-        <Now a={a} current={state.kind === 'working' ? current : null} />
-      </span>
-      {state.waiting > 0 ? <span className="muted">{tn('talk_queue_left', state.waiting)}</span> : null}
-      {a.holds.length > 0 ? (
-        <span className="talk-head-end">
-          {a.holds.map((h) => (
-            <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
-              <BlockedIcon size={16} />
-              {holdWords(h.reason)}
-              {h.why !== null ? `: ${h.why}` : null}
-            </span>
-          ))}
+    <HeadLine
+      lead={
+        a.projects.length > 1 ? (
+          <Select
+            size="small"
+            className="arch-project"
+            value={a.project}
+            title={t('arch_project_hint')}
+            aria-label={t('arch_project_hint')}
+            onChange={(e) => navigate(architectHref({ project: e.target.value }))}
+          >
+            {a.projects.map((p) => (
+              <Select.Option key={p} value={p}>
+                {t('arch_of_project', { project: p })}
+              </Select.Option>
+            ))}
+          </Select>
+        ) : undefined
+      }
+      state={
+        <span className="course">
+          <Now a={a} current={working} />
         </span>
-      ) : null}
-      <Link to={href({ page: 'messages', open: `architect:${a.project}` })} title={t('go_to_conversation_hint')}>
-        {t('go_to_conversation')}
-      </Link>
-      {shown !== null ? (
-        <Button
-          size="small"
-          className="arch-work-switch"
-          trailingAction={TriangleDownIcon}
-          aria-expanded={pop === 'works'}
-          title={t('arch_works_hint')}
-          onClick={() => setPop(pop === 'works' ? null : 'works')}
-        >
-          {t('arch_work_shown', { at: time(shown.work.started_at) })}
-        </Button>
-      ) : null}
-    </div>
+      }
+      stateHint={working !== null && c !== null ? (held(c, working) ?? undefined) : undefined}
+      where={working !== null ? <At a={a} current={working} /> : undefined}
+      whereHint={working !== null ? (what ?? `${working.at} ${working.at_title ?? ''}`) : undefined}
+      facts={[state.waiting > 0 ? tn('talk_queue_left', state.waiting) : null]}
+      conversation={`architect:${a.project}`}
+      end={
+        <>
+          {a.holds.length > 0 ? (
+            <span className="talk-head-end">
+              {a.holds.map((h) => (
+                <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
+                  <BlockedIcon size={16} />
+                  {holdWords(h.reason)}
+                  {h.why !== null ? `: ${h.why}` : null}
+                </span>
+              ))}
+            </span>
+          ) : null}
+          {shown !== null ? (
+            <Button
+              size="small"
+              className="arch-work-switch"
+              trailingAction={TriangleDownIcon}
+              aria-expanded={pop === 'works'}
+              title={t('arch_works_hint')}
+              onClick={() => setPop(pop === 'works' ? null : 'works')}
+            >
+              {t('arch_work_shown', { at: time(shown.work.started_at) })}
+            </Button>
+          ) : null}
+        </>
+      }
+    />
   );
 }
 
@@ -212,7 +237,13 @@ function WorkList({ a, shown, tab, project, onClose }: {
                     {why !== '' ? why : '–'}
                   </td>
                   <td className="num">{x.handled}</td>
-                  <td className="num">{x.work.rounds}</td>
+                  <td className="num">
+                    {x.work.rounds}
+                    <RoundsMarks
+                      w={x.work}
+                      to={(only) => architectHref({ project, work: x.work.id === followed ? null : x.work.id, only })}
+                    />
+                  </td>
                   <td className="num">{cost(x.work.cost_usd)}</td>
                 </tr>
               );
@@ -367,90 +398,93 @@ function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
   );
 }
 
+/// How long back from now each span of the architect's usage counts, in milliseconds; all time has no start.
+const SPAN_MS: Record<Span, number | null> = { '1d': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000, all: null };
+
+/// The architect's usage over the span of time the owner picks, the last 7 days at first: the rounds of its works that
+/// started in that span, counted as one, each work read in full as a work's usage reads it.
+function ArchitectUsage({ route, a, compiled }: { route: ArchitectRoute; a: ArchitectRead; compiled: Compiled }) {
+  const span = SPAN_MS[route.span];
+  const since = span !== null ? Date.now() - span : null;
+  const works = a.works.filter((x) => since === null || !overWork(x.work) || (x.work.last_at ?? x.work.started_at ?? 0) >= since);
+  const details = useResources<WorkDetail>(
+    works.map((x) => ({ key: `work:${x.work.id}`, path: `/api/v1/works/${x.work.id}` })),
+  );
+  // Its works ran the architect's graph and, a flow version before, the policy setting's: the cells of both.
+  const cells = new Map(
+    compiled.graphs
+      .filter((g) => g.name === 'architect' || g.name === 'policy')
+      .flatMap((g) => g.cells.map((c) => [c.id, { kind: c.kind, title: c.title }] as const)),
+  );
+  return (
+    <>
+      <PeriodSwitch
+        periods={SPANS.map((x) => ({
+          key: x,
+          label: x === 'all' ? t('sys_period_all') : t(`arch_span_${x}`),
+          to: href({ ...route, span: x }),
+          on: x === route.span,
+        }))}
+      />
+      <Loaded r={details}>{(list) => <Usage works={list} cells={cells} since={since} />}</Loaded>
+    </>
+  );
+}
+
 /// The architect's panel, on top of the column docked at the right of its chart, in tabs, each saying how many of its
-/// things there are and, for the asks, how many wait for the owner.
-function Panel({ route, a, d, g, go, onRound }: {
+/// things there are.
+function Panel({ route, a, d, g, compiled, go, onRound }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   /// The work shown, in full; none before the architect's first work.
   d: WorkDetail | null;
   g: CompiledGraph;
+  compiled: Compiled;
   go: (to: Partial<ArchitectRoute>) => void;
   onRound: OpenRound;
 }) {
-  const status = useStatus();
-  // What to bring into view once its tab is shown: the ask the owner was sent to; else a tab shows from its top.
-  const want = useRef<string | null>(null);
-  const body = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (want.current === null) body.current?.scrollTo({ top: 0 });
-  }, [route.tab]);
-  useEffect(() => {
-    if (want.current !== null && bringIntoView(want.current)) want.current = null;
-  });
   // A matter of the plan is in the architect's one-to-one, as a card.
   const onMatter = (id: number) => navigate(`${href({ page: 'messages', open: `architect:${a.project}` })}#matter-${id}`);
-  // Each tab's count.
-  const tabs: Array<{ tab: ArchitectTab; label: string; n: number | null; waiting: number; hint: string }> = [
-    { tab: 'rounds', label: t('rounds'), n: d?.rounds.length ?? null, waiting: 0, hint: '' },
-    { tab: 'changes', label: t('arch_tab_changes'), n: a.changes.length, waiting: 0, hint: '' },
-    {
-      tab: 'observations',
-      label: t('arch_tab_observations'),
-      n: a.observations.filter((o) => o.closed === null).length,
-      waiting: 0,
-      hint: '',
-    },
-    { tab: 'next', label: t('arch_tab_next'), n: null, waiting: 0, hint: '' },
-    { tab: 'policy', label: t('arch_tab_policy'), n: null, waiting: 0, hint: '' },
-  ];
+  const tab = (x: ArchitectTab) => href({ ...route, tab: x });
   return (
-    <div className="drawer">
-      <UnderlineNav aria-label={t('arch_tabs')} className="drawer-tabs">
-        {tabs.map((x) => (
-          <UnderlineNav.Item
-            key={x.tab}
-            href={href({ ...route, tab: x.tab })}
-            aria-current={x.tab === route.tab ? 'page' : undefined}
-            onSelect={(e) => {
-              // A click with a modifier key opens the tab as the browser would.
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              want.current = null;
-              go({ tab: x.tab });
-            }}
-          >
-            {x.label}
-            {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
-            {x.waiting > 0 ? (
-              <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
-                {x.waiting}
-              </CounterLabel>
-            ) : null}
-          </UnderlineNav.Item>
-        ))}
-      </UnderlineNav>
-      <div className="drawer-body" ref={body}>
-        {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
-        {route.tab === 'observations' ? <Observations a={a} /> : null}
-        {route.tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
-        {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
-        {route.tab === 'rounds' ? (
-          d === null ? (
-            <p className="muted">{a.works.length === 0 ? t('arch_never_worked') : t('loading')}</p>
-          ) : (
-            <Timeline
-              work={d.work.id}
-              rounds={d.rounds}
-              g={g}
-              stale={status !== null && status.running !== d.work.id}
-              selected={route.work === d.work.id ? route.round : null}
-              onRound={(x) => go({ work: d.work.id, round: x.n, cell: null })}
-            />
-          )
-        ) : null}
-      </div>
-    </div>
+    <ChartPanel
+      label={t('arch_tabs')}
+      current={route.tab}
+      onTab={(x) => go({ tab: x })}
+      tabs={[
+        { tab: 'rounds', label: t('rounds'), href: tab('rounds'), n: d?.rounds.length ?? null },
+        { tab: 'changes', label: t('arch_tab_changes'), href: tab('changes'), n: a.changes.length },
+        {
+          tab: 'observations',
+          label: t('arch_tab_observations'),
+          href: tab('observations'),
+          n: a.observations.filter((o) => o.closed === null).length,
+        },
+        { tab: 'next', label: t('arch_tab_next'), href: tab('next'), n: null },
+        { tab: 'policy', label: t('arch_tab_policy'), href: tab('policy'), n: null },
+        { tab: 'usage', label: t('us_tab'), href: tab('usage'), n: null },
+      ]}
+    >
+      {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
+      {route.tab === 'observations' ? <Observations a={a} /> : null}
+      {route.tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
+      {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
+      {route.tab === 'usage' ? <ArchitectUsage route={route} a={a} compiled={compiled} /> : null}
+      {route.tab === 'rounds' ? (
+        d === null ? (
+          <p className="muted">{a.works.length === 0 ? t('arch_never_worked') : t('loading')}</p>
+        ) : (
+          <RoundsTab
+            d={d}
+            g={g}
+            only={route.only}
+            selected={route.work === d.work.id ? route.round : null}
+            onAll={() => go({ only: null })}
+            onRound={(x) => go({ work: d.work.id, round: x, cell: null })}
+          />
+        )
+      ) : null}
+    </ChartPanel>
   );
 }
 
@@ -465,40 +499,22 @@ export function Chart({ route, a, shown, d, compiled, view, go }: {
   view: FlowView;
   go: (to: Partial<ArchitectRoute>) => void;
 }) {
-  const status = useStatus();
-  // The chart draws the graph of the work shown, as its flow version has it: an architect work's, or the policy
-  // setting's a flow version before ran as a work of its own, so that a round chosen of either is found on it.
-  const name = d?.work.graph ?? GRAPH;
-  const g = compiled.graphs.find((x) => x.name === name);
-  const v = view.graphs.find((x) => x.name === name);
-  const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
-  const c = d !== null ? course(d.work, status) : null;
-  const halo = useHalo(d?.work ?? null, d?.rounds ?? NO_ROUNDS, c);
-  if (!g || !v) return <p className="muted page">{t('arch_no_graph')}</p>;
   const id = shown?.work.id ?? null;
-  const roundCell = route.round !== null && d !== null ? (d.rounds.find((x) => x.n === route.round)?.cell ?? null) : null;
   // A round of any work of the architect opens on the chart of that work.
   const onRound: OpenRound = (work, round) => go({ work, round, cell: null });
+  // The chart draws the graph of the work shown, as its flow version has it: an architect work's, or the policy
+  // setting's a flow version before ran as a work of its own, so that a round chosen of either is found on it.
   return (
-    <FlowScreen
-      key={id ?? 'none'}
+    <WorkChart
       compiled={compiled}
-      graphs={graphs}
-      legend={d !== null ? 'work' : 'flow'}
-      marks={[
-        d !== null && c !== null
-          ? workMarks(g, v, d.work, d.rounds, c, status, halo, route.work === id ? route.round : null, compiled)
-          : BARE,
-      ]}
+      view={view}
+      graph={GRAPH}
+      d={d}
       cell={route.cell}
-      onCell={(cell) => go({ cell, round: null })}
-      start={roundCell ?? d?.work.at ?? null}
-      work={id ?? undefined}
-      rounds={d?.rounds}
       round={route.work === id ? route.round : null}
+      onCell={(cell) => go({ cell, round: null })}
       onRound={(x) => go(x !== null ? { work: id, round: x, cell: null } : { round: null })}
-      renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
-      side={<Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
+      panel={(g) => <Panel route={route} a={a} d={d} g={g} compiled={compiled} go={go} onRound={onRound} />}
     />
   );
 }
@@ -514,7 +530,10 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
   const d = detail.data !== undefined && detail.data.work.id === id ? detail.data : null;
   const going = a.works.find((w) => !overWork(w.work)) ?? null;
   const current = going !== null && d !== null && d.work.id === going.work.id ? d.work : (going?.work ?? null);
-  const [pop, setPop] = useState<'works' | null>(null);
+  // The list of the stretches stays open on the address it was opened at: whatever is picked from it closes it.
+  const [popAt, setPopAt] = useState<string | null>(null);
+  const pop = popAt === href(route) ? 'works' : null;
+  const setPop = (p: 'works' | null) => setPopAt(p === 'works' ? href(route) : null);
   const go = (to: Partial<ArchitectRoute>) => navigate(href({ ...route, ...to }), true);
   // A link to an ask on this page brings it into view once the page is there.
   const ready = compiled.data !== undefined && view.data !== undefined;

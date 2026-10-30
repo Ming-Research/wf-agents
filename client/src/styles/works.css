@@ -122,8 +122,9 @@ table.list.works-table td {
   color: var(--fgColor-accent);
 }
 
-/* The line over an open work's chart, on one line: back to the list, the work, how it goes on and where, its facts,
-   its controls, and the other works running or waiting. */
+/* The line over the chart of a work's page and of an architect's, on one line: back to the list or the switch to
+   another project's architect, which it is, how it goes on and where, its facts, its conversation, and on an
+   architect's the switch between the stretches it worked in. */
 .work-line {
   flex: none;
   display: flex;
@@ -168,7 +169,7 @@ table.list.works-table td {
   flex: 0 2 auto;
 }
 
-/* A work's panel on top of the column: its tabs, and what the tab shown holds under them. */
+/* A page's panel on top of the column, a work's or an architect's: its tabs, and what the tab shown holds under them. */
 .drawer {
   flex: 1;
   display: flex;
@@ -197,35 +198,6 @@ table.list.works-table td {
 
 .drawer-body > p {
   margin: 0;
-}
-
-/* How the work goes on, at the top of its rounds, as a Flash in the colour of how it goes. */
-.going {
-  display: grid;
-  gap: var(--base-size-8);
-}
-
-.going p,
-.going ol {
-  margin: 0;
-}
-
-.going-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--base-size-8);
-}
-
-.going-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--base-size-4) var(--base-size-12);
-}
-
-.going-activity {
-  padding-left: var(--base-size-24);
-  font-size: var(--text-body-size-small);
 }
 
 /* The rounds fill the panel's width, whatever it is dragged to: what a round did takes the room left, wrapped rather

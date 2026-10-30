@@ -30,7 +30,6 @@ import {
   CpuIcon,
   ProjectRoadmapIcon,
   StackIcon,
-  ToolsIcon,
 } from '@primer/octicons-react';
 import {
   ActionList,
@@ -91,6 +90,7 @@ import { Markdown } from '../markdown';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
 import { ArchitectAskBlock } from './ArchitectAsk';
+import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
 import { MatterCardView, ObservationCard, PolicyCard, StageCardView } from './TalkCards';
@@ -152,16 +152,6 @@ function List({ list, open }: { list: Conversation[]; open: string | null }) {
         </NavList.Group>
       ))}
     </NavList>
-  );
-}
-
-/// An agent's avatar: its line's mark in its colour, the engineer's tools and the architect's plan.
-function Avatar({ who }: { who: string }) {
-  const architect = who === 'architect' || who.startsWith('architect');
-  return (
-    <span className={architect ? 'talk-avatar talk-avatar-architect' : 'talk-avatar talk-avatar-engineer'} aria-hidden="true">
-      {architect ? <ProjectRoadmapIcon /> : <ToolsIcon />}
-    </span>
   );
 }
 
@@ -452,12 +442,13 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
   const ask = e.source === 'ask' ? e.ask_detail : null;
   const question = e.answerable && e.work !== null && e.matter !== null ? { work: e.work, matter: e.matter } : null;
   const answers = (ask !== null && ask.answer === null) || question !== null;
-  const rowClass = own ? 'talk-row talk-row-owner' : answers ? 'talk-row talk-row-answers' : 'talk-row';
   return (
-    <div className={rowClass} data-ask={ask !== null ? ask.id : undefined}>
-      {own ? null : <Avatar who={from} />}
-      <div className={own ? 'talk-bubble talk-bubble-owner' : `talk-bubble talk-bubble-${from.startsWith('architect') ? 'architect' : 'engineer'}`}>
-        <div className="talk-bubble-head">
+    <Bubble
+      who={own ? 'owner' : from}
+      wide={answers}
+      ask={ask !== null ? ask.id : undefined}
+      head={
+        <>
           {own ? null : <span className="talk-who">{party(e, e.sender)}</span>}
           {to !== null ? <span className="talk-mention">{to}</span> : null}
           <span className="talk-when">{time(e.at)}</span>
@@ -468,15 +459,18 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
           ) : null}
           {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
           {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
-        </div>
-        <div className="talk-bubble-body">
-          <Words e={e} />
-        </div>
-        {ask !== null ? ask.answer === null ? <AskAnswer a={ask} /> : <AskAnswered a={ask} /> : null}
-        {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
-        {reply !== null ? <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} /> : null}
-      </div>
-    </div>
+        </>
+      }
+      after={
+        <>
+          {ask !== null ? ask.answer === null ? <AskAnswer a={ask} /> : <AskAnswered a={ask} /> : null}
+          {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
+          {reply !== null ? <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} /> : null}
+        </>
+      }
+    >
+      <Words e={e} />
+    </Bubble>
   );
 }
 

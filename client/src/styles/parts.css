@@ -347,3 +347,17 @@
   margin: 0;
   padding-left: var(--base-size-24);
 }
+
+/* The period a view counts over: its name, then each period a link, the one counted over in the text's colour and
+   semibold. */
+.period-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-16);
+}
+
+.period-switch .period-on {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}

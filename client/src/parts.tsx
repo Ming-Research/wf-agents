@@ -233,6 +233,24 @@ export function Fold({ summary, open = false, className, children }: {
   );
 }
 
+/// The period a view counts over, kept in the address: what it is counted over, then each period the view offers as a
+/// link, the one counted over in the text's colour and semibold; `className` sets it in the view.
+export function PeriodSwitch({ periods, className }: {
+  periods: Array<{ key: string; label: string; to: string; on: boolean }>;
+  className?: string;
+}) {
+  return (
+    <div className={className !== undefined ? `period-switch ${className}` : 'period-switch'}>
+      <span className="muted">{t('sys_period')}</span>
+      {periods.map((p) => (
+        <Link key={p.key} to={p.to} className={p.on ? 'period-on' : undefined}>
+          {p.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 /// An action inside a line of text that opens something on the page, drawn as Primer's Link (`muted` in small text).
 export function LinkButton({ onClick, title, muted, className, children }: {
   onClick: () => void;

@@ -674,6 +674,43 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
   );
 }
 
+/// The fields of what an agent's round handed back: each field of its form under its title, then the fields every
+/// return holds.
+function ReturnedFields({ form, rest, cell }: { form: ShownField | undefined; rest: ShownField[]; cell: CompiledCell | undefined }) {
+  return (
+    <>
+      {form !== undefined && form.value.kind === 'fields'
+        ? form.value.fields.map((x) => (
+            <div key={x.key} className="pp-part">
+              <Named title={x.title ?? titleOf(cell?.titles, x.key, x.key)} code={x.key} as="h3" n={x.value.kind === 'list' ? x.value.items.length : undefined} />
+              <Value v={x.value} level={3} />
+            </div>
+          ))
+        : null}
+      {rest.length > 0 ? (
+        <Part title={form !== undefined ? t('back_every') : t('returned_fields')}>
+          {rest.map((x) => (
+            <FieldValue key={x.key} f={x} level={4} />
+          ))}
+        </Part>
+      ) : null}
+    </>
+  );
+}
+
+/// What an agent's round handed back, word for word, as its panel shows it, for a place that shows it outside the
+/// panel (a helper's thread with the engineer): each field of its form under its title, then the fields every return
+/// holds; that it handed back nothing, or nothing yet.
+export function HandedBack({ d, cell, within }: { d: RoundDetail; cell: CompiledCell | undefined; within: string }) {
+  if (d.output === null) {
+    return <p className="pp-note">{d.round.outcome === 'running' ? t('rp_running') : t('returned_nothing')}</p>;
+  }
+  const shown = shape(d.output, cell?.schema, { within, titles: cell?.titles });
+  const fields = shown.kind === 'fields' ? shown.fields : [];
+  const form = fields.find((x) => x.key === within);
+  return <ReturnedFields form={form} rest={fields.filter((x) => x !== form)} cell={cell} />;
+}
+
 /// What an agent's round handed back: the form its return holds, each field of the form under its title, the fields
 /// every return holds, and the return as JSON, folded.
 function AgentReturned({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | undefined; f: Flow | null }) {
@@ -703,21 +740,7 @@ function AgentReturned({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | un
           )}
         </p>
       ) : null}
-      {form !== undefined && form.value.kind === 'fields'
-        ? form.value.fields.map((x) => (
-            <div key={x.key} className="pp-part">
-              <Named title={x.title ?? titleOf(cell?.titles, x.key, x.key)} code={x.key} as="h3" n={x.value.kind === 'list' ? x.value.items.length : undefined} />
-              <Value v={x.value} level={3} />
-            </div>
-          ))
-        : null}
-      {rest.length > 0 ? (
-        <Part title={form !== undefined ? t('back_every') : t('returned_fields')}>
-          {rest.map((x) => (
-            <FieldValue key={x.key} f={x} level={4} />
-          ))}
-        </Part>
-      ) : null}
+      <ReturnedFields form={form} rest={rest} cell={cell} />
       <FoldPart title={t('returned_json')} facts={charCount(chars(json))}>
         <Said mono>
           <Long text={json} />
@@ -1065,7 +1088,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
 }
 
 /// Where the interface gives a round in full: by its work and its number in the work.
-function roundUrl(work: number, n: number): string {
+export function roundUrl(work: number, n: number): string {
   return `/api/v1/works/${work}/rounds/${n}`;
 }
 

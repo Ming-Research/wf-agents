@@ -22,7 +22,7 @@ import { course, heldWords } from '../components';
 import { runningWords, waitsWords } from '../course';
 import { cost, day, duration, roundName, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { HeadingLevel, ItemRef, RoundLink, Section } from '../parts';
+import { HeadingLevel, ItemRef, PeriodSwitch, RoundLink, Section } from '../parts';
 import { architectHref, href, Link, type Period, PERIODS, workHref } from '../route';
 import { tokenCount, tokens } from '../round';
 import { spendTable } from '../spend';
@@ -55,7 +55,7 @@ export function System({ period }: { period: Period }) {
         <Section {...part(t('sys_now'), t('sys_now_for'))} open>
           <Now s={s} works={works.data ?? []} status={status} />
         </Section>
-        <PeriodSwitch period={period} />
+        <SystemPeriod period={period} />
         <Section {...part(t('sys_output'), t('sys_output_for'))} open>
           <Output s={s} status={status} />
         </Section>
@@ -75,16 +75,12 @@ export function System({ period }: { period: Period }) {
 }
 
 /// The period the parts after Now count over, kept in the address.
-function PeriodSwitch({ period }: { period: Period }) {
+function SystemPeriod({ period }: { period: Period }) {
   return (
-    <div className="sys-period section-apart">
-      <span className="muted">{t('sys_period')}</span>
-      {PERIODS.map((p) => (
-        <Link key={p} to={href({ page: 'system', period: p })} className={p === period ? 'sys-period-on' : undefined}>
-          {t(`sys_period_${p}`)}
-        </Link>
-      ))}
-    </div>
+    <PeriodSwitch
+      className="sys-period section-apart"
+      periods={PERIODS.map((p) => ({ key: p, label: t(`sys_period_${p}`), to: href({ page: 'system', period: p }), on: p === period }))}
+    />
   );
 }
 
