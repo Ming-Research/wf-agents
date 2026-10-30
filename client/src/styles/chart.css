@@ -49,14 +49,17 @@
   --fc-any-fill: var(--data-gray-color-muted);
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
      background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
-     in the success colour and out of it in the danger colour, as the owner chose them, both of which read on the
-     inset background and on a stage's box in either theme; the round chosen came in and left by the same. */
+     green and out of it red, the data visualisation's, lighter than the success and danger colours the owner found
+     too dark, at an arrow's width, and the round chosen came in and left by the same; their labels filled with the
+     success and danger emphasis, a step darker, on which white letters read, as the row pointed at is on its orange. */
   --fc-arrow: var(--borderColor-emphasis);
   --fc-arrow-main: var(--fgColor-accent);
   --fc-taken: var(--data-blue-color-emphasis);
   --fc-hot: var(--data-orange-color-emphasis);
-  --fc-way-in: var(--fgColor-success);
-  --fc-way-out: var(--fgColor-danger);
+  --fc-way-in: var(--data-green-color-emphasis);
+  --fc-way-out: var(--data-red-color-emphasis);
+  --fc-way-in-label: var(--bgColor-success-emphasis);
+  --fc-way-out-label: var(--bgColor-danger-emphasis);
   --fc-label: var(--bgColor-muted);
   /* The effort badges, as the owner chose them: green, blue, orange, red and purple from low to max, each with white
      letters but high, a plain orange, lighter than the dark orange that was too close to xhigh's red and stronger than
@@ -522,28 +525,24 @@ svg.fc {
   animation: fc-flow var(--chart-flow-time) linear infinite;
 }
 
-/* The row the pointer is on, from its source to its target. */
+/* What lights a row colours it and leaves it as thin as any arrow: the row the pointer is on, from its source to its
+   target, orange; the rows into the cell picked, or the cell under the pointer, green, and out of it red. */
 .fc-edge-hot {
   stroke: var(--fc-hot);
-  stroke-width: var(--chart-line-taken);
 }
 
-/* The rows into the cell picked, or the cell under the pointer, green, and out of it red, heavier. */
 .fc-edge-in {
   stroke: var(--fc-way-in);
-  stroke-width: var(--chart-line-taken);
 }
 
 .fc-edge-out {
   stroke: var(--fc-way-out);
-  stroke-width: var(--chart-line-taken);
 }
 
-/* The arrows the round chosen in the rounds list came in by, green, and left by, red, as a cell's rows in and out are:
-   wide, their dashes flowing the way the work went. */
+/* The arrows the round chosen in the rounds list came in by, green, and left by, red, as a cell's rows in and out are,
+   their dashes flowing the way the work went. */
 .fc-edge-lit-in,
 .fc-edge-lit-out {
-  stroke-width: var(--chart-line-lit);
   stroke-dasharray: var(--chart-dash-flow);
   animation: fc-flow var(--chart-flow-time) linear infinite;
 }
@@ -626,16 +625,22 @@ svg.fc {
   fill: var(--fc-taken);
 }
 
+/* The label of a row lit into or out of a cell: on its colour, a step darker for its white letters to read. */
+.fc-label-in rect {
+  fill: var(--fc-way-in-label);
+}
+
+.fc-label-out rect {
+  fill: var(--fc-way-out-label);
+}
+
+.fc .fc-label-in > text,
+.fc .fc-label-out > text {
+  fill: var(--fgColor-onEmphasis);
+}
+
 .fc-label-hot rect {
   fill: var(--fc-hot);
-}
-
-.fc .fc-label-in text {
-  fill: var(--fc-way-in);
-}
-
-.fc .fc-label-out text {
-  fill: var(--fc-way-out);
 }
 
 /* On a work's chart, the label of a row the work never took, muted as the arrow is. */

@@ -353,16 +353,11 @@ export function labelSize(e: ChartEdge): Size | null {
   return { width: Math.ceil(measure(e.label, chartFonts().note)) + 12, height: 22 };
 }
 
-/// The arrowhead's length and width, the same for every arrow but those lit for the round chosen, whose wide line
-/// takes a head sized to it; and how far the ring around the cell a work is at stands off the cell, where the arrows
-/// into and out of the cell end and start.
+/// The arrowhead's length and width, the same for every arrow; and how far the ring around the cell a work is at stands
+/// off the cell, where the arrows into and out of the cell end and start.
 const HEAD = 7;
-const LIT_HEAD = 16;
 const RING = 5;
 const RING_CUT = RING + 2;
-
-/// Whether arrows of a kind are drawn wide, with the wide head: the ways the round chosen came in by and left by.
-const wide = (k: LineKind) => k === 'lit-in' || k === 'lit-out';
 
 export type Marks = {
   /// The node whose panel is open.
@@ -877,8 +872,8 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
               refX="0"
               refY="5"
               markerUnits="userSpaceOnUse"
-              markerWidth={wide(k) ? LIT_HEAD : HEAD}
-              markerHeight={wide(k) ? LIT_HEAD : HEAD}
+              markerWidth={HEAD}
+              markerHeight={HEAD}
               orient="auto-start-reverse"
             >
               <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -911,7 +906,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
         // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
         const d = pathOf(r, {
           start: (use === 'both' ? HEAD : 0) + (e.source === ring ? RING_CUT : 0),
-          end: (e.kind === 'does' ? 0 : wide(kind) ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
+          end: (e.kind === 'does' ? 0 : HEAD) + (e.target === ring ? RING_CUT : 0),
         });
         const head = `url(#fc-arrow-${kind})`;
         return (

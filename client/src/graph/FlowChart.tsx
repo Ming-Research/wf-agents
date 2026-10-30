@@ -237,13 +237,13 @@ function Legend({ charts, stores, legend }: {
             </li>
             <li>
               <Swatch>
-                <path className="fc-edge fc-edge-lit-in" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit-in)" />
+                <path className="fc-edge fc-edge-lit-in" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-lit-in)" />
               </Swatch>
               {t('legend_lit_in')}
             </li>
             <li>
               <Swatch>
-                <path className="fc-edge fc-edge-lit-out" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit-out)" />
+                <path className="fc-edge fc-edge-lit-out" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-lit-out)" />
               </Swatch>
               {t('legend_lit_out')}
             </li>
