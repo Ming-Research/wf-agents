@@ -30,7 +30,7 @@ import { reread } from '../live';
 import { Markdown } from '../markdown';
 import { Fold } from '../parts';
 import { architectHref, href, Link, workHref } from '../route';
-import { t, type Key } from '../text';
+import { t, tn, type Key } from '../text';
 import { DesignCardView } from './Decide';
 import { PolicyText } from './ArchitectViews';
 import { DesignShown } from './Item';
@@ -208,7 +208,7 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
         ) : null}
       </p>
       {steps.length > 0 ? (
-        <Fold summary={t('matter_steps', { n: steps.length })}>
+        <Fold summary={tn('matter_steps', steps.length)}>
           <Said text={steps.map((x, i) => `${i + 1}. ${x}`).join('\n')} />
         </Fold>
       ) : null}
@@ -269,7 +269,7 @@ export function ObservationCard({ o }: { o: Observation }) {
             {x}
           </Label>
         ))}
-        <span className="talk-card-facts">{t('observation_reported', { n: o.times_reported })}</span>
+        <span className="talk-card-facts">{tn('observation_reported', o.times_reported)}</span>
         {o.closed !== null ? (
           <Label variant="secondary">{t('observation_closed', { why: words(o.closed) })}</Label>
         ) : (

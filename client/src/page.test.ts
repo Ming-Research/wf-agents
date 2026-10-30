@@ -97,7 +97,7 @@ import {
 } from './conversation';
 import { addressesByNumber, atPath, modelName } from './pages/RoundView';
 import { roundsShown } from './pages/Work';
-import { catalog, t } from './messages';
+import { catalog, type Key, t, tn } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
 import { settingsChange, settingsProblems } from './pages/Settings';
@@ -113,6 +113,46 @@ describe('the message catalog', () => {
       expect(/[\u{3000}-\u{303f}\u{3040}-\u{30ff}\u{3400}-\u{9fff}\u{ff00}-\u{ffef}]/u.test(text), key).toBe(false);
     }
     expect(t('slots', { used: 1, total: 2 })).toBe('Slots 1/2');
+  });
+
+  // One rule says every count: a text that counts in the plural has a `_one` form for one, and the page says it through
+  // tn, which picks that form, never through t alone.
+  it('says every count right for one, through tn', () => {
+    const keys = Object.keys(catalog) as Key[];
+    for (const k of keys.filter((x) => x.endsWith('_one'))) {
+      const base = k.slice(0, -'_one'.length) as Key;
+      expect(keys, k).toContain(base);
+      expect(catalog[base], base).toContain('{n}');
+      expect(catalog[k], k).not.toContain('{n}');
+    }
+    // A count before a plural word: "{n} matters left", "{n} keep-warm pings", "reported {n} times". The two whose
+    // words read right for one have none.
+    const plural = /\{n\} (?:[\w-]+ )?(?:[\w-]+s|times)\b/;
+    const right = ['from_facts_back', 'given_new_n'];
+    for (const k of keys) {
+      if (!k.endsWith('_one') && !right.includes(k) && plural.test(catalog[k])) expect(keys, k).toContain(`${k}_one`);
+    }
+    const sources = import.meta.glob<string>(
+      ['./**/*.ts', './**/*.tsx', '!./**/*.test.ts', '!./**/*.test.tsx', '!./messages.ts', '!./api.ts'],
+      { query: '?raw', import: 'default', eager: true },
+    );
+    for (const [file, text] of Object.entries(sources)) {
+      for (const line of text.split('\n')) {
+        for (const m of line.matchAll(/'(\w+)'/g)) {
+          expect(m[1].endsWith('_one') && m[1] in catalog, `${file} names ${m[1]}`).toBe(false);
+          if (`${m[1]}_one` in catalog) expect(line, `${file} says ${m[1]}`).toMatch(/\btn\(/);
+        }
+      }
+    }
+    expect(tn('talk_queue_left', 1)).toBe('1 matter left');
+    expect(tn('talk_queue_left', 3)).toBe('3 matters left');
+    expect(tn('observation_reported', 1)).toBe('reported once');
+    expect(tn('observation_reported', 2)).toBe('reported 2 times');
+    expect(tn('stage_fixes', 1)).toBe('1 fix');
+    expect(tn('n_tokens', 1, { n: '1' })).toBe('1 token');
+    expect(tn('n_tokens', 12_000, { n: '12K' })).toBe('12K tokens');
+    expect(tn('items_deps_title', 1, { done: 0 })).toBe('Done: 0 of the 1 item it depends on');
+    expect(tn('nav_unread', 1)).toBe('1 new since you last read');
   });
 });
 

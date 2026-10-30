@@ -93,7 +93,7 @@ import { isObj, label, str, words } from '../labelled';
 import { reread, useResource } from '../live';
 import { Markdown } from '../markdown';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
@@ -143,7 +143,7 @@ function List({ list, open }: { list: Conversation[]; open: string | null }) {
                 <NavList.TrailingVisual>
                   <span className="talks-marks">
                     {c.waiting > 0 ? (
-                      <CounterLabel variant="primary" title={t('conv_waits_n', { n: c.waiting })}>
+                      <CounterLabel variant="primary" title={tn('conv_waits_n', c.waiting)}>
                         {c.waiting}
                       </CounterLabel>
                     ) : null}
@@ -174,9 +174,8 @@ function MissesLine({ m }: { m: Misses }) {
   if (m.count <= 1) return null;
   return (
     <p className="talk-line-more">
-      {t('message_misses', {
-        n: m.count,
-        written: m.written.toLocaleString('en-US'),
+      {tn('message_misses', m.count, {
+        written: tn('n_tokens', m.written, { n: m.written.toLocaleString('en-US') }),
         cost: cost(m.cost_usd),
         at: time(m.last_at),
       })}

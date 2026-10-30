@@ -24,10 +24,10 @@ import { cost, day, duration, roundName, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, RoundLink, Section } from '../parts';
 import { architectHref, href, Link, type Period, PERIODS, workHref } from '../route';
-import { tokens } from '../round';
+import { tokenCount, tokens } from '../round';
 import { spendTable } from '../spend';
 import { anomaliesBy, byStanding, mergedAverages, spentIn, systemPath, zone } from '../system';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { modelName } from './RoundView';
 
 export function System({ period }: { period: Period }) {
@@ -409,7 +409,7 @@ function Spend({ s }: { s: SystemData }) {
         <Tile
           k={t('sys_per_merged')}
           v={merged > 0 ? cost(spent.total / merged) : none()}
-          s={own !== null ? t('sys_per_merged_s', { n: merged, own: cost(own.cost) }) : undefined}
+          s={own !== null ? tn('sys_per_merged_s', merged, { own: cost(own.cost) }) : undefined}
           none={merged === 0}
           hint={t('sys_per_merged_hint')}
         />
@@ -590,7 +590,7 @@ function Waste({ s }: { s: SystemData }) {
         <Tile
           k={t('sys_misses')}
           v={String(w.misses)}
-          s={t('sys_misses_s', { cost: cost(w.miss_usd), n: tokens(w.missed) })}
+          s={t('sys_misses_s', { cost: cost(w.miss_usd), tokens: tokenCount(w.missed) })}
           to={href({ page: 'messages', open: 'wf-agents' })}
           none={w.misses === 0}
           hint={t('sys_misses_hint')}

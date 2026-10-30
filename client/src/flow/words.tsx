@@ -6,7 +6,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import type { Atom, CompiledCell } from '../api';
 import { LinkButton } from '../parts';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { useFlow } from './context';
 
 /// The page's words with names between backticks set as codes: monospace, in the colour of the text round them.
@@ -57,7 +57,7 @@ export function conditionWords(a: Atom, known: Set<string>): string {
     case 'inp':
       return t(known.has(a[1]) ? 'cond_engine' : 'cond_recorded', { name: `\`${a[1]}\``, values: valuesWords(a[2]) });
     case 'sent_back':
-      return a.length === 2 ? t('cond_sent_back_n', { n: a[1] }) : t('cond_sent_back');
+      return a.length === 2 ? tn('cond_sent_back_n', a[1]) : t('cond_sent_back');
     case 'failed':
       return t('cond_failed', { kind: `\`${a[1]}\`` });
     case 'engine':

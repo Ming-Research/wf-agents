@@ -13,7 +13,7 @@ import { MarkdownInline } from '../markdown';
 import { RoundLink, SubHeading } from '../parts';
 import { bringIntoView } from '../pages/Decide';
 import { Link } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { byStage, progress, type Step } from './checklist';
 
 /// What the work waits for at the cell it is at, in words, with the design card or ask it waits on brought into view.
@@ -82,7 +82,7 @@ function Line({ s, d, w }: { s: Step; d: ItemDetail; w: WorkSummary }) {
       </span>
       <span className="cell-id">{s.cell}</span> <span className="step-title">{s.title}</span>
       {s.passes > 1 ? (
-        <span className="muted" title={t('progress_passes_title', { n: s.passes })}>
+        <span className="muted" title={tn('progress_passes_title', s.passes)}>
           {' '}
           ×{s.passes}
         </span>

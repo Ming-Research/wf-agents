@@ -18,7 +18,7 @@ import { postJson } from './http';
 import { reread, useOnline, useResource, useStatus } from './live';
 import { useNotifications } from './notify';
 import { navigate, type Route } from './route';
-import { t, type Key } from './text';
+import { t, tn, type Key } from './text';
 
 /// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
 /// asked for, or of a work the owner started.
@@ -33,8 +33,7 @@ function stateWords(s: Status): string {
   if (s.halt !== null) return t('engine_halt', { kind: s.halt.kind, until: time(s.halt.until) });
   if (!s.paused) return t('engine_running');
   const n = finishing(s);
-  if (n === 1) return t('engine_pausing_one');
-  if (n > 0) return t('engine_pausing', { n });
+  if (n > 0) return tn('engine_pausing', n);
   const runs = [...s.started.map((w) => `#${w}`), ...s.architects_started.map((p) => t('engine_runs_architect', { project: p }))];
   return runs.length > 0 ? t('engine_paused_runs', { which: runs.join(', ') }) : t('engine_paused');
 }
@@ -106,7 +105,7 @@ function Switch({ status }: { status: Status }) {
     // The works that go on once all start: those paused by themselves stay paused.
     const taken = (works.data ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
     const ask =
-      taken > 0 ? t('confirm_start_all_takeover', { n: taken, version: status.flow_version }) : t('confirm_start_all');
+      taken > 0 ? tn('confirm_start_all_takeover', taken, { version: status.flow_version }) : t('confirm_start_all');
     if (!window.confirm(ask)) return;
     post('/api/v1/engine/start');
   };
@@ -198,7 +197,7 @@ export function TopBar({ route }: { route: Route }) {
           >
             {t(v.name)}
             {v.to === '/messages' && waiting > 0 ? (
-              <CounterLabel variant="primary" className="topbar-count" title={t('nav_waiting', { n: waiting })}>
+              <CounterLabel variant="primary" className="topbar-count" title={tn('nav_waiting', waiting)}>
                 {waiting}
               </CounterLabel>
             ) : null}

@@ -20,7 +20,7 @@ import { useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, RoundLink, Section, SubHeading } from '../parts';
 import { href, Link } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
 
 /// Where a value shown on the item came from: the cell and the round, opening the round.
@@ -153,7 +153,7 @@ const after = (a: Shown, b: Shown): boolean => a.work > b.work || (a.work === b.
 function NoChoice({ n, leans, waits }: { n: number; leans: string | null; waits: Waits | null }) {
   return (
     <Flash variant="warning" className="design-none">
-      <p>{t('design_none_chosen', { n })}</p>
+      <p>{tn('design_none_chosen', n)}</p>
       {leans !== null ? (
         <>
           <p>{t('design_leans')}</p>

@@ -2,7 +2,7 @@
 
 import type { Atom, Do, Src } from './api';
 
-export { t } from './messages';
+export { t, tn } from './messages';
 export type { Key } from './messages';
 
 /// Where an input is read from, as one line.

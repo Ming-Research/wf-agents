@@ -23,7 +23,7 @@ import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { CellLinks, inline, sheetText } from './words';
-import { chars, counted, Name, Part, Sheet } from '../voices';
+import { charCount, chars, Name, Part, Sheet } from '../voices';
 
 const same = (a: Subject, b: Subject) => subjectKey(a) === subjectKey(b);
 
@@ -98,7 +98,7 @@ function RulePanel({ name }: { name: string }) {
         const text = (rule?.text ?? []).join('\n');
         return (
           <div className="pp-page">
-            <Part title={t('sec_rule_text')} code={`rule:${name}`} facts={t('chars', { n: counted(chars(text)) })}>
+            <Part title={t('sec_rule_text')} code={`rule:${name}`} facts={charCount(chars(text))}>
               <Sheet>
                 {(rule?.text ?? []).map((l, i) => (
                   <p key={i}>{sheetText(l)}</p>

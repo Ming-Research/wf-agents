@@ -17,7 +17,7 @@ import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { Work } from './Work';
 
 const ENDED = new Set(['done', 'ended']);
@@ -117,7 +117,7 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
         key="cards"
         to={href({ page: 'messages', open: `work:${w.id}` })}
         variant="attention"
-        title={t('open_design_cards_later_n', { n: cards })}
+        title={tn('open_design_cards_later_n', cards)}
       >
         {t('open_design_cards_chip', { n: cards })}
       </LabelLink>,
@@ -421,7 +421,7 @@ function WorkLine({ w }: { w: WorkSummary }) {
         {w.at_title}
         {stage ? <span className="muted"> · {stage}</span> : null}
       </span>
-      <span className="muted">{t('work_rounds_n', { n: w.rounds })}</span>
+      <span className="muted">{tn('work_rounds_n', w.rounds)}</span>
       <span className="muted">{cost(w.cost_usd)}</span>
       {w.pr !== null ? (
         repo !== undefined ? (

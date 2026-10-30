@@ -6,7 +6,7 @@
 
 import type { JsonValue, RoundTokens } from './api';
 import { isObj, type Obj, words } from './labelled';
-import { t } from './text';
+import { t, tn } from './text';
 
 /// A part of a message as sent: a heading line, or the lines between two headings, exactly as they are.
 export type Part = { heading: string } | { text: string };
@@ -273,6 +273,9 @@ export function tokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
+/// A count of tokens in words, short as `tokens` writes it: "1 token", "12K tokens".
+export const tokenCount = (n: number): string => tn('n_tokens', n, { n: tokens(n) });
+
 /// A part of what a round spent, as the page says it: its words in the short line, its tokens on hovering, and its
 /// words in the whole line.
 export type SpentPart = {
@@ -320,7 +323,7 @@ export function spent(x: RoundTokens, model: string | null): Spent {
   const costs = costParts(x, model);
   const total = costs !== null ? costs.input + costs.read + costs.written + costs.output : 0;
   const parts: SpentPart[] = [];
-  const steps = t(x.steps === 1 ? 'spent_step' : 'spent_steps', { n: x.steps });
+  const steps = tn('spent_steps', x.steps);
   parts.push({ text: steps, title: null, whole: steps, fact: true });
   if (x.context_end !== null) {
     const text =
@@ -335,7 +338,7 @@ export function spent(x: RoundTokens, model: string | null): Spent {
     const which = key === 'spent_read' ? 'read' : key === 'spent_new' ? 'new' : key === 'spent_output' ? 'output' : undefined;
     parts.push({ text: t(key, { share: pct ?? tokens(n) }), title, whole: pct !== null ? `${title}, ${pct}` : title, share: which });
   };
-  part('spent_read', x.read, costs?.read ?? null, t('spent_read_hint', { n: tokens(x.read) }));
+  part('spent_read', x.read, costs?.read ?? null, t('spent_read_hint', { tokens: tokenCount(x.read) }));
   const kept = [
     x.written_1h > 0 ? t('spent_kept_1h', { n: tokens(x.written_1h) }) : null,
     x.written_5m > 0 ? t('spent_kept_5m', { n: tokens(x.written_5m) }) : null,

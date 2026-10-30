@@ -11,8 +11,8 @@ import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'rea
 import type { CompiledGraph, WorkDetail } from '../api';
 import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
-import { tokens } from '../round';
-import { t } from '../text';
+import { tokenCount, tokens } from '../round';
+import { t, tn } from '../text';
 import { axisTicks, clockOf, type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
 import { modelName } from './RoundView';
 
@@ -250,15 +250,19 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
           v={cost(u.cost)}
           s={
             u.pings.length > 0
-              ? t('us_agent_rounds_pings', { n: u.agentRounds, pings: u.pings.length, cost: cost(u.pingCost) })
-              : t('us_agent_rounds', { n: u.agentRounds })
+              ? t('us_agent_rounds_pings', {
+                  rounds: tn('us_agent_rounds', u.agentRounds),
+                  pings: tn('us_pings', u.pings.length),
+                  cost: cost(u.pingCost),
+                })
+              : tn('us_agent_rounds', u.agentRounds)
           }
         />
         <Tile k={t('us_time')} v={duration(u.wall)} s={t('us_running', { time: duration(u.time.model + u.time.tool + u.time.engine) })} />
         <Tile k={t('us_rounds')} v={String(u.rounds)} s={t('us_sent_back', { n: u.sentBack })} />
         <Tile k={t('us_read')} v={tokens(readAll)} s={t('us_from_cache', { share: share(tk.read, readAll) })} />
         <Tile k={t('us_written')} v={tokens(tk.output)} s={t('us_thinking', { n: tokens(tk.thinking) })} />
-        <Tile k={t('us_compactions')} v={String(u.compactions)} s={t('us_turns', { n: tk.turns })} />
+        <Tile k={t('us_compactions')} v={String(u.compactions)} s={tn('us_turns', tk.turns)} />
       </div>
       <Section title={t('us_time_title')} note={t('us_time_note')}>
         <Stack
@@ -330,10 +334,10 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
         {k !== null ? (
           <Stack
             parts={[
-              { value: k.read, colour: 'var(--share-read)', label: t('us_kind_read', { share: share(k.read, kTotal) }), tip: t('us_kind_read_tip', { n: tokens(tk.read), share: share(k.read, kTotal) }) },
-              { value: k.written, colour: 'var(--share-new)', label: t('us_kind_written', { share: share(k.written, kTotal) }), tip: t('us_kind_written_tip', { n: tokens(tk.written), share: share(k.written, kTotal) }) },
-              { value: k.output, colour: 'var(--share-output)', label: t('us_kind_output', { share: share(k.output, kTotal) }), tip: t('us_kind_output_tip', { n: tokens(tk.output), share: share(k.output, kTotal) }) },
-              { value: k.input, colour: 'var(--chart-idle)', label: t('us_kind_input', { share: share(k.input, kTotal) }), tip: t('us_kind_input_tip', { n: tokens(tk.input), share: share(k.input, kTotal) }) },
+              { value: k.read, colour: 'var(--share-read)', label: t('us_kind_read', { share: share(k.read, kTotal) }), tip: t('us_kind_read_tip', { tokens: tokenCount(tk.read), share: share(k.read, kTotal) }) },
+              { value: k.written, colour: 'var(--share-new)', label: t('us_kind_written', { share: share(k.written, kTotal) }), tip: t('us_kind_written_tip', { tokens: tokenCount(tk.written), share: share(k.written, kTotal) }) },
+              { value: k.output, colour: 'var(--share-output)', label: t('us_kind_output', { share: share(k.output, kTotal) }), tip: t('us_kind_output_tip', { tokens: tokenCount(tk.output), share: share(k.output, kTotal) }) },
+              { value: k.input, colour: 'var(--chart-idle)', label: t('us_kind_input', { share: share(k.input, kTotal) }), tip: t('us_kind_input_tip', { tokens: tokenCount(tk.input), share: share(k.input, kTotal) }) },
             ]}
           />
         ) : null}
@@ -345,12 +349,12 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
               label: `${c.cell} ${c.title}`,
               value: c.cost,
               text: cost(c.cost),
-              tip: `${c.cell} ${c.title} · ${cost(c.cost)} · ${t(c.rounds === 1 ? 'us_one_round' : 'us_n_rounds', { n: c.rounds })}`,
+              tip: `${c.cell} ${c.title} · ${cost(c.cost)} · ${tn('us_n_rounds', c.rounds)}`,
             })),
             ...(rest.length > 0
               ? [
                   {
-                    label: t('us_other_cells', { n: rest.length }),
+                    label: tn('us_other_cells', rest.length),
                     value: rest.reduce((a, c) => a + c.cost, 0),
                     text: cost(rest.reduce((a, c) => a + c.cost, 0)),
                     tip: rest.map((c) => `${c.cell} ${cost(c.cost)}`).join(' · '),
@@ -392,7 +396,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
                 <td className="num">{s.compactions}</td>
                 <td className="num">
                   {cost(s.cost)}
-                  {s.pings > 0 ? <div className="us-sub">{t('us_with_pings', { n: s.pings })}</div> : null}
+                  {s.pings > 0 ? <div className="us-sub">{tn('us_with_pings', s.pings)}</div> : null}
                 </td>
               </tr>
             ))}
@@ -445,7 +449,7 @@ export function Usage({ d, g }: { d: WorkDetail; g: CompiledGraph }) {
               label: `${x.cell} ${x.title}`,
               value: x.ms,
               text: duration(x.ms),
-              tip: `${x.cell} ${x.title} · ${duration(x.ms)} · ${t(x.runs === 1 ? 'us_one_run' : 'us_n_runs', { n: x.runs })}`,
+              tip: `${x.cell} ${x.title} · ${duration(x.ms)} · ${tn('us_n_runs', x.runs)}`,
             }))}
           />
         </Section>

@@ -16,7 +16,7 @@ import type {
 } from './api';
 import { overWork } from './architect';
 import { words } from './labelled';
-import { t } from './messages';
+import { t, tn } from './messages';
 
 /// The parts of the list, in its order, which waiting and new entries never change: the one-to-ones with the
 /// architects and wf-agents' own; a group for each work, newest first; the groups of connected projects.
@@ -244,8 +244,8 @@ export function architectBoxHint(mode: BoxMode, live: LiveWork[], to: number[]):
 export function stageFacts(s: StageCard): string[] {
   const out: string[] = [];
   for (const c of s.design_cards) out.push(t('stage_card', { id: c.id, status: words(c.status) }));
-  if (s.reviews > 0) out.push(t('stage_reviews', { n: s.reviews }));
-  if (s.fixes > 0) out.push(t('stage_fixes', { n: s.fixes }));
+  if (s.reviews > 0) out.push(tn('stage_reviews', s.reviews));
+  if (s.fixes > 0) out.push(tn('stage_fixes', s.fixes));
   if (s.left !== null) out.push(t('stage_left', { cell: s.left.cell, row: words(s.left.row) }));
   return out;
 }

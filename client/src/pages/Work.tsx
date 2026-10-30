@@ -31,7 +31,7 @@ import { spent } from '../round';
 import { useActivity, useResource, useStatus } from '../live';
 import { By, ItemRef, LinkButton, RoundLink, Section } from '../parts';
 import { href, Link, navigate, type RoundsOnly, type WorkRoute, type WorkTab } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { Markdown } from '../markdown';
 import { bringIntoView, currentCard, DesignCardView, words } from './Decide';
 import { RoundView } from './RoundView';
@@ -346,7 +346,7 @@ function WorkPanel({ d, g, r, go }: {
             <Going d={d} />
             {r.only !== null ? (
               <p className="rounds-only">
-                {t(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', { n: shown.length })}{' '}
+                {tn(r.only === 'sent_back' ? 'rounds_only_sent_back' : 'rounds_only_failed', shown.length)}{' '}
                 <LinkButton onClick={() => go({ only: null })}>{t('rounds_show_all', { n: d.rounds.length })}</LinkButton>
               </p>
             ) : null}

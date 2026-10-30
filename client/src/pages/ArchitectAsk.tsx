@@ -16,7 +16,7 @@ import { Field, OptionBoxes } from '../item/Shapes';
 import { isObj, label, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
 import { Block, By, type OpenRound, RoundLink, Section, SubHeading } from '../parts';
-import { t, type Key } from '../text';
+import { t, tn, type Key } from '../text';
 import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
 import { AnswerPart, AskView } from './Decide';
 
@@ -146,7 +146,7 @@ function PolicyAsk({ a, body, onRound, revisions }: {
       </details>
       {revisions.length > 0 ? (
         <details className="talk-fold">
-          <summary>{t('ask_policy_changed', { n: revisions.length })}</summary>
+          <summary>{tn('ask_policy_changed', revisions.length)}</summary>
           <div className="talk-fold-body">
             {revisions.map((r, i) => (
               <Revision key={i} r={r} />

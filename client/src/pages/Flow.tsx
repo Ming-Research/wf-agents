@@ -12,7 +12,7 @@ import { FlowScreen } from '../flow/FlowScreen';
 import type { Graph } from '../graph/FlowChart';
 import { type Resource, useResource, useStatus } from '../live';
 import { href, navigate, type Route } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 
 type FlowRoute = Extract<Route, { page: 'flow' }>;
 
@@ -156,7 +156,7 @@ function Bar({ r, versions, current, at }: {
                 >
                   {t('flow_version_short', { id: v.id })}
                   <ActionList.Description>
-                    <span className="cell-id">{v.digest.slice(0, 8)}</span> · {t('flow_works', { n: v.works })}
+                    <span className="cell-id">{v.digest.slice(0, 8)}</span> · {tn('flow_works', v.works)}
                   </ActionList.Description>
                   {v.id === current ? (
                     <ActionList.TrailingVisual>

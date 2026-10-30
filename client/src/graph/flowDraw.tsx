@@ -12,7 +12,7 @@
 import { type ReactNode, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, EngineNames } from '../api';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { actionWords, type Chart, type ChartEdge, type ChartNode, type Overlay, related, type Wait } from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
@@ -340,9 +340,9 @@ function CellShape({ n, cell, box, lines, note, marks }: {
   const badges: ReactNode[] = [];
   if (o) {
     const items: Array<[string, string, string]> = [];
-    if (o.rounds > 0) items.push(['fc-b-rounds', String(o.rounds), t('chart_rounds', { n: o.rounds })]);
-    if (o.sentBack > 0) items.push(['fc-b-back', `↩${o.sentBack}`, t('chart_sent_back', { n: o.sentBack })]);
-    if (o.failed > 0) items.push(['fc-b-failed', `✕${o.failed}`, t('chart_failed', { n: o.failed })]);
+    if (o.rounds > 0) items.push(['fc-b-rounds', String(o.rounds), tn('chart_rounds', o.rounds)]);
+    if (o.sentBack > 0) items.push(['fc-b-back', `↩${o.sentBack}`, tn('chart_sent_back', o.sentBack)]);
+    if (o.failed > 0) items.push(['fc-b-failed', `✕${o.failed}`, tn('chart_failed', o.failed)]);
     let x = box.x + box.width + 4;
     for (const [k, text, title] of items.reverse()) {
       const w = Math.ceil(measure(text, chartFonts().note)) + 10;
@@ -543,7 +543,7 @@ function edgeTitle(e: ChartEdge, cells: Map<string, CompiledCell>, n: number): s
   ].filter((x) => x !== '');
   // A line from another graph names that graph's rows, which are not this graph's.
   const what = rows.length > 0 ? rows.join(', ') : e.label;
-  return n > 0 ? `${what}\n${t('chart_taken', { n })}` : what;
+  return n > 0 ? `${what}\n${tn('chart_taken', n)}` : what;
 }
 
 /// What hovering the actions a node names says: each action and what it does.

@@ -10,8 +10,8 @@ import type { ReactNode } from 'react';
 import type { CellInput, CompiledCell, CompiledInput, InputsNow, Src } from '../api';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
-import { t } from '../text';
-import { chars, Code, counted, Filled, FoldPart, Long, Name, Over, Part, Row, Rows, Sheet } from '../voices';
+import { t, tn } from '../text';
+import { charCount, chars, Code, Filled, FoldPart, Long, Name, Over, Part, Row, Rows, Sheet } from '../voices';
 import { useFlow } from './context';
 import { CellCode, inline, sheetText } from './words';
 
@@ -143,7 +143,7 @@ function SourceHolds({ src, now }: { src: Src; now: InputsNow | undefined }) {
     <>
       {now.projects.map((p) => (
         <div key={p.project} className="pp-part">
-          <Over>{t('holds_guide_in', { project: p.project, n: p.design_tree.length })}</Over>
+          <Over>{tn('holds_guide_in', p.design_tree.length, { project: p.project })}</Over>
           <Sheet>
             <Long text={p.agents_md}>{(x) => <Markdown text={x} />}</Long>
           </Sheet>
@@ -250,7 +250,7 @@ function Task({ c }: { c: CompiledCell }) {
   const text = prompt.join('\n\n');
   const enums = c.prompt_by ? (c.inenums?.[c.prompt_by.by] ?? []) : [];
   return (
-    <Part title={t('given_task')} facts={t('given_task_facts', { n: counted(chars(text)) })}>
+    <Part title={t('given_task')} facts={t('given_task_facts', { chars: charCount(chars(text)) })}>
       <Sheet>
         <Long text={text}>
           {() => (
@@ -290,7 +290,7 @@ function Given({ m, c, now }: { m: CellInput; c: CompiledCell; now: InputsNow | 
     const rule = f.g.rules.find((r) => r.name === name);
     const text = (rule?.text ?? []).join('\n');
     return (
-      <Row name={t('given_rule', { name })} code={address} facts={rule ? t('chars', { n: counted(chars(text)) }) : null}>
+      <Row name={t('given_rule', { name })} code={address} facts={rule ? charCount(chars(text)) : null}>
         {rule ? (
           <Sheet>
             <Long text={text}>
@@ -348,7 +348,7 @@ function Given({ m, c, now }: { m: CellInput; c: CompiledCell; now: InputsNow | 
         ? t('given_cell_format')
         : t('given_cell_inputs', { cell: c.id });
   return (
-    <Row name={name} code={address} facts={text !== '' ? t('chars', { n: counted(chars(text)) }) : null}>
+    <Row name={name} code={address} facts={text !== '' ? charCount(chars(text)) : null}>
       {text !== '' ? (
         <Sheet mono>
           <Long text={text} />

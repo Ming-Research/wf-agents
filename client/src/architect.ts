@@ -13,7 +13,7 @@ import type {
   WorkSummary,
 } from './api';
 import { isObj, str, words, type Obj } from './labelled';
-import { type Key, t } from './messages';
+import { type Key, t, tn } from './messages';
 import type { ArchitectTab } from './route';
 
 /// A work of the architect goes on no more once it reached its end or was ended.
@@ -170,9 +170,7 @@ export function outcomes(h: Handled): Outcome[] {
   if (h.reply !== null) {
     out.push({ key: 'reply', label: t('handled_reply', { work: h.reply_to ?? '' }), text: h.reply, tab: null });
   }
-  if (h.told > 0) {
-    out.push({ key: 'told', label: t(h.told === 1 ? 'handled_told_one' : 'handled_told', { n: h.told }), text: '', tab: null });
-  }
+  if (h.told > 0) out.push({ key: 'told', label: tn('handled_told', h.told), text: '', tab: null });
   if (h.ask !== null) out.push({ key: 'ask', label: t('handled_ask', { id: h.ask }), text: '', tab: null });
   const changes = counted([
     [h.made, 'handled_made'],

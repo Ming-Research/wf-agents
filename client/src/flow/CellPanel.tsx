@@ -16,7 +16,7 @@ import { styleOf } from '../graph/flowDraw';
 import { actionWords, fallback, letterOf, mainPath } from '../graph/flowModel';
 import { words } from '../labelled';
 import { LinkButton } from '../parts';
-import { type Key, t } from '../text';
+import { type Key, t, tn } from '../text';
 import { Name, Overview, Pairs, PanelSection, Part } from '../voices';
 import { AgentGiven, inputName, numbered, StepGiven } from './CellGiven';
 import { Changes } from './Changes';
@@ -330,7 +330,7 @@ function CellPage({ c, open, onOpen }: { c: CompiledCell; open: Set<CellSection>
       <PanelSection
         title={t('sec_given')}
         n={agent ? own.length : c.inputs.length}
-        facts={agent ? t('given_facts', { inputs: plural(own.length, 'n_inputs'), rules: plural(rules, 'n_rules') }) : t('given_step_facts')}
+        facts={agent ? t('given_facts', { inputs: tn('n_inputs', own.length), rules: tn('n_rules', rules) }) : t('given_step_facts')}
         open={open.has('given')}
         onOpen={(o) => onOpen('given', o)}
       >
@@ -348,7 +348,7 @@ function CellPage({ c, open, onOpen }: { c: CompiledCell; open: Set<CellSection>
       <PanelSection
         title={t('sec_from')}
         n={into.answers.length + into.back.length + into.moves.length}
-        facts={[fromCells > 0 ? plural(fromCells, 'n_cells') : null, back > 0 ? t('from_facts_back', { n: back }) : null]
+        facts={[fromCells > 0 ? tn('n_cells', fromCells) : null, back > 0 ? t('from_facts_back', { n: back }) : null]
           .filter((x) => x !== null)
           .join(', ')}
         open={open.has('from')}
@@ -358,11 +358,6 @@ function CellPage({ c, open, onOpen }: { c: CompiledCell; open: Set<CellSection>
       </PanelSection>
     </div>
   );
-}
-
-/// A count in words: "1 input", "7 inputs".
-function plural(n: number, key: 'n_inputs' | 'n_rules' | 'n_cells'): string {
-  return t(n === 1 ? (`${key}_one` as Key) : key, { n });
 }
 
 /// The work's rounds at the cell, newest first; a badge only for what is not the usual course, as in the work's list.

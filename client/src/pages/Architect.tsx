@@ -46,7 +46,7 @@ import { Labelled, words } from '../labelled';
 import { Markdown } from '../markdown';
 import { useResource, useStatus } from '../live';
 import { type ArchitectRoute, type ArchitectTab, architectHref, forProject, href, Link, navigate } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { Block, By, CellTitles, ItemRef, type OpenRound, SubHeading } from '../parts';
 import { ChangeBlock, NextView, PolicyText } from './ArchitectViews';
 import { bringIntoView } from './Decide';
@@ -143,7 +143,7 @@ function Line({ a, shown, current, pop, setPop }: {
       <span className="work-state course">
         <Now a={a} current={state.kind === 'working' ? current : null} />
       </span>
-      {state.waiting > 0 ? <span className="muted">{t('talk_queue_left', { n: state.waiting })}</span> : null}
+      {state.waiting > 0 ? <span className="muted">{tn('talk_queue_left', state.waiting)}</span> : null}
       {a.holds.length > 0 ? (
         <span className="talk-head-end">
           {a.holds.map((h) => (
@@ -282,7 +282,7 @@ function ObservationRow({ o, conversation }: { o: Observation; conversation: str
           {x}
         </Label>
       ))}
-      <span className="muted">{t('observation_reported', { n: o.times_reported })}</span>
+      <span className="muted">{tn('observation_reported', o.times_reported)}</span>
       {o.closed !== null ? (
         <Label variant="secondary">{t('observation_closed', { why: words(o.closed) })}</Label>
       ) : (

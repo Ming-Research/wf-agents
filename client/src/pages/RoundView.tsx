@@ -24,8 +24,8 @@ import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { LinkButton, RoundLink } from '../parts';
 import { brief, chars, messageParts, placeSchema, shape, type ShapeOptions, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
-import { t } from '../text';
-import { counted, FoldPart, InnerName, joined, Long, Name, Named, Overview, PanelSection, Part, Row, Rows, Said, Sheet } from '../voices';
+import { t, tn } from '../text';
+import { charCount, FoldPart, InnerName, joined, Long, Name, Named, Overview, PanelSection, Part, Row, Rows, Said, Sheet } from '../voices';
 import { AskView } from './Decide';
 
 /// A message, as the engine writes one: its given inputs by address, its task and its list of inputs to work from.
@@ -350,7 +350,7 @@ function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
       .join(' · ');
   }
   if (r.not_asked !== null) return t('run_not_asked', { need: words(r.not_asked) });
-  if (cell?.kind === 'tool') return t('ran_tools', { n: d.tool_runs.length });
+  if (cell?.kind === 'tool') return tn('ran_tools', d.tool_runs.length);
   if (cell?.kind === 'owner') return t('ran_owner');
   return cell?.step ? t('ran_step', { step: words(cell.step) }) : t('round_by_engine');
 }
@@ -375,7 +375,7 @@ function RoundOverview({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSu
       t('why_started')
     ) : tool ? (
       <>
-        <Round f={f} work={d.work} n={before.n} /> {before.cell !== null ? <CellLink f={f} id={before.cell} /> : null} {t('why_asked_tools', { n: d.tool_runs.length })}
+        <Round f={f} work={d.work} n={before.n} /> {before.cell !== null ? <CellLink f={f} id={before.cell} /> : null} {tn('why_asked_tools', d.tool_runs.length)}
       </>
     ) : (
       <>
@@ -528,7 +528,7 @@ function HeldRow({ address, hash, name, d, rounds, f }: {
   };
   const size = value !== undefined && value !== null ? chars(typeof value === 'string' ? value : JSON.stringify(value, null, 2)) : null;
   return (
-    <Row name={name} code={address} facts={size !== null ? t('chars', { n: counted(size) }) : null} onOpen={load}>
+    <Row name={name} code={address} facts={size !== null ? charCount(size) : null} onOpen={load}>
       {value === undefined ? (
         <p className="pp-note">{t('loading')}</p>
       ) : value === null ? (
@@ -609,7 +609,7 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
                   name={inputWords(c.address, cell, f, parsed.workFrom)}
                   code={c.address}
                   facts={joined([
-                    given !== undefined ? t('chars', { n: counted(chars(given)) }) : null,
+                    given !== undefined ? charCount(chars(given)) : null,
                     by !== undefined ? (
                       <span key="by">
                         {t('given_from')} <Round f={f} work={d.work} n={by.n} />
@@ -656,7 +656,7 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
           </Rows>
         </Part>
       ) : null}
-      <Part title={t('given_as_sent')} facts={t('chars', { n: counted(chars(message)) })}>
+      <Part title={t('given_as_sent')} facts={charCount(chars(message))}>
         <Message text={message} />
       </Part>
     </>
@@ -707,7 +707,7 @@ function AgentReturned({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | un
           ))}
         </Part>
       ) : null}
-      <FoldPart title={t('returned_json')} facts={t('chars', { n: counted(chars(json)) })}>
+      <FoldPart title={t('returned_json')} facts={charCount(chars(json))}>
         <Said mono>
           <Long text={json} />
         </Said>
@@ -845,7 +845,7 @@ function Tools({ runs, asker }: { runs: ToolRun[]; asker: CompiledCell | undefin
             </div>
             <div className="pp-tool-pair">
               <span className="pp-over">
-                {run.result === null ? t('tool_running') : size > 0 ? t('tool_returned_n', { n: counted(size) }) : t('tool_returned_nothing')}
+                {run.result === null ? t('tool_running') : size > 0 ? t('tool_returned_n', { chars: charCount(size) }) : t('tool_returned_nothing')}
               </span>
               {run.result !== null ? <Returned result={run.result} /> : null}
             </div>
@@ -1008,7 +1008,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
             })}
           <Tools runs={d.tool_runs} asker={asker} />
           {d.output !== null ? (
-            <FoldPart title={t('tools_json')} facts={t('chars', { n: counted(chars(json)) })}>
+            <FoldPart title={t('tools_json')} facts={charCount(chars(json))}>
               <Sheet mono>
                 <Long text={json} />
               </Sheet>
@@ -1042,7 +1042,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
               <AskView key={a.id} a={a} />
             ))}
             {d.output !== null ? (
-              <FoldPart title={t('returned_json_step')} facts={t('chars', { n: counted(chars(json)) })}>
+              <FoldPart title={t('returned_json_step')} facts={charCount(chars(json))}>
                 <pre className="code-block">{json}</pre>
               </FoldPart>
             ) : null}

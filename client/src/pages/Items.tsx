@@ -16,7 +16,7 @@ import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../it
 import { words } from '../labelled';
 import { useResource } from '../live';
 import { navigate } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
@@ -95,7 +95,7 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
           </span>
         ) : null}
         {deps.of > 0 ? (
-          <span className={deps.done === deps.of ? 'good' : 'muted'} title={t('items_deps_title', deps)}>
+          <span className={deps.done === deps.of ? 'good' : 'muted'} title={tn('items_deps_title', deps.of, { done: deps.done })}>
             {deps.done}/{deps.of}
           </span>
         ) : null}

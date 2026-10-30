@@ -13,7 +13,7 @@ import { Loaded } from '../components';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { tokens } from '../round';
-import { t } from '../text';
+import { t, tn } from '../text';
 
 /// What the page refuses before anything is sent: a tier with no model, a size limit that is not a number of tokens.
 export function settingsProblems(models: Record<string, string>, limit: string): string[] {
@@ -140,7 +140,7 @@ function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said:
             )}
           </FormControl>
         </div>
-        <p className="settings-note">{t('settings_keep_warm', { minutes: s.keep_warm_minutes, most: s.keep_warm_most })}</p>
+        <p className="settings-note">{t('settings_keep_warm', { after: tn('n_minutes', s.keep_warm_minutes), most: tn('n_times', s.keep_warm_most) })}</p>
         <p className="settings-note">{t('settings_model_note')}</p>
       </section>
       {/* The size limit says what is wrong with it under its field; a tier with no model says it here. */}

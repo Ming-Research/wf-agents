@@ -21,7 +21,7 @@ import { cost, duration, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
-import { t } from '../text';
+import { t, tn } from '../text';
 import { MatterWhat, stageName } from './TalkCards';
 import { Halo } from '../graph/flowDraw';
 
@@ -258,10 +258,10 @@ function QueueSummary({ a, open, toggle }: { a: Architect; open: boolean; toggle
   const done = a.handled.filter((h) => h.at !== null && h.at >= from).length;
   const [now] = useState(() => Date.now());
   const parts = [
-    t('talk_queue_left', { n: waiting.length }),
+    tn('talk_queue_left', waiting.length),
     oldest !== null ? t('talk_queue_oldest', { for: duration(now - oldest) }) : null,
     t('talk_queue_today', { n: done }),
-    held.length > 0 ? t('talk_queue_held', { n: held.length }) : null,
+    held.length > 0 ? tn('talk_queue_held', held.length) : null,
   ].filter((x) => x !== null);
   return (
     <Button

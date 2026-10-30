@@ -12,12 +12,15 @@ import { createElement, type ReactNode, useState } from 'react';
 
 import { LinkButton } from './parts';
 import { chars, FOLD_AT } from './round';
-import { t } from './text';
+import { t, tn } from './text';
 
 export { chars } from './round';
 
 /// A number as the page writes it, with its thousands apart.
 export const counted = (n: number) => n.toLocaleString('en-US');
+
+/// A count of characters in words, its thousands apart: "1 character", "10,489 characters".
+export const charCount = (n: number): string => tn('chars', n, { n: counted(n) });
 
 /// What is sent to an agent: a sheet. `mono` for a message as sent, a format, data as given and what a tool printed.
 export function Sheet({ mono, id, children }: { mono?: boolean; id?: string; children: ReactNode }) {
@@ -45,7 +48,7 @@ export function Long({ text, more, children }: { text: string; more?: string; ch
       <div className={open ? 'long' : 'long long-folded'}>{shown}</div>
       <LinkButton className="long-more" onClick={() => setOpen(!open)}>
         {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
-        {open ? t('long_less') : t('long_more', { n: counted(n), more: more ?? '' })}
+        {open ? t('long_less') : t('long_more', { chars: charCount(n), more: more ?? '' })}
       </LinkButton>
     </>
   );

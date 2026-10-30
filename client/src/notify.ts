@@ -8,7 +8,7 @@ import { useEffect, useRef } from 'react';
 import type { Conversation } from './api';
 import { conversationTitle, newlyWaiting, waitingByKey } from './conversation';
 import { href, navigate } from './route';
-import { t } from './text';
+import { t, tn } from './text';
 
 /// Where this browser keeps that the page asked for leave.
 const ASKED = 'wf-agents.notifications-asked';
@@ -54,7 +54,7 @@ export function useNotifications(list: Conversation[] | undefined): void {
     if (fresh.length === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
     for (const c of fresh) {
       const n = new Notification(t('notify_title', { what: conversationTitle(c) }), {
-        body: t('notify_body', { n: c.waiting }),
+        body: tn('notify_body', c.waiting),
         tag: c.key,
       });
       n.onclick = () => {
