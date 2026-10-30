@@ -224,11 +224,11 @@ describe("the architect's page", () => {
     };
     const routes: Route[] = [
       architect,
-      { ...architect, tab: 'policy' },
+      { ...architect, tab: 'changes' },
       { ...architect, tab: 'usage', span: '30d' },
       { ...architect, work: 12, only: 'sent_back' },
       { ...architect, project: 'p', tab: 'observations' },
-      { ...architect, work: 12, round: 3, tab: 'next' },
+      { ...architect, work: 12, round: 3, tab: 'usage' },
       { ...architect, work: 12, cell: 'H3' },
     ];
     for (const r of routes) {
@@ -243,6 +243,9 @@ describe("the architect's page", () => {
     // conversation and the queue it had before, is its rounds, which the page opens on.
     expect(parse('/architect', '?tab=asks')).toEqual(architect);
     expect(parse('/architect', '?tab=conversation')).toEqual(architect);
+    // The policy and what to do next, which were its tabs, are in the panel beside the one-to-one.
+    expect(parse('/architect', '?tab=policy')).toEqual(architect);
+    expect(parse('/architect', '?tab=next')).toEqual(architect);
     expect(parse('/architect', '?tab=queue')).toEqual(architect);
     expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, work: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);

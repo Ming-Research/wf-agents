@@ -21,6 +21,7 @@ import type {
   Matter,
   MatterProgress,
   OwnerAsk,
+  PolicyDraft,
   Status,
   WordsState,
   WorkState,
@@ -28,7 +29,7 @@ import type {
 } from './api';
 import { architectMark } from './architect';
 import { StateMark } from './components';
-import { awayOf, openQuestion, pinnedQuestions, replyTicked, streamOf, toArchitect } from './conversation';
+import { asksApproval, awayOf, openQuestion, pinnedQuestions, replyTicked, streamOf, toArchitect } from './conversation';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
@@ -410,6 +411,29 @@ describe("the owner's words in the one-to-one with an architect", () => {
   });
 });
 
+describe("the owner's words in a work's group", () => {
+  const state = (extra: Partial<WordsState> = {}): WordsState => ({
+    state: 'replying',
+    project: 'p',
+    architect_work: 9,
+    round: 31,
+    cell: 'H8',
+    ...extra,
+  });
+  const said = (w: WordsState | null): ConversationEntry =>
+    entry('words', { id: 6, sender: 'owner', recipient: 'architect', text: 'Why two parsers?', matter: 6, words_state: w });
+
+  it('say where they stand with the architect in one small line under their bubble, as in the one-to-one', () => {
+    const r = row(drawn(detail([said(state())])), 'Why two parsers?');
+    expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
+    expect(bubble(r).after).toMatch(
+      /^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/,
+    );
+    const replied = row(drawn(detail([said(state({ state: 'replied', architect_work: null, round: null, cell: null }))])), 'Why two parsers?');
+    expect(bubble(replied).after).toMatch(/^<p class="talk-line-more">replied<\/p><\/div>/);
+  });
+});
+
 describe('the box of the one-to-one with an architect', () => {
   const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
 
@@ -439,16 +463,16 @@ describe('the questions an architect pinned in its one-to-one', () => {
     waits_on: waits,
   });
   const d = pinning([said, research, approve], [approve, research], 6);
-  const drawnIn = (x: ConversationDetail): string =>
+  const drawnIn = (x: ConversationDetail, draft: PolicyDraft | null = null): string =>
     renderToStaticMarkup(
       <AnswersHere.Provider value={true}>
-        <Stream d={x} c={one} w={null} />
+        <Stream d={x} c={one} w={null} draft={draft} />
       </AnswersHere.Provider>,
     );
-  const bottom = (open: number): string =>
+  const bottom = (open: number, draft: PolicyDraft | null = null): string =>
     renderToStaticMarkup(
       <AnswersHere.Provider value={true}>
-        <Questions pinned={pinnedQuestions(d)} open={open} onOpen={() => undefined} />
+        <Questions pinned={pinnedQuestions(d)} open={open} onOpen={() => undefined} project="p" draft={draft} />
       </AnswersHere.Provider>,
     );
 
@@ -510,6 +534,21 @@ describe('the questions an architect pinned in its one-to-one', () => {
   it('take the words as the reply to the question ticked, and words with no tick as words to the architect', () => {
     expect(toArchitect('approved', 6)).toEqual({ text: 'approved', reply_to: 6 });
     expect(toArchitect('Look at #3 first.', null)).toEqual({ text: 'Look at #3 first.' });
+  });
+
+  it('lead from the question whether the draft is approved, put by the round that wrote it, to the draft in the panel', () => {
+    const draft: PolicyDraft = { work: 9, round: 6, at: 3, policy: { direction: 'Ship the parser.' } };
+    expect(asksApproval(approve, draft)).toBe(true);
+    expect(asksApproval(research, draft)).toBe(false);
+    expect(asksApproval(approve, null)).toBe(false);
+    const link = /<a [^>]*href="\/messages\?c=architect%3Ap&amp;side=policy"[^>]*>The draft<\/a>/;
+    const pinned = bubble(row(bottom(6, draft), 'data-ask="6"')).inside;
+    expect(pinned.slice(0, pinned.indexOf('talk-bubble-body'))).toMatch(link);
+    expect(bottom(4, draft)).not.toMatch(link);
+    // Replied to while the draft still waits, it leads there from where it was asked.
+    const replied = question(6, 'Approve this policy? Reply exactly: approved', 3, { by: 'owner', at: 5, text: 'Shorter why.' });
+    expect(bubble(row(drawnIn(pinning([said, replied], [], null), draft), 'data-ask="6"')).inside).toMatch(link);
+    expect(drawnIn(pinning([said, replied], [], null))).not.toMatch(link);
   });
 
   it('once replied to are back where they were asked, the reply in the bubble; one no longer pinned has no box', () => {
@@ -695,7 +734,6 @@ describe('the marks of the list of conversations', () => {
     policy: null,
     draft: null,
     check: null,
-    next: { plan: null, matters: [] },
     notebook: [],
     observations: [],
     tags: [],

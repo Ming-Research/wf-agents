@@ -23,10 +23,14 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
-/// What the architect's panel beside its chart shows: the rounds of the stretch shown, the item changes its batches made,
-/// the project's observations, what to do next, the policy in force with the project's constitution, or its usage.
-export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'next', 'policy', 'usage'] as const;
+/// What the architect's panel over its chart shows: the rounds of the stretch shown, the item changes its batches made,
+/// the project's observations, or its usage.
+export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'usage'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
+
+/// What the panel beside the one-to-one with an architect shows: its notebook, its policy, or its queue.
+export const SIDE_TABS = ['notebook', 'policy', 'queue'] as const;
+export type SideTab = (typeof SIDE_TABS)[number];
 
 /// The time the architect's usage counts over, back from now: the last day, the last 7 days (the default), the last 30
 /// days, or all time.
@@ -64,6 +68,9 @@ export type Route =
       page: 'messages';
       /// The conversation open, by its key; with none, the first in the list.
       open: string | null;
+      /// The tab of the panel beside the one-to-one with an architect that the address opens the panel on; with none,
+      /// the panel is as the owner left it, on its notebook.
+      side?: SideTab;
     }
   | {
       page: 'system';
@@ -133,7 +140,10 @@ export function parse(pathname: string, search: string): Route {
     };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
-  if (first === 'messages' && parts.length === 1) return { page: 'messages', open: q.get('c') };
+  if (first === 'messages' && parts.length === 1) {
+    const side = SIDE_TABS.find((x) => x === q.get('side'));
+    return side !== undefined ? { page: 'messages', open: q.get('c'), side } : { page: 'messages', open: q.get('c') };
+  }
   // The System view was the Spend view, whose address still leads to it.
   if ((first === 'system' || first === 'spend') && parts.length === 1) {
     return { page: 'system', period: PERIODS.find((p) => p === q.get('period')) ?? 'week' };
@@ -192,7 +202,10 @@ export function href(r: Route): string {
     case 'item':
       return `/items/${r.id}`;
     case 'messages':
-      return `/messages${query([['c', r.open]])}`;
+      return `/messages${query([
+        ['c', r.open],
+        ['side', r.side ?? null],
+      ])}`;
     case 'system':
       return `/system${query([['period', r.period === 'week' ? null : r.period]])}`;
     case 'settings':
@@ -229,6 +242,10 @@ export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}):
     ...more,
   });
 }
+
+/// The address of the one-to-one with a project's architect with the panel beside it open on a tab.
+export const sideHref = (project: string, side: SideTab): string =>
+  href({ page: 'messages', open: `architect:${project}`, side });
 
 /// A path of the interface about a project's architect: for the project named, or with none, the configuration's one
 /// project.

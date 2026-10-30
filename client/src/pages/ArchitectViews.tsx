@@ -1,22 +1,21 @@
 // What an architect hands back, each drawn by its shape in the flow's formats and in the page's shared parts (blocks
-// under who wrote them, sections that fold): the policy, and the check of the policy in force; an item change its batch
-// made; and the plan of what to do next.
+// under who wrote them, sections that fold): the policy, and the check of the policy in force; and an item change its
+// batch made.
 // A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
 import { Label, type LabelColorOptions } from '@primer/react';
 import { type ReactNode } from 'react';
 
-import type { JsonValue, NextPlan, Said } from '../api';
+import type { JsonValue, Said } from '../api';
 import { againstInOrder } from '../architect';
 import { DocList } from '../document';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Block, BlockField, By, LinkButton, type OpenRound, Section, SubHeading } from '../parts';
+import { Block, BlockField, By, type OpenRound, Section, SubHeading } from '../parts';
 import { t } from '../text';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
-const texts = (v: JsonValue | undefined): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x) => x !== '') : []);
 
 /// Who wrote a value the architect handed back: its cell, when, and its round.
 function wroteBy(s: Said, onRound: OpenRound): ReactNode {
@@ -129,38 +128,6 @@ export function ChangeBlock({ value, before, by, children }: {
 /// The colour of where the policy stands against an article of the constitution.
 const AGAINST_TONE: Record<string, LabelColorOptions> = { kept: 'success', at_risk: 'attention', broken: 'danger' };
 
-/// A thing missing or a place to set straight that the plan of what to do next found, as a block: its kind, where, and
-/// the matter it became, which opens in the queue; what is wrong, and each step meant to be taken there.
-function FitPlace({ fix, matter, onMatter }: { fix: Obj; matter: number | undefined; onMatter: (id: number) => void }) {
-  const steps = texts(fix.steps);
-  const head = (
-    <>
-      <Label variant="secondary">{words(str(fix.kind))}</Label>
-      <strong>
-        <MarkdownInline text={str(fix.where)} />
-      </strong>
-      {fix.pause_now === true ? <Label variant="danger">{t('fit_paused')}</Label> : null}
-      {matter !== undefined ? (
-        <LinkButton onClick={() => onMatter(matter)}>{t('fit_matter', { id: matter })}</LinkButton>
-      ) : null}
-    </>
-  );
-  return (
-    <Block head={head}>
-      <Markdown text={str(fix.wrong)} />
-      {steps.length > 0 ? (
-        <ol className="arch-list">
-          {steps.map((x, i) => (
-            <li key={i}>
-              <MarkdownInline text={x} />
-            </li>
-          ))}
-        </ol>
-      ) : null}
-    </Block>
-  );
-}
-
 /// The latest check of whether the policy in force still holds, under the cell and round that made it: its verdict
 /// and why, or each reason it may no longer hold; then the policy against the constitution, its counts by status in
 /// its title, the articles broken and at risk first.
@@ -222,55 +189,5 @@ export function PolicyCheck({ check, onRound }: { check: Said; onRound: OpenRoun
         ))}
       </Section>
     </Section>
-  );
-}
-
-/// What to do next under the policy, as the architect last planned it, under the cell and round that planned it: what
-/// matters most, in order; each thing missing; and whether what runs fits, its verdict and why, with each place to set
-/// straight; each thing missing and each place with the matter it became, which opens in the queue.
-export function NextView({ next, onRound, onMatter }: {
-  next: NextPlan;
-  onRound: OpenRound;
-  onMatter: (id: number) => void;
-}) {
-  const plan = next.plan;
-  if (plan === null) return <p className="muted">{t('next_none')}</p>;
-  const value = isObj(plan.value) ? plan.value : null;
-  const first = objs(value?.first);
-  const missing = objs(value?.missing);
-  const fit = value !== null && isObj(value.fit) ? value.fit : null;
-  const fixes = objs(fit?.fixes);
-  return (
-    <>
-      <Section title={t('next_first')} n={first.length} open by={wroteBy(plan, onRound)}>
-        <ol className="arch-list">
-          {first.map((x, i) => (
-            <li key={i}>
-              <strong>
-                <MarkdownInline text={str(x.what)} />
-              </strong>
-              <Markdown text={str(x.why)} />
-            </li>
-          ))}
-        </ol>
-      </Section>
-      <Section title={t('next_missing')} n={missing.length} open={missing.length > 0}>
-        {missing.map((fix, i) => (
-          <FitPlace key={i} fix={fix} matter={next.matters[i]} onMatter={onMatter} />
-        ))}
-      </Section>
-      {fit !== null ? (
-        <Section
-          title={t('understanding_fit', { verdict: words(str(fit.verdict)) })}
-          n={fixes.length > 0 ? fixes.length : undefined}
-          open
-        >
-          {str(fit.why) !== '' ? <Markdown text={str(fit.why)} /> : null}
-          {fixes.map((fix, i) => (
-            <FitPlace key={i} fix={fix} matter={next.matters[missing.length + i]} onMatter={onMatter} />
-          ))}
-        </Section>
-      ) : null}
-    </>
   );
 }

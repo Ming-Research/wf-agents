@@ -11,6 +11,7 @@ import type {
   Forwarded,
   Forwarding,
   OwnerAsk,
+  PolicyDraft,
   StageCard,
   WordsState,
   WorkSummary,
@@ -156,6 +157,11 @@ export function streamOf(d: ConversationDetail): ConversationEntry[] {
 /// Whether an ask is one an architect put to the owner: answered by the owner's words to the architect with it ticked,
 /// never in its bubble.
 export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
+
+/// Whether an entry is the question whether the draft of a new policy that waits (`draft`) is approved: the ask the round
+/// that wrote the draft put.
+export const asksApproval = (e: ConversationEntry, draft: PolicyDraft | null): boolean =>
+  draft !== null && e.source === 'ask' && e.work === draft.work && e.round === draft.round;
 
 /// The questions an architect pinned for the owner's reply, as entries of its one-to-one, newest first: each shows at
 /// the bottom while it waits, not where it was asked.

@@ -1053,9 +1053,10 @@ pub struct Shown {
     pub value: Value,
 }
 
-/// A project's architect, as its tab shows it: its works, its queue, what it asked the owner, its log, the item changes
-/// its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations.
-/// Its works are works of the architect's graph for the project, on no item.
+/// A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
+/// the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
+/// one, its notebook, and the project's observations. Its works are works of the architect's graph for the project, on
+/// no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
     /// The project whose architect it is.
@@ -1081,7 +1082,6 @@ pub struct Architect {
     pub draft: Option<PolicyDraft>,
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
-    pub next: NextPlan,
     /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
     /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
@@ -1601,15 +1601,6 @@ pub struct NotebookVersion {
     pub round: i64,
     pub cell: String,
     pub at: Option<i64>,
-}
-
-/// What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
-/// most and whether what runs fits; none before the first plan.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct NextPlan {
-    pub plan: Option<Said>,
-    /// The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
-    pub matters: Vec<i64>,
 }
 
 /// How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what

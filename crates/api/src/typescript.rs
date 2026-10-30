@@ -112,7 +112,6 @@ pub fn typescript() -> String {
         decl::<PolicyDraft>(&cfg),
         decl::<NotebookSection>(&cfg),
         decl::<NotebookVersion>(&cfg),
-        decl::<NextPlan>(&cfg),
         decl::<System>(&cfg),
         decl::<SystemNow>(&cfg),
         decl::<ArchitectNow>(&cfg),

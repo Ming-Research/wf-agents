@@ -4,17 +4,16 @@
 // item is at;
 // the one-to-one with an architect is one row: its Start, Pause and Step first, its name leading to its page, what it
 // handles now, at which cell, or that it is idle, paused or waits for the owner, and at the row's end the holds on the
-// project's new works and its queue (how many matters are left, the oldest wait and how many it handled today), which
-// opens under the row to the list with the matter in hand marked; wf-agents' own says where each new fault
-// goes as it comes, which the owner sets there. The architect is always there to the owner: the page never names its
-// works.
+// project's new works and, while the panel beside the one-to-one is closed, the button that opens it; its queue is in
+// that panel; wf-agents' own says where each new fault goes as it comes, which the owner sets there. The architect is
+// always there to the owner: the page never names its works.
 
-import { BlockedIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
-import { Button, Label, Select } from '@primer/react';
+import { BlockedIcon, SidebarExpandIcon } from '@primer/octicons-react';
+import { IconButton, Label, Select } from '@primer/react';
 import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
-import { architectNow, architectState, holdWords, matterSentence, queueParts } from '../architect';
+import { architectNow, architectState, holdWords, matterSentence } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE } from '../components';
 import { forwardNewChoices } from '../conversation';
 import {
@@ -28,13 +27,13 @@ import {
   useOpenStepped,
   waitsWords,
 } from '../course';
-import { cost, duration, time } from '../format';
+import { cost, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
-import { t, tn } from '../text';
-import { factsAfter, joinedWords } from '../voices';
-import { MatterWhat, stageName } from './TalkCards';
+import { t } from '../text';
+import { factsAfter } from '../voices';
+import { stageName } from './TalkCards';
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
 export function tiersAllowed(s: Settings): string[] {
@@ -242,87 +241,12 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
   );
 }
 
-/// The start of today in the browser's time zone.
-const today = (): number => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
-
-/// The architect's queue at the end of the head's row, in a few words: how many matters are left, how long the oldest
-/// has waited, and how many it handled today; a click opens the list under the row.
-function QueueSummary({ a, open, toggle }: { a: Architect; open: boolean; toggle: () => void }) {
-  const { waiting, held } = queueParts(a.queue);
-  const oldest = waiting.reduce<number | null>((m, x) => (m === null || x.at < m ? x.at : m), null);
-  const from = today();
-  const done = a.handled.filter((h) => h.at !== null && h.at >= from).length;
-  const [now] = useState(() => Date.now());
-  const parts = [
-    tn('talk_queue_left', waiting.length),
-    oldest !== null ? t('talk_queue_oldest', { for: duration(now - oldest) }) : null,
-    t('talk_queue_today', { n: done }),
-    held.length > 0 ? tn('talk_queue_held', held.length) : null,
-  ].filter((x) => x !== null);
-  return (
-    <Button
-      className="talk-queue"
-      variant="invisible"
-      size="small"
-      aria-expanded={open}
-      trailingVisual={open ? ChevronUpIcon : ChevronDownIcon}
-      onClick={toggle}
-    >
-      {joinedWords(parts)}
-    </Button>
-  );
-}
-
-/// The architect's queue opened: the matters left in the order they came, the one in hand marked, and those an ask of
-/// the owner holds.
-function QueueList({ a }: { a: Architect }) {
-  const { waiting, held } = queueParts(a.queue);
-  const state = architectState(a.works, a.queue);
-  const handling = state.kind === 'working' ? (state.handling?.id ?? null) : null;
-  return (
-    <ol className="talk-queue-list">
-      {[...waiting, ...held].map((m) => (
-        <li key={m.id} className={m.id === handling ? 'talk-queue-current' : undefined}>
-          <MatterWhat m={m} /> <span className="talk-card-facts">{time(m.at)}</span>
-          {m.id === handling ? (
-            <>
-              {' '}
-              <Label variant="accent">{t('matter_working')}</Label>
-            </>
-          ) : null}
-          {held.includes(m) ? (
-            <>
-              {' '}
-              <Label variant="attention">{t('matter_held')}</Label>
-            </>
-          ) : null}
-          {m.work !== null && m.source === 'work' ? (
-            <>
-              {' '}
-              <Link to={`/messages?c=${encodeURIComponent(`work:${m.work}`)}`}>
-                {t('matter_in_group', { work: m.work })}
-              </Link>
-            </>
-          ) : null}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /// The head of the one-to-one with a project's architect, in one row: its Start, Pause and Step, whose architect (a link
-/// to its page), what it does now, and at the row's end the holds on the project's new works and its queue, which opens
-/// under the row.
-export function ArchitectHead({ c }: { c: Conversation }) {
+/// to its page), what it does now, and at the row's end the holds on the project's new works and, while the panel beside
+/// the one-to-one is closed, the button that opens it (`onSide`).
+export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect | null; onSide: (() => void) | null }) {
   const project = c.project ?? '';
   const status = useStatus();
-  const r = useResource<Architect>('architect', forProject('/api/v1/architect', project));
-  const a = r.data !== undefined && r.data.project === project ? r.data : null;
-  const [open, setOpen] = useState(false);
   return (
     <header className="talk-head">
       <div className="talk-head-title">
@@ -341,11 +265,12 @@ export function ArchitectHead({ c }: { c: Conversation }) {
                 {holdWords(h.reason)}
               </span>
             ))}
-            <QueueSummary a={a} open={open} toggle={() => setOpen((o) => !o)} />
+            {onSide !== null ? (
+              <IconButton size="small" variant="invisible" icon={SidebarExpandIcon} aria-label={t('side_open')} onClick={onSide} />
+            ) : null}
           </span>
         ) : null}
       </div>
-      {a !== null && open ? <QueueList a={a} /> : null}
     </header>
   );
 }

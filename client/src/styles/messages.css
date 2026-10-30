@@ -43,6 +43,29 @@
   display: flex;
 }
 
+/* The one-to-one with an architect and the panel beside it, its notebook, policy and queue: a split whose divider drags
+   the panel's width, kept in the browser; the panel as tall as the conversation, what its tab holds scrolling. */
+.talk-split {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.talk-split-content {
+  min-width: 0;
+  display: flex;
+}
+
+.talk-side {
+  max-height: calc(100dvh - var(--bar-height));
+}
+
+.talk-side-body {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--bar-height));
+}
+
 /* The conversation open fills the window under the bar: its stream scrolls between its head and its box. */
 .talk-open {
   flex: 1;
@@ -59,8 +82,7 @@
   color: var(--fgColor-muted);
 }
 
-/* The head: what the conversation is about, its state as a Label, its facts and the owner's controls, under it the
-   architect's queue. */
+/* The head: what the conversation is about, its state as a Label, its facts and the owner's controls. */
 .talk-head {
   display: grid;
   gap: var(--base-size-8);
@@ -108,8 +130,7 @@
   gap: var(--base-size-4);
 }
 
-/* The architect's queue: a few words at the end of the head's row that open the list of its matters under the row,
-   the one in hand marked. */
+/* The architect's queue, in the panel beside the one-to-one: the list of its matters, the one in hand marked. */
 .talk-queue-list {
   display: grid;
   gap: var(--base-size-4);
@@ -354,22 +375,6 @@
   gap: var(--base-size-4);
 }
 
-/* The choices a decision on a study or a text offers, side by side and wrapping where the bubble is narrow: each a
-   button that says what it does over the line that says what happens next. */
-.talk-choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--base-size-8) var(--base-size-16);
-}
-
-.talk-choice {
-  display: grid;
-  flex: 1 1 0;
-  align-content: start;
-  justify-items: start;
-  gap: var(--base-size-4);
-}
-
 /* What answers a bubble, in it under what it says, a line of the box apart: the buttons of what an ask offers, the
    small box of the owner's words with Answer; once answered, the owner's answer, headed by what it answers. */
 .talk-answer {
@@ -510,7 +515,7 @@
   background: var(--bgColor-default);
 }
 
-/* Send and Done sit on the box's bottom line, as a chat's do, however tall the box grows. */
+/* Send sits on the box's bottom line, as a chat's does, however tall the box grows. */
 .talk-say-row {
   display: flex;
   align-items: flex-end;
@@ -614,7 +619,8 @@
 }
 
 /* The right end of the architect's row: what stops a project's new works from starting, a sign and words in the
-   attention colour with no box, so that it reads apart from the architect's own state beside its name; then its queue. */
+   attention colour with no box, so that it reads apart from the architect's own state beside its name; then, while the
+   panel beside the one-to-one is closed, the button that opens it. */
 .talk-head-end {
   margin-left: auto;
   display: inline-flex;

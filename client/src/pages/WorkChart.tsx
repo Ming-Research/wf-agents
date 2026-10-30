@@ -4,8 +4,8 @@
 // tab, with only the rounds sent back or failed when the page was opened on them, and the marks that open it so in a
 // list.
 
-import { ReplyIcon, XCircleIcon } from '@primer/octicons-react';
-import { CounterLabel, UnderlineNav } from '@primer/react';
+import { ReplyIcon, XCircleIcon, XIcon } from '@primer/octicons-react';
+import { CounterLabel, IconButton, UnderlineNav } from '@primer/react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Compiled, CompiledGraph, FlowView, GraphView, RoundSummary, Status, WorkDetail, WorkSummary } from '../api';
@@ -199,16 +199,18 @@ export type PanelTab<T extends string> = {
   hint?: string;
 };
 
-/// A page's panel, on top of the window floating over the right of its chart: its tabs, each with its count and what in
-/// it waits for the owner as a count of its own, and at the row's right end, while the row is the window's top row, the
-/// button that minimises and expands the window; and what the tab shown holds, shown from its top when the tab changes.
-/// A tab picked while the window is minimised expands it to that tab. A click with a modifier key opens a tab as the
-/// browser would.
-export function ChartPanel<T extends string>({ label, tabs, current, onTab, children }: {
+/// A page's panel, on top of the window floating over the right of its chart, or beside the one-to-one with an
+/// architect: its tabs, each with its count and what in it waits for the owner as a count of its own, and at the row's
+/// right end, while the row is the window's top row, the button that minimises and expands the window, or, for a panel
+/// that closes (`onClose`), its close; and what the tab shown holds, shown from its top when the tab changes. A tab
+/// picked while the window is minimised expands it to that tab. A click with a modifier key opens a tab as the browser
+/// would.
+export function ChartPanel<T extends string>({ label, tabs, current, onTab, onClose, children }: {
   label: string;
   tabs: Array<PanelTab<T>>;
   current: T;
   onTab: (tab: T) => void;
+  onClose?: () => void;
   children: ReactNode;
 }) {
   const body = useRef<HTMLDivElement>(null);
@@ -243,6 +245,11 @@ export function ChartPanel<T extends string>({ label, tabs, current, onTab, chil
           ))}
         </UnderlineNav>
         {dock?.fold ? <div className="drawer-fold">{dock.fold}</div> : null}
+        {onClose !== undefined ? (
+          <div className="drawer-fold">
+            <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
+          </div>
+        ) : null}
       </div>
       <div className="drawer-body" ref={body}>
         {children}

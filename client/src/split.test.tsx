@@ -193,7 +193,6 @@ describe('a round picked beside a chart', () => {
       policy: null,
       draft: null,
       check: null,
-      next: { plan: null, matters: [] },
       notebook: [],
       observations: [],
       tags: [],
@@ -220,6 +219,9 @@ describe('a round picked beside a chart', () => {
       open: 'R7-6 (B1 cell B1)',
       panelFirst: true,
     });
+    // Its policy and what to do next are no tabs of its own: they are in the panel beside the one-to-one.
+    const tabs = [...html.matchAll(/<a [^>]*href="\/architect\?([^"]*)"/g)].map((m) => /tab=(\w+)/.exec(m[1])?.[1] ?? 'rounds');
+    expect(tabs).toEqual(['rounds', 'changes', 'observations', 'usage']);
   });
 
   it('gives the panel the whole column while nothing is open', () => {

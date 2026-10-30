@@ -3,15 +3,15 @@
 // pauses and steps it in its one-to-one in the messages view, which the page's line leads to. Its line says, with more
 // than one project, whose architect it is, with the switch to another's; what the architect does now in words (the
 // matter it handles and at which cell, or that it is idle, paused or held back), with no word of its works, which to
-// the owner are only how it is run; what stops the project's new works from starting; and the switch between the
-// stretches it worked in (when each began, what it was for, how many matters it handled, its rounds with those sent
-// back or failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window with the
-// stretch shown placed on it as a work is, and the column docked at its right holds the architect's panel, with what is
-// open on the chart split under it, as on a work's page. The panel's tabs, on one line: its rounds; the item changes
-// its batches made; the project's observations, each leading to the conversation it is closed in; what to do next; the
-// policy in force, as one document, and beside it the project's constitution, which the architect judges by with it;
-// and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab draws its
-// blocks, sections, items and rounds with the page's shared parts.
+// the owner are only how it is run; how many matters are left, its notebook and its policy, each leading to its tab of
+// the panel beside the one-to-one, where they are; what stops the project's new works from starting; and the switch
+// between the stretches it worked in (when each began, what it was for, how many matters it handled, its rounds with
+// those sent back or failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window
+// with the stretch shown placed on it as a work is, and the window floating over the chart's right side holds the
+// architect's panel, with what is open on the chart split under it, as on a work's page. The panel's tabs, on one line:
+// its rounds; the item changes its batches made; the project's observations, each leading to the conversation it is
+// closed in; and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab
+// draws its blocks, sections, items and rounds with the page's shared parts.
 
 import { BlockedIcon, SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
 import {
@@ -51,12 +51,13 @@ import {
   href,
   Link,
   navigate,
+  sideHref,
   type Span,
   SPANS,
 } from '../route';
 import { t, tn } from '../text';
-import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, Section, SubHeading } from '../parts';
-import { ChangeBlock, NextView, PolicyText } from './ArchitectViews';
+import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, SubHeading } from '../parts';
+import { ChangeBlock } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { Held, HeadLine, OldFlow, Running } from './HeadLine';
 import { Usage } from './Usage';
@@ -113,9 +114,10 @@ function At({ a, current }: { a: ArchitectRead; current: WorkSummary }) {
 }
 
 /// The line above an architect's chart, as the shared head line draws it: with more than one project, whose architect
-/// it is and the switch to another's; what it does now and where; the matters left; what stops the project's new works;
-/// its one-to-one in the messages view, where the owner acts on it; and the switch between the stretches it worked in.
-function Line({ a, shown, current, pop, setPop }: {
+/// it is and the switch to another's; what it does now and where; the matters left, its notebook and its policy, each a
+/// link to its tab of the panel beside the one-to-one; what stops the project's new works; its one-to-one in the
+/// messages view, where the owner acts on it; and the switch between the stretches it worked in.
+export function Line({ a, shown, current, pop, setPop }: {
   a: ArchitectRead;
   shown: ArchitectWork | null;
   /// The stretch going on, as freshly read as the page has it.
@@ -156,7 +158,17 @@ function Line({ a, shown, current, pop, setPop }: {
       stateHint={working !== null && c !== null ? (held(c, working) ?? undefined) : undefined}
       where={working !== null ? <At a={a} current={working} /> : undefined}
       whereHint={working !== null ? (what ?? `${working.at} ${working.at_title ?? ''}`) : undefined}
-      facts={[state.waiting > 0 ? tn('talk_queue_left', state.waiting) : null]}
+      facts={[
+        <Link key="queue" to={sideHref(a.project, 'queue')}>
+          {tn('talk_queue_left', state.waiting)}
+        </Link>,
+        <Link key="notebook" to={sideHref(a.project, 'notebook')}>
+          {t('side_tab_notebook')}
+        </Link>,
+        <Link key="policy" to={sideHref(a.project, 'policy')}>
+          {t('arch_tab_policy')}
+        </Link>,
+      ]}
       conversation={`architect:${a.project}`}
       end={
         <>
@@ -381,47 +393,6 @@ function Observations({ a }: { a: ArchitectRead }) {
   );
 }
 
-/// The policy in force, as one document, with when it took effect and the round that wrote it, or that none has taken
-/// effect yet; and beside it the project's constitution, which the architect judges by with the policy, as the project's
-/// own file has it in its checkout, folded at first. Setting a new policy, its study and drafts, and the owner's readings
-/// of them are in the one-to-one with the architect, where the owner answers them; the owner reads the policy here to
-/// recall it.
-function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
-  const p = a.policy;
-  const law = a.constitution;
-  return (
-    <>
-      <Section
-        title={t('policy_in_force')}
-        open
-        by={
-          p !== null ? (
-            <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>
-              {t('policy_took_effect', { at: time(p.at) })}
-            </By>
-          ) : undefined
-        }
-      >
-        {p !== null ? <PolicyText value={p.policy} /> : <p className="muted">{t('policy_none')}</p>}
-      </Section>
-      <Section
-        title={t('constitution')}
-        by={law !== null ? <span className="by">{t('constitution_at', { path: law.name })}</span> : undefined}
-      >
-        {law === null ? (
-          <p className="muted">{t('constitution_none')}</p>
-        ) : law.text.trim() === '' ? (
-          <p className="muted">{t('constitution_unread', { path: law.name })}</p>
-        ) : (
-          <div className="document">
-            <Markdown text={law.text} />
-          </div>
-        )}
-      </Section>
-    </>
-  );
-}
-
 /// How long back from now each span of the architect's usage counts, in milliseconds; all time has no start.
 const SPAN_MS: Record<Span, number | null> = { '1d': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000, all: null };
 
@@ -455,7 +426,7 @@ function ArchitectUsage({ route, a, compiled }: { route: ArchitectRoute; a: Arch
   );
 }
 
-/// The architect's panel, on top of the column docked at the right of its chart, in tabs, each saying how many of its
+/// The architect's panel, on top of the window floating over the right of its chart, in tabs, each saying how many of its
 /// things there are.
 function Panel({ route, a, d, g, compiled, go, onRound }: {
   route: ArchitectRoute;
@@ -467,8 +438,6 @@ function Panel({ route, a, d, g, compiled, go, onRound }: {
   go: (to: Partial<ArchitectRoute>) => void;
   onRound: OpenRound;
 }) {
-  // A matter of the plan is in the architect's one-to-one, as a card.
-  const onMatter = (id: number) => navigate(`${href({ page: 'messages', open: `architect:${a.project}` })}#matter-${id}`);
   const tab = (x: ArchitectTab) => href({ ...route, tab: x });
   return (
     <ChartPanel
@@ -484,15 +453,11 @@ function Panel({ route, a, d, g, compiled, go, onRound }: {
           href: tab('observations'),
           n: a.observations.filter((o) => o.closed === null).length,
         },
-        { tab: 'next', label: t('arch_tab_next'), href: tab('next'), n: null },
-        { tab: 'policy', label: t('arch_tab_policy'), href: tab('policy'), n: null },
         { tab: 'usage', label: t('us_tab'), href: tab('usage'), n: null },
       ]}
     >
       {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
       {route.tab === 'observations' ? <Observations a={a} /> : null}
-      {route.tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
-      {route.tab === 'next' ? <NextView next={a.next} onRound={onRound} onMatter={onMatter} /> : null}
       {route.tab === 'usage' ? <ArchitectUsage route={route} a={a} compiled={compiled} /> : null}
       {route.tab === 'rounds' ? (
         d === null ? (
@@ -512,8 +477,8 @@ function Panel({ route, a, d, g, compiled, go, onRound }: {
   );
 }
 
-/// The architect's graph filling the window, with the work shown placed on it, and the docked column: the panel on top,
-/// what is open on the chart under it.
+/// The architect's graph filling the window, with the work shown placed on it, and the window floating over its right
+/// side: the panel on top, what is open on the chart under it.
 export function Chart({ route, a, shown, d, compiled, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;

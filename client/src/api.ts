@@ -1459,9 +1459,10 @@ export type AccountChoice = { cli: string, name: string, };
 export type NewLevel = { level: string, };
 
 /**
- * A project's architect, as its tab shows it: its works, its queue, what it asked the owner, its log, the item changes
- * its batches made, the policy it works by, where things stand as it last wrote it, and the project's observations.
- * Its works are works of the architect's graph for the project, on no item.
+ * A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
+ * the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
+ * one, its notebook, and the project's observations. Its works are works of the architect's graph for the project, on
+ * no item.
  */
 export type Architect = { 
 /**
@@ -1508,7 +1509,7 @@ draft: PolicyDraft | null,
 /**
  * Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
  */
-check: Said | null, next: NextPlan, 
+check: Said | null, 
 /**
  * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
  * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
@@ -1784,16 +1785,6 @@ export type NotebookSection = { section: string, now: NotebookVersion | null, ve
  * it, by its work and its number in the work, with its cell and when it ended.
  */
 export type NotebookVersion = { text: string, work: number, round: number, cell: string, at: number | null, };
-
-/**
- * What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered
- * most and whether what runs fits; none before the first plan.
- */
-export type NextPlan = { plan: Said | null, 
-/**
- * The matters the plan's rows became, in their order: each thing missing, then each place to set straight.
- */
-matters: Array<number>, };
 
 /**
  * How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what

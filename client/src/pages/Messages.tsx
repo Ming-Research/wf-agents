@@ -13,9 +13,8 @@
 // which the owner forwards to any project's architect, once to each, and says where it went and how it stands there;
 // its head sets where each new fault goes as it comes, nobody at first. An ask of the owner from a work shows once,
 // where it was asked, as the asking agent's bubble, in full while it waits, and is answered in that bubble: the buttons
-// of its options or of the choices its cell offers, the one picked marked, then a small box for the owner's words, free
-// unless the ask or the choice asks for them, and Answer; a question the architect holds has the small box in its
-// bubble too. What is written there answers that bubble; once answered, the buttons and the box give way to the
+// of its options, the one picked marked, then a small box for the owner's words, free unless the ask is in words alone
+// or no option is picked, and Answer; a question the architect holds has the small box in its bubble too. What is written there answers that bubble; once answered, the buttons and the box give way to the
 // owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere else. An architect's
 // question has no box: replied to, it is back where it was asked, with the reply in its bubble.
 // While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design card a
@@ -57,6 +56,7 @@ import type {
   Forwarding,
   Misses,
   OwnerAsk,
+  PolicyDraft,
   Status,
   WordsState,
   WorkState,
@@ -67,6 +67,7 @@ import { architectMark } from '../architect';
 import { liveState, StateMark } from '../components';
 import {
   architectAsk,
+  asksApproval,
   awayOf,
   closedWhy,
   conversationTitle,
@@ -101,10 +102,11 @@ import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
 import { Markdown } from '../markdown';
 import { SayBox, Thumbs } from '../parts';
-import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
+import { architectHref, forProject, href, Link, navigate, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, SEP } from '../voices';
 import { ArchitectAskBlock } from './ArchitectAsk';
+import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
@@ -441,8 +443,14 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// where they stand with it is a line under them. Each answer to a bubble is in that bubble: an ask of a work's holds
 /// what answers it while it waits, then the owner's answer; an architect's question nothing while it waits, since the
 /// box at the bottom replies to it, then the owner's reply; a question the architect holds, the box that answers it,
-/// then the owner's answer (`reply`).
-function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; reply: ConversationEntry | null }) {
+/// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
+/// the panel beside the one-to-one (`draft`).
+function Message({ e, to, reply, draft = null }: {
+  e: ConversationEntry;
+  to: string | null;
+  reply: ConversationEntry | null;
+  draft?: string | null;
+}) {
   const own = e.sender === 'owner';
   const from = e.source === 'between' ? `architect:${e.sender}` : member(e.sender);
   const round = e.work !== null && e.round !== null && e.source !== 'between';
@@ -465,6 +473,7 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
               {`R${e.work}-${e.round}`}
             </Link>
           ) : null}
+          {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
           {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
           {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
         </>
@@ -622,8 +631,9 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
   );
 }
 
-/// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter).
-function Entry({ e, c, w, held, current, replies, forwarding }: {
+/// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
+/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft.
+function Entry({ e, c, w, held, current, replies, forwarding, draft }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
@@ -631,6 +641,7 @@ function Entry({ e, c, w, held, current, replies, forwarding }: {
   current: number | null;
   replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
+  draft: PolicyDraft | null;
 }) {
   const voice = voiceOf(e, held);
   if (voice === 'card') {
@@ -646,7 +657,14 @@ function Entry({ e, c, w, held, current, replies, forwarding }: {
   if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
   const reply = e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null;
-  return <Message e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} reply={reply} />;
+  return (
+    <Message
+      e={e}
+      to={mentions(e, c.kind) ? mention(e, c.kind) : null}
+      reply={reply}
+      draft={c.project !== null && asksApproval(e, draft) ? sideHref(c.project, 'policy') : null}
+    />
+  );
 }
 
 /// What is pinned for the owner, in one look wherever it is: a band on the muted background, headed by what it is,
@@ -691,17 +709,19 @@ function FoldedQuestion({ e, onOpen }: { e: ConversationEntry; onOpen: () => voi
 /// they were put: the one open (the newest, unless the owner opened another) as the architect's message, the others
 /// folded to a line each; opening one folds the one that was open and makes it the one the box replies to. They have no
 /// buttons: the box replies.
-export function Questions({ pinned, open, onOpen }: {
+export function Questions({ pinned, open, onOpen, project, draft }: {
   pinned: ConversationEntry[];
   open: number | null;
   onOpen: (question: number) => void;
+  project: string;
+  draft: PolicyDraft | null;
 }) {
   if (pinned.length === 0) return null;
   return (
     <Pins at="bottom">
       {[...pinned].reverse().map((e) =>
         e.id === open ? (
-          <Message key={e.id} e={e} to={null} reply={null} />
+          <Message key={e.id} e={e} to={null} reply={null} draft={asksApproval(e, draft) ? sideHref(project, 'policy') : null} />
         ) : (
           <FoldedQuestion key={e.id} e={e} onOpen={() => onOpen(e.id)} />
         ),
@@ -852,8 +872,14 @@ function AwayLine({ away, list }: { away: Array<[number, 'above' | 'below']>; li
 /// The stream of a conversation, oldest first, scrolled to its newest: the engine's cards and lines in the page's own
 /// voice, the members' messages beside them, an ask where it was asked; under it, while the owner's words added to the
 /// queue wait to be taken up in the one-to-one, that they do; over it, while an ask that waits is out of view, the line
-/// that says so.
-export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w: WorkSummary | null }) {
+/// that says so. In the one-to-one with an architect, the question whether its draft of a new policy that waits
+/// (`draft`) is approved leads to the draft.
+export function Stream({ d, c, w, draft = null }: {
+  d: ConversationDetail;
+  c: Conversation;
+  w: WorkSummary | null;
+  draft?: PolicyDraft | null;
+}) {
   const held = useMemo(() => heldCards(d), [d]);
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const stream = streamOf(d);
@@ -922,6 +948,7 @@ export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w:
               current={current}
               replies={replies}
               forwarding={d.forwarding}
+              draft={draft}
             />
           ));
           return run.cards ? (
@@ -942,11 +969,20 @@ export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w:
 
 /// One conversation: its head with the owner's controls, the design card a work waits on pinned under it, the stream,
 /// the questions an architect pinned over the box, and the one box at the bottom, with the tick that replies to the
-/// question open; reading it marks it read up to its latest entry.
-function Open({ c, works }: { c: Conversation; works: WorkSummary[] | undefined }) {
+/// question open; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
+/// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
+/// entry.
+function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | undefined; side: SideTab | null }) {
   const r = useResource<ConversationDetail>('messages', `/api/v1/conversation?key=${encodeURIComponent(c.key)}`);
   const d = r.data !== undefined && r.data.key === c.key ? r.data : null;
   const w = c.work !== null ? ((works ?? []).find((x) => x.id === c.work) ?? null) : null;
+  const project = c.kind === 'architect' ? (c.project ?? '') : null;
+  const ar = useResource<Architect>(
+    project !== null ? 'architect' : null,
+    project !== null ? forProject('/api/v1/architect', project) : null,
+  );
+  const a = ar.data !== undefined && ar.data.project === project ? ar.data : null;
+  const [sideOpen, setSideOpen] = useSideOpen(side !== null);
   // The question the owner opened at the bottom, and how the owner set the tick for it.
   const [opened, setOpened] = useState<number | null>(null);
   const [ticked, setTicked] = useState<Ticked | null>(null);
@@ -976,13 +1012,13 @@ function Open({ c, works }: { c: Conversation; works: WorkSummary[] | undefined 
     c.kind === 'work' ? (
       <WorkHead c={c} w={w} />
     ) : c.kind === 'architect' ? (
-      <ArchitectHead c={c} />
+      <ArchitectHead c={c} a={a} onSide={sideOpen ? null : () => setSideOpen(true)} />
     ) : c.kind === 'wf_agents' ? (
       <WfAgentsHead title={conversationTitle(c)} forwarding={d?.forwarding ?? null} />
     ) : (
       <PlainHead title={conversationTitle(c)} />
     );
-  return (
+  const talk = (
     <AnswersHere.Provider value={true}>
       <div className="talk-open">
         {head}
@@ -991,20 +1027,56 @@ function Open({ c, works }: { c: Conversation; works: WorkSummary[] | undefined 
         ) : (
           <>
             <Pinned d={d} />
-            <Stream d={d} c={c} w={w} />
-            <Questions pinned={pinned} open={open?.id ?? null} onOpen={setOpened} />
+            <Stream d={d} c={c} w={w} draft={a?.draft ?? null} />
+            <Questions
+              pinned={pinned}
+              open={open?.id ?? null}
+              onOpen={setOpened}
+              project={project ?? ''}
+              draft={a?.draft ?? null}
+            />
           </>
         )}
         <Composer key={c.key} c={c} w={w} reply={reply} />
       </div>
     </AnswersHere.Provider>
   );
+  if (a === null || !sideOpen) return talk;
+  return (
+    <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none" className="talk-split">
+      <PageLayout.Content padding="none" width="full" className="talk-split-content">
+        {talk}
+      </PageLayout.Content>
+      <PageLayout.Pane
+        position="end"
+        resizable
+        widthStorageKey="wf-agents.architect-side-width"
+        width={{ min: '280px', default: '440px', max: '800px' }}
+        divider="line"
+        padding="none"
+        className="talk-side"
+        aria-label={t('side_tabs')}
+      >
+        <div className="talk-side-body">
+          <ArchitectSide
+            a={a}
+            tab={side ?? 'notebook'}
+            onClose={() => {
+              setSideOpen(false);
+              if (side !== null) navigate(href({ page: 'messages', open: c.key }), true);
+            }}
+          />
+        </div>
+      </PageLayout.Pane>
+    </PageLayout>
+  );
 }
 
 /// The owner's conversations: the list on the left, in its fixed order, its width dragged and kept in the browser; the
 /// conversation open on the right, the first in the list when the address names none. The works are read once for
-/// both: the list's marks and the work of the group open.
-export function Messages({ open }: { open: string | null }) {
+/// both: the list's marks and the work of the group open. The address may name the tab of the panel beside the one-to-one
+/// with an architect (`side`).
+export function Messages({ open, side }: { open: string | null; side: SideTab | null }) {
   const r = useResource<Conversation[]>('messages', '/api/v1/conversations');
   const works = useResource<WorkSummary[]>('works', '/api/v1/works').data;
   const list = r.data ?? [];
@@ -1026,7 +1098,7 @@ export function Messages({ open }: { open: string | null }) {
         <List list={list} open={shown?.key ?? null} works={works} />
       </PageLayout.Pane>
       <PageLayout.Content padding="none" width="full" className="talks-content">
-        {shown !== null ? <Open key={shown.key} c={shown} works={works} /> : null}
+        {shown !== null ? <Open key={shown.key} c={shown} works={works} side={shown.kind === 'architect' ? side : null} /> : null}
       </PageLayout.Content>
     </PageLayout>
   );

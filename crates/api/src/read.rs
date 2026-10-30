@@ -17,10 +17,10 @@ use crate::view;
 use crate::{
     Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
-    LinkedItem, Matter, MatterCard, NamedText, NextPlan, NotebookSection, NotebookVersion, Observation, OwnerAsk,
-    OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional,
-    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown,
-    Tag, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
+    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun,
+    Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1738,9 +1738,10 @@ pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: 
     Ok(out)
 }
 
-/// A project's architect, as its tab shows it: `projects` are every project of the configuration, `tags` the project's
-/// tags for observations, each with what it covers, `own` whether the project is wf-agents itself, and `constitution`
-/// the project's constitution as its checkout has it. Its cells are named as the views over its rounds name them.
+/// A project's architect, as its page and the panel beside its one-to-one show it: `projects` are every project of the
+/// configuration, `tags` the project's tags for observations, each with what it covers, `own` whether the project is
+/// wf-agents itself, and `constitution` the project's constitution as its checkout has it. Its cells are named as the
+/// views over its rounds name them.
 pub fn architect(
     conn: &Connection,
     flows: &Flows,
@@ -1790,7 +1791,6 @@ pub fn architect(
         policy: policy(conn, project)?,
         draft: draft(conn, project)?,
         check: latest_of(conn, project, "P1")?,
-        next: next(conn, project)?,
         notebook: notebook(conn, project)?,
         observations: observations(conn, project)?,
         tags,
@@ -2247,23 +2247,6 @@ fn latest_of(conn: &Connection, project: &str, cell: &str) -> Result<Option<Said
             },
         )
         .optional()?)
-}
-
-/// What to do next under the policy, as a project's architect last planned it, with the matters its rows became: its
-/// round queued one for each thing missing and then one for each place to set straight, in their order.
-fn next(conn: &Connection, project: &str) -> Result<NextPlan> {
-    let plan = latest_of(conn, project, "N1")?;
-    let matters: Vec<i64> = match &plan {
-        Some(f) => {
-            let mut st = conn.prepare(
-                "SELECT id FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = 'set_straight' ORDER BY id",
-            )?;
-            st.query_map([f.work, f.round], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?
-        }
-        None => Vec::new(),
-    };
-    Ok(NextPlan { plan, matters })
 }
 
 /// A file under the data directory's `logs` or `tool-output` directory, as text, cut after `max` bytes.
@@ -3785,15 +3768,6 @@ mod tests {
         // The check of the policy in force, in the policy's part.
         assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
         assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
-        // The plan of what to do next, by its cell and round; it found everything fits and nothing missing, so it
-        // queued no matter.
-        let next = &a.next;
-        assert_eq!(
-            next.plan.as_ref().map(|x| (x.work, x.round, x.cell.as_str())),
-            Some((2, 4, "N1"))
-        );
-        assert_eq!(next.plan.as_ref().unwrap().value["fit"]["verdict"], "fits");
-        assert!(next.matters.is_empty());
 
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);

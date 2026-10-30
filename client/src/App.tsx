@@ -38,7 +38,7 @@ export function App() {
           <Items selected={route.page === 'item' ? route.id : null} />
         ) : null}
         {route.page === 'architect' ? <Architect route={route} /> : null}
-        {route.page === 'messages' ? <Messages open={route.open} /> : null}
+        {route.page === 'messages' ? <Messages open={route.open} side={route.side ?? null} /> : null}
         {route.page === 'system' ? <System period={route.period} /> : null}
         {route.page === 'settings' ? <Settings /> : null}
         {route.page === 'flow' ? <Flow route={route} /> : null}

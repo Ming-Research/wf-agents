@@ -845,8 +845,8 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
 /// look at the queue, or one picked from many), and stands there while it changes, so that the cards read in the order
 /// the architect took the matters up, the one in hand last. A matter it never picked comes in when it left the queue:
 /// when it was handled without a pick (closed without a look), held by an ask, or withdrawn. One still waiting in the
-/// queue has no card: the queue under the head lists it. The owner's words have none either: a card would repeat their
-/// bubble, under which a line says where they stand (`words_states`).
+/// queue has no card: the queue in the panel beside the one-to-one lists it. The owner's words have none either: a card
+/// would repeat their bubble, under which a line says where they stand (`words_states`).
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
