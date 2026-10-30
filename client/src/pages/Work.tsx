@@ -8,7 +8,7 @@
 // adversarial testing) and its engineer said to each other, one thread for each helper, which is in no group; and its
 // usage. A round or a cell opened shows in the column's lower part, its cell brought into view.
 
-import { CounterLabel, Flash as PrimerFlash, Label, UnderlineNav } from '@primer/react';
+import { CounterLabel, Flash as PrimerFlash, UnderlineNav } from '@primer/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -22,7 +22,7 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { type Course, course, heldName, Loaded, OutcomeBadge } from '../components';
+import { type Course, course, heldName, Loaded, OutcomeBadge, StateChip } from '../components';
 import { held, runningWords, takeoverWords, waitOf, waitsWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName } from '../format';
@@ -114,9 +114,9 @@ export function Timeline(props: {
               <td className="timeline-what">
                 {r.outcome === 'running' && props.stale ? (
                   <>
-                    <Label variant="secondary" title={t('round_left_open_hint')}>
+                    <StateChip tone="neutral" title={t('round_left_open_hint')}>
                       {t('round_left_open')}
-                    </Label>{' '}
+                    </StateChip>{' '}
                   </>
                 ) : r.outcome !== 'took' ? (
                   <>

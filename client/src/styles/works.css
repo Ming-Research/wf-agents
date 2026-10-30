@@ -16,7 +16,8 @@
   overflow: auto;
 }
 
-/* The heading of the works running and waiting, as a section's line, with the rule under it. */
+/* The heading of the works running and waiting, as a section's line, with no rule under it; the ended works' section
+   after it has the line over it that parts a page's sections. */
 .works-active {
   display: grid;
   gap: var(--base-size-12);
@@ -27,8 +28,6 @@
   display: flex;
   align-items: center;
   gap: var(--base-size-8);
-  padding-bottom: var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
 }
 
 .works-wide {
@@ -78,7 +77,8 @@ table.list.works-table td {
   box-shadow: inset calc(-1 * var(--borderWidth-thick)) 0 0 var(--borderColor-accent-emphasis);
 }
 
-/* How a work goes on, on one line: its Labels and what it waits for, then why the engine stopped it or why it ended. */
+/* How a work goes on, on one line: its chips and what it waits for, then, as muted words in the line's size, how long
+   its round has run and why the engine stopped it or why it ended. */
 .course {
   display: inline-flex;
   align-items: center;
@@ -88,6 +88,8 @@ table.list.works-table td {
 
 .course .why {
   max-width: none;
+  color: var(--fgColor-muted);
+  font-size: inherit;
   white-space: nowrap;
 }
 

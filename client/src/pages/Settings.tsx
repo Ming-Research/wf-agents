@@ -68,7 +68,7 @@ function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said:
   };
   return (
     <div className="settings-form">
-      <section className="settings-sec">
+      <section className="settings-sec section-apart">
         <h2>{t('settings_tiers')}</h2>
         <p className="settings-note">{t('settings_advisor_note')}</p>
         <table className="list settings-tiers">
@@ -122,7 +122,7 @@ function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said:
           </FormControl>
         </div>
       </section>
-      <section className="settings-sec">
+      <section className="settings-sec section-apart">
         <h2>{t('settings_sessions')}</h2>
         <div className="settings-fields">
           <FormControl>

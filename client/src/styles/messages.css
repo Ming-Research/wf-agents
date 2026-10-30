@@ -445,15 +445,13 @@
   margin-bottom: 0;
 }
 
-/* A document the owner reads, a study, a policy or a design: one document in one style, framed as what an agent handed
-   back, every list of it numbered items with their leads in bold and their parts as labelled paragraphs. */
+/* A document the owner reads, a study, a policy or a design: one document in one style, every list of it numbered
+   items with their leads in bold and their parts as labelled paragraphs. It has no box of its own: where it fills a
+   section or a tab by itself it is the body text under that heading, in a message it is inside the message's box, and
+   folded under a card of the page's own it is in the box of what an agent handed back (agent-box). */
 .document {
   display: grid;
   gap: var(--base-size-12);
-  padding: var(--base-size-12) var(--base-size-16);
-  border: var(--borderWidth-thin) solid var(--borderColor-default);
-  border-radius: var(--borderRadius-medium);
-  background: var(--bgColor-default);
   overflow-wrap: anywhere;
 }
 
@@ -487,15 +485,6 @@
 
 .design-none p {
   margin: 0 0 var(--base-size-4);
-}
-
-/* An item's live work, once, at its top. */
-.item-live {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--base-size-4) var(--base-size-12);
-  margin: 0 0 var(--base-size-16);
 }
 
 /* A helper's thread on a work's page. */

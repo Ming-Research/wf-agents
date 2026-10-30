@@ -77,7 +77,7 @@ export function System({ period }: { period: Period }) {
 /// The period the parts after Now count over, kept in the address.
 function PeriodSwitch({ period }: { period: Period }) {
   return (
-    <div className="sys-period">
+    <div className="sys-period section-apart">
       <span className="muted">{t('sys_period')}</span>
       {PERIODS.map((p) => (
         <Link key={p} to={href({ page: 'system', period: p })} className={p === period ? 'sys-period-on' : undefined}>

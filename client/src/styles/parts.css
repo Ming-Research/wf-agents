@@ -13,8 +13,11 @@
 }
 
 /* A section: the line that folds it (the chevron, its heading, its count, who wrote it), what it holds under it. A
-   page's own section has a rule under its line and room before the next; one inside another is a sub-heading, its
-   body set in by the chevron's width. */
+   page's own section (a panel's too, which voices.tsx draws with these classes) has no rule under its heading: a line
+   over it the width of the page parts it from what comes before, with room on both sides, and none is drawn over the
+   first thing of a page; what a view sets apart as a section without this part (two sections side by side, a part
+   of the usage, of the settings) takes section-apart for the same line, the room before it the view's own. One
+   inside another is a sub-heading, its body set in by the chevron's width. */
 .section > summary {
   display: flex;
   flex-wrap: wrap;
@@ -41,9 +44,10 @@
   margin-top: var(--base-size-24);
 }
 
-.section[data-level='2'] > summary {
-  padding-bottom: var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+.section[data-level='2']:not(:first-child),
+.section-apart:not(:first-child) {
+  padding-top: var(--base-size-24);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
 .section-body {
@@ -104,6 +108,57 @@
 /* An action inside a line of text, drawn as a link: it sits in the line as its words do. */
 .link-button {
   text-align: left;
+}
+
+/* A chip, which is Primer's Label wherever the page shows one, in one look on every view: a rounded rectangle rather
+   than Primer's pill, its words the size of the text of the line it stands in, so that a line has one size, and a
+   coloured and an uncoloured chip of one shape, height and corner. A state's chip is filled in its state's colour,
+   vivid, its words white (Primer's coloured variants, and the primary variant, which the page gives a state of no
+   meaning of its own and fills grey); a tag's or a kind's (the default and secondary variants) is uncoloured,
+   outlined. */
+[data-component='Label'] {
+  height: auto;
+  padding: var(--base-size-2) var(--base-size-6);
+  border-radius: var(--borderRadius-medium);
+  font-size: inherit;
+}
+
+[data-component='Label'][data-variant='primary'] {
+  --chip: var(--bgColor-neutral-emphasis);
+}
+
+[data-component='Label'][data-variant='accent'] {
+  --chip: var(--bgColor-accent-emphasis);
+}
+
+[data-component='Label'][data-variant='success'] {
+  --chip: var(--bgColor-success-emphasis);
+}
+
+[data-component='Label'][data-variant='attention'] {
+  --chip: var(--bgColor-attention-emphasis);
+}
+
+[data-component='Label'][data-variant='severe'] {
+  --chip: var(--bgColor-severe-emphasis);
+}
+
+[data-component='Label'][data-variant='danger'] {
+  --chip: var(--bgColor-danger-emphasis);
+}
+
+[data-component='Label'][data-variant='done'] {
+  --chip: var(--bgColor-done-emphasis);
+}
+
+[data-component='Label'][data-variant='sponsors'] {
+  --chip: var(--bgColor-sponsors-emphasis);
+}
+
+[data-component='Label']:not([data-variant='default'], [data-variant='secondary']) {
+  border-color: var(--chip);
+  background: var(--chip);
+  color: var(--fgColor-onEmphasis);
 }
 
 /* A Label that leads where the owner acts on it: its words underlined under the pointer, as a link's are. */

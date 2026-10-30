@@ -23,11 +23,6 @@
   gap: var(--base-size-12);
 }
 
-/* A section's heading, with the rule under it that a section of a page has. */
-.settings-sec > h2 {
-  padding-bottom: var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
-}
 
 .settings-note {
   margin: 0;

@@ -180,7 +180,7 @@ export function SubHeading({ children, className }: { children: ReactNode; class
 
 /// A section: its heading, how many it holds (`n`) and who wrote it on the line that folds it, over what it holds,
 /// folded unless `open`; none when it holds nothing. A section at level 2 is a page's own, its heading in the section
-/// step with a rule under it; one inside another is a sub-heading.
+/// step, a line over it parting it from what comes before; one inside another is a sub-heading.
 export function Section({ title, n, open = false, by, id, children }: {
   title: ReactNode;
   n?: number;

@@ -219,10 +219,11 @@ function ContextChart({ u, work, colour }: { u: UsageData; work: number; colour:
   );
 }
 
-/// A part of the tab: its heading as a section's, with the rule under it, a note on what it shows, and what it shows.
+/// A part of the tab: its heading as a section's, set apart by the line over it that parts a page's sections, a note
+/// on what it shows, and what it shows.
 function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
-    <section className="us-sec">
+    <section className="us-sec section-apart">
       <h3 className="us-sec-title">{title}</h3>
       {note !== undefined ? <p className="us-note">{note}</p> : null}
       {children}

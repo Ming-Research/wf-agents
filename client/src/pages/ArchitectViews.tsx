@@ -8,6 +8,7 @@ import { type ReactNode } from 'react';
 
 import type { JsonValue, NextPlan, Said } from '../api';
 import { againstInOrder } from '../architect';
+import { StateChip } from '../components';
 import { DocList } from '../document';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
@@ -136,7 +137,7 @@ export function ProbesView({ value }: { value: JsonValue }) {
 /// The architect's verdict on a new architect's reading: passed, as understood or with a minor fix, or the gaps it
 /// found.
 function ReadingVerdict({ value }: { value: JsonValue }) {
-  if (!isObj(value)) return <Label variant="secondary">{t('reading_not_judged')}</Label>;
+  if (!isObj(value)) return <StateChip tone="neutral">{t('reading_not_judged')}</StateChip>;
   const gaps = objs(value.gaps);
   const passed = value.verdict === 'understood' || value.verdict === 'minor_fix';
   return (

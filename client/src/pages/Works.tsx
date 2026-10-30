@@ -7,17 +7,18 @@
 // needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
 
 import { ArrowLeftIcon, ReplyIcon, XCircleIcon } from '@primer/octicons-react';
-import { CounterLabel, Heading, Label } from '@primer/react';
+import { CounterLabel, Heading, Label, Link as PrimerLink } from '@primer/react';
 import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
-import { type Course, course, heldName, WorkBadge, Loaded } from '../components';
+import { type Course, course, heldName, StateChip, WorkBadge, Loaded } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useNow, useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t, tn } from '../text';
+import { joined } from '../voices';
 import { Work } from './Work';
 
 const ENDED = new Set(['done', 'ended']);
@@ -74,9 +75,9 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
   if (c.running === null && why === null && waits === null) {
     parts.push(
       c.started ? (
-        <Label key="ready" variant="secondary">
+        <StateChip key="ready" tone="neutral">
           {t('course_ready_started')}
-        </Label>
+        </StateChip>
       ) : (
         <WorkBadge key="ready" state="ready" />
       ),
@@ -145,7 +146,7 @@ function Row({ w, tab, now }: { w: WorkSummary; tab: WorkTab; now: number }) {
         <State w={w} c={a.c} now={now} />
       </td>
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
-        <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
+        <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
           {t('go_to_conversation')}
         </Link>
       </td>
@@ -403,20 +404,29 @@ function WorkLine({ w }: { w: WorkSummary }) {
         {w.at_title}
         {stage ? <span className="muted"> · {stage}</span> : null}
       </span>
-      <span className="muted">{tn('work_rounds_n', w.rounds)}</span>
-      <span className="muted">{cost(w.cost_usd)}</span>
-      {w.pr !== null ? (
-        repo !== undefined ? (
-          <a href={`https://github.com/${repo}/pull/${w.pr}`} target="_blank" rel="noreferrer" title={t('work_pr_hint')}>
-            {t('work_pr', { n: w.pr })}
-          </a>
-        ) : (
-          <span>{t('work_pr', { n: w.pr })}</span>
-        )
-      ) : null}
-      <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
-        {t('go_to_conversation')}
-      </Link>
+      <span className="muted">
+        {joined([
+          tn('work_rounds_n', w.rounds),
+          cost(w.cost_usd),
+          w.pr === null ? null : repo !== undefined ? (
+            <PrimerLink
+              key="pr"
+              href={`https://github.com/${repo}/pull/${w.pr}`}
+              target="_blank"
+              rel="noreferrer"
+              muted
+              title={t('work_pr_hint')}
+            >
+              {t('work_pr', { n: w.pr })}
+            </PrimerLink>
+          ) : (
+            t('work_pr', { n: w.pr })
+          ),
+          <Link key="talk" to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
+            {t('go_to_conversation')}
+          </Link>,
+        ])}
+      </span>
     </div>
   );
 }

@@ -199,12 +199,17 @@
   font-size: var(--text-body-size-small);
 }
 
-/* A section: its line that folds it with a rule under it, what it holds under it. */
+/* A panel's page: its overview and its sections, drawn as a page's own sections are (parts.css), the room before
+   each the page's gap. */
 .pp-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--base-size-24);
   min-width: 0;
+}
+
+.pp-page > .section {
+  margin-top: 0;
 }
 
 .pp-section > summary,
@@ -220,41 +225,17 @@
   display: none;
 }
 
-.pp-section > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--base-size-4) var(--base-size-8);
-  padding-bottom: var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
-}
-
-.pp-section > summary > svg,
 .pp-fold > summary > svg,
 .pp-row > summary > svg {
   flex: none;
   color: var(--fgColor-muted);
 }
 
-.pp-section[open] > summary > .fold-closed,
-.pp-section:not([open]) > summary > .fold-open,
 .pp-fold[open] > summary > .fold-closed,
 .pp-fold:not([open]) > summary > .fold-open,
 .pp-row[open] > summary > .fold-closed,
 .pp-row:not([open]) > summary > .fold-open {
   display: none;
-}
-
-.pp-section-title {
-  min-width: 0;
-}
-
-.pp-section-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--base-size-16);
-  min-width: 0;
-  padding-top: var(--base-size-12);
 }
 
 /* A part inside a section: its name a sub-heading, its code and facts after it. */

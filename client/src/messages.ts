@@ -634,7 +634,6 @@ const messages = {
   us_n_runs: '{n} runs',
   attempt: 'attempt {n}',
   no_items: 'No items.',
-  item_title: 'Item {id}',
   why: 'Why',
   approach: 'Approach',
   acceptance: 'Acceptance',
@@ -644,7 +643,6 @@ const messages = {
   dependency_blocking_title: 'The item that depends on it does not start until it is merged',
   dependency_parallel: 'parallel',
   dependency_parallel_title: 'The item that depends on it may start before it is merged, and waits for it later',
-  item_blocked: 'Waits for {items} to be merged before it starts.',
   ask_head: 'Ask of the owner {id}',
 
   // The items view and an item's page.

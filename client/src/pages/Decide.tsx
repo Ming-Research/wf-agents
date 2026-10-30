@@ -27,6 +27,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 
 import { askChoice, askParts, useAnswersHere } from '../answer';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
+import { toneVariant } from '../components';
 import { time } from '../format';
 import { postJson } from '../http';
 import { OptionBoxes } from '../item/Shapes';
@@ -85,7 +86,7 @@ export function CardFrame({ id, head, folded = false, children }: {
 /// How a card stands, as a chip: done with the owner, waiting for the owner, replaced, or disagreed with.
 type Tone = 'ok' | 'wait' | 'old' | 'no';
 
-const CHIP: Record<Tone, LabelColorOptions> = { ok: 'success', wait: 'attention', old: 'secondary', no: 'danger' };
+const CHIP: Record<Tone, LabelColorOptions> = { ok: 'success', wait: 'attention', old: toneVariant('neutral'), no: 'danger' };
 
 const BAND: Record<Tone, NonNullable<FlashProps['variant']>> = {
   ok: 'success',

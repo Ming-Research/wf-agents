@@ -1,6 +1,6 @@
-/* An item's page, as the UI spec lays out a reading page: its header (the title, its state, its facts), then what
-   needs the owner, where the work stands, the problem, the design, the acceptance, the changes on the way, what it
-   depends on and its history, each a section of one document. */
+/* An item's page, as the UI spec lays out a reading page: its header (its number and title, its facts on one line),
+   then what needs the owner, where the work stands, the problem, the design, the acceptance, the changes on the way,
+   what it depends on and its history, each a section of one document. */
 
 .item-page {
   max-width: var(--breakpoint-large);
@@ -12,24 +12,22 @@
   font-weight: var(--base-text-weight-normal);
 }
 
-.item-head-facts {
-  display: flex;
+/* The facts under the title run as one line that wraps between two facts where it must, its chips in the line's
+   size. */
+.item-head .item-head-facts {
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--base-size-4) var(--base-size-16);
-  color: var(--fgColor-muted);
+  gap: var(--base-size-4);
 }
 
-.item-tier {
+.item-head-facts > .muted {
+  display: contents;
+}
+
+/* The work that goes on, by its number with its state's chip beside it, kept together. */
+.item-head-work {
   display: inline-flex;
   align-items: center;
-  gap: var(--base-size-8);
-}
-
-.item-head-notes {
-  display: grid;
   gap: var(--base-size-4);
-  margin-top: var(--base-size-8);
 }
 
 .item-cancelled {
@@ -93,6 +91,15 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--base-size-24);
+  margin-top: var(--base-size-24);
+}
+
+/* The two sections side by side are set apart as one, by the line over them both. */
+.two > .section[data-level='2'],
+.two > .section[data-level='2']:not(:first-child) {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .linked {

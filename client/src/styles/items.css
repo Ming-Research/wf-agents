@@ -1,6 +1,7 @@
 /* The items: Primer's PageLayout filling the window under the bar, the trees in its pane on the left and the item
    picked in its content on the right, each scrolling on its own. Each project's tree is Primer's TreeView under the
-   project's heading and the buttons that show or hide each state's items; a row's state is the colour of its edge. */
+   project's heading and the buttons that show or hide each state's items, a line between two projects as between a
+   page's sections; a row's state is its chip at its end. */
 
 .items-screen {
   flex: 1;
@@ -25,11 +26,15 @@
   padding-bottom: var(--base-size-16);
 }
 
+.tree-project + .tree-project {
+  margin-top: var(--base-size-8);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
 .tree-head {
   display: grid;
   gap: var(--base-size-4);
-  padding: 0 var(--base-size-8) var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
+  padding: 0 var(--base-size-8);
 }
 
 .tree-states {
@@ -38,12 +43,57 @@
   gap: var(--base-size-4);
 }
 
+/* The button that shows or hides a state's items, in the colour of the state's chip: filled in it, its words white,
+   while the state's items show; outlined in it while they hide. */
+.tree-state-accent {
+  --tone: var(--bgColor-accent-emphasis);
+  --tone-fg: var(--fgColor-accent);
+}
+
+.tree-state-success {
+  --tone: var(--bgColor-success-emphasis);
+  --tone-fg: var(--fgColor-success);
+}
+
+.tree-state-attention {
+  --tone: var(--bgColor-attention-emphasis);
+  --tone-fg: var(--fgColor-attention);
+}
+
+.tree-state-danger {
+  --tone: var(--bgColor-danger-emphasis);
+  --tone-fg: var(--fgColor-danger);
+}
+
+.tree-state-neutral {
+  --tone: var(--bgColor-neutral-emphasis);
+  --tone-fg: var(--fgColor-muted);
+}
+
+.tree-states .tree-state,
+.tree-states .tree-state:hover {
+  border-color: var(--tone);
+  color: var(--tone-fg);
+}
+
+.tree-states .tree-state[aria-pressed='true'],
+.tree-states .tree-state[aria-pressed='true']:hover {
+  background: var(--tone);
+  color: var(--fgColor-onEmphasis);
+}
+
+.tree-states .tree-state [data-component='leadingVisual'],
+.tree-states .tree-state[aria-pressed='true'] [data-component='ButtonCounter'] {
+  color: inherit;
+}
+
 .tree-none {
   margin: 0;
   padding: 0 var(--base-size-8);
 }
 
-/* A row: its number and title, then what it needs from the owner as Labels; its facts at its end. */
+/* A row: its number and title, then what it needs from the owner as chips; at its end its facts as muted words in the
+   row's size, then its state's chip. */
 .tree-line {
   display: inline-flex;
   align-items: center;
@@ -58,10 +108,11 @@
   text-overflow: ellipsis;
 }
 
-.tree-facts {
+.tree-end {
   display: inline-flex;
+  align-items: center;
   gap: var(--base-size-8);
-  font-size: var(--text-body-size-small);
+  white-space: nowrap;
 }
 
 /* The stage an item's work is at, in words, only where the row has room for it beside the title. */
@@ -69,30 +120,4 @@
   .tree-stage {
     display: none;
   }
-}
-
-/* An item's state, as the colour of its row's edge: the thicker line the UI spec gives the tree. */
-.tree-row > div:first-child {
-  box-shadow: inset var(--borderWidth-thicker) 0 0 var(--tree-edge, var(--borderColor-default));
-}
-
-.item-edge-working {
-  --tree-edge: var(--borderColor-accent-emphasis);
-}
-
-.item-edge-queued {
-  --tree-edge: var(--borderColor-attention-emphasis);
-}
-
-.item-edge-new {
-  --tree-edge: var(--borderColor-neutral-emphasis);
-}
-
-.item-edge-done {
-  --tree-edge: var(--borderColor-success-emphasis);
-}
-
-.item-edge-stopped,
-.item-edge-cancelled {
-  --tree-edge: var(--borderColor-danger-emphasis);
 }

@@ -38,7 +38,7 @@ import type {
   WorkSummary,
 } from '../api';
 import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWork, shownWork } from '../architect';
-import { course, heldName, Loaded } from '../components';
+import { course, heldName, Loaded, StateChip } from '../components';
 import { runningWords } from '../course';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, time } from '../format';
@@ -82,7 +82,7 @@ function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) 
         ) : c.held !== null ? (
           <Label variant={heldName(c).problem ? 'danger' : 'attention'}>{heldName(c).name}</Label>
         ) : (
-          <Label variant="secondary">{t('talk_architect_between')}</Label>
+          <StateChip tone="neutral">{t('talk_architect_between')}</StateChip>
         )}
         <span className="work-where" title={what ?? at}>
           {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
@@ -93,9 +93,9 @@ function Now({ a, current }: { a: ArchitectRead; current: WorkSummary | null }) 
   const started = status !== null && status.architects_started.includes(a.project);
   const held = state.waiting > 0 && status !== null && status.paused && !started;
   return (
-    <Label variant={held ? 'attention' : 'secondary'}>
+    <StateChip tone={held ? 'attention' : 'neutral'}>
       {held ? t('talk_architect_held') : state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}
-    </Label>
+    </StateChip>
   );
 }
 
@@ -273,7 +273,7 @@ function ObservationRow({ o, conversation }: { o: Observation; conversation: str
       ))}
       <span className="muted">{tn('observation_reported', o.times_reported)}</span>
       {o.closed !== null ? (
-        <Label variant="secondary">{t('observation_closed', { why: words(o.closed) })}</Label>
+        <StateChip tone="neutral">{t('observation_closed', { why: words(o.closed) })}</StateChip>
       ) : (
         <Link to={`${href({ page: 'messages', open: conversation })}#observation-${o.id}`} muted>
           {t('observation_close_there')}

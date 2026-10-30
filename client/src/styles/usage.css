@@ -1,5 +1,5 @@
-/* A work's usage tab: its tiles, then its parts, each under its heading with the rule under it and a note on what it
-   shows: where the time went (a stacked bar, and the work's wall time with a block for each round and its times
+/* A work's usage tab: its tiles, then its parts, each set apart by the line over it that parts a page's sections
+   (section-apart), under its heading and a note on what it shows: where the time went (a stacked bar, and the work's wall time with a block for each round and its times
    marked under it), its models, where its cost went, its sessions with their context after each round, the
    keep-warm pings and the tools. */
 
@@ -16,8 +16,6 @@
 }
 
 .us-sec-title {
-  padding-bottom: var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
   font: var(--text-title-shorthand-small);
 }
 

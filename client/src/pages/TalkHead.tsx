@@ -14,7 +14,7 @@ import { useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectState, holdWords, matterSentence, queueParts } from '../architect';
-import { course, heldName } from '../components';
+import { course, heldName, StateChip } from '../components';
 import { forwardNewChoices } from '../conversation';
 import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
@@ -82,7 +82,7 @@ function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
     return <Label variant={h.problem ? 'danger' : 'attention'}>{h.name}</Label>;
   }
   if (c.waits !== null) return <Label variant="attention" title={waitsWords(c.waits)}>{t('talk_waits')}</Label>;
-  return <Label variant="secondary">{t('state_ready')}</Label>;
+  return <StateChip tone="neutral">{t('state_ready')}</StateChip>;
 }
 
 /// The head of a work's group: its Start, Pause and Step first, the work, its item and title, how it goes on; under
@@ -216,7 +216,7 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
         ) : c.held !== null ? (
           <Label variant="attention">{heldName(c).name}</Label>
         ) : (
-          <Label variant="secondary">{t('talk_architect_between')}</Label>
+          <StateChip tone="neutral">{t('talk_architect_between')}</StateChip>
         )}
         <span className="talk-head-now" title={what ?? undefined}>
           {c.running !== null ? <RunningMark /> : null}
@@ -229,7 +229,7 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
   if (state.waiting > 0 && status !== null && status.paused && !started) {
     return <Label variant="attention">{t('talk_architect_held')}</Label>;
   }
-  return <Label variant="secondary">{state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}</Label>;
+  return <StateChip tone="neutral">{state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}</StateChip>;
 }
 
 /// The mark beside the cell a round runs at, in a conversation's head: the chart's halo drawn small round a dot, the one

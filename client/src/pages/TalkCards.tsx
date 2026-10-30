@@ -22,6 +22,7 @@ import { useState, type ReactNode } from 'react';
 
 import type { ConversationEntry, MatterProgress, Observation, PolicyInForce, Shown, StageCard, WorkSummary } from '../api';
 import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
+import { StateChip } from '../components';
 import { stageFacts } from '../conversation';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
@@ -84,14 +85,14 @@ function Card({ icon, tone, children, id }: {
 
 /// The design a stretch at the design stage handed back, folded: the approaches compared, the one chosen, the design
 /// and the acceptance; and, while no approach is chosen, so, with where the engineer stands and what the choice waits
-/// for.
+/// for. Among the card's own words it is in the box of what an agent handed back.
 function DesignOfStage({ shown, s, w }: { shown: Shown[]; s: StageCard; w: WorkSummary | null }) {
   const has = shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
   if (!has) return null;
   return (
     <details className="talk-fold">
       <summary>{t('stage_design_fold')}</summary>
-      <div className="talk-fold-body document">
+      <div className="talk-fold-body agent-box document">
         <DesignShown shown={shown} leans={s.said} waits={s.current ? (w?.waits ?? null) : null} />
       </div>
     </details>
@@ -189,7 +190,7 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
   return (
     <Card icon={s.icon} tone={s.tone} id={`matter-${m.matter}`}>
       <p className={current ? 'talk-card-matter talk-card-current' : 'talk-card-matter'}>
-        <MatterWhat m={m} /> <Label variant={s.tone === undefined ? 'secondary' : s.tone}>{label}</Label>
+        <MatterWhat m={m} /> <StateChip tone={s.tone ?? 'neutral'}>{label}</StateChip>
         {group !== null ? (
           <>
             {' '}
@@ -224,7 +225,8 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
   );
 }
 
-/// The policy in force, as it took effect, with the document folded.
+/// The policy in force, as it took effect, with the document folded, in the box of what an agent handed back among the
+/// card's own words.
 export function PolicyCard({ p }: { p: PolicyInForce }) {
   return (
     <Card icon={<FileIcon />} tone="done">
@@ -234,7 +236,7 @@ export function PolicyCard({ p }: { p: PolicyInForce }) {
       </div>
       <details className="talk-fold">
         <summary>{t('policy_read')}</summary>
-        <div className="talk-fold-body">
+        <div className="talk-fold-body agent-box">
           <PolicyText value={p.policy} />
         </div>
       </details>
@@ -271,7 +273,7 @@ export function ObservationCard({ o }: { o: Observation }) {
         ))}
         <span className="talk-card-facts">{tn('observation_reported', o.times_reported)}</span>
         {o.closed !== null ? (
-          <Label variant="secondary">{t('observation_closed', { why: words(o.closed) })}</Label>
+          <StateChip tone="neutral">{t('observation_closed', { why: words(o.closed) })}</StateChip>
         ) : (
           <Button size="small" disabled={busy} onClick={close}>
             {t('observation_close')}

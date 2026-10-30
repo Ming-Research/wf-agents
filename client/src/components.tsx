@@ -128,11 +128,48 @@ export function heldWords(c: Course, why: string | null): string {
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 
-/// The colour of a state, as the UI spec gives each its meaning: going on, waiting for someone, done, gone wrong, or
-/// none of these.
-const WORK_TONE: Record<WorkState, LabelColorOptions> = {
+/// The colour of a state's chip, as the UI spec gives each state its meaning: going on (accent), done (success), waiting
+/// for someone (attention), gone wrong (danger), or none of these (neutral, grey); `done` is Primer's purple, for a
+/// state Primer's own parts mark so.
+export type Tone = 'accent' | 'success' | 'attention' | 'danger' | 'done' | 'neutral';
+
+/// The Label variant a tone is drawn in: a state of no meaning of its own takes Primer's primary variant, which the page
+/// fills grey (parts.css), so that it is a coloured chip as every state is, and not an uncoloured one, which is a tag's.
+const VARIANT: Record<Tone, LabelColorOptions> = {
+  accent: 'accent',
+  success: 'success',
+  attention: 'attention',
+  danger: 'danger',
+  done: 'done',
+  neutral: 'primary',
+};
+
+/// The Label variant of a state's tone, for a part that draws the Label itself, such as a chip that is a link.
+export const toneVariant = (tone: Tone): LabelColorOptions => VARIANT[tone];
+
+/// A state, wherever the page shows one (a work's, an item's, a round's): a chip filled in the state's colour, the same
+/// colour for the same state on every view. Every Label is drawn as a chip by parts.css.
+export function StateChip({ tone, title, children }: { tone: Tone; title?: string; children: ReactNode }) {
+  return (
+    <Label variant={VARIANT[tone]} title={title}>
+      {children}
+    </Label>
+  );
+}
+
+/// A tag or a kind (an observation's tag, a decision's change, a row's mark): an uncoloured chip, outlined, of a state's
+/// chip's shape and height.
+export function TagChip({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <Label variant="secondary" title={title}>
+      {children}
+    </Label>
+  );
+}
+
+const WORK_TONE: Record<WorkState, Tone> = {
   running: 'accent',
-  ready: 'secondary',
+  ready: 'neutral',
   asking: 'attention',
   waiting: 'attention',
   paused: 'attention',
@@ -140,8 +177,9 @@ const WORK_TONE: Record<WorkState, LabelColorOptions> = {
   ended: 'danger',
 };
 
-const ITEM_TONE: Record<ItemState, LabelColorOptions> = {
-  new: 'secondary',
+/// An item's state's tone, which the items' tree gives the button that shows or hides the items in that state too.
+export const ITEM_TONE: Record<ItemState, Tone> = {
+  new: 'neutral',
   queued: 'attention',
   working: 'accent',
   done: 'success',
@@ -149,21 +187,21 @@ const ITEM_TONE: Record<ItemState, LabelColorOptions> = {
   cancelled: 'danger',
 };
 
-const OUTCOME_TONE: Record<RoundOutcome, LabelColorOptions> = {
+const OUTCOME_TONE: Record<RoundOutcome, Tone> = {
   running: 'accent',
   took: 'success',
   sent_back: 'attention',
   failed: 'danger',
   interrupted: 'danger',
-  ended: 'secondary',
+  ended: 'neutral',
 };
 
 export function WorkBadge({ state }: { state: WorkState }) {
-  return <Label variant={WORK_TONE[state]}>{t(`state_${state}`)}</Label>;
+  return <StateChip tone={WORK_TONE[state]}>{t(`state_${state}`)}</StateChip>;
 }
 
 export function ItemBadge({ state }: { state: ItemState }) {
-  return <Label variant={ITEM_TONE[state]}>{t(`item_${state}`)}</Label>;
+  return <StateChip tone={ITEM_TONE[state]}>{t(`item_${state}`)}</StateChip>;
 }
 
 /// The kind of a dependency in a word, blocking or parallel, with what it means; nothing for none.
@@ -178,7 +216,7 @@ export function DependencyKind({ kind }: { kind: string | null }) {
 }
 
 export function OutcomeBadge({ outcome }: { outcome: RoundOutcome }) {
-  return <Label variant={OUTCOME_TONE[outcome]}>{t(`outcome_${outcome}`)}</Label>;
+  return <StateChip tone={OUTCOME_TONE[outcome]}>{t(`outcome_${outcome}`)}</StateChip>;
 }
 
 /// What a read gives: its view when it came, or that it is still coming, or why it failed.

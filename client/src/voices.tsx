@@ -130,8 +130,9 @@ function toggle(open: boolean, set: (open: boolean) => void) {
   };
 }
 
-/// A section of a panel: its heading in the section's step, its count and what it holds in small muted words on the
-/// line that folds it, a rule under that line; open as the owner left it (`open`, `onOpen`).
+/// A section of a panel, drawn as a page's own section is, by the same classes (parts.css): its heading in the
+/// section's step, its count and what it holds in small muted words on the line that folds it, a line over it parting
+/// it from what comes before; open as the owner left it (`open`, `onOpen`).
 export function PanelSection({ title, n, facts, open, onOpen, children }: {
   title: string;
   n?: number;
@@ -141,17 +142,17 @@ export function PanelSection({ title, n, facts, open, onOpen, children }: {
   children: ReactNode;
 }) {
   return (
-    <Details className="pp-section" open={open}>
+    <Details className="section pp-section" data-level={2} open={open}>
       <summary onClick={toggle(open, onOpen)}>
         <ChevronRightIcon className="fold-closed" />
         <ChevronDownIcon className="fold-open" />
-        <Heading as="h2" variant="small" className="pp-section-title">
+        <Heading as="h2" variant="small" className="section-title">
           {title}
         </Heading>
         {n !== undefined ? <CounterLabel>{n}</CounterLabel> : null}
         {facts !== undefined ? <Facts>{facts}</Facts> : null}
       </summary>
-      {open ? <div className="pp-section-body">{children}</div> : null}
+      {open ? <div className="section-body">{children}</div> : null}
     </Details>
   );
 }

@@ -1,22 +1,24 @@
 // The items: on the left, each project's items as a tree of what depends on what, with the buttons that show or hide
-// the items in each state; on the right, the item picked, in place, or while none is, the first the tree shows. The
-// split between them is Primer's PageLayout with a pane the owner drags, its width kept in this browser. Each project's
-// tree is Primer's TreeView: a row says the item's state by the colour of its edge, its number and title, what it needs
-// from the owner, the items it waits for before it starts, and after them the kind of the dependency by which the item
-// above depends on it, its work's stage in words where the row has room, how far through the stages on hovering, how
-// many of what it depends on are done, and its place in the queue.
+// the items in each state, each in its state's colour; on the right, the item picked, in place, or while none is, the
+// first the tree shows. The split between them is Primer's PageLayout with a pane the owner drags, its width kept in
+// this browser. Each project's tree is Primer's TreeView: a row says the item's number and title, what it needs from
+// the owner, the items it waits for before it starts, and at its end, as muted words joined by " · ", the kind of the
+// dependency by which the item above depends on it, how many of what it depends on are done, its place in the queue
+// and its work's stage in words where the row has room, how far through the stages on hovering; then its state, as
+// the chip a state is everywhere.
 
 import { CheckIcon, LinkIcon } from '@primer/octicons-react';
-import { Button, Heading, Label, PageLayout, TreeView } from '@primer/react';
-import { useState } from 'react';
+import { Button, Heading, PageLayout, TreeView } from '@primer/react';
+import { Fragment, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { DependencyKind, Loaded } from '../components';
+import { DependencyKind, ITEM_TONE, ItemBadge, Loaded, StateChip } from '../components';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
 import { navigate } from '../route';
 import { t, tn } from '../text';
+import { joined } from '../voices';
 import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
@@ -56,60 +58,54 @@ type RowProps = {
   onFold: (path: string, open: boolean) => void;
 };
 
+/// The end of a row, inside its trailing visual: its facts as muted words joined by " · ", the stage last, since it
+/// shows only where the row has room, then the item's state as its chip.
+function RowEnd({ facts, stage, state }: { facts: Array<ReactNode | null>; stage: ReactNode | null; state: ItemState }) {
+  const shown = joined(facts);
+  return (
+    <span className="tree-end">
+      {shown.length > 0 || stage !== null ? (
+        <span className="muted">
+          {shown.map((x, k) => (
+            <Fragment key={k}>{x}</Fragment>
+          ))}
+          {stage !== null ? (
+            <span className="tree-stage">
+              {shown.length > 0 ? ' · ' : null}
+              {stage}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      <ItemBadge state={state} />
+    </span>
+  );
+}
+
 function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   const i = row.item;
   const open = () => navigate(`/items/${i.id}`);
   if (!row.full) {
     return (
-      <TreeView.Item
-        id={path}
-        className={`tree-row tree-ref item-edge-${i.state}`}
-        current={i.id === selected}
-        onSelect={open}
-      >
+      <TreeView.Item id={path} className="tree-row tree-ref" current={i.id === selected} onSelect={open}>
         <TreeView.LeadingVisual label={t('items_ref_title')}>
           <LinkIcon />
         </TreeView.LeadingVisual>
         <span className="muted" title={t('items_ref_title')}>
           #{i.id} {i.title}
         </span>
-        {row.kind !== null ? (
-          <TreeView.TrailingVisual>
-            <span className="tree-facts">
-              <DependencyKind kind={row.kind} />
-            </span>
-          </TreeView.TrailingVisual>
-        ) : null}
+        <TreeView.TrailingVisual>
+          <RowEnd facts={[row.kind !== null ? <DependencyKind kind={row.kind} /> : null]} stage={null} state={i.state} />
+        </TreeView.TrailingVisual>
       </TreeView.Item>
     );
   }
   const deps = depsDone(i.id, data.items, data.links);
   const stage = i.state === 'done' || i.state === 'cancelled' ? null : stageAt(i.stage, i.stages);
-  const facts =
-    row.kind !== null || (stage !== null && i.stage !== null) || deps.of > 0 || place.has(i.id) ? (
-      <span className="tree-facts">
-        <DependencyKind kind={row.kind} />
-        {stage !== null && i.stage !== null ? (
-          <span className="muted tree-stage" title={t('items_stage_title', stage)}>
-            {words(i.stage)}
-          </span>
-        ) : null}
-        {deps.of > 0 ? (
-          <span className={deps.done === deps.of ? 'good' : 'muted'} title={tn('items_deps_title', deps.of, { done: deps.done })}>
-            {deps.done}/{deps.of}
-          </span>
-        ) : null}
-        {place.has(i.id) ? (
-          <span className="muted" title={t('items_queue_title')}>
-            {t('items_queue', { n: place.get(i.id) ?? 0 })}
-          </span>
-        ) : null}
-      </span>
-    ) : null;
   return (
     <TreeView.Item
       id={path}
-      className={`tree-row item-edge-${i.state}`}
+      className="tree-row"
       current={i.id === selected}
       onSelect={open}
       expanded={row.children.length > 0 ? !folded.has(path) : null}
@@ -118,16 +114,32 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
       <span className="tree-line">
         <span className="muted">#{i.id}</span> <span className="tree-title">{i.title}</span>
         {i.open_design_cards > 0 ? (
-          <Label variant="attention">{t('open_design_cards_chip', { n: i.open_design_cards })}</Label>
+          <StateChip tone="attention">{t('open_design_cards_chip', { n: i.open_design_cards })}</StateChip>
         ) : null}
-        {i.open_asks > 0 ? <Label variant="attention">{t('open_asks_chip', { n: i.open_asks })}</Label> : null}
+        {i.open_asks > 0 ? <StateChip tone="attention">{t('open_asks_chip', { n: i.open_asks })}</StateChip> : null}
         {i.blocked_by.length > 0 ? (
-          <Label variant="attention" title={t('items_blocked_title')}>
+          <StateChip tone="attention" title={t('items_blocked_title')}>
             {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
-          </Label>
+          </StateChip>
         ) : null}
       </span>
-      {facts !== null ? <TreeView.TrailingVisual>{facts}</TreeView.TrailingVisual> : null}
+      <TreeView.TrailingVisual>
+        <RowEnd
+          facts={[
+            row.kind !== null ? <DependencyKind kind={row.kind} /> : null,
+            deps.of > 0 ? (
+              <span title={tn('items_deps_title', deps.of, { done: deps.done })}>
+                {deps.done}/{deps.of}
+              </span>
+            ) : null,
+            place.has(i.id) ? <span title={t('items_queue_title')}>{t('items_queue', { n: place.get(i.id) ?? 0 })}</span> : null,
+          ]}
+          stage={
+            stage !== null && i.stage !== null ? <span title={t('items_stage_title', stage)}>{words(i.stage)}</span> : null
+          }
+          state={i.state}
+        />
+      </TreeView.TrailingVisual>
       {row.children.length > 0 ? (
         <TreeView.SubTree>
           {row.children.map((c) => {
@@ -151,7 +163,8 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   );
 }
 
-/// One project: its heading, the buttons that show or hide each state's items with their counts, and its tree.
+/// One project: its heading, the buttons that show or hide each state's items with their counts, each in its state's
+/// colour, filled as the state's chip while its items show, outlined in it while they hide; and its tree.
 function Project(props: {
   name: string;
   items: ItemSummary[];
@@ -183,7 +196,7 @@ function Project(props: {
                 key={s}
                 size="small"
                 variant="invisible"
-                className="tree-state"
+                className={`tree-state tree-state-${ITEM_TONE[s]}`}
                 leadingVisual={on ? CheckIcon : undefined}
                 count={n}
                 aria-pressed={on}
