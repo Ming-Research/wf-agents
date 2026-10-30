@@ -1050,10 +1050,10 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
-/// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, and a lone matter
-/// are picked here, without a round. A design card matter whose card needs no look any longer is closed first (the
-/// cell's `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's
-/// progress says.
+/// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, then a matter back
+/// with the owner's answer, the oldest first, and a lone matter are picked here, without a round. A design card matter
+/// whose card needs no look any longer is closed first (the cell's `close_settled_cards`, which a flow version before
+/// the cell named what it does did too), as the round's progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
@@ -1065,15 +1065,22 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
     let conn = e.db.conn();
     let can = pickable(conn, project, w.id)?;
     let handled = handled_in_batch(conn, w.id)?;
-    // The owner's words are taken first, the oldest of them, without a pick, where the cell has the row for it.
-    let words = cell.rows.iter().any(|r| r.name == "owner_words");
-    let first = can.iter().find(|r| words && r["kind"] == "owner_words");
-    let queue = match (first, can.as_slice()) {
-        (Some(said), _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
-        (None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => json!({ "verdict": "none_after_batch" }),
-        (None, []) => json!({ "verdict": "none" }),
-        (None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
-        (None, many) => json!({ "verdict": "many", "count": many.len() }),
+    // The owner's words are taken first, the oldest of them, then a matter back with the owner's answer, the oldest of
+    // them, each without a pick, where the cell has the row for it.
+    let has = |row: &str| cell.rows.iter().any(|r| r.name == row);
+    let said = can.iter().find(|r| has("owner_words") && r["kind"] == "owner_words");
+    let back = can
+        .iter()
+        .find(|r| has("answered") && (r["answered"] == json!(1) || r["answered"] == json!(true)));
+    let queue = match (said, back, can.as_slice()) {
+        (Some(said), _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
+        (None, Some(back), _) => json!({ "verdict": "answered", "matter": back["matter"] }),
+        (None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
+            json!({ "verdict": "none_after_batch" })
+        }
+        (None, None, []) => json!({ "verdict": "none" }),
+        (None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
+        (None, None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
     let mut out = json!({ "queue": queue });
     if !closed.is_empty() {

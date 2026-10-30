@@ -3040,7 +3040,7 @@
       "end_architect_work": "Ends the architect's work.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and answered every probe rightly, a minor fix found in between included: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text and probes together, for a new architect to read, and records them: as the architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with the fix's edits applied.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask or by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, and exactly one matter that can be picked is taken here, both without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask or by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's answer, the oldest of them, and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -14884,7 +14884,7 @@
           "inputs": [
             {
               "name": "The queue as it stands",
-              "what": "The project's queue as it stands: the matters due and not held by an ask or by a talk that waits for the owner's reply, the owner's words among them",
+              "what": "The project's queue as it stands: the matters due and not held by an ask or by a talk that waits for the owner's reply, the owner's words and the matters back with the owner's answer among them",
               "from": [
                 {
                   "db": "architect_queue",
@@ -14910,6 +14910,18 @@
                       "title": "Matter picked",
                       "type": "int",
                       "desc": "The owner's words taken"
+                    }
+                  ]
+                },
+                {
+                  "value": "answered",
+                  "desc": "No words of the owner's wait, and a matter is back with the owner's answer: the oldest is taken next, before any other matter, without a pick",
+                  "fields": [
+                    {
+                      "name": "matter",
+                      "title": "Matter picked",
+                      "type": "int",
+                      "desc": "The matter back with the owner's answer taken"
                     }
                   ]
                 },
@@ -14972,6 +14984,21 @@
               "to": "Q2",
               "main": true,
               "note": "The owner's words are taken first, before any other matter and without a pick; the matter in hand was finished first, since nothing is interrupted."
+            },
+            {
+              "name": "answered",
+              "if": [
+                [
+                  "is",
+                  "queue.verdict",
+                  [
+                    "answered"
+                  ]
+                ]
+              ],
+              "to": "Q2",
+              "main": true,
+              "note": "A matter back with the owner's answer is taken next, after the owner's words and before any other matter, without a pick; the router sends it back to the cell that asked, with the answer."
             },
             {
               "name": "one",

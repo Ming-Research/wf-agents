@@ -3677,6 +3677,96 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A matter back with the owner's answer is taken first, after the owner's words, before the other matters waiting in
+// the queue and without a pick: the look at the queue takes it, and the router sends it back to the cell that asked.
+#[test]
+fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
+    let s = setup("answered-first");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "H9",
+        Box::new(|_: &Request, n: usize| {
+            // Its first round, on the only matter queued then, asks the owner.
+            if n == 1 {
+                return (
+                    vec![
+                        ("outcome", "ask"),
+                        ("outcome.ask", "owner"),
+                        ("outcome.ask.points[].kind", "other"),
+                    ],
+                    vec![(
+                        "outcome.ask.points[].what",
+                        json!("Should the release wait for the parser?"),
+                    )],
+                );
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let queue = |e: &mut Engine, text: &str| {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "other_architect".into(),
+            detail: Some("message".into()),
+            what: format!("The architect of q says: {text}"),
+            body: json!({ "text": text }),
+            ..db::Matter::default()
+        };
+        e.db.write(Actor::Engine, |tx| db::queue_matter(tx, &m)).unwrap()
+    };
+    let held = queue(&mut e, "Hold the release?");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let ask: i64 =
+        e.db.conn()
+            .query_row("SELECT asked FROM architect_matters WHERE id = ?1", [held], |r| {
+                r.get(0)
+            })
+            .expect(&log);
+    // Two other matters wait in the queue when the owner answers.
+    queue(&mut e, "Lift the freeze?");
+    queue(&mut e, "Look at the queue.");
+    let yes = api::Answer {
+        text: "Yes, hold it.".into(),
+        why: None,
+        reply: None,
+        choice: None,
+        to: None,
+    };
+    api::answer(&mut e.db, ask, &yes).unwrap();
+    let again = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, again)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let cells = cells_of(&e, again);
+    let at = cells.iter().position(|c| c.0 == "Q0").expect(&log);
+    assert_eq!(cells[at].1.as_deref(), Some("answered"), "{cells:?}\n{log}");
+    assert_eq!(
+        cells[at + 1..at + 3].iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
+        ["Q2", "H9"],
+        "{cells:?}\n{log}"
+    );
+    assert!(message_at(&e, again, "H9", false).contains("Yes, hold it."), "{log}");
+    assert_eq!(
+        matters(&e),
+        vec![("other_architect".to_string(), false, true); 3],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's words are a talk the architect takes first: once its wait for the owner's reply runs out, the talk goes
 // back to the queue, held there, and the architect goes on; the owner's next words are an entry of the talk, no matter
 // of their own, and make it due again, first, and its next turn is given them in the session that holds the talk,
