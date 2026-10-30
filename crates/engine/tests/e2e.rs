@@ -16,18 +16,12 @@ use engine::hub::{CheckRun, Failure, GitHub};
 use engine::{Advance, Engine};
 use serde_json::{Value, json};
 
-/// How many returns of a cell in a row the flow sends back before it pauses the work.
-fn pause_after() -> usize {
-    let relations = db::relations(db::SCHEMA).unwrap();
-    let f = flow::compile(
-        flow::FLOW,
-        &flow::Context {
-            relations,
-            tables: db::index_of(db::SCHEMA).unwrap(),
-        },
-    )
-    .unwrap();
-    f.graph(engine::ENGINEER)
+/// How many returns of a cell in a row the flow the engine runs sends back before it pauses the work.
+fn pause_after(e: &mut Engine) -> usize {
+    let now = e.flow_now;
+    e.flow(now)
+        .unwrap()
+        .graph(engine::ENGINEER)
         .unwrap()
         .rounds
         .as_ref()
@@ -1759,15 +1753,18 @@ fn an_imported_item_takes_over_its_branch_and_pull_request() {
 fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let s = setup("resume");
     let mut scripts = scripts();
-    let max = pause_after();
+    // As many returns as the flow sends back before it pauses, read once the engine has the flow.
+    let max = Rc::new(std::cell::Cell::new(0));
+    let bad_until = max.clone();
     scripts.insert(
         "R1",
         Box::new(move |_: &Request, n: usize| {
             let bad = vec![("outcome", json!("the JSON text of an object"))];
-            (Vec::new(), if n <= max { bad } else { Vec::new() })
+            (Vec::new(), if n <= bad_until.get() { bad } else { Vec::new() })
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
+    max.set(pause_after(&mut e));
     let mut paused = None;
     for _ in 0..20 {
         e.tick().unwrap();
@@ -2185,15 +2182,9 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (mut e, said, item) = start(&s, scripts);
     e.step(None).unwrap();
     let (work, _, _) = state(&e, item).unwrap();
-    let relations = db::relations(db::SCHEMA).unwrap();
-    let mut f = flow::compile(
-        flow::FLOW,
-        &flow::Context {
-            relations,
-            tables: db::index_of(db::SCHEMA).unwrap(),
-        },
-    )
-    .unwrap();
+    // The flow the engine compiled, sending back two returns instead of its own number.
+    let now = e.flow_now;
+    let mut f = e.flow(now).unwrap().clone();
     f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
     let (digest, text) = (f.digest(), f.json());
     // The engine runs that flow, so that the work on it is not taken over.
@@ -5194,18 +5185,24 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
 // goes back to correct the text.
 #[test]
 fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
-    for (verdict, then) in [("holds", "P11"), ("needs_setting_again", "P8")] {
-        let s = setup(&format!("p11-{verdict}"));
-        let mut agents = scripts();
-        agents.insert(
-            "P10",
-            Box::new(move |_: &Request, _: usize| (vec![("outcome.report", verdict)], Vec::new())),
-        );
-        let (mut e, said) = engine(&s, agents);
-        quiet(&mut e);
-        let v = e.flow_now;
+    let verdicts = [("holds", "P11"), ("needs_setting_again", "P8")];
+    let s = setup("p11");
+    let mut agents = scripts();
+    // The first draft holds; the second, in a setting of its own, would need setting again.
+    agents.insert(
+        "P10",
+        Box::new(move |_: &Request, n: usize| (vec![("outcome.report", verdicts[n - 1].0)], Vec::new())),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let v = e.flow_now;
+    for (verdict, then) in verdicts {
         let wake =
             e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE works SET ended = 'over before the next setting' WHERE graph = 'policy' AND ended IS NULL",
+                    [],
+                )?;
                 tx.execute(
                     "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'policy', 'P10', 'p')",
                     [v],
@@ -5225,8 +5222,8 @@ fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
                 )
                 .unwrap();
         assert_eq!((at.as_str(), transition.as_deref()), (then, Some(verdict)), "{log}");
-        let _ = std::fs::remove_dir_all(&s.root);
     }
+    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 /// What a message gave whole under the address that ends with `end`, read back; none when it gave nothing there.

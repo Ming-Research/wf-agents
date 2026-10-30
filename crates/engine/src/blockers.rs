@@ -388,22 +388,29 @@ pub fn invariants(e: &mut Engine) -> Result<Vec<String>, String> {
     for b in &all {
         by_work.entry(b.work).or_default().push(b);
     }
-    let works: Vec<i64> = query_json(e.db.conn(), "SELECT id FROM works ORDER BY id", &[], 1_000_000)?
-        .iter()
-        .filter_map(|r| r["id"].as_i64())
-        .collect();
-    for id in works {
-        let w = e.work(id)?;
+    // An ended work is not loaded: loading one copies its graph, and the ended works, every wake of an architect
+    // among them, soon outnumber the others.
+    let works: Vec<(i64, bool)> = query_json(
+        e.db.conn(),
+        "SELECT id, ended IS NOT NULL AS ended FROM works ORDER BY id",
+        &[],
+        1_000_000,
+    )?
+    .iter()
+    .filter_map(|r| Some((r["id"].as_i64()?, r["ended"].as_i64()? != 0)))
+    .collect();
+    for (id, ended) in works {
         let open = by_work.get(&id).cloned().unwrap_or_default();
         if open.len() > 1 {
             out.push(format!("work {id} has {} open blockers", open.len()));
         }
-        if w.ended.is_some() {
+        if ended {
             if !open.is_empty() {
                 out.push(format!("work {id} ended with blocker {} open", open[0].id));
             }
             continue;
         }
+        let w = e.work(id)?;
         let g = e.graph_of(&w)?;
         let rounds = crate::work::rounds(e.db.conn(), id)?;
         let took: Vec<(&str, &str)> = rounds
