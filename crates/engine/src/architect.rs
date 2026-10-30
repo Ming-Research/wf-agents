@@ -5622,7 +5622,15 @@ mod tests {
         // The same, with its item cancelled after: still one end at the end of its graph, by its last round, and not
         // another under the cancellation, since the stop does not move the work from the end cell.
         let cancelled_after = an_engineer_work(&mut db, "p", "E1");
-        a_round(&mut db, cancelled_after, 1, "T7", Some("all_to_sub_items"), 100, Some(800));
+        a_round(
+            &mut db,
+            cancelled_after,
+            1,
+            "T7",
+            Some("all_to_sub_items"),
+            100,
+            Some(800),
+        );
         a_round(&mut db, cancelled_after, 2, "E1", None, 800, Some(888));
         db.write(Actor::Engine, |tx| {
             end(
