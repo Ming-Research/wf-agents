@@ -6928,8 +6928,10 @@ fn work_from(message: &str) -> Vec<String> {
 
 // At a project's first architect work its architect is told what happened in the week before it, as at a later work
 // since the last; its board holds every item not done: one whose last work stopped, queued again, with why; one whose
-// work asks the owner, at the stage of the cell it stopped at, its pause said once; and one whose work runs tools, at
-// the stage of the cell that waits for them.
+// work asks the owner, at the stage of the cell it stopped at, its pause said once, with who paused it; and one whose
+// work runs tools, at the stage of the cell that waits for them; and the owner's start queue, the stopped item first in
+// it, which starts ahead of the ranks: in the sixth trial a plan put an item first while the owner's queue started
+// another, which no cell was given.
 #[test]
 fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done() {
     let s = setup("first-work");
@@ -6971,6 +6973,8 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
                  VALUES (?1, 1, 'M2', '{}', '{\"result\":{\"merge_commit\":\"abc\"}}', 'merged', 'c', ?2, ?2)",
                 params![tx.last_insert_rowid(), ago],
             )?;
+            // The owner put the stopped item first to start, by hand.
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [stopped])?;
             Ok((stopped, asking, tools))
         })
         .unwrap();
@@ -6999,6 +7003,9 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
     );
     assert_eq!(row(asking).get("waits"), None, "{board}");
     assert_eq!(row(tools)["stage"], "implement", "{board}");
+    assert_eq!(board["owner_start_queue"], json!([format!("#{stopped}")]), "{board}");
+    assert_eq!(row(stopped)["in_owner_queue"], 1, "{board}");
+    assert_eq!(row(asking).get("in_owner_queue"), None, "{board}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -2998,7 +2998,7 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
       "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -12091,7 +12091,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -12542,7 +12542,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the release items with the items under them; the dependencies with other projects' items",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -12643,7 +12643,8 @@
             "Write your notebook's plan anew: what to do next, most first, each with why by the policy's principles; the ranking of the items follows it. What the owner asked for is part of the plan with its source (\"from the owner, <date>: ...\") and why, and leaves it only once it is done or the owner withdrew it.",
             "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item, or that record it as an observation when it is worth doing some day but not now.",
             "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix.",
-            "The engine queues each thing missing and each fix as a matter of yours, picked before others, but one your queue holds already, which you hand in again only naming that matter in its queued, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
+            "The engine queues each thing missing and each fix as a matter of yours, picked before others, but one your queue holds already, which you hand in again only naming that matter in its queued, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted.",
+            "The owner's start queue is the owner's own order and starts ahead of the ranks: where your plan's order differs from it, a fix's step asks the owner whether to change it; never change it yourself."
           ],
           "out": [
             {
@@ -13849,6 +13850,15 @@
               ]
             },
             {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -14329,6 +14339,15 @@
               ]
             },
             {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -14751,7 +14770,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
               "from": [
                 {
                   "engine": "board"
@@ -15052,6 +15071,15 @@
               "maybe": true
             },
             {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -15254,6 +15282,15 @@
               ]
             },
             {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -15451,6 +15488,15 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
             },
             {
               "name": "The batch so far",
@@ -15722,6 +15768,15 @@
               ]
             },
             {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -15888,7 +15943,7 @@
             },
             {
               "name": "Items queued",
-              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the release items with the items under them",
+              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
               "from": [
                 {
                   "engine": "board"
@@ -15985,7 +16040,8 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: slots are free and fewer of this project's items are ready to start than slots are free, so what should run next. See why each queued item is not ready, and which observations the policy would have done: release or reorder what may start, make an item of observations that belong together (search first, and fold them in), or say why nothing of this project should start now."
+            "This round answers one thing only: slots are free and fewer of this project's items are ready to start than slots are free, so what should run next. See why each queued item is not ready, and which observations the policy would have done: release or reorder what may start, make an item of observations that belong together (search first, and fold them in), or say why nothing of this project should start now.",
+            "The owner's start queue is the owner's own order and starts ahead of the ranks: where your plan's order differs from it, ask the owner whether to change it; never change it yourself."
           ],
           "out": [
             {
@@ -16100,6 +16156,15 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Items running and queued",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "from": [
+                {
+                  "engine": "board"
+                }
+              ]
             },
             {
               "name": "The batch so far",

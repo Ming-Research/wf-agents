@@ -3056,8 +3056,10 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 /// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
 /// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
 /// again, and for one with no work running, the items not merged yet that it waits for by
-/// a blocking dependency before it starts; the release items, each an item nothing depends on with items under it, with
-/// the items under it; and the dependencies with other projects' items. A work at a cell of no stage, which asks or
+/// a blocking dependency before it starts, and its place in the owner's start queue; the owner's start queue, the
+/// project's items the owner put first to start, in the owner's order, which start ahead of the ranks (`dispatch_queue`);
+/// the release items, each an item nothing depends on with items under it, with the items under it; and the
+/// dependencies with other projects' items. A work at a cell of no stage, which asks or
 /// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
 /// with one.
 fn board(e: &Engine, project: &str) -> Result<Value, String> {
@@ -3073,7 +3075,12 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
                   AS waited_by,
                 EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready,
                 (SELECT json_group_array('#' || b.depends_on) FROM item_blocked_by b WHERE b.item = i.id)
-                  AS blocked_by
+                  AS blocked_by,
+                CASE WHEN EXISTS (SELECT 1 FROM dispatch_queue p WHERE p.item = i.id) THEN
+                  (SELECT count(*) FROM dispatch_queue q JOIN items y ON y.id = q.item
+                   WHERE y.project = i.project
+                     AND q.position <= (SELECT p.position FROM dispatch_queue p WHERE p.item = i.id)) END
+                  AS in_owner_queue
          FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
          WHERE i.project = ?1 AND i.cancelled IS NULL
          ORDER BY i.rank NULLS LAST, i.id",
@@ -3136,7 +3143,21 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
         }
     }
     let releases = releases(e, project, &open)?;
-    Ok(json!({ "items": out, "releases": releases, "other_projects": cross_project(e, project)? }))
+    let queue: Vec<String> = query_json(
+        e.db.conn(),
+        "SELECT q.item FROM dispatch_queue q JOIN items i ON i.id = q.item WHERE i.project = ?1 ORDER BY q.position",
+        &[&project],
+        ROWS,
+    )?
+    .iter()
+    .map(|r| format!("#{}", r["item"]))
+    .collect();
+    Ok(json!({
+        "items": out,
+        "owner_start_queue": queue,
+        "releases": releases,
+        "other_projects": cross_project(e, project)?,
+    }))
 }
 
 /// A project's release items: each item nothing depends on that items are under, with the items under it, how many of

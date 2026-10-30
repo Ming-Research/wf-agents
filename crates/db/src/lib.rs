@@ -92,6 +92,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0054.sql"),
     include_str!("../../../db/migrations/0055.sql"),
     include_str!("../../../db/migrations/0056.sql"),
+    include_str!("../../../db/migrations/0057.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1393,7 +1394,7 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters"] {
+        for table in ["items", "architect_matters", "dispatch_queue"] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))

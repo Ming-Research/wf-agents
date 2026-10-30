@@ -115,7 +115,8 @@ CREATE TABLE dispatch_queue (
   -- Items waiting for a work to start, in the order the owner sets by hand, ahead of the architect's order. When a
   -- slot is free the engine starts a work on the first one. This table goes away once the architect's order alone
   -- decides what starts.
-  -- Read by: the engine at cell `S0`.
+  -- Read by: the engine at cell `S0`; the architect, which is given it with the items and asks the owner where its
+  -- order differs.
   item INTEGER PRIMARY KEY REFERENCES items(id),
   -- Lower starts first. A real number, so an item can be put between two others without renumbering.
   position REAL NOT NULL UNIQUE
