@@ -382,13 +382,47 @@ pub fn query_json(
     args: &[&dyn rusqlite::ToSql],
     limit: usize,
 ) -> Result<Vec<Value>, String> {
+    Ok(read_rows(conn, sql_text, args, limit, false)?.rows)
+}
+
+/// The first rows of a query, and how many more it gave.
+pub struct Counted {
+    pub rows: Vec<Value>,
+    /// The rows after the first `limit`, which `rows` does not hold.
+    pub left_out: usize,
+}
+
+/// As `query_json`, but a query with more than `limit` rows is read to its end, so that the rows left out are counted
+/// exactly, from the same execution of the statement that gave the rows shown.
+pub fn query_json_counted(
+    conn: &Connection,
+    sql_text: &str,
+    args: &[&dyn rusqlite::ToSql],
+    limit: usize,
+) -> Result<Counted, String> {
+    read_rows(conn, sql_text, args, limit, true)
+}
+
+/// The rows of a query as JSON objects, the first `limit` of them; `count_rest` reads on past them, only counting.
+fn read_rows(
+    conn: &Connection,
+    sql_text: &str,
+    args: &[&dyn rusqlite::ToSql],
+    limit: usize,
+    count_rest: bool,
+) -> Result<Counted, String> {
     let mut st = conn.prepare(sql_text).map_err(sql)?;
     let names: Vec<String> = st.column_names().map(str::to_string).collect();
     let mut rows = st.query(args).map_err(sql)?;
     let mut out = Vec::new();
+    let mut left_out = 0;
     while let Some(r) = rows.next().map_err(sql)? {
         if out.len() >= limit {
-            break;
+            if !count_rest {
+                break;
+            }
+            left_out += 1;
+            continue;
         }
         let mut o = Map::new();
         for (i, n) in names.iter().enumerate() {
@@ -396,7 +430,7 @@ pub fn query_json(
         }
         out.push(Value::Object(o));
     }
-    Ok(out)
+    Ok(Counted { rows: out, left_out })
 }
 
 pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
@@ -422,6 +456,29 @@ pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A query with more rows than the limit gives the first rows and the exact number of the rest, at the limit and
+    // one past it too; with no more it leaves none out; and `query_json` gives the same rows as before.
+    #[test]
+    fn counted_rows_give_the_exact_number_left_out() {
+        let conn = Connection::open_in_memory().unwrap();
+        let q = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+                 SELECT i FROM n WHERE i <= ?1";
+        for (all, shown, left_out) in [(0, 0, 0), (2, 2, 0), (3, 3, 0), (4, 3, 1), (5, 3, 2), (1000, 3, 997)] {
+            let c = query_json_counted(&conn, q, &[&all], 3).unwrap();
+            let expected: Vec<Value> = (1..=shown).map(|i| serde_json::json!({ "i": i })).collect();
+            assert_eq!(
+                (c.rows.as_slice(), c.left_out),
+                (expected.as_slice(), left_out),
+                "{all} rows"
+            );
+            assert_eq!(
+                query_json(&conn, q, &[&all], 3).unwrap(),
+                expected,
+                "{all} rows, uncounted"
+            );
+        }
+    }
 
     // A work on no item is named to the owner by what it is, from its graph, and never as one of the architect's works.
     #[test]
