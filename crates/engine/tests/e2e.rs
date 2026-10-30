@@ -517,12 +517,14 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         "D9",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
-    // Implementing: the first round changes the code and asks for ci; the second hands in the end.
+    // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
+    // work's worktree says, since several works may implement, each in its own.
     s.insert(
         "I1",
-        Box::new(|r: &Request, n: usize| {
+        Box::new(|r: &Request, _: usize| {
             let wt = &r.worktree;
-            if n == 1 {
+            let done = std::fs::read_to_string(wt.join("src/lib.txt")).is_ok_and(|t| t.contains("feature"));
+            if !done {
                 write(wt, "src/lib.txt", "old\nfeature\n");
                 git(wt, &["add", "-A"]);
                 git(wt, &["commit", "-q", "-m", "Add the feature"]);
