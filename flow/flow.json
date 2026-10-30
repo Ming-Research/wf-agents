@@ -2929,7 +2929,7 @@
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
       "reply_to_owner": "Puts the reply to the owner's words, as the architect's message, in the conversation the words were said in: the group of the work they were said in, else the owner's one-to-one with the architect; and notifies the owner.",
-      "queue_measures": "Queues each new measure the signals of the policy being written need as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it.",
+      "queue_measures": "Queues each new measure the signals of the policy that takes effect need, as the approved draft hands them in, as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it; a measure the queue holds already is not queued again.",
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
@@ -12965,7 +12965,7 @@
             "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. When the owner says none is needed, write the policy in force again, with why it needs no change in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again.",
             "Write the text in the owner's language (the setting `owner.language`), with technical terms in their English original. Every architect session started later gets only this text and the constitution: it does not see the discussion, and must judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion.",
             "The text has four parts: the direction, where to take the project in the near-to-middle term and how to tell it got there; why, written fully: the situation, the lessons, the directions ruled out and the articles of the constitution it rests on, so that a reader meeting a situation never seen can still work it out; the principles for judging what matters and what comes first, from which what to do next is thought out; and the signals that the direction may have to change. It names no item, no order of work, no hold or release, and no number the owner did not give: those are what to do next, which the architect thinks out under the policy.",
-            "A signal shows by a number the engine measures, given here and named as it names it, or by something that happens. A signal that needs a number the engine does not measure yet says so, needs a new measure, and you hand that measure in under new_measures: the engine queues it as a matter of yours, to have an item make the engine measure it.",
+            "A signal shows by a number the engine measures, given here and named as it names it, or by something that happens. A signal that needs a number the engine does not measure yet says so, needs a new measure, and you hand that measure in under new_measures: once the owner approves the draft, the engine queues it as a matter of yours, to have an item make the engine measure it.",
             "The engine then asks the owner to approve your draft, a question pinned in your one-to-one: the owner replies approved, and it takes effect, or says what to change, and it comes back to you."
           ],
           "out": [
@@ -13010,10 +13010,6 @@
               "to": "B1",
               "main": true,
               "do": [
-                {
-                  "at": "new_measures",
-                  "do": "queue_measures"
-                },
                 "ask_approval"
               ],
               "note": "The draft waits for the owner's approval: the engine pins its short question in the owner's one-to-one, which parks the check at this cell, and the architect goes on with its queue. A reply of exactly approved has it take effect; any other comes back here."
@@ -13035,6 +13031,9 @@
               "check": "notebook_fits"
             }
           ],
+          "shown": [
+            "new_measures"
+          ],
           "always": [
             {
               "at": "notebook",
@@ -13049,7 +13048,7 @@
           "inputs": [
             {
               "name": "The draft approved",
-              "what": "The draft the owner approved: the latest the architect wrote",
+              "what": "The draft the owner approved: the latest the architect wrote, with the new measures its signals need",
               "from": [
                 {
                   "db": "policy_draft",
@@ -13071,10 +13070,11 @@
               "counts": "policies_set",
               "main": true,
               "do": [
+                "queue_measures",
                 "queue_make_plan",
                 "close_matter"
               ],
-              "note": "The approved draft is the policy in force from now on; the old one is kept to look at, and given to no agent. The check is closed, and what to do next is planned under the new policy, as a matter at the head of the queue."
+              "note": "The approved draft is the policy in force from now on; the old one is kept to look at, and given to no agent. The new measures its signals need are queued, the check is closed, and what to do next is planned under the new policy, as a matter at the head of the queue."
             }
           ]
         },

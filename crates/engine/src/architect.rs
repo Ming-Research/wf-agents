@@ -1902,6 +1902,42 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     batch_over(tx, w, &project)
 }
 
+/// The new measures of the draft that takes effect at round `at`: the latest the project's architect wrote (`P2`) before
+/// it, as the policy in force reads its text; none when that draft names none.
+fn approved_measures(tx: &Transaction<'_>, project: &str, at: RoundId) -> Result<Option<Value>, String> {
+    let measures: Option<Option<String>> = tx
+        .query_row(
+            "SELECT json_extract(r.output, '$.outcome.new_measures') FROM rounds r JOIN works w ON w.id = r.work
+             WHERE w.graph = ?1 AND w.project = ?2 AND r.cell = ?3 AND r.transition IS NOT NULL
+               AND json_extract(r.output, '$.outcome.policy') IS NOT NULL
+               AND (r.work < ?4 OR (r.work = ?4 AND r.n < ?5))
+             ORDER BY r.work DESC, r.n DESC LIMIT 1",
+            params![ARCHITECT, project, SET_POLICY, at.work, at.n],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    Ok(json_col(measures.flatten()))
+}
+
+/// A new measure as the queue tells two apart: its words however spaced and cased.
+fn measure_key(measure: &str) -> String {
+    measure.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// The new measures a project's queue holds, each a matter not handled nor withdrawn, by [`measure_key`].
+fn queued_measures(tx: &Transaction<'_>, project: &str) -> Result<BTreeSet<String>, String> {
+    let rows = query_json(
+        tx,
+        "SELECT json_extract(body, '$.measure.measure') AS measure FROM architect_matters
+         WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
+           AND json_extract(body, '$.measure.measure') IS NOT NULL",
+        &[&project],
+        100_000,
+    )?;
+    Ok(rows.iter().map(|r| measure_key(text(&r["measure"]))).collect())
+}
+
 /// Why a matter at the head of the queue is asked for, when the cell that asks gives no why of its own: a new session
 /// understood the project, or a new policy took effect.
 fn head_why(cell: &str) -> String {
@@ -2021,12 +2057,19 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "queue_measures" => {
-            // Each number a signal of the policy being written needs that the engine does not measure yet: something
-            // missing, which its path makes an item of.
+            // Each number a signal of the policy that takes effect needs that the engine does not measure yet, as the
+            // approved draft hands it in: something missing, which its path makes an item of. A flow version before
+            // queued them where each draft was written, at the place given.
             let (_, project) = architect_work_of(ctx)?;
-            for x in items(at) {
+            let measures = match at {
+                Some(v) => items(Some(v)),
+                None => items(approved_measures(tx, &project, ctx.round)?.as_ref()),
+            };
+            let mut held = queued_measures(tx, &project)?;
+            for x in measures {
                 let measure = text(&x["measure"]).trim().to_string();
-                if measure.is_empty() {
+                // A measure the queue holds already is not queued again.
+                if measure.is_empty() || !held.insert(measure_key(&measure)) {
                     continue;
                 }
                 let fix = json!({

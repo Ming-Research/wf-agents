@@ -212,11 +212,12 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
             .iter()
             .any(|x| x.at.as_deref() == Some("verdict") && x.check == "asked_before_writing")
     );
+    // The new measures a draft's signals need are queued once it takes effect, from the draft approved.
+    assert_eq!(way(&row("P2", "written")), to("B1", &["ask_approval"]));
     assert_eq!(
-        way(&row("P2", "written")),
-        to("B1", &["queue_measures", "ask_approval"])
+        way(&row("P12", "next")),
+        to("B1", &["queue_measures", "queue_make_plan", "close_matter"])
     );
-    assert_eq!(way(&row("P12", "next")), to("B1", &["queue_make_plan", "close_matter"]));
     for name in ["fits", "some_to_change", "set_straight"] {
         let r = row("N1", name);
         assert_eq!(

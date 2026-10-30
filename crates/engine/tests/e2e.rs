@@ -4453,7 +4453,14 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             ),
         }),
     );
-    agents.insert("P2", writes_a_policy());
+    // Each draft names the same new measures, one of them twice however spaced, and one the queue holds already.
+    let measures = json!([
+        { "measure": "How long a merge waits for CI", "signal": "Speed" },
+        { "measure": "how long a  merge waits for CI ", "signal": "Speed" },
+        { "measure": "Rounds sent back by cell", "signal": "Speed" }
+    ]);
+    agents.insert("P2", writes_a_policy_with(measures));
+    picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -4491,13 +4498,38 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     );
     let (again, _) = question_now(&e);
     assert_ne!(again, approval);
+    // No draft queued its new measures: a draft the owner has not approved queues nothing.
+    assert!(measures_queued(&e).is_empty(), "{}", said.borrow().join("\n"));
+    e.db.write(Actor::Engine, |tx| {
+        let fix = json!({ "where": "The numbers the engine measures", "items": [], "works": [], "kind": "missing",
+                          "wrong": "w", "steps": ["Make an item that has the engine measure it"] });
+        db::queue_matter(
+            tx,
+            &db::Matter {
+                project: "p".into(),
+                kind: "set_straight".into(),
+                detail: Some("missing".into()),
+                what: "A new measure a signal of the policy needs: rounds sent back by cell".into(),
+                body: json!({ "fix": fix, "measure": { "measure": "Rounds sent back by cell", "signal": "Speed" } }),
+                ..db::Matter::default()
+            },
+        )?;
+        Ok(())
+    })
+    .unwrap();
     api::reply_to_question(&mut e.db, "p", again, " approved ", &[]).unwrap();
     assert!(
-        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        steps_until(&mut e, 90, |e| architect_work_done(e, arch)),
         "{}",
         said.borrow().join("\n")
     );
     let log = said.borrow().join("\n");
+    // The draft that took effect queued its new measures, each once, but the one the queue held already.
+    assert_eq!(
+        measures_queued(&e),
+        ["Rounds sent back by cell", "How long a merge waits for CI"],
+        "{log}"
+    );
     assert_eq!(rows_at(&e, arch, "P1"), ["ask_owner", "write_policy"], "{log}");
     let refused: String =
         e.db.conn()
@@ -7316,15 +7348,32 @@ fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight
 
 /// What the cell that writes a new policy hands in: the policy, and no new measure.
 fn writes_a_policy() -> Script {
-    Box::new(|_: &Request, _: usize| {
+    writes_a_policy_with(json!([]))
+}
+
+/// What the cell that writes a new policy hands in: the policy, and the new measures its signals need.
+fn writes_a_policy_with(measures: Value) -> Script {
+    Box::new(move |_: &Request, _: usize| {
         let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
                              "principles": [{ "no": 1, "text": "Parse before checking." }],
                              "signals": [{ "what": "Speed", "how": "merged" }] });
         (
             Vec::new(),
-            vec![("outcome.policy", policy), ("outcome.new_measures", json!([]))],
+            vec![("outcome.policy", policy), ("outcome.new_measures", measures.clone())],
         )
     })
+}
+
+/// The new measures queued for project p's architect, handled or not, each by its words, in the order they came.
+fn measures_queued(e: &Engine) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT json_extract(body, '$.measure.measure') FROM architect_matters
+                 WHERE kind = 'set_straight' AND json_extract(body, '$.measure.measure') IS NOT NULL ORDER BY id",
+            )
+            .unwrap();
+    st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
 }
 
 /// The rows a work's rounds at a cell took, oldest first; a round that took none is left out.
