@@ -1,6 +1,7 @@
 /* The works: the two lists over the window's width, each under its heading with its count, the ended folded; and a
-   work picked from them, in the list's place: its line over its chart, and its panel in the docked column, its tabs
-   an UnderlineNav over how it goes on and its rounds, its design cards, its conversation and its usage. */
+   work picked from them, in the list's place: its line over its chart, and its panel on top of the window floating over
+   the chart's right side, its tabs an UnderlineNav over how it goes on and its rounds, its design cards, its
+   conversation and its usage. */
 
 .works-screen {
   flex: 1;
@@ -169,7 +170,8 @@ table.list.works-table td {
   flex: 0 2 auto;
 }
 
-/* A page's panel on top of the column, a work's or an architect's: its tabs, and what the tab shown holds under them. */
+/* A page's panel on top of the window floating over the chart, a work's or an architect's: its tabs, and what the tab
+   shown holds under them. */
 .drawer {
   flex: 1;
   display: flex;

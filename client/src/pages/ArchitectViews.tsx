@@ -1,26 +1,19 @@
 // What an architect hands back, each drawn by its shape in the flow's formats and in the page's shared parts (blocks
-// under who wrote them, sections that fold): the policy, and the check of the policy in force; and an item change its
-// batch made.
+// under who wrote them): the policy, and an item change its batch made.
 // A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
-import { Label, type LabelColorOptions } from '@primer/react';
+import { Label } from '@primer/react';
 import { type ReactNode } from 'react';
 
-import type { JsonValue, Said } from '../api';
-import { againstInOrder } from '../architect';
+import type { JsonValue } from '../api';
 import { DocList } from '../document';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Block, BlockField, By, type OpenRound, Section, SubHeading } from '../parts';
+import { Block, SubHeading } from '../parts';
 import { t } from '../text';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
-
-/// Who wrote a value the architect handed back: its cell, when, and its round.
-function wroteBy(s: Said, onRound: OpenRound): ReactNode {
-  return <By cell={s.cell} at={s.at} work={s.work} round={s.round} onRound={onRound} />;
-}
 
 /// A policy, as one document: its direction and why, its principles numbered, and the signals that the direction may
 /// have to change, each with how it shows.
@@ -125,69 +118,3 @@ export function ChangeBlock({ value, before, by, children }: {
   );
 }
 
-/// The colour of where the policy stands against an article of the constitution.
-const AGAINST_TONE: Record<string, LabelColorOptions> = { kept: 'success', at_risk: 'attention', broken: 'danger' };
-
-/// The latest check of whether the policy in force still holds, under the cell and round that made it: its verdict
-/// and why, or each reason it may no longer hold; then the policy against the constitution, its counts by status in
-/// its title, the articles broken and at risk first.
-export function PolicyCheck({ check, onRound }: { check: Said; onRound: OpenRound }) {
-  const value = isObj(check.value) ? check.value : null;
-  const rows = againstInOrder(value?.against ?? null);
-  const verdict = value !== null && isObj(value.verdict) ? value.verdict : null;
-  const reasons = objs(verdict?.reasons);
-  const count = (status: string) => rows.filter((r) => str(r.status) === status).length;
-  const counts = (
-    [
-      ['broken', 'against_broken'],
-      ['at_risk', 'against_at_risk'],
-      ['kept', 'against_kept'],
-    ] as const
-  )
-    .filter(([s]) => count(s) > 0)
-    .map(([s, key]) => t(key, { n: count(s) }));
-  return (
-    <Section
-      title={t('policy_check', { verdict: verdict !== null ? words(str(verdict.verdict)) : '' })}
-      open
-      by={wroteBy(check, onRound)}
-    >
-      {verdict !== null && str(verdict.why) !== '' ? <Markdown text={str(verdict.why)} /> : null}
-      {reasons.map((r, i) => (
-        <Block
-          key={i}
-          head={
-            <>
-              <Label variant="secondary">{words(str(r.kind))}</Label>
-              <strong>
-                <MarkdownInline text={str(r.seen)} />
-              </strong>
-            </>
-          }
-        >
-          <Markdown text={str(r.why)} />
-        </Block>
-      ))}
-      <Section title={[t('understanding_against'), ...counts].join(' · ')} n={rows.length}>
-        {rows.map((r, i) => (
-          <Block
-            key={i}
-            head={
-              <>
-                <Label variant={AGAINST_TONE[str(r.status)] ?? 'secondary'}>{words(str(r.status))}</Label>
-                <strong>{str(r.article)}</strong>
-              </>
-            }
-          >
-            {str(r.where) !== '' ? (
-              <BlockField label={t('against_where')}>
-                <MarkdownInline text={str(r.where)} />
-              </BlockField>
-            ) : null}
-            <Markdown text={str(r.grounds)} />
-          </Block>
-        ))}
-      </Section>
-    </Section>
-  );
-}

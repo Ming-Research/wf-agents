@@ -168,15 +168,6 @@ export function Block({ id, head, by, tone, children }: {
   );
 }
 
-/// A short labelled paragraph of a block: its name run in before its text.
-export function BlockField({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <p className="block-field">
-      <span className="block-label">{label}</span> {children}
-    </p>
-  );
-}
-
 /// The level the next heading takes where it stands: a page converted to the UI spec gives its sections 2, and each
 /// section gives what it holds one more. Elsewhere a section's heading is a sub-heading.
 export const HeadingLevel = createContext(3);

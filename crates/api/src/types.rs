@@ -1080,8 +1080,6 @@ pub struct Architect {
     /// The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
     /// policy takes effect; none otherwise.
     pub draft: Option<PolicyDraft>,
-    /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
-    pub check: Option<Said>,
     /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
     /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
@@ -1453,16 +1451,6 @@ pub struct DispatchHold {
     pub reason: String,
     pub since: i64,
     pub why: Option<String>,
-}
-
-/// What a round of an architect handed back: its work, its number in the work, its cell, when it ended, and its answer.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Said {
-    pub work: i64,
-    pub round: i64,
-    pub cell: String,
-    pub at: Option<i64>,
-    pub value: Value,
 }
 
 /// A matter an architect handled, and what became of it, from what was done on its path rather than what was said of

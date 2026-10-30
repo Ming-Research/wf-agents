@@ -101,7 +101,6 @@ pub fn typescript() -> String {
         decl::<Matter>(&cfg),
         decl::<MatterCard>(&cfg),
         decl::<DispatchHold>(&cfg),
-        decl::<Said>(&cfg),
         decl::<Handled>(&cfg),
         decl::<HandledAction>(&cfg),
         decl::<ItemChange>(&cfg),

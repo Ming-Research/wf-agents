@@ -440,7 +440,6 @@ const messages = {
   outcome_failed: 'failed',
   outcome_interrupted: 'cut off',
   outcome_ended: 'ended',
-  work_title: 'Work {id}',
   rounds: 'Rounds',
   no_rounds: 'No rounds.',
   open_asks_n: 'asks of the owner waiting: {n}',
@@ -515,7 +514,6 @@ const messages = {
     'This work is on an older flow version: Step moves it to version {now} and runs its next round if its cell and its returns are unchanged there; else Step ends it, and runs the first round of the new work on version {now}, which stays in your hands.',
   branch: 'Branch',
   resume_confirm: 'Let work {id} go on? Cell {cell} runs again.',
-  next_running: 'The round is running',
   design_cards: 'Design cards',
   item_imported: 'Imported',
   item_imported_note: "What the import recorded of work on this item outside this flow. The item's first work takes over the branch and keeps the PR.",
@@ -730,8 +728,6 @@ const messages = {
   items_show: 'Show the {state} items',
   items_hide: 'Hide the {state} items',
   items_none_shown: 'No item in the states shown.',
-  items_fold: 'Fold what it depends on',
-  items_unfold: 'Show what it depends on',
   items_ref_title: 'Shown in full above',
   items_stage_title: 'Stage {at} of {of}',
   items_deps_title: 'Done: {done} of the {n} items it depends on',
@@ -977,9 +973,6 @@ const messages = {
   compare_show: 'Compare',
   compare_stop: 'Stop comparing',
 
-  // A work's page.
-  running_for: 'running for {time}',
-
   // The panel.
   panel_back: 'Back to {title}',
   panel_changes: 'Changes',
@@ -1129,7 +1122,6 @@ const messages = {
   rp_step_tools: 'The tools the step ran',
   sec_changes: 'Changes',
   step_needs: 'Applies only to a project that meets {need}:',
-  prompt_by: "By the engine's value {by}, the task adds:",
   sent_title: '# R‹work›-‹n› · cell {cell} · {title}',
   sent_why: 'why the round happens: the cell and the row the work came from, an answer it brought back, what was said to it',
   sent_given: '## Given',
@@ -1152,7 +1144,6 @@ const messages = {
   src_stopped: 'the cell the work stopped at',
   src_self: 'the agent reads it itself',
   src_config: 'project setting {name}',
-  src_db: 'database {name}',
   src_by_work: "the work's rows",
   src_by_item: "the item's rows",
   src_by_project: "the project's rows",
@@ -1315,7 +1306,6 @@ const messages = {
   arch_span_30d: 'the last 30 days',
   arch_queue_none_waiting: 'No matter waits for the architect now.',
   arch_never_worked: 'The architect has not worked yet: it works once a matter comes to its queue.',
-  arch_queue_held: 'Held by an ask of yours',
   arch_changes_none: 'No batch of item changes was made yet.',
   change_matter: 'for matter {n}',
   change_made: 'What it made',
@@ -1386,12 +1376,6 @@ const messages = {
   policy_principles: 'Principles',
   policy_signals: 'Signals that the direction may have to change',
   policy_signal_how: 'How it shows',
-  understanding_against: 'The policy against the constitution',
-  policy_check: 'Whether the policy still holds: {verdict}',
-  against_where: 'Where',
-  against_broken: 'Broken {n}',
-  against_at_risk: 'At risk {n}',
-  against_kept: 'Kept {n}',
 } as const;
 
 export type Key = keyof typeof messages;

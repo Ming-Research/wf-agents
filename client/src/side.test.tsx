@@ -101,7 +101,6 @@ const architect: Architect = {
     policy: { direction: 'Keep it small.', why: 'Small is quick.', principles: [], signals: [] },
   },
   draft: { work: 9, round: 7, at: 70, policy: { direction: 'Ship the parser.', why: 'It blocks all.', principles: [], signals: [] } },
-  check: null,
   notebook: [
     {
       section: 'project_now',

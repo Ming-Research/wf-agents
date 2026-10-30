@@ -733,7 +733,6 @@ describe('the marks of the list of conversations', () => {
     changes: [],
     policy: null,
     draft: null,
-    check: null,
     notebook: [],
     observations: [],
     tags: [],

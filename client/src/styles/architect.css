@@ -1,6 +1,7 @@
 /* An architect's page, laid out as a work's: its line over its chart (whose architect, what it does now, what holds the
    project's new works, its one-to-one, and the switch between the stretches it worked in, which opens the list of them
-   floating under the line at its right), and its panel in the docked column, in the tabs a work's panel has. */
+   floating under the line at its right), and its panel on top of the window floating over the chart's right side, in
+   the tabs a work's panel has. */
 
 .arch-screen {
   position: relative;

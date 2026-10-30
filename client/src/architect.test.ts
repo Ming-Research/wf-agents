@@ -11,7 +11,6 @@ import type {
   WorkSummary,
 } from './api';
 import {
-  againstInOrder,
   architectState,
   cardWords,
   holdWords,
@@ -197,18 +196,6 @@ describe("the architect's page", () => {
     expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
     expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
     expect(ids(observationsShown(all, 'ui', 'CELL h3', false))).toEqual([3, 2]);
-  });
-
-  it('puts the articles broken first, then those at risk, then those kept', () => {
-    const rows = [
-      { principle: 'a', status: 'kept' },
-      { principle: 'b', status: 'at_risk' },
-      { principle: 'c', status: 'broken' },
-      { principle: 'd', status: 'kept' },
-      { principle: 'e', status: 'broken' },
-    ];
-    expect(againstInOrder(rows).map((r) => r.principle)).toEqual(['c', 'e', 'b', 'a', 'd']);
-    expect(againstInOrder(null)).toEqual([]);
   });
 
   it('has an address that names the project, the work, the tab, the round and the cell', () => {

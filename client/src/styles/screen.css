@@ -167,7 +167,8 @@
   width: var(--borderWidth-thick);
 }
 
-/* The divider between the page's panel and what is open, which drags its share of the column. */
+/* The divider between the page's panel and what is open, which drags its share of the window floating over the
+   chart. */
 .height-grip {
   position: absolute;
   left: 0;

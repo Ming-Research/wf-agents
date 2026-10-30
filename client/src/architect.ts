@@ -7,7 +7,6 @@ import type {
   Architect,
   ArchitectWork,
   Handled,
-  JsonValue,
   Matter,
   MatterCard,
   Observation,
@@ -17,7 +16,7 @@ import type {
 } from './api';
 import { course, heldName } from './components';
 import { runningWords } from './course';
-import { isObj, str, words, type Obj } from './labelled';
+import { isObj, str, words } from './labelled';
 import { type Key, t, tn } from './messages';
 import type { ArchitectTab } from './route';
 
@@ -251,17 +250,6 @@ export function observationsShown(all: Observation[], tag: string, search: strin
       (tag === '' || o.tags.includes(tag)) &&
       (words === '' || [o.what, o.source, ...o.refs].some((x) => x.toLowerCase().includes(words))),
   );
-}
-
-/// The articles of the constitution as the architect last checked them: those broken first, then those at risk, then
-/// those kept, each in the order checked.
-export function againstInOrder(rows: JsonValue): Obj[] {
-  const rank = (s: string) => (s === 'broken' ? 0 : s === 'at_risk' ? 1 : 2);
-  const list = Array.isArray(rows) ? rows.filter(isObj) : [];
-  return list
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => rank(str(a.r.status)) - rank(str(b.r.status)) || a.i - b.i)
-    .map((x) => x.r);
 }
 
 /// What stops a project's new works from starting, in words: the architect's own hold, or setting the project straight;

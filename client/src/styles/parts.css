@@ -253,15 +253,6 @@
   margin-top: var(--base-size-4);
 }
 
-.block-field {
-  margin: 0;
-}
-
-/* A short labelled paragraph's name, run in before its text. */
-.block-label {
-  font-weight: var(--base-text-weight-semibold);
-}
-
 /* The facts under a block's text, on one line as room allows. */
 .block-meta {
   display: flex;

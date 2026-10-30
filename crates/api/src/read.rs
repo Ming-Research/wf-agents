@@ -19,8 +19,8 @@ use crate::{
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
     PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail,
-    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun,
-    Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, ToolRun, Waits,
+    WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1790,7 +1790,6 @@ pub fn architect(
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
         draft: draft(conn, project)?,
-        check: latest_of(conn, project, "P1")?,
         notebook: notebook(conn, project)?,
         observations: observations(conn, project)?,
         tags,
@@ -2222,31 +2221,6 @@ fn notebook(conn: &Connection, project: &str) -> Result<Vec<NotebookSection>> {
             }
         })
         .collect())
-}
-
-/// The latest round of a project's architect at a cell that answered, by what it answered.
-fn latest_of(conn: &Connection, project: &str, cell: &str) -> Result<Option<Said>> {
-    Ok(conn
-        .query_row(
-            &format!(
-                "SELECT r.work, r.n, r.cell, r.ended_at, r.output FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-                   AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
-                 ORDER BY r.work DESC, r.n DESC LIMIT 1",
-                db::cells_sql("architect", &[cell])
-            ),
-            [project],
-            |r| {
-                Ok(Said {
-                    work: r.get(0)?,
-                    round: r.get(1)?,
-                    cell: r.get(2)?,
-                    at: r.get(3)?,
-                    value: returned(r.get(4)?, None),
-                })
-            },
-        )
-        .optional()?)
 }
 
 /// A file under the data directory's `logs` or `tool-output` directory, as text, cut after `max` bytes.
@@ -3792,10 +3766,6 @@ mod tests {
         assert_eq!(a.policy, None);
         // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
         assert_eq!(a.draft, None);
-
-        // The check of the policy in force, in the policy's part.
-        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
-        assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
 
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);

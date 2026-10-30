@@ -1507,10 +1507,6 @@ policy: PolicyInForce | null,
  */
 draft: PolicyDraft | null, 
 /**
- * Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
- */
-check: Said | null, 
-/**
  * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
  * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
  */
@@ -1636,11 +1632,6 @@ export type MatterCard = { id: number, status: string, rulings: JsonValue, repla
  * architect's own hold, why, as it said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
-
-/**
- * What a round of an architect handed back: its work, its number in the work, its cell, when it ended, and its answer.
- */
-export type Said = { work: number, round: number, cell: string, at: number | null, value: JsonValue, };
 
 /**
  * A matter an architect handled, and what became of it, from what was done on its path rather than what was said of

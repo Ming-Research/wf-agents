@@ -224,8 +224,8 @@ function Question({ children }: { children: ReactNode }) {
 }
 
 /// The legend open over the chart. A press anywhere but on it or its "?" closes it and goes on to do what it does
-/// there; Escape closes it and goes no further, so that a panel docked beside the chart, which Escape closes too, stays
-/// open.
+/// there; Escape closes it and goes no further, so that the panel open in the window floating over the chart, which
+/// Escape closes too, stays open.
 function Opened({ id, button, onClose, children }: {
   id: string;
   button: RefObject<HTMLButtonElement | null>;
