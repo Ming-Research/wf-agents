@@ -3,7 +3,7 @@
 // what holds the work back, with why on hovering; what it waits for, linked to where the owner gives it; and where it
 // is, with that it is on an older flow version, or was moved to the one it is on, as a tag's chip saying in full on
 // hovering what that means. Only a stop of the engine's or the architect's says why on the line, since the owner looks
-// at it first; the line's facts are muted words joined by " · ", its conversation among them.
+// at it first; the line's facts are muted words joined by a bar, its conversation a link among them.
 
 import { ArrowLeftIcon } from '@primer/octicons-react';
 import type { ReactNode } from 'react';
@@ -16,7 +16,7 @@ import { useNow, useStatus } from '../live';
 import { LabelLink } from '../parts';
 import { href, Link, workHref } from '../route';
 import { t, tn } from '../text';
-import { joined } from '../voices';
+import { joined, SEP } from '../voices';
 
 /// A round running, as a state chip in the colour of what goes on, and how long it has run, ticking, from `since`.
 export function Running({ words, since }: { words: string; since: number | null }) {
@@ -139,15 +139,20 @@ export function Where({ w, c, stage = false }: { w: WorkSummary; c: Course; stag
         </>
       ) : null}
       {w.at_title}
-      {s !== '' ? <span className="muted"> · {s}</span> : null}
+      {s !== '' ? (
+        <span className="muted">
+          {SEP}
+          {s}
+        </span>
+      ) : null}
     </>
   );
 }
 
 /// The line over a chart, one for a work's page and an architect's: what leads away from it first (back to the list,
-/// or to another project's architect), which it is, how it goes on, where, its facts in muted words joined by " · " and
-/// last among them its conversation, where the owner acts on it, as a muted link, and at its end what it has more; each
-/// part says in full on hovering what it cuts.
+/// or to another project's architect), which it is, how it goes on, where, its facts in muted words joined by a bar and
+/// last among them its conversation, where the owner acts on it, as a link, and at its end what it has more; each part
+/// says in full on hovering what it cuts.
 export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereHint, facts, conversation, end }: {
   lead?: ReactNode;
   name?: ReactNode;
@@ -180,7 +185,7 @@ export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereH
       <span className="muted">
         {joined([
           ...facts,
-          <Link key="talk" to={href({ page: 'messages', open: conversation })} title={t('go_to_conversation_hint')} muted>
+          <Link key="talk" to={href({ page: 'messages', open: conversation })} title={t('go_to_conversation_hint')}>
             {t('go_to_conversation')}
           </Link>,
         ])}

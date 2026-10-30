@@ -16,6 +16,7 @@ import type {
 } from './api';
 import { words } from './labelled';
 import { type Key, t, tn } from './messages';
+import { joinedWords } from './voices';
 
 /// The parts of the list, in its order, which waiting and new entries never change: the one-to-ones with the
 /// architects and wf-agents' own; a group for each work, newest first; the groups of connected projects.
@@ -252,7 +253,7 @@ export function forwardParts(f: Forwarded): { lead: string; state: string; round
 /// The same, as one line of words.
 export function forwardWords(f: Forwarded): string {
   const p = forwardParts(f);
-  return `${p.lead} · ${p.round !== null ? `${p.state} ${p.round}` : p.state}`;
+  return joinedWords([p.lead, p.round !== null ? `${p.state} ${p.round}` : p.state]);
 }
 
 /// The choices of the setting that forwards each new fault as it comes, each a value and its words: nobody (`''`)

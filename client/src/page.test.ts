@@ -2171,11 +2171,11 @@ describe("the owner's conversations", () => {
       { project: 'wf', label: 'The architect of wf', sent: true },
     ]);
     expect(forwardMenu(['p'], [])).toEqual([{ project: 'p', label: 'The architect of p', sent: false }]);
-    expect(forwardWords(forwarded())).toBe('Forwarded to the architect of wf · in the queue');
+    expect(forwardWords(forwarded())).toBe('Forwarded to the architect of wf | in the queue');
     const handled = forwarded({ state: 'handled', handled_work: 12, handled_round: 4 });
-    expect(forwardWords(handled)).toBe('Forwarded to the architect of wf · handled in R12-4');
+    expect(forwardWords(handled)).toBe('Forwarded to the architect of wf | handled in R12-4');
     expect(forwardParts(handled)).toEqual({ lead: 'Forwarded to the architect of wf', state: 'handled in', round: 'R12-4' });
-    expect(forwardWords(forwarded({ by: 'setting' }))).toBe('Forwarded automatically to the architect of wf · in the queue');
+    expect(forwardWords(forwarded({ by: 'setting' }))).toBe('Forwarded automatically to the architect of wf | in the queue');
     // Where each new fault goes: nobody first, as at first, then every project's architect, and the one set even when
     // the configuration no longer has it.
     expect(forwardNewChoices({ projects: ['p', 'wf'], auto: null })).toEqual([

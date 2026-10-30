@@ -1,8 +1,9 @@
 // The parts the page shows like things with, each with one look wherever the page shows it, as the UI spec maps them
 // to Primer: a round, by its name; a round at a cell; who wrote something (who to whom), its round at its cell, and
 // when; what an agent wrote, as a block, its head and who wrote it over its text; a section under its heading and how
-// many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; and the form that
-// answers or says something, its words and the button that sends them.
+// many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; a pull request, by its
+// number; the words the owner writes beside the button that sends them; and the form that answers or says something,
+// its words and the button that sends them.
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import {
@@ -16,26 +17,30 @@ import {
   Link as PrimerLink,
   Textarea,
 } from '@primer/react';
-import { createContext, createElement, Fragment, useContext, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  Fragment,
+  type KeyboardEvent,
+  type ReactNode,
+  useContext,
+  useLayoutEffect,
+  useRef,
+} from 'react';
 
 import { roundName, time } from './format';
+import { useStatus } from './live';
 import { Link, workHref } from './route';
 import { t } from './text';
 
 /// What opens a round of a work where the page shows it in place.
 export type OpenRound = (work: number, round: number) => void;
 
-/// A round, by its name: a click opens it where the page shows it (`onRound`), else on its work's page; `muted` in
-/// small text, such as the line that says who wrote something.
-export function RoundLink({ work, round, onRound, muted }: {
-  work: number;
-  round: number;
-  onRound?: OpenRound;
-  muted?: boolean;
-}) {
+/// A round, by its name: a click opens it where the page shows it (`onRound`), else on its work's page.
+export function RoundLink({ work, round, onRound }: { work: number; round: number; onRound?: OpenRound }) {
   if (onRound === undefined) {
     return (
-      <Link to={workHref(work, { round })} className="round-link" muted={muted}>
+      <Link to={workHref(work, { round })} className="round-link">
         {roundName(work, round)}
       </Link>
     );
@@ -45,7 +50,6 @@ export function RoundLink({ work, round, onRound, muted }: {
       as="button"
       type="button"
       className="round-link"
-      muted={muted}
       onClick={(e: { stopPropagation: () => void }) => {
         e.stopPropagation();
         onRound(work, round);
@@ -128,7 +132,7 @@ export function By({ who, cell, at, work, round, onRound, children }: {
       {children}
       {who !== undefined ? <span className="by-who">{who}</span> : null}
       {ran || (cell !== undefined && cell !== null && cell !== '') ? (
-        <RoundAt round={ran ? <RoundLink work={work} round={round} onRound={onRound} muted /> : null} cell={cell} title={title} />
+        <RoundAt round={ran ? <RoundLink work={work} round={round} onRound={onRound} /> : null} cell={cell} title={title} />
       ) : null}
       {at !== undefined && at !== null ? <span>{time(at)}</span> : null}
     </span>
@@ -251,11 +255,10 @@ export function PeriodSwitch({ periods, className }: {
   );
 }
 
-/// An action inside a line of text that opens something on the page, drawn as Primer's Link (`muted` in small text).
-export function LinkButton({ onClick, title, muted, className, children }: {
+/// An action inside a line of text that opens something on the page, drawn as Primer's Link.
+export function LinkButton({ onClick, title, className, children }: {
   onClick: () => void;
   title?: string;
-  muted?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -265,7 +268,6 @@ export function LinkButton({ onClick, title, muted, className, children }: {
       type="button"
       className={className !== undefined ? `link-button ${className}` : 'link-button'}
       title={title}
-      muted={muted}
       onClick={(e: { stopPropagation: () => void }) => {
         e.stopPropagation();
         onClick();
@@ -306,6 +308,57 @@ export function ItemRef({ id, title, hint }: { id: number; title?: string | null
       <span className="item-ref-n">#{id}</span>
       {title !== undefined && title !== null && title !== '' ? ` ${title}` : null}
     </Link>
+  );
+}
+
+/// A pull request of a project, by its number, opening it on GitHub; its number alone while the project's repository is
+/// not known.
+export function PrLink({ project, n }: { project: string | null; n: number }) {
+  const status = useStatus();
+  const repo = project !== null ? status?.repos[project] : undefined;
+  if (repo === undefined) return <>{t('work_pr', { n })}</>;
+  return (
+    <PrimerLink href={`https://github.com/${repo}/pull/${n}`} target="_blank" rel="noreferrer" title={t('work_pr_hint')}>
+      {t('work_pr', { n })}
+    </PrimerLink>
+  );
+}
+
+/// The words the owner writes beside the button that sends them, in every box that says or answers something: one line
+/// at rest, as tall as the button (`small` beside a small one), growing with what is written up to twelve lines, past
+/// which they scroll, with no handle to drag, the growing taking its place.
+export function SayBox({ text, set, small = false, placeholder, label, title, disabled, onKeyDown }: {
+  text: string;
+  set: (text: string) => void;
+  small?: boolean;
+  placeholder: string;
+  label?: string;
+  title?: string;
+  disabled: boolean;
+  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el === null) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+  return (
+    <Textarea
+      ref={box}
+      block
+      resize="none"
+      rows={1}
+      className={small ? 'say-box say-box-small' : 'say-box'}
+      value={text}
+      disabled={disabled}
+      placeholder={placeholder}
+      aria-label={label}
+      title={title}
+      onChange={(e) => set(e.target.value)}
+      onKeyDown={onKeyDown}
+    />
   );
 }
 

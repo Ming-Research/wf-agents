@@ -13,6 +13,7 @@ import { isObj, label, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
 import { Block, By, type OpenRound, RoundLink, SubHeading } from '../parts';
 import { t, type Key } from '../text';
+import { SEP } from '../voices';
 import { AnswerPart, AskView, AskWaited } from './Decide';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
@@ -38,7 +39,7 @@ function Answered({ a }: { a: OwnerAsk }) {
     <div className="field">
       <SubHeading>
         {t('ask_answer_by', { by: str(ans.by) })}
-        {typeof ans.at === 'number' ? ` · ${time(ans.at)}` : ''}
+        {typeof ans.at === 'number' ? `${SEP}${time(ans.at)}` : ''}
       </SubHeading>
       {choice !== '' ? (
         <p className="prose">

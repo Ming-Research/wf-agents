@@ -14,6 +14,7 @@ import { cost, duration, roundName } from '../format';
 import { roundAtText } from '../parts';
 import { tokenCount, tokens } from '../round';
 import { t, tn } from '../text';
+import { joinedWords, SEP } from '../voices';
 import {
   axisTicks,
   type CellInfo,
@@ -62,7 +63,7 @@ function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
             key={`gap-${nameOf(g.before)}-${nameOf(g.after)}`}
             className="us-block us-gap"
             style={{ left: `${x(g.start)}%`, width: `max(${pct(g.end - g.start, u.wall)}%, 2px)` }}
-            data-tip={[
+            data-tip={joinedWords([
               t('us_gap_tip', {
                 from: clock(g.start),
                 to: clock(g.end),
@@ -71,7 +72,7 @@ function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
                 after: nameOf(g.after),
               }),
               ...g.waited,
-            ].join(' · ')}
+            ])}
           />
         ))}
         {u.blocks
@@ -81,13 +82,11 @@ function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
               key={nameOf(b)}
               className={b.doer === 'model' ? 'us-block us-model' : 'us-block us-tool'}
               style={{ left: `${x(b.start)}%`, width: `max(${pct(b.end - b.start, u.wall)}%, 2px)` }}
-              data-tip={[
+              data-tip={joinedWords([
                 roundAtText(nameOf(b), b.cell, b.title),
                 duration(b.end - b.start),
                 b.cost !== null ? cost(b.cost) : null,
-              ]
-                .filter((s) => s !== null)
-                .join(' · ')}
+              ])}
             />
           ))}
       </div>
@@ -206,7 +205,12 @@ function ContextChart({ u, colour }: { u: UsageData; colour: (line: string) => s
                 r={p.compacted ? 6 : 4}
                 fill={colour(s.line)}
                 className={p.compacted ? 'us-point us-compacted' : 'us-point'}
-                data-tip={`${nameOf(p)} · ${sessionName(u, s)} · ${t('us_context_tip', { n: tokens(p.context) })}${p.compacted ? ` · ${t('us_compacted')}` : ''}`}
+                data-tip={joinedWords([
+                  nameOf(p),
+                  sessionName(u, s),
+                  t('us_context_tip', { n: tokens(p.context) }),
+                  p.compacted ? t('us_compacted') : null,
+                ])}
               />
             ))}
           </g>
@@ -301,10 +305,10 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
       <Section title={t('us_time_title')} note={t('us_time_note')}>
         <Stack
           parts={[
-            { value: u.time.model, colour: 'var(--chart-1)', label: t('us_models'), tip: `${t('us_models')} · ${duration(u.time.model)}` },
-            { value: u.time.tool, colour: 'var(--chart-2)', label: t('us_tools'), tip: `${t('us_tools')} · ${duration(u.time.tool)}` },
+            { value: u.time.model, colour: 'var(--chart-1)', label: t('us_models'), tip: joinedWords([t('us_models'), duration(u.time.model)]) },
+            { value: u.time.tool, colour: 'var(--chart-2)', label: t('us_tools'), tip: joinedWords([t('us_tools'), duration(u.time.tool)]) },
             ...(u.time.engine >= 1000
-              ? [{ value: u.time.engine, colour: 'var(--chart-3)', label: t('us_engine'), tip: `${t('us_engine')} · ${duration(u.time.engine)}` }]
+              ? [{ value: u.time.engine, colour: 'var(--chart-3)', label: t('us_engine'), tip: joinedWords([t('us_engine'), duration(u.time.engine)]) }]
               : []),
             { value: u.time.idle, colour: 'var(--chart-idle)', label: t('us_not_running'), tip: t('us_not_running_tip', { time: duration(u.time.idle) }) },
           ]}
@@ -341,7 +345,7 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
                   {modelName(m.model)}
                   <div className="us-sub">
                     {m.level !== null ? t('us_level', { level: m.level }) : t('us_level_unrecorded')}
-                    {m.effort !== null ? ` · ${t('us_effort', { effort: m.effort })}` : ''}
+                    {m.effort !== null ? `${SEP}${t('us_effort', { effort: m.effort })}` : ''}
                   </div>
                 </td>
                 <td className="num">{m.rounds}</td>
@@ -383,7 +387,7 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
               label: `${c.cell} ${c.title}`,
               value: c.cost,
               text: cost(c.cost),
-              tip: `${c.cell} ${c.title} · ${cost(c.cost)} · ${tn('us_n_rounds', c.rounds)}`,
+              tip: joinedWords([`${c.cell} ${c.title}`, cost(c.cost), tn('us_n_rounds', c.rounds)]),
             })),
             ...(rest.length > 0
               ? [
@@ -391,7 +395,7 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
                     label: tn('us_other_cells', rest.length),
                     value: rest.reduce((a, c) => a + c.cost, 0),
                     text: cost(rest.reduce((a, c) => a + c.cost, 0)),
-                    tip: rest.map((c) => `${c.cell} ${cost(c.cost)}`).join(' · '),
+                    tip: joinedWords(rest.map((c) => `${c.cell} ${cost(c.cost)}`)),
                   },
                 ]
               : []),
@@ -483,7 +487,7 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
               label: `${x.cell} ${x.title}`,
               value: x.ms,
               text: duration(x.ms),
-              tip: `${x.cell} ${x.title} · ${duration(x.ms)} · ${tn('us_n_runs', x.runs)}`,
+              tip: joinedWords([`${x.cell} ${x.title}`, duration(x.ms), tn('us_n_runs', x.runs)]),
             }))}
           />
         </Section>

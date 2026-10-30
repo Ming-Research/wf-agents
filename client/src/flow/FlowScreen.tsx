@@ -22,7 +22,7 @@ import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './cont
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { OPEN_FIRST, type Side, toggled } from './Sides';
 import { CellLinks, inline, sheetText } from './words';
-import { charCount, chars, Name, Part, Sheet } from '../voices';
+import { charCount, chars, joinedWords, Name, Part, Sheet } from '../voices';
 
 const same = (a: Subject, b: Subject) => subjectKey(a) === subjectKey(b);
 
@@ -318,12 +318,11 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'interjection':
         return graphFor(s.graph)?.g.interject?.name ?? '';
       case 'action':
-        return (
+        return joinedWords(
           charts
             .get(graphFor(s.graph)?.g.name ?? '')
             ?.nodes.find((n) => n.id === s.node)
-            ?.actions.map(actionWords)
-            .join(' · ') ?? ''
+            ?.actions.map(actionWords) ?? [],
         );
       case 'store':
         return compiled.engine.stores?.[s.store]?.title ?? s.store;

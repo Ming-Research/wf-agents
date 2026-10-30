@@ -5,7 +5,7 @@
 // first, in tiles; a tile's number leads to the list it counts, folded under the tiles or on a view of its own; a trend
 // is drawn, to scale, where the period holds more than one week.
 
-import { Flash, Link as PrimerLink } from '@primer/react';
+import { Flash } from '@primer/react';
 
 import type {
   Anomaly,
@@ -22,12 +22,13 @@ import { course, heldWords } from '../components';
 import { runningWords, waitsWords } from '../course';
 import { cost, day, duration, roundName, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { HeadingLevel, ItemRef, PeriodSwitch, RoundLink, Section } from '../parts';
+import { HeadingLevel, ItemRef, PeriodSwitch, PrLink, RoundLink, Section } from '../parts';
 import { architectHref, href, Link, type Period, PERIODS, workHref } from '../route';
 import { tokenCount, tokens } from '../round';
 import { spendTable } from '../spend';
 import { anomaliesBy, byStanding, mergedAverages, spentIn, systemPath, zone } from '../system';
 import { t, tn } from '../text';
+import { joinedWords, SEP } from '../voices';
 import { modelName } from './RoundView';
 
 export function System({ period }: { period: Period }) {
@@ -57,7 +58,7 @@ export function System({ period }: { period: Period }) {
         </Section>
         <SystemPeriod period={period} />
         <Section {...part(t('sys_output'), t('sys_output_for'))} open>
-          <Output s={s} status={status} />
+          <Output s={s} />
         </Section>
         <Section {...part(t('sys_spend'), t('sys_spend_for'))} open>
           <Spend s={s} />
@@ -224,7 +225,7 @@ function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
 /// What got done: the items merged, made and cancelled in the period and the pull requests open now, each opening its
 /// list; how long a merged work took from its start, and what it cost; and, over more than one week, the same week by
 /// week.
-function Output({ s, status }: { s: SystemData; status: Status | null }) {
+function Output({ s }: { s: SystemData }) {
   const o = s.output;
   const avg = mergedAverages(o.merged);
   return (
@@ -301,27 +302,18 @@ function Output({ s, status }: { s: SystemData; status: Status | null }) {
               </tr>
             </thead>
             <tbody>
-              {o.open_prs.map((p) => {
-                const repo = p.project !== null ? status?.repos[p.project] : undefined;
-                return (
-                  <tr key={`${p.project ?? ''}-${p.pr}`}>
-                    <td>
-                      {repo !== undefined ? (
-                        <PrimerLink href={`https://github.com/${repo}/pull/${p.pr}`} target="_blank" rel="noreferrer">
-                          {t('work_pr', { n: p.pr })}
-                        </PrimerLink>
-                      ) : (
-                        t('work_pr', { n: p.pr })
-                      )}
-                    </td>
-                    <td>{p.item !== null ? <ItemRef id={p.item} title={p.title} /> : null}</td>
-                    <td>
-                      <Link to={workHref(p.work)}>#{p.work}</Link>
-                    </td>
-                    <td className="num">{duration(s.at - p.since)}</td>
-                  </tr>
-                );
-              })}
+              {o.open_prs.map((p) => (
+                <tr key={`${p.project ?? ''}-${p.pr}`}>
+                  <td>
+                    <PrLink project={p.project} n={p.pr} />
+                  </td>
+                  <td>{p.item !== null ? <ItemRef id={p.item} title={p.title} /> : null}</td>
+                  <td>
+                    <Link to={workHref(p.work)}>#{p.work}</Link>
+                  </td>
+                  <td className="num">{duration(s.at - p.since)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </Section>
@@ -531,7 +523,12 @@ function Spend({ s }: { s: SystemData }) {
                     >
                       <span className="cell-id">{c.cell}</span> {c.title ?? ''}
                     </Link>
-                    {c.graph !== 'engineer' ? <span className="muted"> · {c.graph}</span> : null}
+                    {c.graph !== 'engineer' ? (
+                      <span className="muted">
+                        {SEP}
+                        {c.graph}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="num">{c.rounds}</td>
                   <td className="num">{cost(c.cost_usd)}</td>
@@ -596,7 +593,7 @@ function Waste({ s }: { s: SystemData }) {
         <Tile
           k={t('sys_halted')}
           v={duration(w.halted_ms)}
-          s={w.halts.map((h) => `${haltName(h.kind)} ${duration(h.ms)}`).join(' · ')}
+          s={joinedWords(w.halts.map((h) => `${haltName(h.kind)} ${duration(h.ms)}`))}
           none={w.halted_ms === 0}
           hint={t('sys_halted_hint')}
         />

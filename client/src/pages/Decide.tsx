@@ -23,7 +23,7 @@ import {
   type FlashProps,
   type LabelColorOptions,
 } from '@primer/react';
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useState, type MouseEvent, type ReactNode } from 'react';
 
 import { askChoice, askParts, useAnswersHere } from '../answer';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
@@ -37,6 +37,7 @@ import { Markdown, MarkdownInline } from '../markdown';
 import { RoundAt, SendForm, SubHeading } from '../parts';
 import { href, Link, navigate } from '../route';
 import { t } from '../text';
+import { joined, SEP } from '../voices';
 
 export { words };
 
@@ -316,7 +317,7 @@ function Decision(props: { d: Obj; n: number; v: Verdict | null; set: ((v: Verdi
             label={t('dc_sure')}
             note={
               <>
-                <Pips n={sure} /> {sure}/5 · {t(`sure_${sure}` as 'sure_1')}
+                <Pips n={sure} /> {sure}/5{SEP}{t(`sure_${sure}` as 'sure_1')}
               </>
             }
           >
@@ -473,25 +474,25 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
       </StatusChip>
       <RoundAt round={round} cell={c.cell} title={c.title} />
       <span className="dc-note">
-        {when}
-        {c.replaces !== null ? (
-          <>
-            {' · '}
-            {t('dc_replaces')} <CardLink id={c.replaces} item={c.item} />
-          </>
-        ) : null}
-        {c.status === 'replaced' ? (
-          r !== null ? (
+        {joined([
+          when,
+          c.replaces !== null ? (
             <>
-              {' · '}
+              {t('dc_replaces')} <CardLink id={c.replaces} item={c.item} />
+            </>
+          ) : null,
+          c.status !== 'replaced' ? null : r !== null ? (
+            <>
               {t('dc_replaced_by')} <CardLink id={r.design_card} item={c.item} />{' '}
               {t('dc_replaced_at', { round: `R${r.work}-${r.round}` })}
-              {r.at !== null ? ` · ${time(r.at)}` : ''}
             </>
           ) : (
-            <> · {t('card_replaced_none')}</>
-          )
-        ) : null}
+            t('card_replaced_none')
+          ),
+          c.status === 'replaced' && r !== null && r.at !== null ? time(r.at) : null,
+        ]).map((x, k) => (
+          <Fragment key={k}>{x}</Fragment>
+        ))}
       </span>
     </>
   );

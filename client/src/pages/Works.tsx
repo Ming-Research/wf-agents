@@ -6,7 +6,7 @@
 // work it is, how it goes on and where, leads to its group, and to the other works running or waiting with what each
 // needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
 
-import { CounterLabel, Heading, Link as PrimerLink } from '@primer/react';
+import { CounterLabel, Heading } from '@primer/react';
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { Status, WorkSummary } from '../api';
@@ -14,9 +14,10 @@ import { course, Loaded } from '../components';
 import { held, takeoverWords } from '../course';
 import { cost, time } from '../format';
 import { useResource, useStatus } from '../live';
-import { HeadingLevel, ItemRef, Section } from '../parts';
+import { HeadingLevel, ItemRef, PrLink, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t, tn } from '../text';
+import { joinedWords, SEP } from '../voices';
 import { HeadLine, State, Where, WorksBack } from './HeadLine';
 import { Work } from './Work';
 import { RoundsMarks } from './WorkChart';
@@ -29,13 +30,24 @@ function projectOf(w: WorkSummary, status: Status | null): string | null {
   return status !== null && Object.keys(status.repos).length > 1 ? w.project : null;
 }
 
+/// The project after a work's item, a fact about it, where it is said at all.
+function ProjectAfter({ project }: { project: string | null }) {
+  if (project === null) return null;
+  return (
+    <span className="muted">
+      {SEP}
+      {project}
+    </span>
+  );
+}
+
 /// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
 /// its group in the messages view, where the owner acts on it, from its link.
 function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   const status = useStatus();
   const a = { c: course(w, status) };
   const project = projectOf(w, status);
-  const item = w.item !== null ? `#${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : w.graph;
+  const item = w.item !== null ? joinedWords([`#${w.item} ${w.title ?? ''}`, project]) : w.graph;
   const at = `${w.at} ${w.at_title ?? ''}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
@@ -45,7 +57,7 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
         {w.item !== null ? (
           <>
             <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} />
-            {project ? <span className="muted"> · {project}</span> : null}
+            <ProjectAfter project={project} />
           </>
         ) : (
           w.graph
@@ -239,7 +251,7 @@ function List({ works, tab, widths, onWidths }: {
 /// A work's conversation in the messages view, where the owner acts on it.
 function ConversationLink({ w }: { w: WorkSummary }) {
   return (
-    <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')} muted>
+    <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
       {t('go_to_conversation')}
     </Link>
   );
@@ -251,11 +263,10 @@ function ConversationLink({ w }: { w: WorkSummary }) {
 function WorkLine({ w }: { w: WorkSummary }) {
   const status = useStatus();
   const c = course(w, status);
-  const repo = w.project !== null ? status?.repos[w.project] : undefined;
   const project = projectOf(w, status);
-  const name = w.item !== null ? `#${w.id} · #${w.item} ${w.title ?? ''}${project ? ` · ${project}` : ''}` : `#${w.id}`;
+  const name = w.item !== null ? joinedWords([`#${w.id}`, `#${w.item} ${w.title ?? ''}`, project]) : `#${w.id}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
-  const at = `${w.at} ${w.at_title ?? ''}${stage ? ` · ${stage}` : ''}`;
+  const at = joinedWords([`${w.at} ${w.at_title ?? ''}`, stage]);
   return (
     <HeadLine
       lead={<WorksBack />}
@@ -265,7 +276,7 @@ function WorkLine({ w }: { w: WorkSummary }) {
           {w.item !== null ? (
             <>
               <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />
-              {project ? <span className="muted"> · {project}</span> : null}
+              <ProjectAfter project={project} />
             </>
           ) : (
             w.graph
@@ -280,20 +291,7 @@ function WorkLine({ w }: { w: WorkSummary }) {
       facts={[
         tn('work_rounds_n', w.rounds),
         cost(w.cost_usd),
-        w.pr === null ? null : repo !== undefined ? (
-          <PrimerLink
-            key="pr"
-            href={`https://github.com/${repo}/pull/${w.pr}`}
-            target="_blank"
-            rel="noreferrer"
-            muted
-            title={t('work_pr_hint')}
-          >
-            {t('work_pr', { n: w.pr })}
-          </PrimerLink>
-        ) : (
-          t('work_pr', { n: w.pr })
-        ),
+        w.pr !== null ? <PrLink key="pr" project={w.project} n={w.pr} /> : null,
       ]}
       conversation={`work:${w.id}`}
     />

@@ -10,7 +10,7 @@
 
 import { BlockedIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
 import { Button, Label, Select } from '@primer/react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectState, holdWords, matterSentence, queueParts } from '../architect';
@@ -22,6 +22,7 @@ import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
+import { factsAfter, joinedWords } from '../voices';
 import { MatterWhat, stageName } from './TalkCards';
 import { Halo } from '../graph/flowDraw';
 
@@ -85,26 +86,35 @@ function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   return <StateChip tone="neutral">{t('state_ready')}</StateChip>;
 }
 
-/// The head of a work's group: its Start, Pause and Step first, the work, its item and title, how it goes on; under
-/// them its stage, what it cost, what it waits for and the tier its item is at; its rounds a link away.
+/// The head of a work's group, one line with nothing on it said twice: its Start, Pause and Step while it goes on, the
+/// work by its number with its item's title, how it goes on, then after a bar its facts: its item, its rounds and what
+/// it cost, and while it goes on its stage, what it waits for and the tier its item is at, which the owner sets here.
 export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const status = useStatus();
+  const on = w !== null && !c.over ? w : null;
+  const facts = factsAfter([
+    c.item !== null ? <Link to={`/items/${c.item}`}>{t('talk_item', { id: c.item })}</Link> : null,
+    c.work !== null ? <Link to={workHref(c.work)}>{t('talk_rounds')}</Link> : null,
+    w !== null ? cost(w.cost_usd) : null,
+    on !== null && on.stage !== null ? stageName(on.stage) : null,
+    on !== null && on.waits !== null ? waitsWords(on.waits) : null,
+    on !== null && c.item !== null && c.level !== null ? <Tier item={c.item} level={c.level} /> : null,
+  ]);
   return (
     <header className="talk-head">
       <div className="talk-head-title">
-        {w !== null && !c.over ? <WorkControls w={w} status={status} /> : null}
+        {on !== null ? <WorkControls w={on} status={status} /> : null}
         <h2 className="talk-head-name">
           {t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' })}
         </h2>
         {w !== null ? <WorkState w={w} status={status} /> : null}
-      </div>
-      <div className="talk-head-facts">
-        {c.item !== null ? <Link to={`/items/${c.item}`}>{t('talk_item', { id: c.item })}</Link> : null}
-        {w !== null && w.stage !== null ? <span>{stageName(w.stage)}</span> : null}
-        {w !== null ? <span>{cost(w.cost_usd)}</span> : null}
-        {w !== null && w.waits !== null ? <span>{waitsWords(w.waits)}</span> : null}
-        {c.work !== null ? <Link to={workHref(c.work)}>{t('talk_rounds')}</Link> : null}
-        {c.item !== null && c.level !== null && !c.over ? <Tier item={c.item} level={c.level} /> : null}
+        {facts.length > 0 ? (
+          <span className="talk-head-facts">
+            {facts.map((x, k) => (
+              <Fragment key={k}>{x}</Fragment>
+            ))}
+          </span>
+        ) : null}
       </div>
     </header>
   );
@@ -272,7 +282,7 @@ function QueueSummary({ a, open, toggle }: { a: Architect; open: boolean; toggle
       trailingVisual={open ? ChevronUpIcon : ChevronDownIcon}
       onClick={toggle}
     >
-      {parts.join(' · ')}
+      {joinedWords(parts)}
     </Button>
   );
 }
@@ -303,7 +313,7 @@ function QueueList({ a }: { a: Architect }) {
           {m.work !== null && m.source === 'work' ? (
             <>
               {' '}
-              <Link to={`/messages?c=${encodeURIComponent(`work:${m.work}`)}`} muted>
+              <Link to={`/messages?c=${encodeURIComponent(`work:${m.work}`)}`}>
                 {t('matter_in_group', { work: m.work })}
               </Link>
             </>

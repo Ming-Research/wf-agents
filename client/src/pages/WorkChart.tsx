@@ -19,6 +19,7 @@ import { LinkButton } from '../parts';
 import { Link, type RoundsOnly } from '../route';
 import { t, tn } from '../text';
 import { words } from '../labelled';
+import { joinedWords } from '../voices';
 import { RoundView } from './RoundView';
 
 /// Who did a round's work: an agent, by its line; the engine, also for a gate it answered itself; the tools; the
@@ -72,7 +73,7 @@ function SpentBar({ r }: { r: RoundSummary }) {
   const sum = s.shares !== null ? s.shares.read + s.shares.written + s.shares.output : 0;
   const width = (x: number) => `${sum > 0 ? (100 * x) / sum : 0}%`;
   return (
-    <span className="spent" title={s.parts.map((p) => p.whole).join(' · ')}>
+    <span className="spent" title={joinedWords(s.parts.map((p) => p.whole))}>
       {s.shares !== null ? (
         <span className="spent-bar">
           <span className="spent-read" style={{ width: width(s.shares.read) }} />

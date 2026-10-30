@@ -15,7 +15,7 @@ import { actionWords } from '../graph/flowModel';
 import { isObj, type Obj } from '../labelled';
 import { chars, FOLD_AT, placeSchema, props, resolve, titleOf, under } from '../round';
 import { type Key, t, tn } from '../text';
-import { Hole, InnerName, Long, Name, Pairs, Part } from '../voices';
+import { Hole, InnerName, joinedWords, Long, Name, Pairs, Part } from '../voices';
 import { useFlow } from './context';
 import { inline } from './words';
 
@@ -253,7 +253,7 @@ function fieldTip(f: Field, c: CompiledCell, engine: EngineNames): string | unde
     ...fieldActions(uses, c.id).map((a) => (engine.actions[a] ?? actionWords(a)).replaceAll('`', '')),
     ...checks.map((k) => t('field_checked', { check: k })),
   ].filter((x) => x !== null);
-  const tip = [titleOf(c.titles, f.path, ''), f.desc ?? '', facts.join(' · ')].filter((x) => x !== '').join('\n');
+  const tip = [titleOf(c.titles, f.path, ''), f.desc ?? '', joinedWords(facts)].filter((x) => x !== '').join('\n');
   return tip !== '' ? tip : undefined;
 }
 

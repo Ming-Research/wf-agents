@@ -133,7 +133,7 @@ function Said({ work, r, line, g, onRound }: {
       head={
         <>
           <span className="talk-who">{words(who)}</span>
-          <RoundAt round={<RoundLink work={work} round={r.n} onRound={(_, n) => onRound(n)} muted />} cell={r.cell} title={cell?.title} />
+          <RoundAt round={<RoundLink work={work} round={r.n} onRound={(_, n) => onRound(n)} />} cell={r.cell} title={cell?.title} />
           <span className="talk-when">{time(r.ended_at ?? r.started_at)}</span>
         </>
       }

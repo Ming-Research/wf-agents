@@ -269,6 +269,24 @@
   gap: var(--base-size-8);
 }
 
+/* The words the owner writes beside the button that sends them: one line at rest, as tall as the button beside it,
+   its line the control's between the control's padding less the box's border; growing with what is written, the page
+   setting its height, to twelve lines, past which they scroll. */
+.say-box > textarea[data-component='Textarea'] {
+  padding-block: calc(var(--control-medium-paddingBlock) - var(--borderWidth-thin));
+  line-height: inherit;
+  max-height: calc(12 * var(--base-size-20) + 2 * var(--control-medium-paddingBlock));
+  overflow-y: auto;
+}
+
+.say-box.say-box-small {
+  min-height: var(--control-small-size);
+}
+
+.say-box-small > textarea[data-component='Textarea'] {
+  padding-block: calc(var(--control-small-paddingBlock) - var(--borderWidth-thin));
+}
+
 /* Label and value pairs: the name muted and never bold, the value in the text's colour. */
 .facts {
   display: grid;

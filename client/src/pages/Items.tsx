@@ -2,7 +2,7 @@
 // the items in each state, each in its state's colour; on the right, the item picked, in place, or while none is, the
 // first the tree shows. The split between them is Primer's PageLayout with a pane the owner drags, its width kept in
 // this browser. Each project's tree is Primer's TreeView: a row says the item's number and title, what it needs from
-// the owner, the items it waits for before it starts, and at its end, as muted words joined by " · ", the kind of the
+// the owner, the items it waits for before it starts, and at its end, as muted words joined by a bar, the kind of the
 // dependency by which the item above depends on it, how many of what it depends on are done, its place in the queue
 // and its work's stage in words where the row has room, how far through the stages on hovering; then its state, as
 // the chip a state is everywhere.
@@ -18,7 +18,7 @@ import { words } from '../labelled';
 import { useResource } from '../live';
 import { navigate } from '../route';
 import { t, tn } from '../text';
-import { joined } from '../voices';
+import { joined, SEP } from '../voices';
 import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
@@ -58,7 +58,7 @@ type RowProps = {
   onFold: (path: string, open: boolean) => void;
 };
 
-/// The end of a row, inside its trailing visual: its facts as muted words joined by " · ", the stage last, since it
+/// The end of a row, inside its trailing visual: its facts as muted words joined by a bar, the stage last, since it
 /// shows only where the row has room, then the item's state as its chip.
 function RowEnd({ facts, stage, state }: { facts: Array<ReactNode | null>; stage: ReactNode | null; state: ItemState }) {
   const shown = joined(facts);
@@ -71,7 +71,7 @@ function RowEnd({ facts, stage, state }: { facts: Array<ReactNode | null>; stage
           ))}
           {stage !== null ? (
             <span className="tree-stage">
-              {shown.length > 0 ? ' · ' : null}
+              {shown.length > 0 ? SEP : null}
               {stage}
             </span>
           ) : null}

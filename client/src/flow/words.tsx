@@ -8,6 +8,7 @@ import type { Atom, CompiledCell } from '../api';
 import { LinkButton } from '../parts';
 import { placeSchema } from '../round';
 import { t, tn } from '../text';
+import { SEP } from '../voices';
 import { useFlow } from './context';
 
 /// The page's words with names between backticks set as codes: monospace, in the colour of the text round them.
@@ -106,7 +107,7 @@ export function CellLink({ id, extra }: { id: string; extra?: string }) {
   return (
     <LinkButton onClick={() => f.open({ kind: 'cell', cell: id })}>
       <span className="cell-id">{id}</span> {c?.title ?? ''}
-      {extra ? ` · ${extra}` : null}
+      {extra ? `${SEP}${extra}` : null}
     </LinkButton>
   );
 }

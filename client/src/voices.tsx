@@ -90,15 +90,30 @@ export function Facts({ children }: { children: ReactNode }) {
   return <span className="pp-facts">{children}</span>;
 }
 
-/// Facts joined by " · ", the empty ones left out.
+/// What parts the facts on one line: a vertical bar, which reads as a separator, as the owner decided.
+export const SEP = ' | ';
+
+/// Facts joined by a bar, the empty ones left out.
 export function joined(xs: Array<ReactNode | null | undefined | false>): ReactNode[] {
   const out: ReactNode[] = [];
   for (const x of xs) {
     if (x === null || x === undefined || x === false || x === '') continue;
-    if (out.length > 0) out.push(' · ');
+    if (out.length > 0) out.push(SEP);
     out.push(x);
   }
   return out;
+}
+
+/// The facts of a head on its title's line, after its title or its state: a bar before the first, as between the
+/// others, so that they wrap with it; none when there are none.
+export function factsAfter(xs: Array<ReactNode | null | undefined | false>): ReactNode[] {
+  const facts = joined(xs);
+  return facts.length > 0 ? [SEP, ...facts] : [];
+}
+
+/// Facts in words joined by a bar, the empty ones left out, where only words go (a hint on hovering, a button's words).
+export function joinedWords(xs: Array<string | null | undefined | false>): string {
+  return xs.filter((x): x is string => typeof x === 'string' && x !== '').join(SEP);
 }
 
 /// The overview a panel about one thing opens with: a row of label and value for each question it answers, the

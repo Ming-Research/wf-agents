@@ -87,6 +87,11 @@
   font-size: var(--text-body-size-small);
 }
 
+/* A work's facts on its head's one line, after its state: a bar between two, as close to each as facts are. */
+.talk-head-title > .talk-head-facts {
+  column-gap: var(--base-size-4);
+}
+
 .talk-head-now {
   min-width: 0;
   overflow: hidden;
@@ -325,9 +330,10 @@
   border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
 }
 
+/* Answer sits on the box's bottom line, however tall the box grows. */
 .talk-answer-box {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--base-size-8);
 }
 
@@ -338,17 +344,13 @@
   font-size: var(--text-body-size-small);
 }
 
-/* A line of the page's own: what the engine said, small and grey, with no frame. */
+/* A line of the page's own: what the engine said, small and grey, with no frame, its badge the run's (below). */
 .talk-line {
   display: flex;
   align-items: baseline;
   gap: var(--base-size-8);
   color: var(--fgColor-muted);
   font-size: var(--text-body-size-small);
-}
-
-.talk-line-icon {
-  flex: none;
 }
 
 .talk-line-text {
@@ -363,15 +365,38 @@
   font-size: var(--text-body-size-small);
 }
 
-/* The engine's cards and lines: Primer's Timeline, condensed. */
+/* The engine's cards and lines: Primer's Timeline, condensed, every badge in one column on the run's line, and each
+   centred on the first line of its item, a card's title line or a line's words. An item lays its badge out beside the
+   parts of its body, its first part level with the badge's box (the badge and the room above and below it), which a
+   line of controls fills, its words in the middle, and a run of words starts in, its first line in the box's middle. */
 .talk-cards {
   margin: 0;
 }
 
-.talk-card-body {
+.talk-cards > .Timeline-Item {
   display: grid;
-  gap: var(--base-size-4);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  row-gap: var(--base-size-4);
+}
+
+.talk-card-body {
+  display: contents;
+}
+
+.talk-card-body > * {
+  grid-column: 2;
   min-width: 0;
+}
+
+.talk-card-line {
+  min-height: var(--base-size-32);
+}
+
+.talk-line,
+.talk-card-matter {
+  padding-top: var(--base-size-4);
+  line-height: var(--base-size-24);
 }
 
 .talk-card-line {
@@ -435,7 +460,7 @@
   background: var(--bgColor-default);
 }
 
-/* Send and Done sit on the box's bottom line, as a chat's do, however tall the owner drags the box. */
+/* Send and Done sit on the box's bottom line, as a chat's do, however tall the box grows. */
 .talk-say-row {
   display: flex;
   align-items: flex-end;

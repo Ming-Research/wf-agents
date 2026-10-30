@@ -11,7 +11,7 @@ import type { CellInput, CompiledCell, CompiledInput, InputsNow, Src } from '../
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { t, tn } from '../text';
-import { charCount, chars, Code, Filled, FoldPart, Long, Name, Over, Part, Row, Rows, Sheet } from '../voices';
+import { charCount, chars, Code, Filled, FoldPart, Long, Name, Over, Part, Row, Rows, SEP, Sheet } from '../voices';
 import { useFlow } from './context';
 import { CellCode, inline, sheetText } from './words';
 
@@ -94,7 +94,7 @@ export function InputFacts({ x, sources }: { x: CompiledInput; sources: CellInpu
           {w}
         </span>
       ))}
-      {x.maybe ? ` · ${t('input_if_any')}` : null}
+      {x.maybe ? `${SEP}${t('input_if_any')}` : null}
     </>
   );
 }

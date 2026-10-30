@@ -1,6 +1,7 @@
-/* An item's page, as the UI spec lays out a reading page: its header (its number and title, its facts on one line),
-   then what needs the owner, where the work stands, the problem, the design, the acceptance, the changes on the way,
-   what it depends on and its history, each a section of one document. */
+/* An item's page, as the UI spec lays out a reading page: its header (its number and title with its facts on the
+   title's line, and the work that goes on under them), then what needs the owner, where the work stands, the problem,
+   the design, the acceptance, the changes on the way, what it depends on and its history, each a section of one
+   document. */
 
 .item-page {
   max-width: var(--breakpoint-large);
@@ -12,19 +13,27 @@
   font-weight: var(--base-text-weight-normal);
 }
 
-/* The facts under the title run as one line that wraps between two facts where it must, its chips in the line's
-   size. */
-.item-head .item-head-facts {
+/* The title's line: the title, then its facts, aligned with the title's words, under it where the line is short. */
+.item-head .item-head-title {
   flex-wrap: wrap;
+  align-items: baseline;
+}
+
+/* The head's facts, on the title's line and under it, each run as one line that wraps between two facts where it
+   must, in body text whatever the size of the title beside them, their chips in the line's size. */
+.item-head .item-head-facts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--base-size-4);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-normal);
+  line-height: var(--text-body-lineHeight-medium);
 }
 
-.item-head-facts > .muted {
-  display: contents;
-}
-
-/* The work that goes on, by its number with its state's chip beside it, kept together. */
-.item-head-work {
+/* A fact and the chip that goes with it, kept together: the item's state and the items it waits for, the work that
+   goes on and its state. */
+.item-head-pair {
   display: inline-flex;
   align-items: center;
   gap: var(--base-size-4);

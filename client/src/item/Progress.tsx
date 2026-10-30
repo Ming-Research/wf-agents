@@ -102,7 +102,7 @@ function Line({ s, d, w }: { s: Step; d: ItemDetail; w: WorkSummary }) {
             <Note key={r.n} r={r} work={w.id} />
           ))}
         </ul>
-        <Link to={`/works/${w.id}?cell=${encodeURIComponent(s.cell)}`} className="shown-from" muted>
+        <Link to={`/works/${w.id}?cell=${encodeURIComponent(s.cell)}`} className="shown-from">
           {t('progress_on_chart')}
         </Link>
       </div>

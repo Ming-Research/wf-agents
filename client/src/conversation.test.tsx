@@ -364,7 +364,7 @@ describe("the owner's words in the one-to-one with an architect", () => {
     const r = row(drawnIn(said(state())), '>hi<');
     expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
     const { after } = bubble(r);
-    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying · <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/);
+    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/);
     expect(after).toContain('cell=H8');
     expect(r).not.toContain('Your words');
     expect(r).not.toContain('not taken up yet');

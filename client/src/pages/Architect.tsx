@@ -307,7 +307,7 @@ function ObservationRow({ o, conversation }: { o: Observation; conversation: str
       {o.closed !== null ? (
         <StateChip tone="neutral">{t('observation_closed', { why: words(o.closed) })}</StateChip>
       ) : (
-        <Link to={`${href({ page: 'messages', open: conversation })}#observation-${o.id}`} muted>
+        <Link to={`${href({ page: 'messages', open: conversation })}#observation-${o.id}`}>
           {t('observation_close_there')}
         </Link>
       )}

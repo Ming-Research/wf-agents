@@ -27,7 +27,22 @@ import { Markdown } from '../markdown';
 import { LinkButton, RoundAt, RoundLink } from '../parts';
 import { brief, chars, messageParts, placeSchema, shape, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
 import { t, tn } from '../text';
-import { charCount, FoldPart, InnerName, joined, Long, Name, Named, Overview, Part, Row, Rows, Said, Sheet } from '../voices';
+import {
+  charCount,
+  FoldPart,
+  InnerName,
+  joined,
+  joinedWords,
+  Long,
+  Name,
+  Named,
+  Overview,
+  Part,
+  Row,
+  Rows,
+  Said,
+  Sheet,
+} from '../voices';
 import { AskView } from './Decide';
 
 /// A message, as the engine writes one: its given inputs by address, its task and its list of inputs to work from.
@@ -341,16 +356,14 @@ function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
   if (d.message !== null) {
     const call = isObj(d.call) ? d.call : {};
     const session = isObj(call.session) ? call.session : {};
-    return [
+    return joinedWords([
       r.line,
       r.model !== null ? modelName(r.model) : null,
       d.level !== null ? t('run_level', { level: d.level }) : null,
       d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
       newSession(r) ?? ('started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null),
       r.compactions > 0 ? t('run_compacted') : null,
-    ]
-      .filter((x) => x !== null && x !== '')
-      .join(' · ');
+    ]);
   }
   if (r.not_asked !== null) return t('run_not_asked', { need: words(r.not_asked) });
   if (cell?.kind === 'tool') return tn('ran_tools', d.tool_runs.length);

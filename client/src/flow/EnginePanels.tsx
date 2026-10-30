@@ -10,7 +10,7 @@ import { actionWords, type Chart } from '../graph/flowModel';
 import { storeUses, writesOf } from '../graph/stores';
 import { LinkButton } from '../parts';
 import { t } from '../text';
-import { Named, Pairs, Part } from '../voices';
+import { joinedWords, Named, Pairs, Part, SEP } from '../voices';
 import { useFlow } from './context';
 import { inline } from './words';
 
@@ -21,7 +21,7 @@ function CellIn({ g, id, extra }: { g: CompiledGraph; id: string; extra?: string
   return (
     <LinkButton onClick={() => f.open({ kind: 'cell', cell: id, graph: g.name })}>
       <span className="cell-id">{id}</span> {c?.title ?? ''}
-      {extra ? ` · ${extra}` : null}
+      {extra ? `${SEP}${extra}` : null}
     </LinkButton>
   );
 }
@@ -82,7 +82,7 @@ export function storeWho(layer: string, computed: boolean): string {
   const where = t(
     layer === 'project' ? 'store_of_project' : layer === 'item' ? 'store_of_item' : layer === 'work' ? 'store_of_work' : 'store_of_round',
   );
-  return computed ? `${where} · ${t('store_computed_long')}` : where;
+  return computed ? joinedWords([where, t('store_computed_long')]) : where;
 }
 
 /// A store: what it holds; what the owner does that writes it; then in each graph, what writes it and the cells that

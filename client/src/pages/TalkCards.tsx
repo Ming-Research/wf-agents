@@ -32,6 +32,7 @@ import { Markdown } from '../markdown';
 import { Fold } from '../parts';
 import { architectHref, href, Link, workHref } from '../route';
 import { t, tn, type Key } from '../text';
+import { joinedWords } from '../voices';
 import { DesignCardView } from './Decide';
 import { PolicyText } from './ArchitectViews';
 import { DesignShown } from './Item';
@@ -61,9 +62,7 @@ function Said({ text }: { text: string }) {
 function When({ from, to, usd }: { from: number; to: number | null; usd: number | null }) {
   return (
     <span className="talk-card-facts">
-      {time(from)}
-      {to !== null ? ` · ${duration(to - from)}` : null}
-      {usd !== null && usd > 0 ? ` · ${cost(usd)}` : null}
+      {joinedWords([time(from), to !== null ? duration(to - from) : null, usd !== null && usd > 0 ? cost(usd) : null])}
     </span>
   );
 }
@@ -122,7 +121,7 @@ export function StageCardView({ e, s, w }: { e: ConversationEntry; s: StageCard;
           <Label variant="success">{t('stage_done')}</Label>
         )}
         <When from={s.started_at} to={s.ended_at} usd={s.cost_usd} />
-        <Link to={rounds} muted>
+        <Link to={rounds}>
           {t('stage_rounds', { first: s.first, last: s.last, work })}
         </Link>
       </div>
@@ -132,7 +131,7 @@ export function StageCardView({ e, s, w }: { e: ConversationEntry; s: StageCard;
           {s.back.note !== null ? ` ${s.back.note}` : ''}
         </p>
       ) : null}
-      {facts.length > 0 ? <p className="talk-card-note">{facts.join(' · ')}</p> : null}
+      {facts.length > 0 ? <p className="talk-card-note">{joinedWords(facts)}</p> : null}
       {s.said !== null ? (
         <details className="talk-fold">
           <summary>{t('stage_said', { round: `R${work}-${s.said_round ?? ''}` })}</summary>
@@ -194,7 +193,7 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
         {group !== null ? (
           <>
             {' '}
-            <Link to={group} muted>
+            <Link to={group}>
               {t('matter_in_group', { work: m.work ?? '' })}
             </Link>
           </>
@@ -202,7 +201,7 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
         {where !== null ? (
           <>
             {' '}
-            <Link to={where} muted>
+            <Link to={where}>
               {m.state === 'working' ? t('matter_on_chart') : `R${m.handled?.work ?? ''}-${m.handled?.round ?? ''}`}
             </Link>
           </>

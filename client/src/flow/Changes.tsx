@@ -7,6 +7,7 @@ import { Label, type LabelColorOptions } from '@primer/react';
 import type { CellDiff, Change, CompiledInput, CompiledRow, FlowDiff, JsonValue, Part } from '../api';
 import { Fold } from '../parts';
 import { type Key, srcText, t } from '../text';
+import { SEP } from '../voices';
 import { useFlow } from './context';
 import { CellLink, conditionsWords, inline, targetWords } from './words';
 
@@ -175,7 +176,10 @@ export function DiffPanel({ diff, graph }: { diff: FlowDiff; graph: string }) {
                 </span>
               )}
               {c.status === 'changed' ? (
-                <span className="muted">· {[...new Set(c.changes.map((x) => t(PART[x.part])))].join(', ')}</span>
+                <span className="muted">
+                  {SEP}
+                  {[...new Set(c.changes.map((x) => t(PART[x.part])))].join(', ')}
+                </span>
               ) : null}
             </li>
           ))}

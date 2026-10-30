@@ -39,7 +39,6 @@ import {
   FormControl,
   NavList,
   PageLayout,
-  Textarea,
   Timeline,
 } from '@primer/react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
@@ -84,8 +83,10 @@ import { postJson } from '../http';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource } from '../live';
 import { Markdown } from '../markdown';
+import { SayBox } from '../parts';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
+import { joinedWords, SEP } from '../voices';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
@@ -212,16 +213,14 @@ function AnswerBox({ placeholder, ready, busy, text, setText, send, error, child
   return (
     <>
       <div className="talk-answer-box">
-        <Textarea
-          block
-          resize="vertical"
-          rows={1}
-          value={text}
+        <SayBox
+          small
+          text={text}
+          set={setText}
           disabled={busy}
           placeholder={placeholder}
-          aria-label={placeholder}
+          label={placeholder}
           title={t('send_keys_hint')}
-          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (enterSends(e)) {
               e.preventDefault();
@@ -406,7 +405,7 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
           {to !== null ? <span className="talk-mention">{to}</span> : null}
           <span className="talk-when">{time(e.at)}</span>
           {round ? (
-            <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })} muted>
+            <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>
               {`R${e.work}-${e.round}`}
             </Link>
           ) : null}
@@ -428,18 +427,25 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
   );
 }
 
-/// A line of the page's own, small and grey, for what the engine says, and what a helper of the work told the owner.
+/// A line of the page's own, small and grey, for what the engine says, and what a helper of the work told the owner:
+/// an item of the run's Timeline, as a card is, its CpuIcon its badge, so that every badge of the run is in one column.
 function SystemLine({ e }: { e: ConversationEntry }) {
   const helper = e.sender !== 'engine';
   return (
-    <div className="talk-line">
-      <CpuIcon className="talk-line-icon" />
-      <span className="talk-line-text">
-        {helper ? `${t('conv_helper_said', { line: words(e.sender) })} ` : null}
-        {e.source === 'card' ? t('conv_card', { id: e.design_card ?? e.id }) : e.text}
-      </span>
-      <span className="talk-when">{time(e.at)}</span>
-    </div>
+    <Timeline.Item condensed className="talk-card">
+      <Timeline.Badge>
+        <CpuIcon />
+      </Timeline.Badge>
+      <Timeline.Body className="talk-card-body">
+        <div className="talk-line">
+          <span className="talk-line-text">
+            {helper ? `${t('conv_helper_said', { line: words(e.sender) })} ` : null}
+            {e.source === 'card' ? t('conv_card', { id: e.design_card ?? e.id }) : e.text}
+          </span>
+          <span className="talk-when">{time(e.at)}</span>
+        </div>
+      </Timeline.Body>
+    </Timeline.Item>
   );
 }
 
@@ -492,8 +498,8 @@ function WordsLine({ w }: { w: WordsState }) {
       {wordsStateText(w)}
       {chart !== null ? (
         <>
-          {' · '}
-          <Link to={chart} muted>
+          {SEP}
+          <Link to={chart}>
             {t('matter_on_chart')}
           </Link>
         </>
@@ -508,11 +514,11 @@ function ForwardLine({ f }: { f: Forwarded }) {
   const p = forwardParts(f);
   return (
     <p className="talk-line-more">
-      {`${p.lead} · ${p.state}`}
+      {joinedWords([p.lead, p.state])}
       {p.round !== null ? (
         <>
           {' '}
-          <Link to={architectHref({ project: f.project, work: f.handled_work, round: f.handled_round })} muted>
+          <Link to={architectHref({ project: f.project, work: f.handled_work, round: f.handled_round })}>
             {p.round}
           </Link>
         </>
@@ -655,11 +661,9 @@ export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
         </div>
       ) : null}
       <div className="talk-say-row">
-        <Textarea
-          block
-          resize="vertical"
-          rows={2}
-          value={text}
+        <SayBox
+          text={text}
+          set={setText}
           disabled={busy || closed !== null}
           placeholder={
             closed !== null
@@ -669,7 +673,6 @@ export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
                 : t('conv_say_architect')
           }
           title={t('send_keys_hint')}
-          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (enterSends(e)) {
               e.preventDefault();

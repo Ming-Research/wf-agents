@@ -1,4 +1,4 @@
-// An item, read only: its number and title, and its facts on one line under them, the work that goes on among them;
+// An item, read only: its number and title with its facts on the title's line, and the work that goes on under them;
 // then what waits for the owner, the design cards and asks of the owner its live work waits on, each saying where it
 // is ruled on or answered, its work's group in the messages view; where its live work stands as a checklist; the
 // problem, as the engineer understands it once research has run; the design, saying so while no approach is chosen;
@@ -6,7 +6,7 @@
 // cards, answered asks, and the works that ended. Each block names the cell and round it came from. What the works hand
 // back is drawn by its shape in the flow's formats; a field the page does not know is shown as labelled text.
 
-import { Flash, Link as PrimerLink, PageHeader } from '@primer/react';
+import { Flash, PageHeader } from '@primer/react';
 import { Fragment, useEffect, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
@@ -16,12 +16,12 @@ import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understandin
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str, words } from '../labelled';
 import { waitsWords } from '../course';
-import { useResource, useStatus } from '../live';
+import { useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { By, HeadingLevel, ItemRef, RoundLink, Section, SubHeading } from '../parts';
+import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } from '../parts';
 import { href, Link } from '../route';
 import { t, tn } from '../text';
-import { joined } from '../voices';
+import { factsAfter, joined } from '../voices';
 import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
 
 /// Where a value shown on the item came from: the cell and the round, opening the round.
@@ -420,32 +420,35 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
   );
 }
 
-/// The item's facts, on one line under its title, each kind in its one look: its state as its chip; its tier (how it
-/// changed said on hovering), what it delivers, its project and its pull request as muted words and links joined by
-/// " · "; the work that goes on on it, once, by its number, with how it stands, its stage and cell, what it waits for
-/// and its group, where the owner speaks to it and its tier is set; and the items it waits for, as the tree shows them.
-function HeadFacts({ d }: { d: ItemDetail }) {
+/// The item's head: its number and title, and its facts in two lines, each kind in its one look, the facts muted words,
+/// the links in the accent, joined by a bar. On the title's line after a bar, smaller, wrapping under it where the line
+/// is short: its project, its tier (how it changed said on hovering), its state as its chip with the items it waits
+/// for after it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
+/// state's chip, its stage, its cell, what it waits for, and its group, where the owner speaks to it and its tier is
+/// set.
+function Head({ d }: { d: ItemDetail }) {
   const i = d.item;
-  const status = useStatus();
-  const repo = status?.repos[i.project];
   const w = d.works.find((x) => x.state !== 'done' && x.state !== 'ended');
   const changes = d.level_changes.map((c) => t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) }));
-  const pr =
-    i.pr === null ? null : repo !== undefined ? (
-      <PrimerLink href={`https://github.com/${repo}/pull/${i.pr}`} target="_blank" rel="noreferrer" muted title={t('work_pr_hint')}>
-        {t('work_pr', { n: i.pr })}
-      </PrimerLink>
-    ) : (
-      t('work_pr', { n: i.pr })
-    );
+  const facts = factsAfter([
+    i.project,
+    <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { level: i.level })}</span>,
+    <span className="item-head-pair">
+      <ItemBadge state={i.state} />
+      {i.blocked_by.length > 0 ? (
+        <StateChip tone="attention" title={t('items_blocked_title')}>
+          {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+        </StateChip>
+      ) : null}
+    </span>,
+    i.pr !== null ? <PrLink project={i.project} n={i.pr} /> : null,
+  ]);
   const live =
     w === undefined
       ? []
-      : [
-          <span className="item-head-work">
-            <Link to={`/works/${w.id}`} muted>
-              {t('item_live_work', { id: w.id })}
-            </Link>
+      : joined([
+          <span className="item-head-pair">
+            <Link to={`/works/${w.id}`}>{t('item_live_work', { id: w.id })}</Link>
             <WorkBadge state={w.state} />
           </span>,
           w.stage !== null ? words(w.stage) : null,
@@ -453,34 +456,30 @@ function HeadFacts({ d }: { d: ItemDetail }) {
             <span className="cell-id">{w.at}</span> {w.at_title}
           </>,
           w.waits !== null ? waitsWords(w.waits) : null,
-          <Link to={href({ page: 'messages', open: `work:${w.id}` })} muted title={t('go_to_conversation_hint')}>
+          <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
             {t('go_to_conversation')}
           </Link>,
-        ];
-  const facts = joined([
-    <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { level: i.level })}</span>,
-    `${t('col_deliver')} ${i.deliver}`,
-    i.project,
-    pr,
-    ...live,
-  ]);
+        ]);
   return (
-    <PageHeader.Description className="item-head-facts">
-      <ItemBadge state={i.state} />{' '}
-      <span className="muted">
-        {facts.map((x, k) => (
-          <Fragment key={k}>{x}</Fragment>
-        ))}
-      </span>
-      {i.blocked_by.length > 0 ? (
-        <>
-          {' '}
-          <StateChip tone="attention" title={t('items_blocked_title')}>
-            {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
-          </StateChip>
-        </>
+    <PageHeader as="header" className="item-head">
+      <PageHeader.TitleArea className="item-head-title">
+        <PageHeader.Title as="h1">
+          <span className="item-head-id">#{i.id}</span> {i.title}
+        </PageHeader.Title>
+        <span className="item-head-facts muted">
+          {facts.map((x, k) => (
+            <Fragment key={k}>{x}</Fragment>
+          ))}
+        </span>
+      </PageHeader.TitleArea>
+      {live.length > 0 ? (
+        <PageHeader.Description className="item-head-facts muted">
+          {live.map((x, k) => (
+            <Fragment key={k}>{x}</Fragment>
+          ))}
+        </PageHeader.Description>
       ) : null}
-    </PageHeader.Description>
+    </PageHeader>
   );
 }
 
@@ -500,14 +499,7 @@ function Detail({ d }: { d: ItemDetail }) {
   }, [i.id]);
   return (
     <HeadingLevel.Provider value={2}>
-      <PageHeader as="header" className="item-head">
-        <PageHeader.TitleArea>
-          <PageHeader.Title as="h1">
-            <span className="item-head-id">#{i.id}</span> {i.title}
-          </PageHeader.Title>
-        </PageHeader.TitleArea>
-        <HeadFacts d={d} />
-      </PageHeader>
+      <Head d={d} />
       {i.cancelled ? (
         <Flash variant="warning" className="item-cancelled">
           {i.cancelled}
