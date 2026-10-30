@@ -2601,6 +2601,13 @@
           "type": "bool",
           "optional": true,
           "desc": "True only for a running work going the wrong way, whose every round is wasted: the engine pauses it at once, as your pause, with what is wrong as why"
+        },
+        {
+          "name": "queued",
+          "title": "In the queue as",
+          "type": "int",
+          "optional": true,
+          "desc": "When your queue holds this place already, as a matter of yours not handled yet: that matter's number; the engine queues it not again"
         }
       ]
     }
@@ -3059,7 +3066,7 @@
       "notify_pending_approvers": "Tells the owner that the design card, not yet confirmed, is holding up the merge.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
       "post_design_card": "When the design tree changed, puts the design card in the database for the owner to rule on, and queues it for the architect to look at: it blocks nothing yet, so the owner can look and stop it early. A card that a new design brings after a redesign replaces the cards of this work the redesign set aside, and keeps what the design said changed from them.",
-      "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause.",
+      "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause; one that names a matter the queue holds already is not queued again.",
       "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It starts no work of an architect; a work of the architect takes such a matter only when it came before that work started.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
       "queue_for_architect": "Queues each side report for the architect once, due at once, which starts a work of the architect when none runs; one marked urgent that comes while a work of the architect runs is also given to that work at the top of its next round.",
@@ -3139,7 +3146,8 @@
       "candidates_known": "At most ten candidates, each an open observation of the project.",
       "probes_cover_principles": "Every probe names principles the text has, and every principle has a probe; of a correction, the probes it keeps with those it writes.",
       "probes_kept": "Every probe a correction keeps is a probe of this version, and none it keeps is written out again.",
-      "talk_turn": "Before the owner ended the talk, the answer is a reply and hands in no effects; once the owner ended it, the answer is what the talk came to and its way on."
+      "talk_turn": "Before the owner ended the talk, the answer is a reply and hands in no effects; once the owner ended it, the answer is what the talk came to and its way on.",
+      "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -13014,7 +13022,7 @@
             "This round answers one thing only: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet; what matters most now, and why; and where what runs or waits does not fit. This thinking is yours and stays here: it never goes into the policy, which holds only the direction and its principles.",
             "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item, or that record it as an observation when it is worth doing some day but not now; and what matters most, most first, each with why by the policy's principles: the ranking of the items follows it.",
             "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix.",
-            "The engine queues each thing missing and each fix as a matter of yours, picked before others, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
+            "The engine queues each thing missing and each fix as a matter of yours, picked before others, but one your queue holds already, which you hand in again only naming that matter in its queued, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
           ],
           "out": [
             {
@@ -13192,6 +13200,16 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "checks": [
+            {
+              "at": "missing",
+              "check": "fix_not_queued_again"
+            },
+            {
+              "at": "fit",
+              "check": "fix_not_queued_again"
+            }
           ]
         },
         {

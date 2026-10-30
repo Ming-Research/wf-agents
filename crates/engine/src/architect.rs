@@ -2531,8 +2531,9 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "queue_fixes" => {
             let (_, project) = architect_work_of(ctx)?;
             let fit = &ctx.unwrapped["fit"];
-            // One matter for each place, with every step the understanding meant to take there.
-            for fix in items(at) {
+            // One matter for each place, with every step the understanding meant to take there; a place the queue
+            // holds already, which the fix names, is not queued again.
+            for fix in items(at).into_iter().filter(|x| x["queued"].as_i64().is_none()) {
                 let what = format!(
                     "To set straight, {}: {}",
                     db::one_sentence(text(&fix["where"])),
@@ -3286,6 +3287,20 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
     Ok(problems)
 }
 
+/// Whether two places to set straight are the same place: of one kind, and at the same place in words, or about the
+/// same items.
+fn same_place(a: &Value, b: &Value) -> bool {
+    let place = |x: &Value| {
+        text(&x["where"])
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    let ids = |x: &Value| -> BTreeSet<i64> { items(x.get("items")).iter().filter_map(Value::as_i64).collect() };
+    a["kind"] == b["kind"] && (place(a) == place(b) || (!ids(a).is_empty() && ids(a) == ids(b)))
+}
+
 /// The keys the create_item changes of a round's effects give.
 fn created_keys(effects: &Value) -> BTreeSet<String> {
     items(effects.get("item_changes"))
@@ -3319,6 +3334,45 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 }
             }
             Ok(())
+        }
+        "fix_not_queued_again" => {
+            let fixes = match (at, v) {
+                (Some("fit"), Some(fit)) => items(fit.get("fixes")),
+                (_, v) => items(v),
+            };
+            let open = query_json(
+                conn,
+                "SELECT id, json_extract(body, '$.fix') AS fix FROM architect_matters
+                 WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
+                 ORDER BY id",
+                &[&project_of(c.w)?],
+                ROWS,
+            )?;
+            let row = if at == Some("fit") { "fix" } else { "thing missing" };
+            let mut problems = Vec::new();
+            for (i, x) in fixes.iter().enumerate() {
+                let n = i + 1;
+                if let Some(m) = x["queued"].as_i64() {
+                    if !open.iter().any(|o| o["id"].as_i64() == Some(m)) {
+                        problems.push(format!(
+                            "{row} {n} names matter {m} as queued, which is no place to set straight your queue holds"
+                        ));
+                    }
+                    continue;
+                }
+                if let Some(o) = open.iter().find(|o| same_place(&o["fix"], x)) {
+                    problems.push(format!(
+                        "{row} {n} is matter {}, which your queue holds already: name it in queued, and it is not \
+                         queued again",
+                        o["id"]
+                    ));
+                }
+            }
+            if problems.is_empty() {
+                Ok(())
+            } else {
+                Err(problems.join("\n"))
+            }
         }
         "picked_pickable" => {
             let Some(m) = v.and_then(|p| p["matter"].as_i64()) else {
@@ -5004,6 +5058,22 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A place to set straight the queue holds already is the same place of the same kind, at the same place in words
+    // however spaced and cased, or about the same items; another kind or other items is another place.
+    #[test]
+    fn a_place_to_set_straight_is_the_same_by_its_place_or_its_items() {
+        let queued = json!({ "kind": "order", "where": "The parser  before the lexer", "items": [4, 5] });
+        let again = json!({ "kind": "order", "where": "the parser before the lexer", "items": [] });
+        assert!(same_place(&queued, &again));
+        assert!(same_place(&queued, &json!({ "kind": "order", "where": "Elsewhere", "items": [5, 4] })));
+        assert!(!same_place(&queued, &json!({ "kind": "split", "where": "The parser before the lexer" })));
+        assert!(!same_place(&queued, &json!({ "kind": "order", "where": "Elsewhere", "items": [4] })));
+        assert!(!same_place(
+            &json!({ "kind": "missing", "where": "a", "items": [] }),
+            &json!({ "kind": "missing", "where": "b", "items": [] })
+        ));
+    }
 
     #[test]
     fn a_row_names_an_article_by_its_number_or_its_title() {
