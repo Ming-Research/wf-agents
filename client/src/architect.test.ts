@@ -384,7 +384,7 @@ const view = (name: string): GraphView => ({ name, lines: [], cells: [], common_
 describe('the flow page with both graphs', () => {
   const graphs = [
     { g: graph('engineer', ['S0', 'R1', 'X1', 'E1']), view: view('engineer') },
-    { g: graph('architect', ['W0', 'W1', 'X1', 'E2']), view: view('architect') },
+    { g: graph('architect', ['S0', 'S1', 'X1', 'E2']), view: view('architect') },
   ];
 
   it('lays the graphs side by side, their tops in line under their names', () => {
@@ -398,27 +398,28 @@ describe('the flow page with both graphs', () => {
   });
 
   it('opens a cell in the graph that has it, and what a panel opens in its own graph', () => {
-    expect(graphOfCell(graphs, 'W1')?.g.name).toBe('architect');
+    expect(graphOfCell(graphs, 'S1')?.g.name).toBe('architect');
     expect(graphOfCell(graphs, 'R1')?.g.name).toBe('engineer');
-    expect(withGraph({ kind: 'cell', cell: 'W0' }, graphs)).toEqual({ kind: 'cell', cell: 'W0', graph: 'architect' });
+    expect(withGraph({ kind: 'cell', cell: 'S1' }, graphs)).toEqual({ kind: 'cell', cell: 'S1', graph: 'architect' });
     // A name both graphs have is the first graph's, unless the subject names its graph.
     expect(graphOfCell(graphs, 'X1')?.g.name).toBe('engineer');
+    expect(withGraph({ kind: 'cell', cell: 'S0' }, graphs)).toEqual({ kind: 'cell', cell: 'S0', graph: 'engineer' });
     expect(withGraph({ kind: 'cell', cell: 'X1', graph: 'architect' }, graphs)).toEqual({
       kind: 'cell',
       cell: 'X1',
       graph: 'architect',
     });
     expect(withGraph({ kind: 'rule', rule: 'general' }, graphs)).toEqual({ kind: 'rule', rule: 'general', graph: 'engineer' });
-    expect(withGraph({ kind: 'cell', cell: 'W0', graph: 'engineer' }, graphs)).toEqual({
+    expect(withGraph({ kind: 'cell', cell: 'S0', graph: 'architect' }, graphs)).toEqual({
       kind: 'cell',
-      cell: 'W0',
-      graph: 'engineer',
+      cell: 'S0',
+      graph: 'architect',
     });
     expect(inGraph({ kind: 'rule', rule: 'general' }, 'architect')).toEqual({ kind: 'rule', rule: 'general', graph: 'architect' });
     expect(inGraph({ kind: 'round', round: 3 }, 'architect')).toEqual({ kind: 'round', round: 3 });
     // A subject is the same whatever order its fields were written in.
-    expect(subjectKey({ graph: 'architect', kind: 'cell', cell: 'W0' })).toBe(
-      subjectKey({ kind: 'cell', cell: 'W0', graph: 'architect' }),
+    expect(subjectKey({ graph: 'architect', kind: 'cell', cell: 'S0' })).toBe(
+      subjectKey({ kind: 'cell', cell: 'S0', graph: 'architect' }),
     );
   });
 
@@ -431,13 +432,13 @@ describe('the flow page with both graphs', () => {
           changes: [],
           cells: [{ id: 'R1', title: 'R1', status: 'changed', changes: [] }],
         },
-        { name: 'architect', status: 'added', changes: [], cells: [{ id: 'W0', title: 'W0', status: 'added', changes: [] }] },
+        { name: 'architect', status: 'added', changes: [], cells: [{ id: 'S0', title: 'S0', status: 'added', changes: [] }] },
       ],
     };
     const marks = diffMarks(graphs, diff);
     expect([...marks[0].changed]).toEqual(['R1']);
     expect([...marks[0].added]).toEqual([]);
-    expect([...marks[1].added]).toEqual(['W0']);
+    expect([...marks[1].added]).toEqual(['S0']);
     expect(diffMarks(graphs, null).every((m) => m.added.size === 0 && m.changed.size === 0)).toBe(true);
   });
 });

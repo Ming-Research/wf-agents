@@ -198,7 +198,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .collect();
     let commit = e.config.commit.clone();
     // The session manager chose the session: the line's going on, resumed once the CLI started it and else started
-    // under the id kept for it, or a new one, which ends the one the line had going on; a new one the owner asked for
+    // under the id kept for it, which the architect's line takes up from the project's previous architect work at its
+    // first round in a work; or a new one, which ends the one the line had going on; a new one the owner asked for
     // meets the ask.
     // A round whose session starts afresh says why in its record.
     let new_why = match &plan {
@@ -214,10 +215,20 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Plan::Going {
             id,
             cli_session,
-            resume: true,
+            resume,
+            carried,
             ..
-        } => (id, Some(cli_session.clone()), cli_session),
-        Plan::Going { id, cli_session, .. } => (id, None, cli_session),
+        } => {
+            let id = if carried {
+                e.db.write(Actor::Engine, |tx| {
+                    sessions::choose::carry_over(tx, w.id, id).map_err(db::Error::Abort)
+                })
+                .map_err(sql)?
+            } else {
+                id
+            };
+            (id, resume.then(|| cli_session.clone()), cli_session)
+        }
         Plan::New(why) => {
             let fresh = agent::new_session_id();
             let id =
@@ -1073,7 +1084,13 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
     };
-    let quick = matches!(step.as_deref(), None | Some("choose_checks") | Some("wait_for_start"));
+    // A step that only chooses the row is taken at once; so is where a project's architect waits for a work to start,
+    // which no work of the architect stands at, its works starting where its row leads: a work there would take the row
+    // for whether a matter is due for its project.
+    let quick = matches!(
+        step.as_deref(),
+        None | Some("choose_checks") | Some("wait_for_start") | Some("wait_for_matter")
+    );
     if quick {
         let output = match step.as_deref() {
             Some("choose_checks") => choose_checks(e, w, g)?,
@@ -1109,7 +1126,6 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") | Some("end_policy") => json!({}),
-        Some("wait_for_matter") => architect::carry_over(e, w)?,
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some("put_draft_together") => architect::put_draft_together(e, w)?,

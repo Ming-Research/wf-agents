@@ -1109,8 +1109,8 @@ CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
   -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
   -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer, and whether it is urgent. Read by: cells `W0` and `Q0`; the engine, which starts the works of each
-  -- project's architect and gives the architect its queue; the owner's interface.
+  -- answer, and whether it is urgent. Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it
+  -- for each project whose architect runs no work, and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (

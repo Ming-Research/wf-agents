@@ -2,7 +2,9 @@
 //! session at its first round in a work, at the work's first round of a cell the flow says it starts one at (a row
 //! leads there with the action `open_session`), and when
 //! the context of its session is past the configuration's limit, and when the owner asks for one; every other round
-//! goes on in the line's session. A cell on no line has a session of its own every round.
+//! goes on in the line's session. The architect's line, at its first round in a work, takes up the session the
+//! project's previous architect work left, unless it ended, as a new policy ends it. A cell on no line has a session
+//! of its own every round.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use flow::CompiledCell;
@@ -45,13 +47,16 @@ impl Start {
 pub enum Plan {
     /// In its line's session going on: its row, the CLI's id for it, its rounds oldest first (those of the architect's
     /// earlier works too, for the architect's line), what it holds, and whether the CLI started it, so that it is
-    /// resumed; a session the CLI never started is started under the id kept for it.
+    /// resumed; a session the CLI never started is started under the id kept for it. A session `carried` is the one
+    /// the project's previous architect work left, whose row is that work's: the round takes it up for its own work
+    /// ([`carry_over`]).
     Going {
         id: i64,
         cli_session: String,
         rounds: Vec<Round>,
         held: Box<Held>,
         resume: bool,
+        carried: bool,
     },
     /// In a new session, for the reason given; it holds nothing yet.
     New(Start),
@@ -107,8 +112,12 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    let Some((id, cli_session)) = going else {
-        return Ok(Plan::New(Start::Line));
+    let (id, cli_session, carried) = match going {
+        Some((id, cli_session)) => (id, cli_session, false),
+        None => match left(conn, work, line)? {
+            Some((id, cli_session)) => (id, cli_session, true),
+            None => return Ok(Plan::New(Start::Line)),
+        },
     };
     let (rounds, held) = held::of_session(conn, &cli_session)?;
     // A fixed place of the flow opens a new session at the work's first round there; a session set up for the line
@@ -143,7 +152,42 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
         rounds,
         held: Box::new(held),
         resume,
+        carried,
     })
+}
+
+/// The line of the architect's works, whose session goes on from one of a project's architect works to the next.
+const ARCHITECT: &str = "architect";
+
+/// The session a work of a project's architect takes up at its line's first round in the work: the one the project's
+/// previous architect work left on the line, its row and the CLI's id for it, unless it ended, as a new policy ends it;
+/// none for another line, once the work's line had a session, and at the project's first architect work.
+fn left(conn: &Connection, work: i64, line: &str) -> Result<Option<(i64, String)>, String> {
+    if line != ARCHITECT {
+        return Ok(None);
+    }
+    let had: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sessions WHERE work = ?1 AND line = ?2",
+            params![work, line],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if had > 0 {
+        return Ok(None);
+    }
+    let last: Option<(i64, String, Option<i64>)> = conn
+        .query_row(
+            "SELECT s.id, s.cli_session, s.ended FROM sessions s JOIN works x ON x.id = s.work
+             WHERE x.graph = 'architect' AND s.line = ?2 AND s.work < ?1
+               AND x.project = (SELECT project FROM works WHERE id = ?1 AND graph = 'architect')
+             ORDER BY s.id DESC LIMIT 1",
+            params![work, line],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(last.and_then(|(id, cli_session, ended)| ended.is_none().then_some((id, cli_session))))
 }
 
 /// Starts a new session of a work's line in the CLI named, under the CLI's id given, for the reason given: the session
@@ -174,40 +218,21 @@ pub fn begin(conn: &Connection, work: i64, line: &str, cli: &str, cli_session: &
     Ok(())
 }
 
-/// A work of a project's architect goes on in the CLI session the project's previous architect work left, unless a new
-/// policy ended it: its line's session is a row of this work's with the same CLI session, which the next round of the
-/// line resumes. The project's first architect work, and the first after a new policy took effect, start a new one at
-/// their first round; so does a work that comes back to its start after its new policy ended its session.
-pub fn carry_over(conn: &Connection, work: i64) -> Result<(), String> {
-    let had: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM sessions WHERE work = ?1 AND line = 'architect'",
-            [work],
-            |r| r.get(0),
+/// A work of a project's architect takes up, at its line's first round in it, the session the project's previous
+/// architect work left (`from`, that work's row, as [`plan`] found it): its line's session is a row of this work's with
+/// the same CLI session, started as carried, which the round resumes. Gives the row.
+pub fn carry_over(conn: &Connection, work: i64, from: i64) -> Result<i64, String> {
+    let n = conn
+        .execute(
+            "INSERT INTO sessions (work, line, cli, cli_session, started)
+             SELECT ?1, line, cli, cli_session, ?3 FROM sessions WHERE id = ?2",
+            params![work, from, Start::Carried.name()],
         )
         .map_err(|e| e.to_string())?;
-    if had > 0 {
-        return Ok(());
+    if n != 1 {
+        return Err(format!("work {work}: no session {from} to take up"));
     }
-    let last: Option<(String, String, Option<i64>)> = conn
-        .query_row(
-            "SELECT s.cli, s.cli_session, s.ended FROM sessions s JOIN works x ON x.id = s.work
-             WHERE x.graph = 'architect' AND s.line = 'architect' AND s.work < ?1
-               AND x.project = (SELECT project FROM works WHERE id = ?1)
-             ORDER BY s.id DESC LIMIT 1",
-            [work],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
-    if let Some((cli, cli_session, None)) = last {
-        conn.execute(
-            "INSERT INTO sessions (work, line, cli, cli_session, started) VALUES (?1, 'architect', ?2, ?3, ?4)",
-            params![work, cli, cli_session, Start::Carried.name()],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    Ok(conn.last_insert_rowid())
 }
 
 /// The CLI's id for a session, when the CLI reported another than the one the session was started under.

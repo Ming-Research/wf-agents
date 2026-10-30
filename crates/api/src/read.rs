@@ -2993,8 +2993,7 @@ mod tests {
                            "given": {} });
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let architect_work = [
-            ("W0", queued.to_string(), Some("{}".to_string()), Some("started")),
-            ("W1", "{}".into(), Some("{}".into()), Some("not_understood")),
+            ("S1", queued.to_string(), Some("{}".to_string()), Some("not_understood")),
             (
                 "U1",
                 "{}".into(),
@@ -3102,10 +3101,10 @@ mod tests {
             let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "A3",
                 "asked": [], "holds": [3] })
             .to_string();
-            run("INSERT INTO owner_asks (work, round, body) VALUES (2, 9, ?1)", &[&held])?;
+            run("INSERT INTO owner_asks (work, round, body) VALUES (2, 8, ?1)", &[&held])?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at, handled_work,
-                 handled_round) VALUES ('p', 'engineer_question', 'split', 'Split #1?', '{}', 1, 1, 1, 5, 2, 9)",
+                 handled_round) VALUES ('p', 'engineer_question', 'split', 'Split #1?', '{}', 1, 1, 1, 5, 2, 8)",
                 &[],
             )?;
             run(
@@ -3126,7 +3125,7 @@ mod tests {
             run("INSERT INTO dispatch_holds (project, reason, since) VALUES ('q', 'architect', 300)", &[])?;
             run(
                 "INSERT INTO architect_item_changes (work, round, matter, change, state, outcome)
-                 VALUES (2, 9, 1, '{\"kind\":\"hold\",\"item\":2,\"reason\":\"r\"}', 'made', NULL)",
+                 VALUES (2, 8, 1, '{\"kind\":\"hold\",\"item\":2,\"reason\":\"r\"}', 'made', NULL)",
                 &[],
             )?;
             run(
@@ -3135,7 +3134,7 @@ mod tests {
                 &[],
             )?;
             run("UPDATE observations SET closed = 'outdated', closed_why = 'Gone.' WHERE id = 2", &[])?;
-            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 9, 'Learned L'), (1, 2, 'told')", &[])?;
+            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 8, 'Learned L'), (1, 2, 'told')", &[])?;
             Ok(())
         })
         .unwrap();
@@ -3191,7 +3190,7 @@ mod tests {
             seen,
             [
                 ("words", "owner", "Put the parser first.", 200, false, true),
-                ("ask", "architect", "", 209, true, false),
+                ("ask", "architect", "", 208, true, false),
                 ("ask", "architect", "", 400, true, false)
             ]
         );
@@ -3208,7 +3207,7 @@ mod tests {
                     .map(|m| (m.matter, m.state.as_str(), m.work, e.at))
             })
             .collect();
-        assert_eq!(cards, [(1, "done", Some(1), 206), (3, "held", Some(1), 209)]);
+        assert_eq!(cards, [(1, "done", Some(1), 205), (3, "held", Some(1), 208)]);
         let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
         let said: Vec<(&str, &str, &str)> = work
             .entries
@@ -3417,7 +3416,7 @@ mod tests {
                 &[],
             )?;
             run(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (5, 1, 'W0', ?1, 'c', 600)",
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (5, 1, 'S1', ?1, 'c', 600)",
                 &[&input],
             )?;
             Ok(())
@@ -3512,7 +3511,7 @@ mod tests {
         let h = a.handled.iter().find(|h| h.matter == 1).unwrap();
         assert_eq!(
             (h.kind.as_str(), h.work, h.round, h.made, h.dropped),
-            ("engineer_question", 2, 9, 1, 0)
+            ("engineer_question", 2, 8, 1, 0)
         );
         assert!(h.why.is_none(), "{h:?}");
         assert_eq!(a.changes.len(), 1);
@@ -3528,14 +3527,14 @@ mod tests {
         assert_eq!(setting.draft, None);
 
         // The check of the policy in force, in the policy's part.
-        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 4)));
+        assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
         assert_eq!(a.check.as_ref().unwrap().value["against"][0]["status"], "broken");
         // The plan of what to do next, by its cell and round; it found everything fits and nothing missing, so it
         // queued no matter.
         let next = &a.next;
         assert_eq!(
             next.plan.as_ref().map(|x| (x.work, x.round, x.cell.as_str())),
-            Some((2, 5, "N1"))
+            Some((2, 4, "N1"))
         );
         assert_eq!(next.plan.as_ref().unwrap().value["fit"]["verdict"], "fits");
         assert!(next.matters.is_empty());

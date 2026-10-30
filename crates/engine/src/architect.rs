@@ -187,7 +187,10 @@ const REVIEW: &str = "B2";
 /// understood the project; and the stage of the cells that set a new policy, after the check of the policy in force
 /// that opens it.
 const LINE: &str = "architect";
-const UNDERSTOOD_YET: &str = "W1";
+const UNDERSTOOD_YET: &str = "S1";
+
+/// The value the rows of the cell a project's architect waits at to start (`S0`) switch on: whether a matter is due.
+const DUE: &str = "due";
 const SETTING_POLICY: &str = "policy";
 const POLICY_CHECK: &str = "P1";
 
@@ -445,23 +448,42 @@ pub fn add_flow_feedback(
     Ok(())
 }
 
-/// Starts a work of a project's architect: a work of the architect's graph for the project, on no item, at its start,
-/// on the flow version new works start on; paused by the owner when the owner's step started it.
-pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<i64, String> {
+/// Whether a matter is due for a project's architect, by the name of the row of the cell it waits at to start (`S0`)
+/// that says it: `due` when its queue has a matter that starts a work of it ([`queue_has`]), `nothing_due` otherwise.
+pub fn waits_to_start(e: &Engine, project: &str) -> Result<&'static str, String> {
+    Ok(if queue_has(e, project)? { "due" } else { "nothing_due" })
+}
+
+/// Takes the rows of the cell a project's architect waits at to start (`S0`) for a project whose architect runs no
+/// work, without a round, as the engine takes the engineer's for an item that waits: when the row it takes leads on, a
+/// work of the architect's graph starts for the project, on no item and on the flow version new works start on, at the
+/// cell that row leads to, paused by the owner when the owner's step started it. Gives the work started; none while
+/// the project waits there. A flow version whose start is no such cell starts the work at its start when one is due.
+pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<Option<i64>, String> {
+    let due = waits_to_start(e, project)?;
     let v = e.flow_now;
-    let start = e
-        .flow(v)?
-        .graph(ARCHITECT)
-        .map(|g| g.start.clone())
-        .ok_or("the flow has no architect's graph")?;
+    let g = e.flow(v)?.graph(ARCHITECT).ok_or("the flow has no architect's graph")?;
+    let at = match g.cell(&g.start) {
+        Some(c) if c.inenums.contains_key(DUE) => {
+            let mut given = Map::new();
+            given.insert(DUE.into(), json!(due));
+            let row = g.take(&g.start, &json!({}), &given)?;
+            if row.to == g.start {
+                return Ok(None);
+            }
+            g.step(&g.start_position(), row)?.at
+        }
+        _ if due == "due" => g.start.clone(),
+        _ => return Ok(None),
+    };
     let paused = paused.then_some(db::PAUSED_BY_OWNER);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, paused, paused_by, project)
              VALUES (NULL, ?1, ?2, ?3, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE 'owner' END, ?5)",
-            params![v, ARCHITECT, start, paused, project],
+            params![v, ARCHITECT, at, paused, project],
         )?;
-        Ok(tx.last_insert_rowid())
+        Ok(Some(tx.last_insert_rowid()))
     })
     .map_err(sql)
 }
@@ -533,17 +555,6 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
         e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
     }
     Ok(())
-}
-
-/// Cell `W0`: the work goes on in the CLI session the project's previous architect work left, unless a new policy ended
-/// it: its line's session is a row of this work's with the same CLI session, which the next round of the line resumes.
-pub fn carry_over(e: &mut Engine, w: &Work) -> Result<Value, String> {
-    let id = w.id;
-    e.db.write(Actor::Engine, |tx| {
-        sessions::choose::carry_over(tx, id).map_err(db::Error::Abort)
-    })
-    .map_err(sql)?;
-    Ok(json!({}))
 }
 
 // The queue and the batch.
@@ -978,6 +989,7 @@ fn picked_detail(conn: &Connection, work: i64) -> Result<Option<String>, String>
 pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Option<String>, String> {
     let conn = e.db.conn();
     Ok(Some(match name {
+        DUE => waits_to_start(e, project_of(w)?)?.into(),
         "understanding" => if understood(e, w, g)? {
             "understood"
         } else {

@@ -7,7 +7,8 @@
 //! cell takes is handled as the flow's rounds section says.
 //!
 //! Each project's architect's works run its graph on no item, one at a time for each project and holding no slot,
-//! started when the project's queue of matters has one ([`architect`]).
+//! started as the cell the project's architect waits at to start (`S0`) says, when the project's queue of matters has
+//! one ([`architect`]).
 //!
 //! In this version the engine and the session manager are one process on one machine, and the engine takes one work
 //! one step at a time: a long round of one work holds up the others.
@@ -762,24 +763,26 @@ impl Engine {
         self.config.config.projects.keys().cloned().collect()
     }
 
-    /// A work of a project's architect to start now: none of the project runs, and its queue has a matter once what
-    /// the engine raises itself is queued; the first such project's. Gives the work started.
+    /// A work of a project's architect to start now: once what the engine raises itself is queued, the rows of the cell
+    /// a project's architect waits at to start (`S0`), taken for each project none of whose architect works runs; the
+    /// first such project's whose row leads on. Gives the work started.
     fn architect_work_due(&mut self) -> Result<Option<i64>, String> {
         architect::queue_due(self)?;
         for project in self.projects() {
-            if architect::running(self, &project)?.is_some() || !architect::queue_has(self, &project)? {
+            if architect::running(self, &project)?.is_some() {
                 continue;
             }
-            let id = architect::start(self, &project, false)?;
-            (self.say)(&format!("work {id}: a work of the architect of {project} starts"));
-            return Ok(Some(id));
+            if let Some(id) = architect::start(self, &project, false)? {
+                (self.say)(&format!("work {id}: a work of the architect of {project} starts"));
+                return Ok(Some(id));
+            }
         }
         Ok(None)
     }
 
     /// The owner's step of a project's architect: the next round of the work of it that runs, or, when none runs and
-    /// its queue has a matter, a new work started paused by the owner, and its first round. Nothing runs when the
-    /// architect has nothing to start a work for.
+    /// the cell it waits at to start (`S0`) leads on, a matter being due, a new work started paused by the owner, and
+    /// its first round. Nothing runs when the architect has nothing to start a work for.
     pub fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
@@ -790,11 +793,10 @@ impl Engine {
             return self.step_work(id);
         }
         architect::queue_due(self)?;
-        if !architect::queue_has(self, project)? {
-            return Ok(Stepped::default());
-        }
         let mark = self.rounds_mark()?;
-        let id = architect::start(self, project, true)?;
+        let Some(id) = architect::start(self, project, true)? else {
+            return Ok(Stepped::default());
+        };
         (self.say)(&format!(
             "work {id}: a work of the architect of {project} starts, as the owner steps it"
         ));
@@ -979,11 +981,11 @@ impl Engine {
     }
 
     /// While every work is paused, one step of the works the owner started (`started`), and of the architects of the
-    /// projects the owner started them for (`architects`): when no architect work of such a project runs and its queue
-    /// has a matter, one starts and takes its first step; otherwise the next step of the first of those works, and of
-    /// the architect works that run, that has one, in the order of the works' ids beginning after `after`, as
-    /// [`Engine::step`] goes round the works that go on. A started work paused by itself takes no step, and no new work
-    /// starts on a ready item.
+    /// projects the owner started them for (`architects`): when no architect work of such a project runs and the cell
+    /// it waits at to start (`S0`) leads on, a matter being due, one starts and takes its first step; otherwise the
+    /// next step of the first of those works, and of the architect works that run, that has one, in the order of the
+    /// works' ids beginning after `after`, as [`Engine::step`] goes round the works that go on. A started work paused
+    /// by itself takes no step, and no new work starts on a ready item.
     pub fn step_started(
         &mut self,
         after: Option<i64>,
@@ -998,10 +1000,12 @@ impl Engine {
         let mark = self.rounds_mark()?;
         architect::queue_due(self)?;
         for project in architects {
-            if architect::running(self, project)?.is_some() || !architect::queue_has(self, project)? {
+            if architect::running(self, project)?.is_some() {
                 continue;
             }
-            let id = architect::start(self, project, false)?;
+            let Some(id) = architect::start(self, project, false)? else {
+                continue;
+            };
             (self.say)(&format!(
                 "work {id}: a work of the architect of {project} starts, as the owner started it"
             ));

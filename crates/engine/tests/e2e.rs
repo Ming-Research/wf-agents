@@ -2973,7 +2973,7 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     say(&mut e, "Make the parser's item clearer.");
     let started = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let project: Option<String> =
         e.db.conn()
@@ -2989,14 +2989,14 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     assert_eq!(
         path_of(&e, arch),
         [
-            "W0", "W1", "U1", "P1", "N1", "Q0", "Q2", "H8", "B1", "B2", "B4", "Q0", "E1", "E2"
+            "S1", "U1", "P1", "N1", "Q0", "Q2", "H8", "B1", "B2", "B4", "Q0", "E1", "E2"
         ],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
-    assert_eq!(rows[1].as_deref(), Some("not_understood"));
-    assert_eq!(rows[8].as_deref(), Some("review"));
-    assert_eq!(rows[9].as_deref(), Some("ok"));
+    assert_eq!(rows[0].as_deref(), Some("not_understood"));
+    assert_eq!(rows[7].as_deref(), Some("review"));
+    assert_eq!(rows[8].as_deref(), Some("ok"));
     // The change is made, as the architect's, and logged as made with the matter it came from.
     let title: String =
         e.db.conn()
@@ -3138,7 +3138,7 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     let log = said.borrow().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["W0", "W1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E1", "E2"],
+        ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E1", "E2"],
         "{log}"
     );
     let sessions: Vec<(String, String)> = {
@@ -3566,7 +3566,7 @@ fn a_policy_set_again_is_studied_beside_the_architect_s_work_and_the_owner_says_
     let log = said.borrow().join("\n");
     let setting = settings(&e)[0];
     assert_eq!(path_of(&e, setting), ["P2", "P3"], "{log}");
-    assert_eq!(path_of(&e, arch)[..5], ["W0", "W1", "U1", "P1", "Q0"], "{log}");
+    assert_eq!(path_of(&e, arch)[..4], ["S1", "U1", "P1", "Q0"], "{log}");
     let holds = |e: &Engine| -> Vec<(String, String)> {
         let mut st =
             e.db.conn()
@@ -3978,7 +3978,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
     let started = e.step(work).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -4261,7 +4261,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     say(&mut e, "Stop the feature until the parser is in.");
     let started = e.step(Some(work)).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
     assert!(steps_until(&mut e, 40, stopped), "{}", said.borrow().join("\n"));
@@ -4388,7 +4388,7 @@ fn slots_free_with_nothing_ready_start_a_work_of_the_architect_at_most_once_an_h
     let (mut e, said) = engine(&s, scripts());
     let started = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let body: String =
         e.db.conn()
@@ -4427,7 +4427,7 @@ fn slots_free_with_nothing_ready_start_a_work_of_the_architect_at_most_once_an_h
     .unwrap();
     let again = e.step(None).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("W0"), "{log}");
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{log}");
     assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -4496,18 +4496,18 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     say(&mut e, "Look at the queue.");
     let first = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("W0"), 1), "{log}");
+    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("S1"), 1), "{log}");
     let arch = first.work.unwrap();
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
     let second = e.step_work(arch).unwrap();
     let log = said.borrow().join("\n");
-    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("W1"), 1), "{log}");
+    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("U1"), 1), "{log}");
     let third = e.step_architect("p").unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(arch), Some("U1"), 1),
+        (Some(arch), Some("P1"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
@@ -6193,7 +6193,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, ?1, 'architect', 'W0', 'over', 'p')",
+                 VALUES (NULL, ?1, 'architect', 'S1', 'over', 'p')",
                 [v],
             )?;
             let set = tx.last_insert_rowid();
@@ -6634,8 +6634,8 @@ fn a_new_session_in_the_middle_of_an_architect_work_understands_the_project_firs
     let log = said.borrow().join("\n");
     let path = path_of(&e, arch);
     // The work was at `H8`, the matter picked, when the new session was asked for: it took the row for that there.
-    let back = path.iter().rposition(|c| c == "W1").expect(&log);
-    assert_eq!(&path[back - 1..back + 3], ["H8", "W1", "U1", "P1"], "{path:?}\n{log}");
+    let back = path.iter().rposition(|c| c == "S1").expect(&log);
+    assert_eq!(&path[back - 1..back + 3], ["H8", "S1", "U1", "P1"], "{path:?}\n{log}");
     assert!(path[back..].contains(&"H8".to_string()), "{path:?}");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
@@ -7026,9 +7026,9 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     let c = api::Control::default();
     say(&mut e, "Look at the queue.");
     c.start(api::Fresh::Architect("p".into()), false);
-    // Starting and finding the session has not understood the project take the engine's own steps; then the first
+    // Starting takes the engine's own step, which finds the session has not understood the project; then the first
     // round.
-    let arch = turns(&mut e, &c, 3)[0];
+    let arch = turns(&mut e, &c, 2)[0];
     let log = said.borrow().join("\n");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
@@ -7040,7 +7040,7 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
         turn(&mut e, &c, None);
     }
     let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, arch), ["W0", "W1", "U1", "P1", "W1", "U1", "P1"], "{log}");
+    assert_eq!(path_of(&e, arch), ["S1", "U1", "P1", "S1", "U1", "P1"], "{log}");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");

@@ -2,9 +2,10 @@
 //! the work ran on. Cells had numbers (the engineer's graph) and codes (the architect's) first, then names, then names
 //! with their stage, and now codes by stage, as `T6`: the stage's letter and the cell's order in it. A reader of the
 //! works and rounds of every version names a cell by every id it has had, but for an id that is now another cell's
-//! code: the architect's first codes P1 to P11, N1, Q1, Q2 and X1 were other cells, and so was the engineer's S0, its
-//! start before the cell an item waits at to start took that code; a round of those versions at one of them reads as
-//! the cell with that code now, so that no round of this version reads as another cell.
+//! code: the architect's first codes P1 to P11, N1, Q1, Q2, X1 and S1 were other cells, and so was the engineer's S0,
+//! its start before the cell an item waits at to start took that code; a round of those versions at one of them reads
+//! as the cell with that code now, so that no round of this version reads as another cell. The architect's first two
+//! cells were W0 and W1 while their stage was named wake; they took the letter of its name now, start.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
@@ -45,8 +46,8 @@ const BEFORE: [(&str, &str, &[&str]); 70] = [
     ("engineer", "A3", &["16", "to_owner", "ask.owner"]),
     ("engineer", "X1", &["13", "tools"]),
     ("engineer", "E1", &["20", "end"]),
-    ("architect", "W0", &["wake", "wake.start"]),
-    ("architect", "W1", &["understood", "wake.understood"]),
+    ("architect", "S0", &["W0", "wake", "wake.start"]),
+    ("architect", "S1", &["W1", "understood", "wake.understood"]),
     ("architect", "U1", &["state", "understand.state"]),
     ("architect", "P1", &["U2", "policy_right", "understand.policy"]),
     ("architect", "N1", &["U3", "fit", "understand.fit"]),
@@ -150,7 +151,7 @@ mod tests {
         assert_eq!(cells_sql("engineer", &["I1"]), "('I1', '4', 'implement')");
         assert_eq!(
             cells_sql("architect", &["X1", "X2"]),
-            "('X1', 'TOOLS', 'tools', 'X2', 'S1', 'search')"
+            "('X1', 'TOOLS', 'tools', 'X2', 'search')"
         );
         assert!(is_cell("engineer", "A3", "16") && is_cell("engineer", "A3", "to_owner"));
         assert!(!is_cell("architect", "A3", "16") && is_cell("architect", "A3", "ASK"));
@@ -162,7 +163,16 @@ mod tests {
         assert!(is_cell("architect", "A3", "ask.owner") && !is_cell("architect", "A3", "owner"));
         assert!(is_cell("architect", "P12", "takes_effect") && !is_cell("architect", "P12", "P10"));
         assert!(is_cell("architect", "H2", "handle.crux") && !is_cell("architect", "H2", "Q1"));
-        assert!(is_cell("architect", "W0", "wake.start") && is_cell("architect", "B1", "handle.batch_done"));
+        assert!(is_cell("architect", "S0", "wake.start") && is_cell("architect", "B1", "handle.batch_done"));
+        // The architect's start was W0 and W1: a round there reads as S0 and S1 now, and one of an earlier version at
+        // the search's first code, S1, as the cell coded S1 now.
+        assert_eq!(code_of("architect", "W0"), Some("S0"));
+        assert_eq!(code_of("architect", "W1"), Some("S1"));
+        assert_eq!(code_of("architect", "S1"), Some("S1"));
+        assert_eq!(
+            cells_sql("architect", &["S1"]),
+            "('S1', 'W1', 'understood', 'wake.understood')"
+        );
         // The start is S1 now, and S0 the cell an item waits at to start, which was U0: a round of an earlier version
         // at the start named S0 reads as the cell coded S0 now.
         assert_eq!(code_of("engineer", "start"), Some("S1"));

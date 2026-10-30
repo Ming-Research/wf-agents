@@ -29,16 +29,16 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-// The architect's graph compiles with no finding, as the design the owner approved: the start of its work (`W0`,
-// `W1`, `U1`, `P1`, `N1`), the queue (`Q0`) and each matter's path, the review of a batch of item changes (`B1`, `B2`,
-// `B3`, `B4`), the wrap-up (`E1`, `E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the
-// observer (`X2`), the wait for the owner's Start after a pause (`X3`) and the answers to what the owner says while it
-// works (`X4`): as many cells, rows and states.
+// The architect's graph compiles with no finding, as the design the owner approved: where it waits for a work to start
+// and the start of its work (`S0`, `S1`, `U1`, `P1`, `N1`), the queue (`Q0`) and each matter's path, the review of a
+// batch of item changes (`B1`, `B2`, `B3`, `B4`), the wrap-up (`E1`, `E2`), the owner's ask that holds only its matter
+// (`A3`), the tools (`X1`), the observer (`X2`), the wait for the owner's Start after a pause (`X3`) and the answers to
+// what the owner says while it works (`X4`): as many cells, rows and states.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (29, 116, 181));
+    assert_eq!((s.cells, s.rows, s.states), (29, 117, 182));
 }
 
 // The setting of a policy compiles with no finding, as a task of its own: the study of a new policy (`P2` to `P12`),

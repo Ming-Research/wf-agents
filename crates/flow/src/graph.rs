@@ -973,17 +973,19 @@ impl<'s> Graph<'s> {
 
         let holders = blockers(flow, &cells, &at)?;
         // A holder's own graph never stops: no row waits but for the owner's Start after a pause, and an ask of the
-        // owner goes on without the answer.
+        // owner goes on without the answer. Where its start waits for a work to start, no work stands, so a row that
+        // waits there stops none.
         if let Some(h) = &flow.holds {
             ensure!(
                 crate::format::HOLDERS.contains(&h.as_str()),
                 "a graph holds for no such holder: {h}"
             );
-            for c in &cells {
+            for (i, c) in cells.iter().enumerate() {
                 for r in &c.rows {
-                    let start = c.step.as_deref() == Some(WAIT_FOR_START);
+                    let paused = c.step.as_deref() == Some(WAIT_FOR_START);
+                    let no_work = i == start && r.target == Target::Cell(start);
                     ensure!(
-                        !r.waits || start,
+                        !r.waits || paused || no_work,
                         "the {h}'s own graph stops: {} {} waits, and the {h} holds blockers",
                         c.id,
                         r.name

@@ -3022,8 +3022,8 @@
       "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask from a cell on a matter's path holds only that matter, and the architect's work goes on; any other waits for the answer. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again. In the setting of a policy, what the owner says while reading goes to the cell that answers it, and the work comes back to the same ask, still open.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
-      "wait_for_matter": "No work of the project's architect runs yet: when a matter comes to the project's queue, flow feedback aside, a work of the architect's graph starts, for that project and on no item. It goes on in the session the project's previous architect work left. It holds no slot, and one runs at a time for each project.",
-      "end_architect_work": "Ends the architect's work. The project's next architect work starts with the next matter that comes to its queue, flow feedback aside, its own or forwarded by another project's architect.",
+      "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again.",
+      "end_architect_work": "Ends the architect's work.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and answered every probe rightly, a minor fix found in between included: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text and probes together, for a new architect to read, and records them: as the architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with the fix's edits applied.",
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. Exactly one is picked here, without a round.",
@@ -3185,6 +3185,7 @@
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "waited": "Whether every item waited for is merged.",
       "design_card_disputed": "Whether the reply or interjection brought back holds a disagreement with a decision of the design card.",
+      "due": "Whether a matter in the project's queue is due for its architect, which starts a work of it.",
       "understanding": "Whether the session the architect's work goes on in answered the understanding question since it started or was last compacted.",
       "entry": "How the work came to the understanding question: the architect's first work on the project, a new policy, another new session, a compacted one, or a rethink after a batch.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer.",
@@ -3668,9 +3669,6 @@
       "wait_for_start": [
         "owner_notices"
       ],
-      "wait_for_matter": [
-        "sessions"
-      ],
       "raise_blocker": [
         "blockers"
       ],
@@ -3775,6 +3773,12 @@
         "says": "a ruling that disagrees with the design card",
         "stores": [
           "design_cards"
+        ]
+      },
+      "due": {
+        "says": "the project's queue, flow feedback aside",
+        "stores": [
+          "architect_queue"
         ]
       },
       "understanding": {
@@ -11594,17 +11598,17 @@
     },
     {
       "name": "architect",
-      "start": "W0",
+      "start": "S0",
       "end": "E2",
       "blocks": [
         {
           "name": "start",
           "nodes": [
-            "W0",
-            "W1"
+            "S0",
+            "S1"
           ],
           "entries": [
-            "W0"
+            "S0"
           ]
         },
         {
@@ -11720,7 +11724,7 @@
             "desc": "The architect of the work's project: a work of the architect goes on in the session the project's previous architect work left, from understanding the project to the wrap-up",
             "anew": {
               "row": "session_anew",
-              "to": "W1",
+              "to": "S1",
               "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model changed): it holds no state of things, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue. Not after a new policy took effect, whose new session goes straight on to what to do next.",
               "not": [
                 "U1"
@@ -11764,15 +11768,16 @@
         "rules": [
           "The owner's interface shows each project's architect on its tab: whether a work of it runs, and while one runs which question it is at and which matter it handles.",
           "The stage is not stored: it follows from the cell the architect's work is at.",
+          "Cell `S0`, at the stage start, is where a project's architect waits while no work of it runs: it belongs to no work, and its rows say whether a matter is due.",
           "While asking the owner, running tools or searching, the stage is that of the cell the architect's work stopped at."
         ],
         "list": [
           {
             "name": "start",
-            "desc": "The engine starts a work of it, and readies its session",
+            "desc": "The project's architect waits, with no work, until a matter is due; then a work starts, and asks whether its session understands the project",
             "nodes": [
-              "W0",
-              "W1"
+              "S0",
+              "S1"
             ]
           },
           {
@@ -11840,7 +11845,7 @@
           },
           {
             "name": "record",
-            "desc": "The architect's work is done; waiting for the next",
+            "desc": "The architect's work ends",
             "nodes": [
               "E2"
             ]
@@ -12204,14 +12209,14 @@
       },
       "nodes": [
         {
-          "id": "W0",
+          "id": "S0",
           "kind": "engine",
           "title": "Waits to start",
           "step": "wait_for_matter",
           "inputs": [
             {
-              "name": "Why it started",
-              "what": "Why this work of yours started: the matters due in your queue (an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with fewer items ready than slots, a matter back with the owner's answer), or the owner started or stepped you",
+              "name": "Its queue",
+              "what": "The matters in the project's queue not handled, not withdrawn and not held by an ask of the owner still waiting, each with its kind",
               "from": [
                 {
                   "db": "architect_queue",
@@ -12220,25 +12225,66 @@
               ]
             }
           ],
-          "out": [],
           "cases": [
             {
-              "name": "started",
+              "name": "nothing_due",
               "if": [
                 [
-                  "all"
+                  "inp",
+                  "due",
+                  [
+                    "nothing_due"
+                  ]
                 ]
               ],
-              "to": "W1",
+              "to": "S0",
+              "waits": true,
+              "note": "Until a matter comes to the queue, or one held by an ask comes back with its answer."
+            },
+            {
+              "name": "due",
+              "if": [
+                [
+                  "inp",
+                  "due",
+                  [
+                    "due"
+                  ]
+                ]
+              ],
+              "to": "S1",
               "main": true
             }
-          ]
+          ],
+          "inenums": {
+            "due": [
+              [
+                "nothing_due",
+                "No matter is due: the queue holds none, or only matters held by an ask the owner has not answered, or only flow feedback, which a work of the architect takes when something else started it"
+              ],
+              [
+                "due",
+                "A matter in the queue is due, flow feedback aside"
+              ]
+            ]
+          }
         },
         {
-          "id": "W1",
+          "id": "S1",
           "kind": "engine",
           "title": "The session's understanding",
-          "inputs": [],
+          "inputs": [
+            {
+              "name": "Why it started",
+              "what": "The matters due in the project's queue as the cell runs, which at the work's start are those that started it: an engineer's question, a report, a design card to look at, a failure, the owner's words, another architect's message, slots free with fewer items ready than slots, or a matter back with the owner's answer",
+              "from": [
+                {
+                  "db": "architect_queue",
+                  "by": "project"
+                }
+              ]
+            }
+          ],
           "out": [],
           "cases": [
             {
