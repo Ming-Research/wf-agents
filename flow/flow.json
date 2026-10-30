@@ -3022,7 +3022,8 @@
       "notebook_project_now": "The text of the section project now of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_plan": "The text of the section plan of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_unclear": "The text of the section unclear of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
-      "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did."
+      "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
+      "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole and where they were said."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3088,7 +3089,8 @@
           "queue",
           "matter",
           "matter_items",
-          "cross_project"
+          "cross_project",
+          "words_behind_changes"
         ],
         "owner": "says something to the architect, or starts a work the architect paused"
       },
@@ -3313,7 +3315,8 @@
         "inputs": [
           "batch",
           "batch_changes",
-          "changes_touch"
+          "changes_touch",
+          "words_behind_changes"
         ]
       },
       "blockers": {
@@ -16510,6 +16513,16 @@
                   "engine": "batch_changes"
                 }
               ]
+            },
+            {
+              "name": "The owner's words behind them",
+              "what": "The owner's words the changes came from, whole, with where they were said, by the matter of each: check a change's reason against them; none when no change came from the owner's words",
+              "from": [
+                {
+                  "engine": "words_behind_changes"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "Items the changes touch",

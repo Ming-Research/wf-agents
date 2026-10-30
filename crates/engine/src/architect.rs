@@ -36,7 +36,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 28] = [
+pub const INPUTS: [&str; 29] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -58,6 +58,7 @@ pub const INPUTS: [&str; 28] = [
     "cross_project",
     "batch_changes",
     "changes_touch",
+    "words_behind_changes",
     "group_talk",
     "told_owner",
     "questions",
@@ -2947,6 +2948,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
+        "words_behind_changes" => words_behind_changes(e, w),
         "group_talk" => group_talk(e, w, project),
         "told_owner" => told_owner(e, project),
         "notebook_project_now" | "notebook_plan" | "notebook_unclear" | "notebook_other" => {
@@ -4497,6 +4499,31 @@ fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
         }));
     }
     Ok(Value::Array(out))
+}
+
+/// The owner's words behind the batch's changes: each matter of the owner's words a change collected came from, by
+/// its number, with the words whole and where they were said; none when no change came from the owner's words. An
+/// input of its own, so that a review given them is only referred to them at its next look, while they stay the same.
+fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let matters: BTreeSet<i64> = collected(conn, w.id)?.iter().map(|r| r.2).collect();
+    let mut out = Map::new();
+    for m in matters {
+        let row = query_json(
+            conn,
+            "SELECT body, at FROM architect_matters WHERE id = ?1 AND kind = 'owner_words'",
+            &[&m],
+            1,
+        )?;
+        let Some(r) = row.first() else { continue };
+        let b = &r["body"];
+        let mut said = json!({ "words": b["text"], "where": b["where"], "at": r["at"].as_i64().map(utc_minute) });
+        if !b["work"].is_null() {
+            said["work"] = b["work"].clone();
+        }
+        out.insert(format!("#{m}"), said);
+    }
+    Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
 
 /// The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each by the kind of

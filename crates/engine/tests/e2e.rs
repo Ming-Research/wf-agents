@@ -3744,6 +3744,16 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
             )
             .unwrap();
     assert!(review.1.is_some(), "{review:?}");
+    // The review is given the owner's words the change came from, whole, which in the sixth trial it had only the
+    // first line of and could not check a change's reason against.
+    let looked = message_at(&e, arch, "B2", false);
+    let words = given_value(&looked, "·engine·words_behind_changes").expect(&looked);
+    let first = words
+        .as_object()
+        .and_then(|o| o.values().next())
+        .cloned()
+        .expect(&looked);
+    assert_eq!(first["words"], "Make the parser's item clearer.", "{words}");
     // Every round of the architect's line gives the CLI the same schema, the rethink's included, which keeps the
     // session's prompt cache.
     let schemas: Vec<(String, Value)> = engine::query_json(
