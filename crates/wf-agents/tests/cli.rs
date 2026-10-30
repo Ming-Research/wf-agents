@@ -513,3 +513,120 @@ fn cost_prints_as_before_where_there_is_no_total() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Works with the awkward rows a total has to add up, in milliseconds and dollars, listed with their numbers out of
+/// order (10 comes before 2 as text): work 2 has a round with no end and a round of 0.2 beside one of 0.1 (a float sum
+/// that is not 0.3), and two sessions with pings of 0.25 each, one more ping with no usage and one with usage that has
+/// no cost; work 9 has one round with no usage and no end; works 10 and 12 have 1.5 s each; work 11 has a session
+/// pinged for 9.0 and no round.
+const AWKWARD_WORKS: &str = r#"
+    INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+    INSERT INTO works (id, flow_version, graph, at) VALUES
+        (10, 1, 'engineer', 'I1'), (2, 1, 'engineer', 'I1'), (9, 1, 'engineer', 'I1'),
+        (11, 1, 'engineer', 'I1'), (12, 1, 'engineer', 'I1');
+    INSERT INTO sessions (id, work, line, cli, cli_session) VALUES
+        (1, 2, 'engineer', 'claude', 's1'), (2, 2, 'review', 'claude', 's2'), (3, 11, 'engineer', 'claude', 's3');
+    INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at) VALUES
+        (2, 1, '{}', 'c', '{"cost_usd": 0.1}', 0, NULL),
+        (2, 2, '{}', 'c', '{"cost_usd": 0.2}', 3000, 4999),
+        (9, 1, '{}', 'c', NULL, 1000, NULL),
+        (10, 1, '{}', 'c', '{"cost_usd": 0.5}', 0, 1500),
+        (12, 1, '{}', 'c', '{"cost_usd": 0.25}', 2000, 3500);
+    INSERT INTO pings (session, waited, usage, started_at) VALUES
+        (1, '{}', '{"cost_usd": 0.25}', 5000), (2, '{}', '{"cost_usd": 0.25}', 5000),
+        (1, '{}', NULL, 6000), (1, '{}', '{}', 7000), (3, '{}', '{"cost_usd": 9.0}', 8000);
+"#;
+
+// The total over rows that are not clean: works listed by number, not by text; a round with no end counted to its
+// start and a round with no usage as 0; the pings of every session of a work counted in the work, a ping with no cost
+// as 0; a work with a ping and no round left out of the table and the total alike; the seconds added after each work's
+// own are cut to whole seconds (1 + 1, not 3 s cut to 2 or 3). Worked out by hand from `AWKWARD_WORKS`: work 2 is 2
+// rounds, 4999 ms cut to 4 s, 0.1 + 0.2 + 0.25 + 0.25 = 0.8; work 9 is 1 round, 0 s, 0.0; work 10 is 1 round, 1 s, 0.5;
+// work 12 is 1 round, 1 s, 0.25; the total is 5 rounds, 4 + 0 + 1 + 1 = 6 s, 0.8 + 0.5 + 0.25 = 1.55.
+#[test]
+fn cost_total_adds_awkward_rows_as_the_rows_show_them() {
+    let dir = empty_database("cost-total-awkward");
+    fill(&dir, AWKWARD_WORKS);
+    assert_eq!(
+        printed(&dir, "cost"),
+        "work\trounds\tsecs\tcost_usd\n2\t2\t4\t0.8\n9\t1\t0\t0.0\n10\t1\t1\t0.5\n12\t1\t1\t0.25\ntotal\t5\t6\t1.55\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// At the edge of the table: exactly as many works as it lists (10,000) has every work and the total after them, with
+// nothing marking a cut. Each work is one round of 2 s for 0.25.
+#[test]
+fn cost_total_follows_exactly_the_rows_the_table_has_room_for() {
+    let dir = empty_database("cost-total-edge");
+    fill(
+        &dir,
+        r#"
+        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10000)
+            INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
+        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at)
+            SELECT id, 1, '{}', 'c', '{"cost_usd": 0.25}', 0, 2000 FROM works;
+        "#,
+    );
+    let text = printed(&dir, "cost");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the total");
+    assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
+    assert_eq!(lines[10_001], "total\t10000\t20000\t2500.0");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// A total that falls on a tie is rounded as a work's cost is: two works of 0.0625 each add to 0.125 (exact in binary,
+// a tie at two decimals), and the total shows what the one work of 0.125 shows in its row, whichever way SQLite breaks
+// the tie; so the sum is rounded once by the same function as the rows, not by another rule.
+#[test]
+fn cost_total_on_a_tie_rounds_as_a_row_does() {
+    let last_column = |text: &str, first: &str| -> String {
+        let line = text
+            .lines()
+            .find(|l| l.split('\t').next() == Some(first))
+            .unwrap_or_else(|| panic!("no {first} line in {text:?}"));
+        line.rsplit('\t').next().unwrap().to_string()
+    };
+    let halves = empty_database("cost-total-tie-halves");
+    fill(
+        &halves,
+        r#"
+        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+        INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1'), (2, 1, 'engineer', 'I1');
+        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at) VALUES
+            (1, 1, '{}', 'c', '{"cost_usd": 0.0625}', 0, 1000), (2, 1, '{}', 'c', '{"cost_usd": 0.0625}', 0, 1000);
+        "#,
+    );
+    let whole = empty_database("cost-total-tie-whole");
+    fill(
+        &whole,
+        r#"
+        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+        INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1');
+        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at) VALUES
+            (1, 1, '{}', 'c', '{"cost_usd": 0.125}', 0, 1000);
+        "#,
+    );
+    let total = last_column(&printed(&halves, "cost"), "total");
+    let row = last_column(&printed(&whole, "cost"), "1");
+    assert!(row == "0.12" || row == "0.13", "the tie is rounded to a cent, not {row}");
+    assert_eq!(total, row);
+    let _ = std::fs::remove_dir_all(&halves);
+    let _ = std::fs::remove_dir_all(&whole);
+}
+
+// What `cost <work>` printed before stays in the cases a total does not touch: a work with a ping and no round has
+// only the pings row after an empty table, a work whose round has no cell and no end has a row with those columns
+// empty, and a work with nothing prints no table. Worked out by hand from `AWKWARD_WORKS`: work 11 has one ping for
+// 9.00, work 9 one round with no cell, no end and no usage.
+#[test]
+fn cost_of_one_work_prints_as_before_for_pings_without_rounds() {
+    let dir = empty_database("cost-before-pings");
+    fill(&dir, AWKWARD_WORKS);
+    assert_eq!(printed(&dir, "cost 11"), "(none)\nkeep-warm pings\t1\t\t9.00\n");
+    assert_eq!(printed(&dir, "cost 9"), "cell\trounds\tsecs\tcost_usd\n\t1\t\t0.0\n");
+    assert_eq!(printed(&dir, "cost 99"), "(none)\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
