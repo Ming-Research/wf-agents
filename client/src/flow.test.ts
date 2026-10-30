@@ -110,13 +110,15 @@ function limitsOf(m: Measures): Limits {
 /// units taller and the rows between them longer (the engineer graph's 506 to 576, the architect graph's 1853 to 2311);
 /// and for the architect graph's level runs, far rows and what is beside a cell, on the flow where the owner's words
 /// became a talk with the architect, a cell more that waits for the owner's reply and its rows, which measured run
-/// 5330, far 60 and beside each 29.3.
+/// 5330, far 60 and beside each 29.3; and for the architect graph's far rows, on the flow where its questions came to
+/// the owner through its queue (CI run 41030724258), the look at the queue taking the owner's words before a matter back
+/// with the owner's reply and waiting by a row of its own on a question just put, which measured far 97.
 /// Before cells were laid out so, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384,
 /// run 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside
 /// 1539.
 const MOST: Record<string, Limits> = {
   engineer: { rowLength: 634, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 76 },
-  architect: { rowLength: 2542, run: 5863, bendsPerArrow: 3.18, far: 66, besideEach: 32.3 },
+  architect: { rowLength: 2542, run: 5863, bendsPerArrow: 3.18, far: 107, besideEach: 32.3 },
 };
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {

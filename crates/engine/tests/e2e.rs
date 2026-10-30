@@ -3598,8 +3598,9 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     picks_first(&s, &mut agents);
     agents.insert(
         "H9",
-        Box::new(|r: &Request, _: usize| {
-            if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
+        Box::new(|_: &Request, n: usize| {
+            // Its first round, on the matter picked first, asks the owner.
+            if n == 1 {
                 return asks_the_owner("Should the release wait for the parser?");
             }
             (Vec::new(), Vec::new())
@@ -4210,6 +4211,7 @@ fn the_search_of_observations_hands_back_candidates() {
 #[test]
 fn a_policy_set_again_is_studied_in_the_architect_s_work_and_the_owner_says_it_stays() {
     let s = setup("policy-stays");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert(
         "P1",
@@ -4320,6 +4322,7 @@ fn holds(e: &Engine) -> Vec<(String, String)> {
 #[test]
 fn a_new_policy_takes_effect_and_the_architect_goes_on_in_its_session() {
     let s = setup("policy-next");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert(
         "P1",
@@ -4482,6 +4485,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
 #[test]
 fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     let s = setup("architect-worktrees");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert(
         "P1",
@@ -4571,6 +4575,7 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
 #[test]
 fn the_new_architect_that_reads_a_policy_runs_in_an_empty_directory() {
     let s = setup("reader-directory");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert("P4", writes_a_policy());
     let seen = keep_what_they_saw(&mut agents, &["P6"]);
@@ -5042,6 +5047,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
 #[test]
 fn the_architect_runs_at_the_level_the_installation_names() {
     let s = setup("architect-level");
+    no_reply_wait(&s);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     let levels = "[agents.levels.2]\ndesc = \"testing\"\ncli = \"claude\"\nmodel = \"m-two\"\n\
                   [agents.levels.4]\ndesc = \"running\"\ncli = \"claude\"\nmodel = \"m-four\"\n\
@@ -5961,6 +5967,7 @@ fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
 fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
     let verdicts = [("holds", "P11"), ("needs_setting_again", "P8")];
     let s = setup("p11");
+    no_reply_wait(&s);
     let mut agents = scripts();
     // The first draft holds; the second, in a setting of its own, would need setting again.
     agents.insert(
@@ -6220,6 +6227,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
 #[test]
 fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
     let s = setup("draft");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert(
         "P4",
@@ -6369,6 +6377,7 @@ fn draft_direction(e: &Engine) -> Vec<Value> {
 #[test]
 fn a_minor_fix_a_reading_finds_is_put_in_without_a_new_reading() {
     let s = setup("minor-fix");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert("P4", writes_a_policy());
     agents.insert(
@@ -6414,6 +6423,7 @@ fn a_minor_fix_a_reading_finds_is_put_in_without_a_new_reading() {
 #[test]
 fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
     let s = setup("text-limit");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert("P4", writes_a_policy());
     agents.insert(
@@ -6553,6 +6563,7 @@ fn study_asked(e: &Engine) -> Option<i64> {
 #[test]
 fn the_owner_s_words_while_the_study_waits_are_answered_and_the_ask_stays_open() {
     let s = setup("words-study");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert(
         "H8",
@@ -6617,6 +6628,7 @@ fn the_owner_s_words_while_the_study_waits_are_answered_and_the_ask_stays_open()
 #[test]
 fn a_new_session_after_a_return_sent_back_is_told_why() {
     let s = setup("sent-back-anew");
+    no_reply_wait(&s);
     let mut agents = scripts();
     agents.insert("P4", writes_a_policy());
     agents.insert(
@@ -6652,6 +6664,7 @@ fn a_new_session_after_a_return_sent_back_is_told_why() {
 #[test]
 fn the_study_of_a_new_policy_is_given_the_design_goal() {
     let s = setup("study-goal");
+    no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let setting = setting_at(&mut e, "P2");
@@ -6774,6 +6787,7 @@ fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
 #[test]
 fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays() {
     let s = setup("stays");
+    no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let arch = architect_work_at(&mut e, "N1");
@@ -6804,6 +6818,7 @@ fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays(
 #[test]
 fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbers() {
     let s = setup("signals");
+    no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let set = |e: &mut Engine, signals: Value| {
