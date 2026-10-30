@@ -230,7 +230,7 @@ pub fn ping(
         model,
         effort: None,
         worktree: PathBuf::from(call["cwd"].as_str().unwrap_or(".")),
-        config_dir: call["env"]["CLAUDE_CONFIG_DIR"].as_str().map(PathBuf::from),
+        config_dir: call["env"][crate::cli::CONFIG_DIR].as_str().map(PathBuf::from),
         resume: Some(due.cli_session.clone()),
         new_session: due.cli_session.clone(),
         prompt: MESSAGE.to_string(),

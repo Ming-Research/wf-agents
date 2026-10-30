@@ -53,6 +53,33 @@ pub struct Request {
     pub bare: bool,
 }
 
+/// The variable that names to `claude` the configuration directory it runs with: its settings, its login and the
+/// sessions it keeps.
+pub const CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
+
+/// The account a configuration directory of a CLI is signed in as: for `claude`, the email of the account its
+/// `.claude.json` keeps, and nothing else of that file; none when it is not signed in.
+pub fn signed_in_as(kind: config::CliKind, dir: &Path) -> Option<String> {
+    match kind {
+        config::CliKind::Claude => {
+            let text = std::fs::read_to_string(dir.join(".claude.json")).ok()?;
+            let v: Value = serde_json::from_str(&text).ok()?;
+            v["oauthAccount"]["emailAddress"]
+                .as_str()
+                .filter(|e| !e.trim().is_empty())
+                .map(str::to_string)
+        }
+    }
+}
+
+/// How the owner signs a new configuration directory of a CLI in, once, by hand: the variable that names the directory
+/// to it, and what to type once it runs.
+pub fn sign_in(kind: config::CliKind) -> (&'static str, &'static str) {
+    match kind {
+        config::CliKind::Claude => (CONFIG_DIR, "/login"),
+    }
+}
+
 /// The environment every agent's command line starts with, besides its configuration directory: each tool input
 /// streamed whole, not in pieces, so that the service checks its JSON; and three attempts at a return, not five, since
 /// each attempt writes the whole return again.
@@ -247,7 +274,7 @@ pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) ->
         .map(|(k, v)| (k, json!(v)))
         .collect();
     if let Some(d) = &r.config_dir {
-        env.insert("CLAUDE_CONFIG_DIR".into(), json!(d.display().to_string()));
+        env.insert(CONFIG_DIR.into(), json!(d.display().to_string()));
     }
     for (k, v) in ENVIRONMENT {
         env.insert(k.into(), json!(v));
@@ -285,7 +312,7 @@ impl Claude {
         let mut c = Command::new(&line[0]);
         c.args(&line[1..]);
         if let Some(d) = &r.config_dir {
-            c.env("CLAUDE_CONFIG_DIR", d);
+            c.env(CONFIG_DIR, d);
         }
         c.envs(ENVIRONMENT);
         c.current_dir(&r.worktree);
@@ -314,7 +341,7 @@ impl Agents for Claude {
         let mut c = Command::new(&cli.command);
         c.arg("--version");
         if let Some(d) = config_dir {
-            c.env("CLAUDE_CONFIG_DIR", d);
+            c.env(CONFIG_DIR, d);
         }
         match c.stdin(Stdio::null()).output() {
             Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),

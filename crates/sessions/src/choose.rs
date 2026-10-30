@@ -109,12 +109,14 @@ pub fn model(rounds: &[Round]) -> Option<String> {
 pub fn home(rounds: &[Round]) -> Option<String> {
     rounds.iter().rev().find_map(|r| {
         r.input["call"]["command"].as_array()?;
-        r.input["call"]["env"]["CLAUDE_CONFIG_DIR"].as_str().map(str::to_string)
+        r.input["call"]["env"][crate::cli::CONFIG_DIR]
+            .as_str()
+            .map(str::to_string)
     })
 }
 
 /// Whether two configuration directories are one: the same path, or the same directory by two paths.
-fn same_dir(a: &Path, b: &Path) -> bool {
+pub fn same_dir(a: &Path, b: &Path) -> bool {
     a == b
         || match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
             (Ok(x), Ok(y)) => x == y,

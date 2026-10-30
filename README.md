@@ -50,6 +50,13 @@ The engine runs every agent's command line with a configuration directory of its
 the data directory unless the CLI's `config_dir` in `install.toml` names another, and the engine keeps it out of git.
 Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude claude`, then `/login`.
 
+Each login account the agents may run under is such a directory beside the one in use, named for the CLI and the
+account (`agents/claude-work`), signed in once the same way; boards whose `config_dir` names a directory in another
+data directory share its accounts, each board choosing its own. The Settings view lists them with the account each is
+signed in as, shows the command that signs a new one in, and switches the agents to another by writing its directory as
+`config_dir` and committing it, after which every line starts a new session at its next round, since a session is kept
+in the directory it ran in.
+
 ## The architect
 
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`

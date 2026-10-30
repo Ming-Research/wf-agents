@@ -142,6 +142,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/conversation", get(conversation))
         .route("/api/v1/system", get(system))
         .route("/api/v1/settings", get(settings).post(save_settings))
+        .route("/api/v1/settings/accounts", get(accounts).post(switch_account))
         .route("/api/v1/items/{id}/level", post(set_level))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/faults/{id}/forward", post(forward_fault))
@@ -570,6 +571,20 @@ async fn settings(State(app): State<App>) -> Result<Json<api::Settings>, Fail> {
 async fn save_settings(State(app): State<App>, Json(c): Json<api::SettingsChange>) -> Result<Json<api::Done>, Fail> {
     let data = Arc::clone(&app.data);
     decide(&app, move |_| api::save_settings(&data, &c)).await
+}
+
+/// The login accounts the agents may run under, each with the account it is signed in as, and the one they run under.
+async fn accounts(State(app): State<App>) -> Result<Json<Vec<api::CliAccounts>>, Fail> {
+    read(&app, |_, a| api::accounts(&a.data).map_err(api::Error::Failed))
+        .await
+        .map(Json)
+}
+
+/// Has the agents run under another of their login accounts, as the owner: writes it into the installation's file and
+/// commits it; every line starts a new session at its next round. One not signed in is refused.
+async fn switch_account(State(app): State<App>, Json(c): Json<api::AccountChoice>) -> Result<Json<api::Done>, Fail> {
+    let data = Arc::clone(&app.data);
+    decide(&app, move |_| api::switch_account(&data, &c)).await
 }
 
 /// Puts an item at another tier, as the owner.

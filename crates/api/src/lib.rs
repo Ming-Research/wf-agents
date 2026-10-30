@@ -37,7 +37,7 @@ pub use read::{
     Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, round,
     version_of, work, works,
 };
-pub use settings::{save_settings, set_level, settings};
+pub use settings::{accounts, save_settings, set_level, settings, switch_account};
 pub use source::{Sources, refs};
 pub use system::{SystemAsk, system};
 pub use talk::{Talks, conversation, conversations};

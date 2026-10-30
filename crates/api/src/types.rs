@@ -846,9 +846,8 @@ pub struct LevelChange {
     pub to: String,
 }
 
-/// The settings the owner keeps on the page, as the configuration's last commit has them: each tier's model, the
-/// highest tier an item may be at (its advisor runs one tier above), the architect's tier, and the session manager's
-/// settings.
+/// The settings the owner keeps on the page, as the configuration's last commit has them: the installation's and each
+/// project's, those the owner changes there and those only shown, and the text of each rule a project takes in.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Settings {
     /// Each tier, in order.
@@ -863,6 +862,21 @@ pub struct Settings {
     /// at most how many times in one wait.
     pub keep_warm_minutes: i64,
     pub keep_warm_most: i64,
+    /// The language everything the owner reads is written in.
+    pub language: String,
+    /// The machines works run on, by name.
+    pub hosts: Vec<HostSlots>,
+    /// The CLIs agents run in, by name.
+    pub clis: Vec<CliArgs>,
+    /// The gh commands agents may have the engine run, each as the words it starts with.
+    pub gh_allow: Vec<String>,
+    /// The most rows a query hands back, and how long it may run, in milliseconds.
+    pub query_max_rows: i64,
+    pub query_timeout_ms: i64,
+    /// Each project, by name.
+    pub projects: Vec<ProjectSettings>,
+    /// The text of each rule a project takes in, by the rule's name.
+    pub rules: BTreeMap<String, String>,
     /// The configuration commit they are read from.
     pub commit: String,
 }
@@ -875,6 +889,62 @@ pub struct Tier {
     pub desc: String,
 }
 
+/// A machine works run on: its name, and how many works may run on it at once.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct HostSlots {
+    pub name: String,
+    pub slots: i64,
+}
+
+/// A CLI agents run in: its name, the command that starts it, and the arguments put before the ones the engine adds.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CliArgs {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+/// A project's settings: those the owner changes on the page (the limits of its counters, the tags its observations
+/// may carry, and whether its agents hand in flow feedback) and those only shown (where it is, how its design and its
+/// CI are set up, its constitution and the rules it takes in).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ProjectSettings {
+    pub name: String,
+    /// The limit of each counter of the flow the project sets one for, in the flow's order.
+    pub limits: Vec<CounterLimit>,
+    /// The tags its observations may carry, in order.
+    pub observation_tags: Vec<Tag>,
+    /// Whether its agents hand in what was wrong with their rounds' cells.
+    pub flow_feedback: bool,
+    /// The GitHub repository, as owner/name.
+    pub repo: String,
+    /// Its clone on the engine's machine.
+    pub checkout: String,
+    /// The branch works merge into.
+    pub main: String,
+    /// The paths whose change is a change of design, and those that hold tests.
+    pub design_paths: Vec<String>,
+    pub test_paths: Vec<String>,
+    /// The command that checks the design tree; none when there is none.
+    pub design_check: Option<String>,
+    /// The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
+    pub ci_fast: String,
+    pub ci_full: Vec<String>,
+    pub merge_checks: Vec<String>,
+    /// Its constitution, a path in its checkout; none when it has none.
+    pub constitution: Option<String>,
+    /// The rules it takes in, by name.
+    pub rules: Vec<String>,
+}
+
+/// The limit a project sets on a counter of the flow, with what the counter counts.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CounterLimit {
+    pub counter: String,
+    pub limit: i64,
+    pub desc: String,
+}
+
 /// A change to the settings the owner makes on the page: each value given takes the place of the one there.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct SettingsChange {
@@ -883,6 +953,66 @@ pub struct SettingsChange {
     pub highest_level: Option<String>,
     pub architect: Option<String>,
     pub context_limit: Option<i64>,
+    #[serde(default)]
+    pub language: Option<String>,
+    /// How many works may run at once on each machine changed, by its name.
+    #[serde(default)]
+    pub slots: BTreeMap<String, i64>,
+    /// What changed of each project, by its name.
+    #[serde(default)]
+    pub projects: BTreeMap<String, ProjectChange>,
+}
+
+/// A change to a project's settings the owner makes on the page: each value given takes the place of the one there.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, TS)]
+pub struct ProjectChange {
+    /// The limit of each counter changed, by the counter's name.
+    #[serde(default)]
+    pub limits: BTreeMap<String, i64>,
+    /// The tags its observations may carry, all of them in order, when they changed.
+    #[serde(default)]
+    pub observation_tags: Option<Vec<Tag>>,
+    #[serde(default)]
+    pub flow_feedback: Option<bool>,
+}
+
+/// The login accounts the agents of a CLI may run under: the CLI's configuration directories in the directory of the
+/// one they run with now, each signed in once by hand.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CliAccounts {
+    /// The CLI's name in the configuration, which each account's directory is named by: the CLI's name alone, or it
+    /// and a dash and the account's own name.
+    pub cli: String,
+    /// The command that starts it.
+    pub command: String,
+    /// The directory the accounts' directories are in.
+    pub dir: String,
+    /// How a new account's directory is signed in: the variable that names the directory to the CLI, and what to type
+    /// once it runs.
+    pub env: String,
+    pub login: String,
+    /// Each account, by its directory's name.
+    pub accounts: Vec<Account>,
+}
+
+/// A login account the agents may run under: a configuration directory of the CLI.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Account {
+    /// The directory's name, such as `claude-work`.
+    pub name: String,
+    /// The directory, whole.
+    pub path: String,
+    /// The account it is signed in as, by its email; none when it is not signed in.
+    pub email: Option<String>,
+    /// Whether the agents run under it now.
+    pub used: bool,
+}
+
+/// The login account the owner has the agents of a CLI run under: the CLI's name and the account's directory's name.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct AccountChoice {
+    pub cli: String,
+    pub name: String,
 }
 
 /// An item's new tier, as the owner sets it on the item's page.
@@ -1348,7 +1478,7 @@ pub struct Observation {
 }
 
 /// A tag a project's observations may carry, with what it covers.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct Tag {
     pub name: String,
     pub desc: String,

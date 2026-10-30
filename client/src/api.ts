@@ -1149,9 +1149,8 @@ export type LevelChange = { at: number,
 by: string, from: string, to: string, };
 
 /**
- * The settings the owner keeps on the page, as the configuration's last commit has them: each tier's model, the
- * highest tier an item may be at (its advisor runs one tier above), the architect's tier, and the session manager's
- * settings.
+ * The settings the owner keeps on the page, as the configuration's last commit has them: the installation's and each
+ * project's, those the owner changes there and those only shown, and the text of each rule a project takes in.
  */
 export type Settings = { 
 /**
@@ -1176,6 +1175,34 @@ context_limit: number,
  */
 keep_warm_minutes: number, keep_warm_most: number, 
 /**
+ * The language everything the owner reads is written in.
+ */
+language: string, 
+/**
+ * The machines works run on, by name.
+ */
+hosts: Array<HostSlots>, 
+/**
+ * The CLIs agents run in, by name.
+ */
+clis: Array<CliArgs>, 
+/**
+ * The gh commands agents may have the engine run, each as the words it starts with.
+ */
+gh_allow: Array<string>, 
+/**
+ * The most rows a query hands back, and how long it may run, in milliseconds.
+ */
+query_max_rows: number, query_timeout_ms: number, 
+/**
+ * Each project, by name.
+ */
+projects: Array<ProjectSettings>, 
+/**
+ * The text of each rule a project takes in, by the rule's name.
+ */
+rules: { [key in string]: string }, 
+/**
  * The configuration commit they are read from.
  */
 commit: string, };
@@ -1186,13 +1213,154 @@ commit: string, };
 export type Tier = { name: string, model: string, desc: string, };
 
 /**
+ * A machine works run on: its name, and how many works may run on it at once.
+ */
+export type HostSlots = { name: string, slots: number, };
+
+/**
+ * A CLI agents run in: its name, the command that starts it, and the arguments put before the ones the engine adds.
+ */
+export type CliArgs = { name: string, command: string, args: Array<string>, };
+
+/**
+ * A project's settings: those the owner changes on the page (the limits of its counters, the tags its observations
+ * may carry, and whether its agents hand in flow feedback) and those only shown (where it is, how its design and its
+ * CI are set up, its constitution and the rules it takes in).
+ */
+export type ProjectSettings = { name: string, 
+/**
+ * The limit of each counter of the flow the project sets one for, in the flow's order.
+ */
+limits: Array<CounterLimit>, 
+/**
+ * The tags its observations may carry, in order.
+ */
+observation_tags: Array<Tag>, 
+/**
+ * Whether its agents hand in what was wrong with their rounds' cells.
+ */
+flow_feedback: boolean, 
+/**
+ * The GitHub repository, as owner/name.
+ */
+repo: string, 
+/**
+ * Its clone on the engine's machine.
+ */
+checkout: string, 
+/**
+ * The branch works merge into.
+ */
+main: string, 
+/**
+ * The paths whose change is a change of design, and those that hold tests.
+ */
+design_paths: Array<string>, test_paths: Array<string>, 
+/**
+ * The command that checks the design tree; none when there is none.
+ */
+design_check: string | null, 
+/**
+ * The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
+ */
+ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>, 
+/**
+ * Its constitution, a path in its checkout; none when it has none.
+ */
+constitution: string | null, 
+/**
+ * The rules it takes in, by name.
+ */
+rules: Array<string>, };
+
+/**
+ * The limit a project sets on a counter of the flow, with what the counter counts.
+ */
+export type CounterLimit = { counter: string, limit: number, desc: string, };
+
+/**
  * A change to the settings the owner makes on the page: each value given takes the place of the one there.
  */
 export type SettingsChange = { 
 /**
  * A model for each tier changed, by the tier's name.
  */
-models: { [key in string]: string }, highest_level: string | null, architect: string | null, context_limit: number | null, };
+models: { [key in string]: string }, highest_level: string | null, architect: string | null, context_limit: number | null, language: string | null, 
+/**
+ * How many works may run at once on each machine changed, by its name.
+ */
+slots: { [key in string]: number }, 
+/**
+ * What changed of each project, by its name.
+ */
+projects: { [key in string]: ProjectChange }, };
+
+/**
+ * A change to a project's settings the owner makes on the page: each value given takes the place of the one there.
+ */
+export type ProjectChange = { 
+/**
+ * The limit of each counter changed, by the counter's name.
+ */
+limits: { [key in string]: number }, 
+/**
+ * The tags its observations may carry, all of them in order, when they changed.
+ */
+observation_tags: Array<Tag> | null, flow_feedback: boolean | null, };
+
+/**
+ * The login accounts the agents of a CLI may run under: the CLI's configuration directories in the directory of the
+ * one they run with now, each signed in once by hand.
+ */
+export type CliAccounts = { 
+/**
+ * The CLI's name in the configuration, which each account's directory is named by: the CLI's name alone, or it
+ * and a dash and the account's own name.
+ */
+cli: string, 
+/**
+ * The command that starts it.
+ */
+command: string, 
+/**
+ * The directory the accounts' directories are in.
+ */
+dir: string, 
+/**
+ * How a new account's directory is signed in: the variable that names the directory to the CLI, and what to type
+ * once it runs.
+ */
+env: string, login: string, 
+/**
+ * Each account, by its directory's name.
+ */
+accounts: Array<Account>, };
+
+/**
+ * A login account the agents may run under: a configuration directory of the CLI.
+ */
+export type Account = { 
+/**
+ * The directory's name, such as `claude-work`.
+ */
+name: string, 
+/**
+ * The directory, whole.
+ */
+path: string, 
+/**
+ * The account it is signed in as, by its email; none when it is not signed in.
+ */
+email: string | null, 
+/**
+ * Whether the agents run under it now.
+ */
+used: boolean, };
+
+/**
+ * The login account the owner has the agents of a CLI run under: the CLI's name and the account's directory's name.
+ */
+export type AccountChoice = { cli: string, name: string, };
 
 /**
  * An item's new tier, as the owner sets it on the item's page.

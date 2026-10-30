@@ -17,6 +17,7 @@ import type {
   Forwarded,
   RoundSummary,
   RoundTokens,
+  Settings,
   Status,
   Use,
   WorkSummary,
@@ -110,7 +111,7 @@ import { roundsShown } from './pages/Work';
 import { catalog, type Key, t, tn } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
-import { settingsChange, settingsProblems } from './pages/Settings';
+import { type Draft, draftOf, settingsChange, settingsProblems, shellWord, signInCommand, unchanged } from './pages/Settings';
 import { tiersAllowed } from './pages/TalkHead';
 import { spendTable } from './spend';
 import { axisTicks, gapsOf, usageOf } from './usage';
@@ -1703,7 +1704,7 @@ describe('what the agents spent by line and model', () => {
 });
 
 describe('the settings on the page', () => {
-  const settings = {
+  const settings: Settings = {
     tiers: [
       { name: '1', model: 'claude-haiku-5-5', desc: 'small' },
       { name: '2', model: 'claude-sonnet-5-5', desc: 'known' },
@@ -1715,20 +1716,125 @@ describe('the settings on the page', () => {
     context_limit: 500_000,
     keep_warm_minutes: 55,
     keep_warm_most: 39,
+    language: 'Chinese',
+    hosts: [{ name: 'macbook', slots: 2 }],
+    clis: [{ name: 'claude', command: 'claude', args: ['--tools', 'Bash,Read'] }],
+    gh_allow: ['pr view'],
+    query_max_rows: 200,
+    query_timeout_ms: 5000,
+    projects: [
+      {
+        name: 'wf-agents',
+        limits: [
+          { counter: 'asks', limit: 10, desc: 'questions' },
+          { counter: 'fixes', limit: 6, desc: 'fixes' },
+        ],
+        observation_tags: [
+          { name: 'flow', desc: 'The flow graphs' },
+          { name: 'cost', desc: 'Tokens spent' },
+        ],
+        flow_feedback: true,
+        repo: 'o/wf-agents',
+        checkout: '/w',
+        main: 'main',
+        design_paths: ['design/'],
+        test_paths: ['tests/'],
+        design_check: null,
+        ci_fast: 'ci',
+        ci_full: ['ci'],
+        merge_checks: ['check'],
+        constitution: 'CONSTITUTION.md',
+        rules: [],
+      },
+    ],
+    rules: {},
     commit: 'abcdef0123',
   };
 
   it('sends only what changed and refuses what it can tell is wrong', () => {
-    const models = { '1': 'claude-haiku-5-5', '2': 'claude-sonnet-5-5', '3': 'claude-opus-5-5', '4': 'claude-opus-5-5' };
-    expect(settingsChange(settings, models, '3', '3', '500000')).toEqual({
+    const d = draftOf(settings);
+    expect(unchanged(settingsChange(settings, d))).toBe(true);
+    expect(settingsProblems(d)).toEqual([]);
+    const p = d.projects['wf-agents']!;
+    const changed: Draft = {
+      ...d,
+      models: { ...d.models, '4': 'claude-opus-5-5' },
+      limit: '400000',
+      language: ' English ',
+      slots: { macbook: '3' },
+      projects: {
+        'wf-agents': {
+          limits: { ...p.limits, asks: '12' },
+          tags: [...p.tags, { name: ' docs ', desc: 'The documents' }],
+          feedback: false,
+        },
+      },
+    };
+    expect(settingsChange(settings, changed)).toEqual({
       models: { '4': 'claude-opus-5-5' },
       highest_level: null,
       architect: null,
-      context_limit: null,
+      context_limit: 400_000,
+      language: 'English',
+      slots: { macbook: 3 },
+      projects: {
+        'wf-agents': {
+          limits: { asks: 12 },
+          observation_tags: [
+            { name: 'flow', desc: 'The flow graphs' },
+            { name: 'cost', desc: 'Tokens spent' },
+            { name: 'docs', desc: 'The documents' },
+          ],
+          flow_feedback: false,
+        },
+      },
     });
-    expect(settingsChange(settings, models, '2', '2', '400000').context_limit).toBe(400_000);
-    expect(settingsProblems({ ...models, '2': ' ' }, '0')).toEqual(['Tier 2 needs a model.', 'The size limit is a number of tokens above 0.']);
-    expect(settingsProblems(models, '500000')).toEqual([]);
+    const wrong: Draft = {
+      ...d,
+      models: { ...d.models, '2': ' ' },
+      limit: '0',
+      language: '',
+      slots: { macbook: '99' },
+      projects: {
+        'wf-agents': {
+          limits: { asks: '0', fixes: 'x' },
+          tags: [
+            { name: 'two words', desc: 'a' },
+            { name: 'flow', desc: 'a' },
+            { name: 'flow', desc: 'b' },
+            { name: 'cost', desc: ' ' },
+          ],
+          feedback: true,
+        },
+      },
+    };
+    expect(settingsProblems(wrong)).toEqual([
+      'Tier 2 needs a model.',
+      'The size limit is a number of tokens from 50,000 to 1,000,000.',
+      'The language is a name on one line, such as English.',
+      'Machine macbook runs from 0 to 32 works at once.',
+      'Project wf-agents: the limit of asks is a whole number from 1 to 1,000,000.',
+      'Project wf-agents: the limit of fixes is a whole number from 1 to 1,000,000.',
+      "Project wf-agents: a tag's name is one word with no spaces.",
+      'Project wf-agents: the tag flow is there twice.',
+      'Project wf-agents: the tag cost says what it covers.',
+    ]);
+  });
+
+  it('gives the command that signs a new account in, quoting what the shell would take apart', () => {
+    const c = {
+      cli: 'claude',
+      command: 'claude',
+      dir: '/data/agents',
+      env: 'CLAUDE_CONFIG_DIR',
+      login: '/login',
+      accounts: [],
+    };
+    expect(signInCommand(c, 'work')).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-work claude');
+    expect(signInCommand({ ...c, dir: "/my data/o'k" }, 'work')).toBe(
+      `CLAUDE_CONFIG_DIR='/my data/o'\\''k/claude-work' claude`,
+    );
+    expect(shellWord('Bash(git *)')).toBe("'Bash(git *)'");
   });
 
   it('offers an item no tier above the highest', () => {

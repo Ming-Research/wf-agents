@@ -316,6 +316,35 @@ pub enum CliKind {
     Claude,
 }
 
+/// The families of models `claude` knows, each also its alias for the family's latest model.
+const CLAUDE_FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
+
+impl CliKind {
+    /// Whether the CLI takes a model by this name, in the forms its `--model` takes: for `claude`, the alias of a
+    /// family's latest model (`opus`) or a model's full name (`claude-opus-5-5`, `claude-3-5-sonnet-20241022`), each
+    /// with `[1m]` after it or not; a family it does not know, or a name in no such form, it does not take.
+    pub fn knows_model(self, model: &str) -> bool {
+        match self {
+            CliKind::Claude => {
+                let name = model.strip_suffix("[1m]").unwrap_or(model);
+                if CLAUDE_FAMILIES.contains(&name) {
+                    return true;
+                }
+                let Some(rest) = name.strip_prefix("claude-") else {
+                    return false;
+                };
+                let parts: Vec<&str> = rest.split('-').collect();
+                let numbers = parts
+                    .iter()
+                    .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+                    .count();
+                let families = parts.iter().filter(|p| CLAUDE_FAMILIES.contains(p)).count();
+                families == 1 && numbers > 0 && numbers + 1 == parts.len()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Level {
@@ -595,18 +624,18 @@ pub fn working(dir: &Path) -> Result<Config, Error> {
     read(&Tree(dir))
 }
 
-/// The committed files with `install.toml` read from a text instead.
-struct WithInstall<'a> {
+/// The committed files with some read from texts instead, by their paths.
+struct WithFiles<'a> {
     commit: Commit<'a>,
-    install: &'a str,
+    texts: &'a BTreeMap<String, String>,
 }
 
-impl Files for WithInstall<'_> {
+impl Files for WithFiles<'_> {
     fn read(&self, path: &str) -> Result<Option<String>, String> {
-        if path == INSTALL_FILE {
-            return Ok(Some(self.install.to_string()));
+        match self.texts.get(path) {
+            Some(t) => Ok(Some(t.clone())),
+            None => self.commit.read(path),
         }
-        self.commit.read(path)
     }
 
     fn list(&self, dir: &str) -> Result<Vec<String>, String> {
@@ -614,68 +643,109 @@ impl Files for WithInstall<'_> {
     }
 }
 
-/// The TOML the configuration is written in, for what writes a setting into it.
-pub use toml;
+/// The TOML editor the configuration's files are changed with, keeping their comments and layout, for what writes a
+/// setting into them.
+pub use toml_edit;
 
 /// The installation's file in the data directory.
 pub const INSTALL_FILE: &str = "install.toml";
 
-/// Reads the configuration as the data directory's last commit has it, with `install.toml` as the text given: what a
-/// change to the installation would make it, before the change is written.
-pub fn with_install(dir: &Path, install: &str) -> Result<Config, Error> {
+/// A project's own file in the data directory.
+pub fn project_file(name: &str) -> String {
+    format!("projects/{name}.toml")
+}
+
+/// Reads the configuration as the data directory's last commit has it, with the files given (by their paths in the
+/// data directory, each one the commit has) read from the texts given: what a change to them would make it, before the
+/// change is written; with the commit it read.
+pub fn with_files(dir: &Path, texts: &BTreeMap<String, String>) -> Result<Committed, Error> {
     let commit = git(dir, &["rev-parse", "--verify", "HEAD"])
         .map_err(fail)?
         .trim()
         .to_string();
-    let files = git(dir, &["ls-tree", "-r", "--name-only", &commit]).map_err(fail)?;
-    let files = files.lines().map(str::to_string).collect();
-    read(&WithInstall {
-        commit: Commit { dir, commit, files },
-        install,
-    })
+    let files: BTreeSet<String> = git(dir, &["ls-tree", "-r", "--name-only", &commit])
+        .map_err(fail)?
+        .lines()
+        .map(str::to_string)
+        .collect();
+    if let Some(p) = texts.keys().find(|p| !files.contains(*p)) {
+        return Err(fail(format!("{p}: no such file in the configuration's last commit")));
+    }
+    let config = read(&WithFiles {
+        commit: Commit {
+            dir,
+            commit: commit.clone(),
+            files,
+        },
+        texts,
+    })?;
+    Ok(Committed { commit, config })
 }
 
-/// A TOML text with one setting set, everything else as it was, comments included: the line of `key` in the table
-/// `[table]` replaced, or added just under the table's heading when the table has no such line, or the table added at
-/// the end when the text has none. A value of none takes the setting's line out.
-pub fn set_setting(text: &str, table: &str, key: &str, value: Option<&toml::Value>) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let heading = format!("[{table}]");
-    let start = lines.iter().position(|l| l.trim() == heading);
-    let line = value.map(|v| format!("{key} = {v}"));
-    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
-    match start {
-        None => {
-            if let Some(l) = line {
-                if out.last().is_some_and(|x| !x.trim().is_empty()) {
-                    out.push(String::new());
-                }
-                out.push(heading);
-                out.push(l);
+/// A TOML text with one setting set, everything else as it was, comments and layout included: the value at `path`
+/// (its keys from the top of the file, through tables, inline tables and dotted keys alike) replaced, keeping the
+/// spaces and the comment round it, or added at the end of its table, the tables on its path made where there are
+/// none. A value of none takes the setting out. A path through a value that is no table is refused.
+pub fn set_setting(text: &str, path: &[&str], value: Option<toml_edit::Value>) -> Result<String, String> {
+    use toml_edit::{DocumentMut, Item, Table, TableLike};
+    let Some((key, tables)) = path.split_last() else {
+        return Err("no setting named".into());
+    };
+    let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let mut table: &mut dyn TableLike = doc.as_table_mut();
+    for (i, k) in tables.iter().enumerate() {
+        if !table.contains_key(k) {
+            if value.is_none() {
+                return Ok(doc.to_string());
             }
+            let mut t = Table::new();
+            t.set_implicit(true);
+            table.insert(k, Item::Table(t));
         }
-        Some(h) => {
-            let end = lines[h + 1..]
-                .iter()
-                .position(|l| l.trim_start().starts_with('['))
-                .map_or(lines.len(), |i| h + 1 + i);
-            let names = |l: &str| {
-                l.split_once('=')
-                    .is_some_and(|(k, _)| k.trim() == key && !l.trim_start().starts_with('#'))
-            };
-            match (lines[h + 1..end].iter().position(|l| names(l)), line) {
-                (Some(i), Some(l)) => out[h + 1 + i] = l,
-                (Some(i), None) => {
-                    out.remove(h + 1 + i);
-                }
-                (None, Some(l)) => out.insert(h + 1, l),
-                (None, None) => {}
-            }
-        }
+        table = table
+            .get_mut(k)
+            .and_then(Item::as_table_like_mut)
+            .ok_or_else(|| format!("{} is no table", tables[..=i].join(".")))?;
     }
-    let mut s = out.join("\n");
-    s.push('\n');
-    s
+    match value {
+        None => {
+            table.remove(key);
+        }
+        Some(mut v) => match table.get_mut(key) {
+            Some(Item::Value(old)) => {
+                *v.decor_mut() = old.decor().clone();
+                *old = v;
+            }
+            Some(_) => return Err(format!("{} is a table, not a value", path.join("."))),
+            None => {
+                table.insert(key, Item::Value(v));
+            }
+        },
+    }
+    Ok(doc.to_string())
+}
+
+/// A list of inline tables, each with the keys and texts given in their order, one table to a line as a person writes
+/// such a list in a file of the configuration (as `observation_tags`); `[]` when there are none.
+pub fn table_list(rows: &[Vec<(&str, &str)>]) -> toml_edit::Value {
+    let mut list = toml_edit::Array::new();
+    for row in rows {
+        let mut t = toml_edit::InlineTable::new();
+        for (k, v) in row {
+            t.insert(*k, toml_edit::Value::from(*v));
+        }
+        t.fmt();
+        list.push(t);
+    }
+    if !list.is_empty() {
+        for v in list.iter_mut() {
+            v.decor_mut().set_prefix("\n  ");
+            v.decor_mut().set_suffix("");
+        }
+        list.set_trailing_comma(true);
+        list.set_trailing("\n");
+    }
+    toml_edit::Value::Array(list)
 }
 
 fn parse(files: &dyn Files, path: &str) -> Result<Option<toml::Table>, String> {
@@ -1347,28 +1417,96 @@ asks = 9
         assert_eq!(c.level_of_line("2", "advisor"), "10");
     }
 
-    // A setting is set in its line, added under its table's heading, or taken out, and every other line, comments
-    // included, stays as it was.
+    // A setting is set where it is, keeping the spaces and the comment round it; added at the end of its table, or in
+    // a table made for it; set inside an inline table and at the top of the file alike; or taken out; and every other
+    // line, comments included, stays as it was.
     #[test]
     fn a_setting_is_set_where_it_is_and_the_rest_stays() {
-        let text =
-            "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"\n";
-        let model = toml::Value::String("b".into());
+        use toml_edit::Value;
+        let text = "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"  # the best\n";
         assert_eq!(
-            set_setting(text, "agents.levels.4", "model", Some(&model)),
-            "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"b\"\n"
+            set_setting(text, &["agents", "levels", "4", "model"], Some(Value::from("b"))).unwrap(),
+            "# The installation.\n[items]\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"b\"  # the best\n"
         );
-        let three = toml::Value::String("3".into());
-        let added = set_setting(text, "items", "highest_level", Some(&three));
+        let added = set_setting(text, &["items", "highest_level"], Some(Value::from("3"))).unwrap();
         assert_eq!(
             added,
-            "# The installation.\n[items]\nhighest_level = \"3\"\ntitle_max = 20\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"\n"
+            "# The installation.\n[items]\ntitle_max = 20\nhighest_level = \"3\"\n\n[agents.levels.4]\n# The top tier.\nmodel = \"a\"  # the best\n"
         );
-        assert_eq!(set_setting(&added, "items", "highest_level", None), text);
+        assert_eq!(set_setting(&added, &["items", "highest_level"], None).unwrap(), text);
+        assert_eq!(set_setting(text, &["owner", "language"], None).unwrap(), text);
+        let made = set_setting(text, &["agents", "context_limit"], Some(Value::from(400_000))).unwrap();
         assert!(
-            set_setting(text, "agents", "context_limit", Some(&toml::Value::Integer(400_000)))
-                .ends_with("model = \"a\"\n\n[agents]\ncontext_limit = 400000\n")
+            made.starts_with("# The installation.\n[items]\ntitle_max = 20\n"),
+            "{made}"
         );
+        let parsed: toml::Table = made.parse().unwrap();
+        assert_eq!(parsed["agents"]["context_limit"].as_integer(), Some(400_000));
+        assert_eq!(parsed["agents"]["levels"]["4"]["model"].as_str(), Some("a"));
+        // A project's file: a key at its top, a value in an inline table, and a list replaced whole.
+        let project = "# A project.\nrepo = \"o/p\"\nlimits = { asks = 9, fixes = 3 }\n\n[ci]\nfast = \"ci\"\n";
+        let off = set_setting(project, &["flow_feedback"], Some(Value::from(false))).unwrap();
+        assert_eq!(
+            off,
+            "# A project.\nrepo = \"o/p\"\nlimits = { asks = 9, fixes = 3 }\nflow_feedback = false\n\n[ci]\nfast = \"ci\"\n"
+        );
+        assert_eq!(
+            set_setting(project, &["limits", "asks"], Some(Value::from(12))).unwrap(),
+            "# A project.\nrepo = \"o/p\"\nlimits = { asks = 12, fixes = 3 }\n\n[ci]\nfast = \"ci\"\n"
+        );
+        let tags = table_list(&[
+            vec![("name", "ui"), ("desc", "What the owner sees")],
+            vec![("name", "cost"), ("desc", "Tokens \"spent\"")],
+        ]);
+        let tagged = set_setting(project, &["observation_tags"], Some(tags)).unwrap();
+        assert!(
+            tagged.ends_with(
+                "observation_tags = [\n  { name = \"ui\", desc = \"What the owner sees\" },\n  \
+                 { name = \"cost\", desc = 'Tokens \"spent\"' },\n]\n\n[ci]\nfast = \"ci\"\n"
+            ),
+            "{tagged}"
+        );
+        let parsed: toml::Table = tagged.parse().unwrap();
+        assert_eq!(parsed["observation_tags"][1]["desc"].as_str(), Some("Tokens \"spent\""));
+        let none = set_setting(&tagged, &["observation_tags"], Some(table_list(&[]))).unwrap();
+        assert!(
+            none.ends_with("observation_tags = []\n\n[ci]\nfast = \"ci\"\n"),
+            "{none}"
+        );
+        assert!(set_setting(project, &["repo", "name"], Some(Value::from("x"))).is_err());
+        assert!(set_setting(project, &["ci"], Some(Value::from("x"))).is_err());
+        assert!(set_setting("[items\n", &["items", "title_max"], Some(Value::from(1))).is_err());
+    }
+
+    // A model is one `claude` takes: a family's alias or a model's full name, with the larger context or not; a name
+    // in another form, or of a family it does not know, is not.
+    #[test]
+    fn a_model_is_one_the_cli_knows() {
+        for m in [
+            "opus",
+            "sonnet[1m]",
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "claude-haiku-5-5",
+            "claude-opus-4-5-20251101",
+            "claude-3-5-sonnet-20241022",
+            "claude-sonnet-4-6[1m]",
+        ] {
+            assert!(CliKind::Claude.knows_model(m), "{m}");
+        }
+        for m in [
+            "",
+            "opus5",
+            "claude-opus",
+            "claude-sonet-5-5",
+            "claude-opus-5-5-sonnet",
+            "claude-opus-5--5",
+            "gpt-5",
+            "claude-opus-5-5 ",
+            "claude-opus-five",
+        ] {
+            assert!(!CliKind::Claude.knows_model(m), "{m}");
+        }
     }
 
     // A field the types do not know, a missing one, or a name that points nowhere is an error, all of them at once.

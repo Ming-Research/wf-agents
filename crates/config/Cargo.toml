@@ -12,6 +12,8 @@ flow = { path = "../flow" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 toml = "1.1.8"
+# Edits a file of the configuration in place, its comments and layout kept, for what the owner changes on the page.
+toml_edit = "0.25.17"
 
 [lints]
 workspace = true
