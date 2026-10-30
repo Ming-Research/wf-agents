@@ -15,15 +15,42 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// The kind of a work's end before its graph's end, which the work records in `works.ended_kind` beside the text of
+/// why, so that the engine counts the ends by kind without reading them back out of the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndKind {
+    /// Its item was cancelled.
+    ItemCancelled,
+    /// The flow moved to a new version, and a new work on it takes the item over.
+    FlowMoved,
+    /// The architect or the owner had the item started over.
+    StartedOver,
+    /// None of the kinds above.
+    Other,
+}
+
+impl EndKind {
+    /// The kind as `works.ended_kind` holds it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EndKind::ItemCancelled => "item_cancelled",
+            EndKind::FlowMoved => "flow_moved",
+            EndKind::StartedOver => "started_over",
+            EndKind::Other => "other",
+        }
+    }
+}
+
 /// How a work ends.
 #[derive(Debug, Clone, Copy)]
 pub enum End<'a> {
     /// At its graph's end: its pull request merged, or the sub-items that took its work over closed it.
     Done,
-    /// Before its end, saying why, such as its item cancelled.
-    Stopped(&'a str),
-    /// Before its end, saying why, for a new work that takes over its worktree, branch and pull request.
-    TakenOver(&'a str),
+    /// Before its end, of a kind and saying why, such as its item cancelled.
+    Stopped(EndKind, &'a str),
+    /// Before its end, of a kind and saying why, for a new work that takes over its worktree, branch and pull
+    /// request.
+    TakenOver(EndKind, &'a str),
 }
 
 /// The cell of the engineer's graph a work is done at, as the views read it.
@@ -34,13 +61,14 @@ const DONE_AT: &str = "E1";
 const WAITING_ON_IT: &str = "('engineer_question', 'failure', 'design_card')";
 
 /// Ends a work: the only place a work's end is written. Its matters that wait on it leave the architect's queue,
-/// withdrawn, saying why. A work stopped before its end records why; a round of it still open, a question that waits
-/// or a round the engine was cut off in, is cut off saying why, and a round that was running when the work ended hands
-/// in nothing (`steps::agent`); its design cards are replaced, since the owner can no longer rule on them, and its asks
-/// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
-/// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
-/// the pull request is closed with a comment saying why its work ended, while a work done at its end had its pull
-/// request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds no
+/// withdrawn, saying why. A work stopped before its end records why, and the kind of its end in the same update; a
+/// round of it still open, a question that waits or a round the engine was cut off in, is cut off saying why, and a
+/// round that was running when the work ended hands in nothing (`steps::agent`); its design cards are replaced, since
+/// the owner can no longer rule on them, and its asks of the owner still open need no answer. A work of the engineer's
+/// graph then lets go of what it held: its sessions end; unless a new work takes them over, its worktree is removed
+/// and, when it has a pull request that did not merge, the pull request is closed with a comment saying why its work
+/// ended, while a work done at its end had its pull request merged, or closed by the sub-items that took it over. Its
+/// branch stays. A work of the architect holds no
 /// worktree or pull request, and its line's session goes on in the architect's next work. A work done at its end that
 /// stops later, as when its item is cancelled, let go of what it held at its end, and a work already ended is left as
 /// it is. `projects` are the configuration's, which say where each project's checkout and repository are.
@@ -80,9 +108,9 @@ pub fn end(
     if ended.is_some() {
         return Ok(());
     }
-    let why = match how {
-        End::Done => None,
-        End::Stopped(why) | End::TakenOver(why) => Some(why),
+    let (kind, why) = match how {
+        End::Done => (None, None),
+        End::Stopped(kind, why) | End::TakenOver(kind, why) => (Some(kind), Some(why)),
     };
     let engineer = graph == crate::ENGINEER;
     withdraw_blockers(tx, work, why)?;
@@ -91,9 +119,12 @@ pub fn end(
     }
     // A work of the engineer's graph at its end let go of what it held there.
     let done_before = engineer && db::is_cell(crate::ENGINEER, DONE_AT, &at) && why.is_some();
-    if let Some(why) = why {
-        tx.execute("UPDATE works SET ended = ?2 WHERE id = ?1", params![work, why])
-            .map_err(sql)?;
+    if let (Some(kind), Some(why)) = (kind, why) {
+        tx.execute(
+            "UPDATE works SET ended = ?2, ended_kind = ?3 WHERE id = ?1",
+            params![work, why, kind.as_str()],
+        )
+        .map_err(sql)?;
     }
     if let Some(why) = why.filter(|_| !done_before) {
         if let Some(r) = work::open_round(tx, work)? {
@@ -113,7 +144,7 @@ pub fn end(
         return Ok(());
     }
     end_sessions(tx, work)?;
-    if matches!(how, End::TakenOver(_)) {
+    if matches!(how, End::TakenOver(..)) {
         return Ok(());
     }
     let place = project.as_ref().and_then(|p| projects.get(p));
@@ -255,7 +286,7 @@ pub fn cancel_item(
     )?;
     let ended = format!("item cancelled: {why}");
     for w in works {
-        end(tx, w, End::Stopped(&ended), projects)?;
+        end(tx, w, End::Stopped(EndKind::ItemCancelled, &ended), projects)?;
     }
     let title: String = tx
         .query_row("SELECT title FROM items WHERE id = ?1", [item], |r| r.get(0))
@@ -473,10 +504,71 @@ mod tests {
         );
         // A work already ended is left as it is.
         db.write(Actor::Owner, |tx| {
-            end(tx, work, End::Stopped("again"), &projects()).map_err(db::Error::Abort)
+            end(tx, work, End::Stopped(EndKind::Other, "again"), &projects()).map_err(db::Error::Abort)
         })
         .unwrap();
         assert_eq!(outbox(&db).len(), 2);
+        let kind: Option<String> = one(&db, "SELECT ended_kind FROM works");
+        assert_eq!(kind.as_deref(), Some("item_cancelled"));
+    }
+
+    // A work stopped records the kind its caller names, in the same update as the text of why; a work done at its end
+    // records neither.
+    #[test]
+    fn a_work_stopped_records_the_kind_its_caller_names() {
+        let mut db = Db::in_memory().unwrap();
+        let kinds = [
+            EndKind::ItemCancelled,
+            EndKind::FlowMoved,
+            EndKind::StartedOver,
+            EndKind::Other,
+        ];
+        let mut works = Vec::new();
+        for i in 0..=kinds.len() {
+            let (_, work) = db
+                .write(Actor::Engine, |tx| a_work(tx, &format!("W{i}"), "T3", i as i64 + 1))
+                .unwrap();
+            works.push(work);
+        }
+        db.write(Actor::Engine, |tx| {
+            for (w, kind) in works.iter().zip(kinds) {
+                // Stopped and taken over carry a kind alike.
+                let how = if kind == EndKind::FlowMoved {
+                    End::TakenOver(kind, "stopped: moved")
+                } else {
+                    End::Stopped(kind, "why")
+                };
+                end(tx, *w, how, &projects()).map_err(db::Error::Abort)?;
+            }
+            end(tx, works[kinds.len()], End::Done, &projects()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        for (w, kind) in works.iter().zip(kinds) {
+            let (ended, recorded): (String, String) = db
+                .conn()
+                .query_row("SELECT ended, ended_kind FROM works WHERE id = ?1", [w], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+            assert_eq!(recorded, kind.as_str());
+            assert!(!ended.is_empty());
+        }
+        let done: (Option<String>, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT ended, ended_kind FROM works WHERE id = ?1",
+                [works[kinds.len()]],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(done, (None, None));
+        // One update writes both, so the change log holds one row in which the work ended and has its kind.
+        let both: i64 = one(
+            &db,
+            "SELECT count(*) FROM changes WHERE table_name = 'works' AND json_extract(old_row, '$.ended') IS NULL
+               AND json_extract(new_row, '$.ended') IS NOT NULL AND json_extract(new_row, '$.ended_kind') IS NOT NULL",
+        );
+        assert_eq!(both, kinds.len() as i64);
     }
 
     // A work done at its end lets go of its sessions and its worktree there, and leaves the round of its end open for
@@ -496,8 +588,20 @@ mod tests {
                 [merged],
             )?;
             end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)?;
-            end(tx, taken, End::TakenOver("stopped: a new flow"), &projects()).map_err(db::Error::Abort)?;
-            end(tx, merged, End::Stopped("item cancelled: late"), &projects()).map_err(db::Error::Abort)
+            end(
+                tx,
+                taken,
+                End::TakenOver(EndKind::FlowMoved, "stopped: a new flow"),
+                &projects(),
+            )
+            .map_err(db::Error::Abort)?;
+            end(
+                tx,
+                merged,
+                End::Stopped(EndKind::ItemCancelled, "item cancelled: late"),
+                &projects(),
+            )
+            .map_err(db::Error::Abort)
         })
         .unwrap();
         let kinds: Vec<(i64, String)> = outbox(&db).into_iter().map(|x| (x.0, x.1)).collect();
@@ -518,7 +622,13 @@ mod tests {
         );
         assert_eq!(still, 1);
         db.write(Actor::Owner, |tx| {
-            end(tx, done, End::Stopped("item cancelled: after all"), &projects()).map_err(db::Error::Abort)
+            end(
+                tx,
+                done,
+                End::Stopped(EndKind::ItemCancelled, "item cancelled: after all"),
+                &projects(),
+            )
+            .map_err(db::Error::Abort)
         })
         .unwrap();
         let card: String = one(&db, &format!("SELECT status FROM design_cards WHERE work = {done}"));

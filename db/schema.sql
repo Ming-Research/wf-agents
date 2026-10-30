@@ -292,7 +292,14 @@ CREATE TABLE works (
   -- NULL for an engineer's work, whose project is its item's. Read by: the engine, which runs one work of each
   -- project's architect at a time, and reads the project's views for it; the architect's views; the owner's
   -- interface.
-  project TEXT CHECK (project IS NULL OR graph IN ('architect', 'policy'))
+  project TEXT CHECK (project IS NULL OR graph IN ('architect', 'policy')),
+  -- The kind of the end `ended` tells: item_cancelled (the work's item was cancelled), flow_moved (the flow moved to a
+  -- new version, and a new work on it took the item over), started_over (the architect or the owner had the item
+  -- started over) or other; NULL while `ended` is NULL. Written in the same update as `ended`, with the kind that
+  -- the caller of the one function that ends a work names. A work stopped before this column existed has the kind its
+  -- text tells, read once by the migration. Read by: the engine, which counts the works that ended without a merge by
+  -- kind, week by week, among the numbers it measures for a project.
+  ended_kind TEXT CHECK (ended_kind IS NULL OR ended_kind IN ('item_cancelled', 'flow_moved', 'started_over', 'other'))
 ) STRICT;
 
 CREATE TABLE sessions (

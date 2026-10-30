@@ -12410,7 +12410,7 @@
             },
             {
               "name": "Project numbers",
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's works spent week by week, up to this work of the architect. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its design paths and of the files they hold on main; items made, merged and cancelled week by week; what its items' works and its architect's works spent week by week; the most of its works that ran together (had a round under way, not one that waits for an answer) and for how long two or more did, week by week (running_together); how many of its works ended without a merge week by week, counted by the kind of their end (ended_unmerged): the flow moved, the item cancelled, started over, the end of the graph with no merge, other; all up to this work of the architect. The engine measures nothing else yet, and says so for a signal it does not measure",
               "from": [
                 {
                   "engine": "numbers"
@@ -13535,7 +13535,7 @@
             },
             {
               "name": "Numbers the engine measures",
-              "what": "The numbers the engine measures for the project, each now and earlier, by the names a signal names them; a signal uses only these, or something that happens",
+              "what": "The numbers the engine measures for the project, each now and earlier, by the names a signal names them (such as merged, running together or ended unmerged); a signal uses only these, or something that happens",
               "from": [
                 {
                   "engine": "numbers"

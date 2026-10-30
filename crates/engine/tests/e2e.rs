@@ -5641,6 +5641,187 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// A work of the engineer's graph at a cell on a new item of a project, paused by the owner so that the engine leaves
+/// it be, with rounds it ran, each a cell, the row it took, when it started and when it ended (none while under way).
+fn a_work_that_ran(
+    tx: &db::rusqlite::Transaction<'_>,
+    v: i64,
+    project: &str,
+    at: &str,
+    rounds: &[(&str, Option<&str>, i64, Option<i64>)],
+) -> Result<i64, db::Error> {
+    tx.execute(
+        "INSERT INTO items (project, title, problem, why, deliver, level) VALUES (?1, 't', 'x', 'y', 'change', 'l')",
+        [project],
+    )?;
+    let item = tx.last_insert_rowid();
+    tx.execute(
+        "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+         VALUES (?1, ?2, 'engineer', ?3, 'later', 'owner')",
+        params![item, v, at],
+    )?;
+    let work = tx.last_insert_rowid();
+    for (n, (cell, row, from, to)) in rounds.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+             VALUES (?1, ?2, ?3, '{}', ?4, 'c', ?5, ?6)",
+            params![work, n as i64 + 1, cell, row, from, to],
+        )?;
+    }
+    Ok(work)
+}
+
+// The numbers the architect is given say, week by week, the most works of the project that ran together and for how
+// long two or more did, and how many of its works ended without a merge, by kind. A work waiting for the architect or
+// the owner does not run, whatever the version's id for the cell; a work that merged never ends unmerged, whatever
+// becomes of its item; another project's works count for nothing; and a week with none has zeros, not missing values.
+#[test]
+fn the_numbers_say_how_many_works_ran_together_and_ended_without_a_merge() {
+    use engine::ending::{End, EndKind, end};
+    let s = setup("numbers-together");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    let v = e.flow_now;
+    let projects = e.config.config.projects.clone();
+    let (hour, day) = (3_600_000, 24 * 3_600_000);
+    let now = db::now();
+    e.db.write(Actor::Engine, |tx| {
+        // Two that run, for two of their hours together; a third waits for the owner, a fourth by the id the cell had
+        // before, both under way for longer; and another project's runs beside them.
+        a_work_that_ran(
+            tx,
+            v,
+            "p",
+            "I1",
+            &[("I1", Some("tools"), now - 10 * hour, Some(now - 6 * hour))],
+        )?;
+        a_work_that_ran(
+            tx,
+            v,
+            "p",
+            "I1",
+            &[("I1", Some("tools"), now - 8 * hour, Some(now - 4 * hour))],
+        )?;
+        a_work_that_ran(tx, v, "p", "A3", &[("A3", None, now - 9 * hour, None)])?;
+        a_work_that_ran(tx, v, "p", "16", &[("16", None, now - 30 * hour, None)])?;
+        a_work_that_ran(
+            tx,
+            v,
+            "q",
+            "I1",
+            &[("I1", Some("tools"), now - 9 * hour, Some(now - 5 * hour))],
+        )?;
+        // The week before: one that ran alone.
+        a_work_that_ran(
+            tx,
+            v,
+            "p",
+            "I1",
+            &[("I1", None, now - 8 * day, Some(now - 8 * day + hour))],
+        )?;
+        // Ended: by the flow moving, by its item cancelled, one that merged and then had its item cancelled, and
+        // another project's.
+        let moved = a_work_that_ran(tx, v, "p", "I1", &[])?;
+        end(
+            tx,
+            moved,
+            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+            &projects,
+        )
+        .map_err(db::Error::Abort)?;
+        let cancelled = a_work_that_ran(tx, v, "p", "I1", &[])?;
+        end(
+            tx,
+            cancelled,
+            End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
+            &projects,
+        )
+        .map_err(db::Error::Abort)?;
+        let merged = a_work_that_ran(
+            tx,
+            v,
+            "p",
+            "I1",
+            &[("M2", Some("merged"), now - 3 * hour, Some(now - 3 * hour))],
+        )?;
+        end(
+            tx,
+            merged,
+            End::Stopped(EndKind::ItemCancelled, "item cancelled: y"),
+            &projects,
+        )
+        .map_err(db::Error::Abort)?;
+        let other = a_work_that_ran(tx, v, "q", "I1", &[])?;
+        end(
+            tx,
+            other,
+            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+            &projects,
+        )
+        .map_err(db::Error::Abort)?;
+        // At the end of the graph with no merge, this week and the week before, and one that merged.
+        a_work_that_ran(tx, v, "p", "E1", &[("E1", None, now - 3 * hour, Some(now - 2 * hour))])?;
+        a_work_that_ran(tx, v, "p", "E1", &[("E1", None, now - 8 * day, Some(now - 8 * day))])?;
+        a_work_that_ran(
+            tx,
+            v,
+            "p",
+            "E1",
+            &[
+                ("M2", Some("merged"), now - 3 * hour, Some(now - 3 * hour)),
+                ("E1", None, now - hour, Some(now - hour)),
+            ],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Look at the numbers.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let understanding = message_at(&e, arch, "U1", false);
+    let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
+    let weeks = |key: &str| -> Vec<Value> { (0..4).map(|k| numbers["weeks"][k][key].clone()).collect() };
+    let together = |most: i64, seconds: f64| json!({ "most_works": most, "seconds_two_or_more": seconds });
+    let zeros = json!({ "flow_moved": 0, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 0, "other": 0,
+                        "total": 0 });
+    assert_eq!(
+        weeks("running_together"),
+        [
+            together(2, 7200.0),
+            together(1, 0.0),
+            together(0, 0.0),
+            together(0, 0.0)
+        ],
+        "{numbers}"
+    );
+    let ended = |kinds: Value| {
+        let mut x = zeros.clone();
+        let mut total = 0;
+        for (k, n) in kinds.as_object().unwrap() {
+            x[k] = n.clone();
+            total += n.as_i64().unwrap();
+        }
+        x["total"] = json!(total);
+        x
+    };
+    assert_eq!(
+        weeks("ended_unmerged"),
+        [
+            ended(json!({ "flow_moved": 1, "item_cancelled": 1, "no_merge_at_end": 1 })),
+            ended(json!({ "no_merge_at_end": 1 })),
+            zeros.clone(),
+            zeros.clone()
+        ],
+        "{numbers}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A round of the understanding that asks for tools hands in no state of things: until the cell answers, the project has
 // none, as at its architect's first work, and the cell's next round is still told it is the first work. The cell's own
 // inputs that have nothing are listed as none; the tool results, which every cell may have, only once there are some.
@@ -6339,6 +6520,28 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         "{signals}"
     );
     assert_eq!(signals.get("2"), None, "{signals}");
+    // The works running together and the works ended unmerged are measures too: a signal that names them has their
+    // numbers for each of the four weeks, zero where nothing ran or ended.
+    set(
+        &mut e,
+        json!([{ "what": "Works run in parallel", "how": "running together at most 2 works" },
+               { "what": "Works end without a merge", "how": "ended unmerged above 1 a week" }]),
+    );
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let signals = given_value(&m, "·engine·policy_signals").expect(&m);
+    let ran = json!({ "most_works": 0, "seconds_two_or_more": 0.0 });
+    assert_eq!(
+        signals["1"]["numbers"]["running_together"]["by_week"],
+        json!([ran, ran, ran, ran]),
+        "{signals}"
+    );
+    let ended = json!({ "flow_moved": 0, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 0, "other": 0,
+                        "total": 0 });
+    assert_eq!(
+        signals["2"]["numbers"]["ended_unmerged"]["by_week"],
+        json!([ended, ended, ended, ended]),
+        "{signals}"
+    );
     set(
         &mut e,
         json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
