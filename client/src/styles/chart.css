@@ -538,8 +538,10 @@ svg.fc {
   stroke: var(--fc-way-out);
 }
 
-/* The arrows the round chosen in the rounds list came in by, green, and left by, red, as a cell's rows in and out are,
-   their dashes flowing the way the work went. */
+/* A cell's rows in and out, and the arrows the round chosen in the rounds list came in by and left by, green and red,
+   their dashes flowing the way the row goes, as a row a work took flows, as the owner asked. */
+.fc-edge-in,
+.fc-edge-out,
 .fc-edge-lit-in,
 .fc-edge-lit-out {
   stroke-dasharray: var(--chart-dash-flow);
