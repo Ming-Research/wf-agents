@@ -390,3 +390,125 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
     drop(base);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A data directory with a database made by `init`, which holds nothing yet.
+fn initialised(name: &str) -> PathBuf {
+    let dir = data_directory(name);
+    let out = wf(&dir, "init");
+    assert!(out.status.success(), "`init`: {}", stderr(&out));
+    dir
+}
+
+/// Writes rows into the database of a data directory, as the engine writes them: the SQL is a batch of statements.
+fn fill(dir: &Path, rows: &str) {
+    let mut base = db::Db::open(&config::database(dir)).unwrap();
+    base.write(db::Actor::Engine, |tx| {
+        tx.execute_batch(rows)?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// What the command prints, which it does with success.
+fn printed(dir: &Path, line: &str) -> String {
+    let out = wf(dir, line);
+    assert!(out.status.success(), "`{line}`: {}", stderr(&out));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// Two works with rounds, in milliseconds and dollars: work 1 ran from 0 to 100 s in two rounds, the second with no
+/// usage reported, and its session was pinged once for 0.5; work 2 ran one round of 20 s for 0.5.
+const TWO_WORKS: &str = r#"
+    INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+    INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1'), (2, 1, 'engineer', 'I1');
+    INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+    INSERT INTO rounds (work, n, cell, input, config_commit, usage, started_at, ended_at) VALUES
+        (1, 1, 'D1', '{}', 'c', '{"cost_usd": 1.0}', 0, 40000),
+        (1, 2, 'I1', '{}', 'c', NULL, 60000, 100000),
+        (2, 1, 'I1', '{}', 'c', '{"cost_usd": 0.5}', 5000, 25000);
+    INSERT INTO pings (session, waited, usage, started_at) VALUES (1, '{}', '{"cost_usd": 0.5}', 70000);
+"#;
+
+// The table of every work ends with a row of totals: the rounds, the seconds and the cost added over the works, in
+// the columns and the writing the works' rows have. The expected text is worked out by hand from `TWO_WORKS`: 2 + 1
+// rounds, 100 + 20 seconds, and 1.0 + 0.5 of work 1 (the ping's included) and 0.5 of work 2.
+#[test]
+fn cost_ends_with_a_total_row() {
+    let dir = initialised("cost-total");
+    fill(&dir, TWO_WORKS);
+    assert_eq!(
+        printed(&dir, "cost"),
+        "work\trounds\tsecs\tcost_usd\n1\t2\t100\t1.5\n2\t1\t20\t0.5\ntotal\t3\t120\t2.0\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// The total adds every work, not the rows the table has room for: with one more work than the table lists, it still
+// comes last and counts the work left out. Each work is one round of 2 s for 0.25, a cost every sum of is exact.
+#[test]
+fn cost_total_adds_the_works_the_table_leaves_out() {
+    let dir = initialised("cost-total-all");
+    fill(
+        &dir,
+        r#"
+        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10001)
+            INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
+        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at)
+            SELECT id, 1, '{}', 'c', '{"cost_usd": 0.25}', 0, 2000 FROM works;
+        "#,
+    );
+    let text = printed(&dir, "cost");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the total");
+    assert_eq!(lines[0], "work\trounds\tsecs\tcost_usd");
+    assert_eq!(lines[1], "1\t1\t2\t0.25");
+    assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
+    assert_eq!(lines[10_001], "total\t10001\t20002\t2500.25");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// The cost total is the sum of the costs before they are rounded, rounded once: three works of 0.004 each, one of
+// them 0.002 in a round and 0.002 in a ping, show 0.0 in their rows, and the total is 0.01, not 0.0.
+#[test]
+fn cost_total_rounds_the_sum_once() {
+    let dir = initialised("cost-total-rounding");
+    fill(
+        &dir,
+        r#"
+        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+        INSERT INTO works (id, flow_version, graph, at) VALUES
+            (1, 1, 'engineer', 'I1'), (2, 1, 'engineer', 'I1'), (3, 1, 'engineer', 'I1');
+        INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at) VALUES
+            (1, 1, '{}', 'c', '{"cost_usd": 0.002}', 0, 1000),
+            (2, 1, '{}', 'c', '{"cost_usd": 0.004}', 0, 1000),
+            (3, 1, '{}', 'c', '{"cost_usd": 0.004}', 0, 1000);
+        INSERT INTO pings (session, waited, usage, started_at) VALUES (1, '{}', '{"cost_usd": 0.002}', 2000);
+        "#,
+    );
+    assert_eq!(
+        printed(&dir, "cost"),
+        "work\trounds\tsecs\tcost_usd\n1\t1\t1\t0.0\n2\t1\t1\t0.0\n3\t1\t1\t0.0\ntotal\t3\t3\t0.01\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// What `cost` printed before the total row stays: with no round there is no table and no total, and one work's cost
+// by cell is as it was, its keep-warm pings in a row of their own only where it has pings. The expected text is
+// worked out by hand from `TWO_WORKS`.
+#[test]
+fn cost_prints_as_before_where_there_is_no_total() {
+    let dir = initialised("cost-before");
+    assert_eq!(printed(&dir, "cost"), "(none)\n");
+    fill(&dir, TWO_WORKS);
+    assert_eq!(
+        printed(&dir, "cost 1"),
+        "cell\trounds\tsecs\tcost_usd\nD1\t1\t40\t1.0\nI1\t1\t40\t0.0\nkeep-warm pings\t1\t\t0.50\n"
+    );
+    assert_eq!(
+        printed(&dir, "cost 2"),
+        "cell\trounds\tsecs\tcost_usd\nI1\t1\t20\t0.5\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
