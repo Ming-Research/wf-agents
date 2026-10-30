@@ -2,8 +2,8 @@
 // interface says of it, laid out by elkjs and drawn as SVG in a pan-and-zoom view, with a "?" in the bottom-left
 // corner that opens what every mark means. Several graphs are drawn side by side on the one chart, each under its
 // name, and move and zoom together; the stores the engine keeps what it writes in are drawn between the first two, or
-// beside the one, and pointing at a cell, the actions on a line or a store, or opening one, draws the lines between
-// them. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
+// beside the one, those that what is pointed at or open reads or writes marked, and each cell has the stores it reads
+// or writes beside it, each leading to its box among the stores. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
 // flows are compared, the cells added and changed are marked. An arrow's label names its rows, with no numbers, as a
 // cell's page names them. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
 // cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
@@ -30,7 +30,7 @@ import {
 import { besides, type Laid, layoutChart } from './flowLayout';
 import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
 import { mapOf, Minimap } from './Minimap';
-import { layStores, linkPath, LinksSvg, storeLinks, StoresSvg, storeSize } from './stores';
+import { layStores, storeLinks, StoresSvg, storeSize } from './stores';
 import { type Rect, Viewer, type ViewerHandle } from './Viewer';
 
 /// A graph of the flow, with what the interface says of it.
@@ -42,7 +42,8 @@ export type Pick =
   | { kind: 'rule'; graph: string; rule: string; cell: string }
   | { kind: 'interjection'; graph: string; cell: string }
   | { kind: 'action'; graph: string; node: string }
-  | { kind: 'store'; store: string }
+  /// A store: its box among the stores, or, with `go`, its small box beside a cell, which leads to the other.
+  | { kind: 'store'; store: string; go?: boolean }
   | { kind: 'out'; graph: string; cell: string; to: string }
   | { kind: 'in'; graph: string; cell: string; from: string }
   /// Nothing: the chart's background, a stage's box or a graph's name, which lets go of what is picked.
@@ -73,6 +74,8 @@ export function pickAt(target: Under, graphs: string[], models: Chart[]): Pick |
       return { kind: 'interjection', graph, cell: n.cell };
     case 'action':
       return { kind: 'action', graph, node: n.id };
+    case 'store':
+      return { kind: 'store', store: n.other ?? '', go: true };
     case 'out':
       return { kind: 'out', graph, cell: n.cell, to: n.other ?? '' };
     case 'in':
@@ -84,6 +87,8 @@ export type FlowChartHandle = {
   /// Brings a cell into view, of the graph named or the first that has it: keeping the zoom when it is already in
   /// sight, or zooming in to read it.
   focus: (cell: string, keep?: boolean, graph?: string) => void;
+  /// Brings a store's box among the stores into view.
+  focusStore: (store: string) => void;
 };
 
 /// The least zoom the chart opens at when it opens on no cell.
@@ -182,6 +187,7 @@ function Legend({ charts, stores, legend }: {
   const acting = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'action' || n.kind === 'does'));
   const reading = charts.some((x) => [...x.chart.notes.values()].some((n) => n.reads !== null));
   const lacking = charts.some((x) => [...x.chart.notes.values()].some((n) => n.lacks.length > 0));
+  const chips = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'store'));
   return (
     <details className="legend">
       <summary aria-label={t('legend')} title={t('legend')}>
@@ -385,17 +391,27 @@ function Legend({ charts, stores, legend }: {
               </Swatch>
               {t('legend_store_computed')}
             </li>
+          </>
+        ) : null}
+        {chips ? (
+          <>
             <li>
               <Swatch>
-                <path className="fc-link fc-link-write" d="M 2 9 L 31 9" />
+                <g className="fc-chip">
+                  <rect x="1" y="3" width="13" height="12" rx="4" />
+                </g>
+                <path className="fc-edge fc-edge-rule fc-edge-read" d="M 14 9 L 26 9" markerEnd="url(#fc-arrow-rule)" />
               </Swatch>
-              {t('legend_link_write')}
+              {t('legend_chip_read')}
             </li>
             <li>
               <Swatch>
-                <path className="fc-link fc-link-read" d="M 2 9 L 31 9" />
+                <g className="fc-chip">
+                  <rect x="1" y="3" width="13" height="12" rx="4" />
+                </g>
+                <path className="fc-edge fc-edge-rule" d="M 33 9 L 21 9" markerEnd="url(#fc-arrow-rule)" />
               </Swatch>
-              {t('legend_link_read')}
+              {t('legend_chip_write')}
             </li>
           </>
         ) : null}
@@ -488,7 +504,7 @@ function Legend({ charts, stores, legend }: {
 export function FlowChart(props: FlowChartProps) {
   const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, ref } = props;
   const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
-  const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
+  const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i], engine)), [graphs, models, engine]);
   // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
   const stores = useMemo(() => {
     const all = engine?.stores ?? {};
@@ -576,12 +592,18 @@ export function FlowChart(props: FlowChartProps) {
   };
   const rectRef = useRef(rect);
   rectRef.current = rect;
+  const storeRectRef = useRef(storeRect);
+  storeRectRef.current = storeRect;
   useImperativeHandle(
     ref,
     () => ({
       focus: (cell, keep = false, graph) => {
         const r = rectRef.current(`c:${cell}`, graph);
         if (r) viewer.current?.focus(r, keep);
+      },
+      focusStore: (store) => {
+        const r = storeRectRef.current(store);
+        if (r) viewer.current?.focus(r, false);
       },
     }),
     [],
@@ -632,7 +654,8 @@ export function FlowChart(props: FlowChartProps) {
     // Only when the cell that runs changes, or the chart is laid out again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningKey, current, placed]);
-  // What the lines to the stores are drawn for: what the pointer is on, a store before a node, or else what is open.
+  // The stores marked among the stores, those of what the pointer is on, a store before a node, or else of what is
+  // open.
   const [pointedNode, setPointedNode] = useState<{ graph: number; node: string } | null>(null);
   const [pointedStore, setPointedStore] = useState<string | null>(null);
   const openNode = marks.findIndex((m) => m.selected !== null);
@@ -646,18 +669,12 @@ export function FlowChart(props: FlowChartProps) {
           : openNode >= 0
             ? { graph: openNode, node: marks[openNode].selected ?? '' }
             : null;
-  const drawnLinks: Array<{ d: string; write: boolean }> = [];
   const litStores = new Set<string>();
   if (subject !== null && current !== null) {
     links.forEach((ls, i) => {
       for (const l of ls) {
         const on = 'store' in subject ? l.store === subject.store : subject.graph === i && l.node === subject.node;
-        if (!on) continue;
-        const a = rect(l.node, graphs[i].g.name);
-        const b = storeRect(l.store);
-        if (a === null || b === null) continue;
-        drawnLinks.push({ d: linkPath(a, b, l.write), write: l.write });
-        litStores.add(l.store);
+        if (on) litStores.add(l.store);
       }
     });
   }
@@ -721,7 +738,6 @@ export function FlowChart(props: FlowChartProps) {
                 </div>
               </div>
             ) : null}
-            {drawnLinks.length > 0 ? <LinksSvg width={placed.width} height={placed.height} links={drawnLinks} /> : null}
           </div>
         </Viewer>
       ) : null}

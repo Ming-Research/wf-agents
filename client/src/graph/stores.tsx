@@ -1,14 +1,14 @@
 // The places the engine keeps what it writes and a cell reads later, as the chart draws them beside the graphs: in
-// three boxes by what they belong to (the project, an item, a work and its rounds), a computed one dashed; and the
-// lines from a node of a graph to the stores it reads or writes, drawn only for what is pointed at or open, since every
-// cell reads some and they would cover the chart. A store's reads come from the cells' inputs and the values their rows
-// switch on, its writes from the table of what each action and step writes.
+// three boxes by what they belong to (the project, an item, a work and its rounds), a computed one dashed, those that
+// what is pointed at or open reads or writes marked; beside each cell, the chart draws the stores it reads or writes
+// (`flowModel.ts`). A store's reads come from the cells' inputs and the values their rows switch on, its writes from the
+// table of what each action and step writes.
 
-import type { CompiledCell, CompiledGraph, EngineNames, Layer, Store } from '../api';
+import type { CompiledGraph, EngineNames, Layer, Store } from '../api';
 import { t } from '../text';
 import { chartFonts, measure } from './flowDraw';
 import type { Box, Size } from './flowLayout';
-import { type Chart, rowActions, valuesOf } from './flowModel';
+import { type Chart, readsOf, rowActions, writesOf } from './flowModel';
 
 /// The boxes the stores are drawn in, top to bottom: the project's, an item's, and a work's with its rounds'.
 export const BOXES: Array<{ id: 'project' | 'item' | 'work'; layers: Layer[] }> = [
@@ -25,33 +25,7 @@ export function boxTitle(id: string): string {
 /// A line between a node of a graph and a store: the node reads it, or writes it.
 export type StoreLink = { node: string; store: string; write: boolean };
 
-/// The stores a cell reads: what its inputs read, what the values its rows switch on read, and what its step reads.
-export function readsOf(engine: EngineNames, cell: CompiledCell): string[] {
-  const stores = engine.stores ?? {};
-  const out: string[] = [];
-  const add = (s: string) => {
-    if (s in stores && !out.includes(s)) out.push(s);
-  };
-  for (const x of cell.inputs) {
-    for (const src of x.from) {
-      if (typeof src !== 'object' || Array.isArray(src)) continue;
-      for (const [name, s] of Object.entries(stores)) {
-        if ('db' in src && (s.relations ?? []).includes(src.db)) add(name);
-        if ('engine' in src && (s.inputs ?? []).includes(src.engine)) add(name);
-      }
-    }
-  }
-  for (const v of valuesOf(cell, new Set(Object.keys(engine.values)))) (engine.reads?.[v]?.stores ?? []).forEach(add);
-  if (cell.step != null) (engine.reads?.[cell.step]?.stores ?? []).forEach(add);
-  return out;
-}
-
-/// The stores the actions or steps named write, as the engine's table says.
-export function writesOf(engine: EngineNames, names: string[]): string[] {
-  const out: string[] = [];
-  for (const n of names) for (const s of engine.writes?.[n] ?? []) if (!out.includes(s)) out.push(s);
-  return out;
-}
+export { readsOf, writesOf };
 
 /// Which node of a graph's chart reads or writes each store: a cell reads what `readsOf` says and writes what its step
 /// writes; the actions on a line, and those a cell does every time, write what the table says each action writes.
@@ -214,54 +188,6 @@ export function StoresSvg(props: {
           </g>
         );
       })}
-    </svg>
-  );
-}
-
-export type Rect = { x: number; y: number; width: number; height: number };
-
-/// The path of a line between a node and a store, in the chart's pixels: out of the side of each that faces the other,
-/// curving between them; a write runs from the node to the store, a read from the store to the node.
-export function linkPath(node: Rect, store: Rect, write: boolean): string {
-  const left = node.x + node.width / 2 < store.x + store.width / 2;
-  const a = { x: left ? node.x + node.width : node.x, y: node.y + node.height / 2 };
-  const b = { x: left ? store.x : store.x + store.width, y: store.y + store.height / 2 };
-  const [from, to] = write ? [a, b] : [b, a];
-  const dx = (to.x - from.x) / 2;
-  const f = (n: number) => Math.round(n * 10) / 10;
-  return `M ${f(from.x)} ${f(from.y)} C ${f(from.x + dx)} ${f(from.y)} ${f(to.x - dx)} ${f(to.y)} ${f(to.x)} ${f(to.y)}`;
-}
-
-/// The lines between nodes and stores, over the whole chart, letting the pointer through to what is under them.
-export function LinksSvg({ width, height, links }: { width: number; height: number; links: Array<{ d: string; write: boolean }> }) {
-  return (
-    <svg className="fc fc-links" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      <defs>
-        {['read', 'write'].map((k) => (
-          <marker
-            key={k}
-            id={`fc-link-${k}`}
-            className={`fc-link-head fc-link-head-${k}`}
-            viewBox="0 0 10 10"
-            refX="10"
-            refY="5"
-            markerUnits="userSpaceOnUse"
-            markerWidth={8}
-            markerHeight={8}
-            orient="auto"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" />
-          </marker>
-        ))}
-      </defs>
-      {links.map((l, i) => (
-        <path
-          key={i}
-          className={l.write ? 'fc-link fc-link-write' : 'fc-link fc-link-read'}
-          d={l.d}
-          markerEnd={`url(#fc-link-${l.write ? 'write' : 'read'})`}
-        />
-      ))}
     </svg>
   );
 }

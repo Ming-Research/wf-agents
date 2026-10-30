@@ -24,6 +24,7 @@ import {
   type Overlay,
   related,
   type Wait,
+  scopeOf,
   ways,
   type Ways,
 } from './flowModel';
@@ -67,8 +68,9 @@ function stackOf(token: string, fallback: string): string {
 
 /// The fonts the chart's text is drawn and measured in, as the UI spec gives the chart its type: a cell's title body
 /// large semibold, its code monospace at that size and weight, a stage's name title small, the notes, the arrows'
-/// labels and the nodes beside the cells body medium, the corner badges at the badges' own small size.
-export type ChartFonts = { title: string; code: string; stage: string; note: string; badge: string };
+/// labels and the nodes beside the cells body medium, the stores beside a cell body small, the corner badges at the
+/// badges' own small size.
+export type ChartFonts = { title: string; code: string; stage: string; note: string; small: string; badge: string };
 
 let fonts: ChartFonts | null = null;
 
@@ -82,6 +84,7 @@ export function chartFonts(): ChartFonts {
       code: `600 ${large}px ${mono}`,
       stage: `600 ${sizeOf('--text-title-size-small', 16)}px ${sans}`,
       note: `${sizeOf('--text-body-size-medium', 14)}px ${sans}`,
+      small: `${sizeOf('--text-body-size-small', 12)}px ${sans}`,
       badge: `600 ${sizeOf('--chart-badge-text-size', 10)}px ${sans}`,
     };
   }
@@ -258,6 +261,7 @@ const POINT = 12;
 export function sizes(
   g: CompiledGraph,
   c: Chart,
+  engine: EngineNames | null = null,
 ): { size: Map<string, Size>; lines: Map<string, string[]>; notes: Map<string, CellNote> } {
   const cells = new Map(g.cells.map((x) => [x.id, x]));
   const size = new Map<string, Size>();
@@ -299,6 +303,9 @@ export function sizes(
       size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', chartFonts().note)) + 14), height: CIRCLE });
     } else if (n.kind === 'rule') {
       size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, chartFonts().note)) + 40, height: 30 });
+    } else if (n.kind === 'store') {
+      const { scope, title } = chipText(n, engine);
+      size.set(n.id, { width: Math.ceil(measure(`${scope} ${title}`, chartFonts().small)) + 2 * CHIP_PAD, height: CHIP });
     } else {
       size.set(n.id, { width: Math.ceil(measure(g.interject?.name ?? '', chartFonts().note)) + 44, height: 30 });
     }
@@ -325,6 +332,19 @@ export function textBoxes(c: CompiledCell, size: Size, lines: string[], note: Ce
     out.push(centred(lacksWidths(note.lacks).total, size.height - PAD_Y - MARKS + 3, 16));
   }
   return out;
+}
+
+/// The height of a store beside a cell, and the room at either side of its text.
+const CHIP = 20;
+const CHIP_PAD = 8;
+
+/// What a store beside a cell says: the part of the flow the store belongs to (the project, an item, a work), as its
+/// box among the stores is, and its title.
+export function chipText(n: ChartNode, engine: EngineNames | null): { scope: string; title: string } {
+  const s = engine?.stores?.[n.other ?? ''];
+  if (s === undefined) return { scope: '', title: n.other ?? '' };
+  const scope = scopeOf(s.layer);
+  return { scope: t(scope === 'project' ? 'chip_project' : scope === 'item' ? 'chip_item' : 'chip_work'), title: s.title };
 }
 
 /// The size of an arrow's label: the rows' names; none for an arrow without one.
@@ -622,7 +642,7 @@ export function lineKind(
   if (at.lit?.in.has(e.id)) return 'lit-in';
   if (at.lighted.out.has(e.id)) return 'out';
   if (at.lighted.in.has(e.id)) return 'in';
-  if (e.kind === 'rule' || e.kind === 'interjection' || e.kind === 'does') return 'rule';
+  if (e.kind === 'rule' || e.kind === 'interjection' || e.kind === 'does' || e.kind === 'store') return 'rule';
   if ((at.taken?.get(e.id) ?? 0) > 0) return 'taken';
   if (at.taken) return 'quiet';
   return e.main ? 'main' : 'plain';
@@ -655,6 +675,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
   const pointed = useRef<string | null>(null);
   const [pointedNode, setPointedNode] = useState<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
+  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
   const title = (id: string) => {
     const c = cells.get(id);
     return c ? `${c.id} ${c.title}` : id;
@@ -678,7 +699,9 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
   const quietNode = (n: ChartNode) => {
     if (marks.taken === null || n.kind === 'cell') return false;
     if (chart.edges.some((e) => (e.source === n.id || e.target === n.id) && going(e.id))) return false;
-    if (n.kind === 'does' || n.kind === 'rule' || n.kind === 'interjection') return !(marks.overlays?.has(n.cell) ?? true);
+    if (n.kind === 'does' || n.kind === 'rule' || n.kind === 'interjection' || n.kind === 'store') {
+      return !(marks.overlays?.has(n.cell) ?? true);
+    }
     return true;
   };
   // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen, and those
@@ -754,6 +777,20 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
             <polygon points={pts.map((p) => p.join(',')).join(' ')} />
             <text x={box.x + box.width / 2} y={box.y + box.height / 2} textAnchor="middle" dominantBaseline="central">
               {`rule:${n.other ?? ''}`}
+            </text>
+          </g>
+        );
+      }
+      case 'store': {
+        const { scope, title: named } = chipText(n, engine);
+        const how = n.use === 'both' ? 'chart_chip_both' : n.use === 'write' ? 'chart_chip_write' : 'chart_chip_read';
+        return (
+          <g key={n.id} className="fc-chip" data-node={n.id}>
+            <title>{t(how, { store: named, scope })}</title>
+            <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={6} />
+            <text x={box.x + box.width / 2} y={box.y + box.height / 2} textAnchor="middle" dominantBaseline="central">
+              <tspan className="fc-chip-scope">{scope}</tspan>
+              {` ${named}`}
             </text>
           </g>
         );
@@ -862,17 +899,31 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
         const r = laid.edges.get(e.id);
         if (!r) return null;
         const kind = kindOf(e);
-        const cls = ['fc-edge', `fc-edge-${kind}`, e.kind === 'does' ? 'fc-edge-does' : ''].join(' ');
+        // A store beside a cell: dashed into the cell for a read, solid out to the store for a write, a head at both
+        // ends for both.
+        const use = e.kind === 'store' ? (byId.get(e.source)?.use ?? byId.get(e.target)?.use ?? null) : null;
+        const cls = [
+          'fc-edge',
+          `fc-edge-${kind}`,
+          e.kind === 'does' ? 'fc-edge-does' : '',
+          use === 'read' ? 'fc-edge-read' : '',
+        ].join(' ');
         // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
         const d = pathOf(r, {
-          start: e.source === ring ? RING_CUT : 0,
+          start: (use === 'both' ? HEAD : 0) + (e.source === ring ? RING_CUT : 0),
           end: (e.kind === 'does' ? 0 : wide(kind) ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
         });
+        const head = `url(#fc-arrow-${kind})`;
         return (
           <g key={e.id} data-edge={e.id}>
             <title>{edgeTitle(e, cells, marks.taken?.get(e.id) ?? 0)}</title>
             <path className="fc-hit" d={d} />
-            <path className={cls} d={d} markerEnd={e.kind === 'does' ? undefined : `url(#fc-arrow-${kind})`} />
+            <path
+              className={cls}
+              d={d}
+              markerEnd={e.kind === 'does' ? undefined : head}
+              markerStart={use === 'both' ? head : undefined}
+            />
           </g>
         );
       })}

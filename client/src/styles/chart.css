@@ -47,8 +47,6 @@
   --fc-plain-fill: var(--data-gray-color-muted);
   --fc-any: var(--data-gray-color-emphasis);
   --fc-any-fill: var(--data-gray-color-muted);
-  /* The lines to a store from what is pointed at or open. */
-  --fc-link: var(--fgColor-muted);
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
      background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
      in the success colour and out of it in the danger colour, as the owner chose them, both of which read on the
@@ -152,7 +150,8 @@ svg.fc {
 .fc-rule,
 .fc-flag,
 .fc-act,
-.fc-store {
+.fc-store,
+.fc-chip {
   cursor: pointer;
 }
 
@@ -309,25 +308,25 @@ svg.fc {
   fill: var(--fgColor-muted);
 }
 
-.fc-links {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
+/* Beside a cell, a store it reads or writes: light grey and rounded as no cell is, the store's part of the flow (the
+   project, an item, a work) in muted words before its title; the line from it into the cell dashed for a read, the
+   line from the cell to it solid for a write. */
+.fc-chip rect {
+  fill: var(--fc-plain-fill);
+  stroke: var(--fc-plain);
+  stroke-width: var(--chart-line-thin);
 }
 
-.fc-link {
-  fill: none;
-  stroke: var(--fc-link);
-  stroke-width: var(--chart-line-box);
+.fc .fc-chip-scope {
+  fill: var(--fgColor-muted);
 }
 
-.fc-link-read {
+.fc .fc-chip text {
+  font-size: var(--text-body-size-small);
+}
+
+.fc-edge.fc-edge-read {
   stroke-dasharray: var(--chart-dash-read);
-}
-
-.fc-link-head path {
-  fill: var(--fc-link);
 }
 
 .fc-selected > rect:not(.fc-ring),

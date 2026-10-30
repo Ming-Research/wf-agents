@@ -278,6 +278,8 @@ export function FlowScreen(props: FlowScreenProps) {
     if (p.kind === 'store') {
       setPicked({ store: p.store });
       open({ kind: 'store', store: p.store });
+      // A store beside a cell leads to its box among the stores, as a circle leads to the cell it names.
+      if (p.go === true) window.setTimeout(() => chartRef.current?.focusStore(p.store), 0);
       return;
     }
     const graph = p.graph;

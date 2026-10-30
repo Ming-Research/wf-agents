@@ -196,7 +196,7 @@ describe('the flow as the engine stores it', () => {
     const laid = await Promise.all(
       graphs.map(({ g }, i) => {
         const c = charts[i];
-        const measured = sizes(g, c);
+        const measured = sizes(g, c, engine);
         const edges = new Map(c.edges.map((e) => [e.id, e]));
         return layoutChart(
           c,
@@ -250,7 +250,7 @@ describe('the flow as the engine stores it', () => {
   it("lays each graph out with short arrows, short level runs, few bends and what is beside a cell next to it", async () => {
     for (const { g, v } of graphs) {
       const c = chart(g, v, engine);
-      const measured = sizes(g, c);
+      const measured = sizes(g, c, engine);
       const edges = new Map(c.edges.map((e) => [e.id, e]));
       const laid = await layoutChart(
         c,
@@ -275,7 +275,7 @@ describe('the flow as the engine stores it', () => {
   it("puts each row's label near where its arrow leaves the cell, clear of every node and of every other label", async () => {
     for (const { g, v } of graphs) {
       const c = chart(g, v, engine);
-      const measured = sizes(g, c);
+      const measured = sizes(g, c, engine);
       const edges = new Map(c.edges.map((e) => [e.id, e]));
       const laid = await layoutChart(
         c,
@@ -341,7 +341,7 @@ describe('the flow as the engine stores it', () => {
           expect(nodes.has(e.source) && nodes.has(e.target), e.id).toBe(true);
           if (e.cell !== null) expect(e.label, e.id).not.toBe('');
         }
-        const { size } = sizes(g, c);
+        const { size } = sizes(g, c, engine);
         for (const n of c.nodes) {
           const s = size.get(n.id);
           expect(s !== undefined && Number.isFinite(s.width) && s.width > 0 && s.height > 0, n.id).toBe(true);
@@ -352,7 +352,7 @@ describe('the flow as the engine stores it', () => {
 
       it('lays the actions on lines into a cell out just above it, in its box, with no cell between', async () => {
         const c = chart(g, v, engine);
-        const measured = sizes(g, c);
+        const measured = sizes(g, c, engine);
         const edges = new Map(c.edges.map((e) => [e.id, e]));
         const laid = await layoutChart(
           c,

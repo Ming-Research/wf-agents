@@ -10,11 +10,15 @@
 // legend with a mark on each cell that does not; half or fewer, as a line from each cell that does. The way back from
 // such a move is drawn for no cell: an answer back to whichever cell asked goes only into the cells whose own answers
 // asked. What the engine does when a round ends in no return is the same for every cell and not drawn. The places the
-// engine keeps what it writes are drawn apart (`stores.tsx`). Pure, so that it is tested on its own.
+// engine keeps what it writes are drawn apart (`stores.tsx`), and beside each cell, as a small box of its own, each
+// store the cell reads or writes. Pure, so that it is tested on its own.
 
-import type { Atom, CompiledCell, CompiledGraph, CompiledRow, EngineNames, GraphView, RoundSummary } from '../api';
+import type { Atom, CompiledCell, CompiledGraph, CompiledRow, EngineNames, GraphView, Layer, RoundSummary } from '../api';
 
-export type NodeKind = 'cell' | 'out' | 'in' | 'rule' | 'interjection' | 'action' | 'does';
+export type NodeKind = 'cell' | 'out' | 'in' | 'rule' | 'interjection' | 'action' | 'does' | 'store';
+
+/// How a cell uses a store beside it: reads it, writes it, or both.
+export type StoreUse = 'read' | 'write' | 'both';
 
 export type ChartNode = {
   id: string;
@@ -25,10 +29,12 @@ export type ChartNode = {
   group: string | null;
   /// The cell it is, or sits beside; for the actions on a line, the cell the line leads into.
   cell: string;
-  /// For a circle, the cell it leads to or comes from; for a rule, the rule.
+  /// For a circle, the cell it leads to or comes from; for a rule, the rule; for a store beside a cell, the store.
   other: string | null;
   /// For the actions on a line and those a cell does every time: the actions, by name, in order.
   actions: string[];
+  /// For a store beside a cell: how the cell uses it; none for every other node.
+  use: StoreUse | null;
 };
 
 export type ChartEdge = {
@@ -36,7 +42,8 @@ export type ChartEdge = {
   source: string;
   target: string;
   /// The cell whose rows the arrow draws, and the rows, by their place in its transition table; none for the arrow
-  /// out of the actions on a line, of a rule, of the interjection or to what a cell does every time.
+  /// out of the actions on a line, of a rule, of the interjection, to what a cell does every time or to or from a store
+  /// beside it.
   cell: string | null;
   rows: number[];
   /// The rows of every cell the arrow out of the actions on a line draws: those through it.
@@ -45,7 +52,7 @@ export type ChartEdge = {
   label: string;
   /// Some row of it is on the main path: a cell's own answer the flow marks so, never a move.
   main: boolean;
-  kind: 'row' | 'rule' | 'interjection' | 'does';
+  kind: 'row' | 'rule' | 'interjection' | 'does' | 'store';
 };
 
 /// A box around a stage's cells or the asking part: its label, and the letter its cells' codes start with, if they share one.
@@ -230,6 +237,54 @@ export function valuesOf(c: CompiledCell, known: Set<string>): string[] {
   return out;
 }
 
+/// The part of the flow a store is kept for, as its box among the stores says it: the project, an item, or a work, its
+/// rounds' included.
+export function scopeOf(layer: Layer): 'project' | 'item' | 'work' {
+  return layer === 'round' ? 'work' : layer;
+}
+
+/// The stores a cell reads: what its inputs read, what the values its rows switch on read, and what its step reads.
+export function readsOf(engine: EngineNames, cell: CompiledCell): string[] {
+  const stores = engine.stores ?? {};
+  const out: string[] = [];
+  const add = (s: string) => {
+    if (s in stores && !out.includes(s)) out.push(s);
+  };
+  for (const x of cell.inputs) {
+    for (const src of x.from) {
+      if (typeof src !== 'object' || Array.isArray(src)) continue;
+      for (const [name, s] of Object.entries(stores)) {
+        if ('db' in src && (s.relations ?? []).includes(src.db)) add(name);
+        if ('engine' in src && (s.inputs ?? []).includes(src.engine)) add(name);
+      }
+    }
+  }
+  for (const v of valuesOf(cell, new Set(Object.keys(engine.values)))) (engine.reads?.[v]?.stores ?? []).forEach(add);
+  if (cell.step != null) (engine.reads?.[cell.step]?.stores ?? []).forEach(add);
+  return out;
+}
+
+/// The stores the actions or steps named write, as the engine's table says.
+export function writesOf(engine: EngineNames, names: string[]): string[] {
+  const out: string[] = [];
+  for (const n of names) for (const s of engine.writes?.[n] ?? []) if (!out.includes(s)) out.push(s);
+  return out;
+}
+
+/// The stores a cell reads or writes, each with how, in the order the engine lists its stores: what it reads
+/// (`readsOf`), and what its step and `actions` write, those it does every time and those on the rows the chart draws
+/// out of it.
+export function cellStores(engine: EngineNames, cell: CompiledCell, actions: string[]): Array<[string, StoreUse]> {
+  const reads = new Set(readsOf(engine, cell));
+  const writes = new Set(writesOf(engine, [...(cell.step != null ? [cell.step] : []), ...actions]));
+  return Object.keys(engine.stores ?? {}).flatMap((s): Array<[string, StoreUse]> => {
+    if (reads.has(s) && writes.has(s)) return [[s, 'both']];
+    if (reads.has(s)) return [[s, 'read']];
+    if (writes.has(s)) return [[s, 'write']];
+    return [];
+  });
+}
+
 /// The part each cell is drawn in. The asking part is a part of its own; a cell outside it that no row the chart draws
 /// leads to, but the moves every agent's cell shares and the rows back to where the work came from (such as the cell
 /// that runs the tools agents ask for), is drawn apart; every other cell is in the main part. `drawn` names the moves
@@ -274,7 +329,9 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     return stage ? `stage:${stage}` : null;
   };
   const nodes = new Map<string, ChartNode>();
-  const node = (n: Omit<ChartNode, 'part' | 'group' | 'actions'> & { beside?: string; actions?: string[] }) => {
+  const node = (
+    n: Omit<ChartNode, 'part' | 'group' | 'actions' | 'use'> & { beside?: string; actions?: string[]; use?: StoreUse },
+  ) => {
     if (nodes.has(n.id)) return;
     const at = n.beside ?? n.cell;
     nodes.set(n.id, {
@@ -283,6 +340,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       cell: n.cell,
       other: n.other,
       actions: n.actions ?? [],
+      use: n.use ?? null,
       part: parts.get(at) ?? MAIN,
       group: groupOf(at),
     });
@@ -418,6 +476,16 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       const id = `j:${c.id}`;
       node({ id, kind: 'interjection', cell: c.id, other: null });
       plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'interjection');
+    }
+    // Each store the cell reads or writes, beside it: a read comes into the cell, a write goes out to the store.
+    if (engine !== null) {
+      const drawnRows = c.rows.filter((r) => !fallback(r) && (!r.common || drawn.has(r.name)));
+      for (const [store, use] of cellStores(engine, c, [...own, ...drawnRows.flatMap(rowActions)])) {
+        const id = `s:${store}:${c.id}`;
+        node({ id, kind: 'store', cell: c.id, other: store, use });
+        if (use === 'read') plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'store');
+        else plain(`${cellNode(c.id)}->${id}`, cellNode(c.id), id, 'store');
+      }
     }
   }
   for (const e of edges.values()) {

@@ -1,9 +1,10 @@
 // A cell and what the chart draws beside it, laid out together as one node of the chart's layout, the same way for
 // every cell: the circles of rows into it from another part in a row above it, each with its row's name on its outer
 // side and a line down into it; the rules given to it on its left, the interjection under them, each with a line into
-// it; a row from it back to itself as a loop on its right, and what it does every time on its right; and the circles
-// of its rows to another part in a row below it, each under the actions on the row, if any. The layout sees each cell
-// and what is beside it as one node, and the arrows to and from other nodes meet the cell itself, in a lane in the
+// it, and under them the stores it reads or writes, each with a line into it or out of it; a row from it back to
+// itself as a loop on its right, and what it does every time on its right; and the circles of its rows to another
+// part in a row below it, each under the actions on the row, if any. The layout sees each cell and what is beside it
+// as one node, and the arrows to and from other nodes meet the cell itself, in a lane in the
 // middle of its top and bottom edges, with the circles' lines on either side of it, so that no arrow runs through a
 // circle or a label. The lines between a cell and what is beside it are drawn here, straight, with bends only where a
 // line reaches the cell from beyond the part of its edge it may meet.
@@ -25,8 +26,9 @@ export type Unit = {
   bottom: { from: number; to: number };
 };
 
-/// What is drawn beside a cell: its circles, its rules, its interjection and what it does every time.
-const BESIDE = new Set(['in', 'out', 'rule', 'interjection', 'does']);
+/// What is drawn beside a cell: its circles, its rules, its interjection, what it does every time and the stores it reads
+/// or writes.
+const BESIDE = new Set(['in', 'out', 'rule', 'interjection', 'does', 'store']);
 
 /// The nodes drawn beside a cell, each with the cell's node: those of a kind drawn beside a cell, and the actions on a
 /// row from a cell to a circle of its own; a node with a line to anything else is laid out on its own.
@@ -71,8 +73,10 @@ export function attachments(nodes: ChartNode[], edges: ChartEdge[]): Map<string,
 const LEFT = 24;
 const RIGHT = 16;
 const LOOP = 26;
-/// Between things stacked on the cell's left, and between things side by side in a row above or below it.
+/// Between things stacked on the cell's left, between the stores it reads or writes, stacked under them, and between
+/// things side by side in a row above or below it.
 const STACK = 8;
+const CHIPS = 4;
 const APART = 14;
 /// Between a label and the circle or the cell its line leaves.
 const LABEL_GAP = 4;
@@ -187,28 +191,52 @@ export function layUnit(
   const route = (e: ChartEdge, ps: Point[], label: Box | null) => routes.set(e.id, { points: ps, label, hops: [] });
 
   // The rules, then the interjection, on the left, their right edges in line and each line level into the cell where
-  // its middle is beside the cell, below the tag beside the cell's top left corner where they all fit there too.
-  const left = [...of('rule'), ...of('interjection')];
-  const heights = left.map((n) => size(n.id).height);
-  const tall = heights.reduce((a, h) => a + h, 0) + STACK * Math.max(0, left.length - 1);
-  const centres = (top: number) => {
-    let y = top;
-    return heights.map((h) => {
-      const c = y + h / 2;
-      y += h + STACK;
-      return c;
+  // its middle is beside the cell, below the tag beside the cell's top left corner where they all fit there too; under
+  // them the stores it reads or writes, each line into the cell for a read and out to the store for a write.
+  // A stack on the left, its things' middles: under the tag beside the cell's top left corner where they all fit
+  // beside the cell, else round the cell's middle; or, `from` set, from there down.
+  const stack = (things: ChartNode[], from: number | null, gap = STACK) => {
+    const heights = things.map((n) => size(n.id).height);
+    const tall = heights.reduce((a, h) => a + h, 0) + gap * Math.max(0, things.length - 1);
+    const centres = (top: number) => {
+      let y = top;
+      return heights.map((h) => {
+        const c = y + h / 2;
+        y += h + gap;
+        return c;
+      });
+    };
+    if (from !== null) return centres(from);
+    const beside = (cs: number[]) => cs.every((c) => c >= 6 && c <= H - 6);
+    return centres(beside(centres(UNDER_TAG)) ? Math.max(UNDER_TAG, (H - tall) / 2) : (H - tall) / 2);
+  };
+  // Lays a stack out `gap` left of the cell, its lines into the cell's left edge at `land`, a store's line turned round
+  // for a write.
+  const place = (things: ChartNode[], at: number[], land: number[], first: number) => {
+    const gap = Math.max(LEFT, band(at, land, first, INTO_CELL - 6));
+    const lines = bundle(at, land, -gap, 0, INTO_CELL - 6);
+    things.forEach((n, i) => {
+      const s = size(n.id);
+      boxes.set(n.id, { x: -gap - s.width, y: at[i] - s.height / 2, width: s.width, height: s.height });
+      for (const e of links.filter((x) => x.source === n.id || x.target === n.id)) {
+        const ps = points(lines[i], false);
+        route(e, e.source === n.id ? ps : [...ps].reverse(), null);
+      }
     });
   };
-  const beside = (cs: number[]) => cs.every((c) => c >= 6 && c <= H - 6);
-  const leftAt = centres(beside(centres(UNDER_TAG)) ? Math.max(UNDER_TAG, (H - tall) / 2) : (H - tall) / 2);
-  const leftLand = landings(leftAt, 6, H - 6, STEP);
-  const leftGap = Math.max(LEFT, band(leftAt, leftLand, 6, INTO_CELL - 6));
-  const leftLines = bundle(leftAt, leftLand, -leftGap, 0, INTO_CELL - 6);
-  left.forEach((n, i) => {
-    const s = size(n.id);
-    boxes.set(n.id, { x: -leftGap - s.width, y: leftAt[i] - s.height / 2, width: s.width, height: s.height });
-    for (const e of links.filter((x) => x.source === n.id)) route(e, points(leftLines[i], false), null);
-  });
+  const rules = [...of('rule'), ...of('interjection')];
+  const ruleAt = stack(rules, null);
+  const ruleLand = landings(ruleAt, 6, H - 6, STEP);
+  place(rules, ruleAt, ruleLand, 6);
+  // The stores under them, or where they would be, their lines meeting the cell's edge under the rules' lines, with a
+  // first piece long enough for a head at the store.
+  const stores = of('store');
+  if (stores.length > 0) {
+    const lowest = rules.length > 0 ? Math.max(...rules.map((n) => (boxes.get(n.id)?.y ?? 0) + size(n.id).height)) : null;
+    const storeAt = stack(stores, lowest !== null ? lowest + STACK : null, CHIPS);
+    const storeLand = landings(storeAt, ruleLand.length > 0 ? ruleLand[ruleLand.length - 1] + STEP : 6, H - 6, STEP);
+    place(stores, storeAt, storeLand, stores.some((n) => n.use !== 'read') ? OUT_OF : 6);
+  }
 
   // On its right, a row from the cell back to itself, out of its right edge and back in above, its label beside the
   // upright piece; and what the cell does every time, level with its middle, or above the row back to itself.

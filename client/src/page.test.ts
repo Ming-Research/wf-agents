@@ -42,6 +42,7 @@ import { cost, duration } from './format';
 import { pickedOnChart } from './flow/FlowScreen';
 import {
   chartFonts,
+  chipText,
   cornerWidth,
   EFFORTS,
   effortOf,
@@ -59,6 +60,7 @@ import {
 } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords, pickAt, type Under } from './graph/FlowChart';
+import { attachments, layUnit } from './graph/units';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame, zoomText } from './graph/Minimap';
 import {
   ASKING,
@@ -77,7 +79,7 @@ import {
   taken,
   ways,
 } from './graph/flowModel';
-import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
+import { layStores, storeLinks, storeUses } from './graph/stores';
 import { named } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
@@ -793,11 +795,53 @@ describe('the chart of a flow', () => {
     expect(laid.boxes.map((b) => b.id)).toEqual(['project', 'item', 'work']);
     const y = (n: string) => laid.stores.get(n)?.y ?? -1;
     expect(y('queue') < y('acceptance') && y('acceptance') < y('merged') && y('merged') < y('cards')).toBe(true);
-    // A write runs from the node to the store, a read from the store to the node, out of their facing sides.
-    const at = { x: 0, y: 0, width: 50, height: 20 };
-    const store = { x: 200, y: 100, width: 60, height: 20 };
-    expect(linkPath(at, store, true)).toBe('M 50 10 C 125 10 125 110 200 110');
-    expect(linkPath(at, store, false)).toBe('M 200 110 C 125 110 125 10 50 10');
+  });
+
+  it('puts beside each cell the stores it reads or writes, on its left, a read into it and a write out to the store', () => {
+    const chip = (id: string) => c.nodes.find((n) => n.id === id);
+    // m reads the cards by its input and what was merged by the value its rows switch on.
+    expect(chip('s:cards:m')).toMatchObject({ kind: 'store', cell: 'm', other: 'cards', use: 'read' });
+    expect(chip('s:merged:m')?.use).toBe('read');
+    expect(edge('s:cards:m->c:m')?.kind).toBe('store');
+    // a writes, by the actions on its row into b, what they write; b, by what it does every time, the cards.
+    expect(c.nodes.filter((n) => n.kind === 'store' && n.cell === 'a').map((n) => [n.other, n.use])).toEqual([
+      ['cards', 'write'],
+      ['queue', 'write'],
+      ['acceptance', 'write'],
+    ]);
+    expect(edge('c:a->s:cards:a')?.kind).toBe('store');
+    expect(chip('s:cards:b')?.use).toBe('write');
+    // With no engine part, none.
+    expect(chart(graph, view).nodes.some((n) => n.kind === 'store')).toBe(false);
+    // Each says the part of the flow its store is kept for.
+    const cards = chip('s:cards:m');
+    expect(cards && chipText(cards, engine)).toEqual({ scope: 'work', title: 'Design cards' });
+    // Laid out with the cell: on its left, under its rule; a read's line ends at the cell, a write's starts there.
+    const owner = attachments(c.nodes, c.edges);
+    expect(owner.get('s:cards:a')).toBe('c:a');
+    const members = c.nodes.filter((n) => owner.get(n.id) === 'c:a');
+    const links = c.edges.filter((e) => owner.get(e.source) === 'c:a' || owner.get(e.target) === 'c:a');
+    const size = (id: string) => (id === 'c:a' ? { width: 200, height: 60 } : { width: 120, height: 20 });
+    const u = layUnit(chip('c:a') ?? c.nodes[0], members, links, size, () => null, { top: 1, bottom: 1 });
+    const at = (id: string) => u.boxes.get(id) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const cell = at('c:a');
+    for (const s of ['s:cards:a', 's:queue:a', 's:acceptance:a']) {
+      expect(at(s).x + at(s).width, s).toBeLessThan(cell.x);
+      expect(at(s).y, s).toBeGreaterThan(at('r:tree:a').y);
+      const ps = u.links.get(`c:a->${s}`)?.points ?? [];
+      expect(ps[0]?.x, s).toBe(cell.x);
+      expect(ps[ps.length - 1]?.x, s).toBe(at(s).x + at(s).width);
+    }
+    const into = u.links.get('r:tree:a->c:a')?.points ?? [];
+    expect(into[into.length - 1]?.x).toBe(cell.x);
+    // A click on one goes to the store's box among the stores.
+    const under: Under = {
+      closest: (sel) =>
+        sel === '[data-node]' || sel === '[data-sheet]'
+          ? { getAttribute: (n) => (n === 'data-node' ? 's:cards:m' : n === 'data-sheet' ? '0' : null) }
+          : null,
+    };
+    expect(pickAt(under, ['engineer'], [c])).toEqual({ kind: 'store', store: 'cards', go: true });
   });
 
   it('marks what a work did at each cell, and the arrows it took', () => {
@@ -907,7 +951,7 @@ describe('the chart of a flow', () => {
       parts: new Map(),
       bounds: { x: 0, y: 0, width: 300, height: c.nodes.length * 60 },
     };
-    const measured = sizes(graph, c);
+    const measured = sizes(graph, c, engine);
     const draw = (selected: string | null) => {
       const marks: Marks = { selected, overlays: null, taken: null, added: new Set(), changed: new Set() };
       const props = { g: graph, chart: c, laid, lines: measured.lines, notes: measured.notes, engine, marks };
