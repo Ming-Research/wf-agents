@@ -432,7 +432,12 @@ fn the_query_tool_lists_every_table_whole_and_what_it_holds_in_short() {
         .as_array()
         .unwrap()
         .iter()
-        .flat_map(|f| f["properties"]["tools"]["items"]["oneOf"].as_array().into_iter().flatten())
+        .flat_map(|f| {
+            f["properties"]["tools"]["items"]["oneOf"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        })
         .find(|t| t["properties"]["tool"]["const"] == "query")
         .and_then(|t| t["properties"]["tool"]["description"].as_str())
         .unwrap()

@@ -3289,8 +3289,11 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
     let from = utc_minute(since);
     let main = e.config.config.projects.get(project).map_or(Value::Null, |p| {
         let after = format!("--since=@{}", since / 1000);
-        git::git(&p.checkout, &["log", "--format=%h %cs %s", after.as_str(), main_ref(p).as_str()])
-            .map_or(Value::Null, |log| commits(&log, &from))
+        git::git(
+            &p.checkout,
+            &["log", "--format=%h %cs %s", after.as_str(), main_ref(p).as_str()],
+        )
+        .map_or(Value::Null, |log| commits(&log, &from))
     });
     // Each list whole, the latest first, of which `latest` keeps the latest.
     let all = |q: &str| query_json(conn, q, &[&project, &since], usize::MAX);
@@ -3315,10 +3318,8 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
          WHERE i.project = ?1 AND r.cell IN {} AND r.ended_at > ?2 ORDER BY r.ended_at DESC",
         db::cells_sql(ENGINEER, &["L1"])
     ))?;
-    let owner = all(
-        "SELECT m.id AS matter, m.what FROM architect_matters m
-         WHERE m.project = ?1 AND m.kind = 'owner_words' AND m.at > ?2 ORDER BY m.id DESC",
-    )?;
+    let owner = all("SELECT m.id AS matter, m.what FROM architect_matters m
+         WHERE m.project = ?1 AND m.kind = 'owner_words' AND m.at > ?2 ORDER BY m.id DESC")?;
     let cards = all(
         "SELECT c.id AS design_card, w.item, c.status FROM design_cards c JOIN works w ON w.id = c.work
          JOIN items i ON i.id = w.item
@@ -4335,7 +4336,10 @@ mod tests {
         let v = commits(&log(75), "2026-10-23 11:35 UTC");
         let rows: Vec<&str> = v.as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         assert_eq!(rows.len(), 61, "{v}");
-        assert_eq!(rows[0], format!("0000000 2026-10-29 Make the {}very…", "very ".repeat(21)));
+        assert_eq!(
+            rows[0],
+            format!("0000000 2026-10-29 Make the {}very…", "very ".repeat(21))
+        );
         assert!(rows[0].chars().count() - "0000000 2026-10-29 ".len() <= COMMIT_MOST);
         assert_eq!(rows[1], "0000001 2026-10-29 Fix the lexer.");
         assert_eq!(rows[59], "000003b 2026-10-24 Fix the lexer.");
