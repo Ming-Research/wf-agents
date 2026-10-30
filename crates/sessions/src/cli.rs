@@ -64,8 +64,9 @@ pub const ENVIRONMENT: [(&str, &str); 2] = [
 /// The tool the command line hands a return in with, under `--json-schema`.
 pub const STRUCTURED_OUTPUT: &str = "StructuredOutput";
 
-/// An attempt at a return that the command line could not parse as JSON: the input the model gave its
-/// StructuredOutput tool, whole, rebuilt from the stream's partial messages.
+/// An attempt at a return that the command line could not parse as JSON, or refused for a field it holds as a string
+/// holding the JSON of an object: the input the model gave its StructuredOutput tool, whole, rebuilt from the stream's
+/// partial messages.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Unparsed {
     /// The tool use's id.
@@ -97,8 +98,8 @@ pub struct Reply {
     pub command: Vec<String>,
     /// The text the run answered with, as the command line gave it; none when it gave none.
     pub result: Option<String>,
-    /// Each attempt at a return the command line could not parse as JSON, in the order made; empty when every attempt
-    /// parsed.
+    /// Each attempt at a return the command line could not parse as JSON, or refused for a field it holds as a string
+    /// holding the JSON of an object, in the order made; empty when every attempt parsed.
     pub unparsed: Vec<Unparsed>,
 }
 
@@ -483,8 +484,9 @@ impl Partials {
         }
     }
 
-    /// The inputs that are attempts the command line could not parse: those it said it could not parse, and any that
-    /// is no JSON, each with the length it reported and why it refused it.
+    /// The inputs that are attempts the command line could not parse: those it said it could not parse, any that is no
+    /// JSON, and any it refused that holds a field as a string holding the JSON of an object, which it did not parse
+    /// either; each with the length it reported and why it refused it.
     fn unparsed(mut self, refusals: &[(String, String)]) -> Vec<Unparsed> {
         self.close(None);
         self.done
@@ -492,7 +494,10 @@ impl Partials {
             .filter_map(|(id, raw)| {
                 let said = refusals.iter().find(|(r, _)| *r == id).map(|(_, why)| why.as_str());
                 let unparsable = said.is_some_and(|w| w.contains("could not be parsed as JSON"))
-                    || serde_json::from_str::<Value>(&raw).is_err();
+                    || match serde_json::from_str::<Value>(&raw) {
+                        Ok(v) => said.is_some() && holds_json_text(&v),
+                        Err(_) => true,
+                    };
                 unparsable.then(|| Unparsed {
                     length: said.and_then(reported_length),
                     why: said.map(without_quote),
@@ -502,6 +507,17 @@ impl Partials {
             })
             .collect()
     }
+}
+
+/// Whether a return holds a field as a string holding the JSON of an object, as the model writes the field of its
+/// forms at times.
+fn holds_json_text(v: &Value) -> bool {
+    v.as_object().is_some_and(|o| {
+        o.values().any(|x| {
+            x.as_str()
+                .is_some_and(|s| serde_json::from_str::<Value>(s.trim()).is_ok_and(|p| p.is_object()))
+        })
+    })
 }
 
 /// The tool uses the command line refused, each by its id with what it said: the tool results of the agent's own
@@ -602,11 +618,14 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// The schema the CLI is given for every round of a graph's agents, the same for every cell, since a schema that changed
 /// from one round to the next leaves nothing of the session's prompt cache: a return's top-level fields, each with only
 /// its type, the short fields every return holds first and the field an agent's forms are under last, so that only
-/// closing brackets come after the long answer. Only that field is required, and the fields beside it are not refused
-/// inside it: the command line would retry a return for either, rewriting it whole each time, while the engine moves a
-/// field it finds inside up beside it (`unparsed::lifted` in the engine) and sends back a return that lacks one. Without
-/// the types the model hands in each field as the JSON text of its value; the cell's own answer is a conditional input
-/// of the message, and the engine checks the return against the cell's whole schema.
+/// closing brackets come after the long answer; that field with the [`shape`] of every form of every agent's cell of
+/// the graph taken together, each object with its fields and each list with its items, down to every value, with their
+/// types and nothing else. Only that field is required, and nothing is refused but a value of another type: the command
+/// line would retry a return for anything else, rewriting it whole each time, while the engine moves a field it finds
+/// inside up beside it (`unparsed::lifted` in the engine), leaves out a null where a field may be left out, and checks
+/// the return against the cell's whole schema, whose own answer is a conditional input of the message. Without the
+/// types the model hands in each field as the JSON text of its value, and with the field of the forms an object with no
+/// fields it handed in the whole form as a string holding its JSON.
 pub fn envelope(g: &flow::CompiledGraph) -> Value {
     let cells: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
     let empty = serde_json::Map::new();
@@ -626,17 +645,166 @@ pub fn envelope(g: &flow::CompiledGraph) -> Value {
         })
         .collect();
     let desc = format!(
-        "Exactly one of the forms the prompt's schema lists under {}; {} sit beside it, not inside it",
-        g.within,
+        "The form this round hands in, an object whose fields are written as JSON values, never a string holding the \
+         JSON text of one: exactly one of the forms `format:common` lists, the cell's own answer as `format:<cell>` \
+         gives it or another form it names; {} sit beside it, not inside it",
         beside.join(" and ")
     );
-    props.insert(g.within.clone(), json!({ "type": "object", "description": desc }));
+    let forms = cells
+        .iter()
+        .filter_map(|c| c.schema.as_ref()?.get("properties")?.get(&g.within))
+        .map(shape)
+        .reduce(|a, b| merged(&a, &b));
+    let mut within = serde_json::Map::new();
+    within.insert("type".into(), json!("object"));
+    within.insert("description".into(), json!(desc));
+    if let Some(fields) = forms.as_ref().and_then(|f| f.get("properties")) {
+        within.insert("properties".into(), fields.clone());
+    }
+    props.insert(g.within.clone(), Value::Object(within));
     json!({
         "type": "object",
         "properties": props,
         "required": [g.within],
         "additionalProperties": false,
     })
+}
+
+/// The shape of a part of a cell's schema: the type of each value and nothing else, each object with all its fields and
+/// each list with its items, alternatives taken together as one ([`merged`]). A value with no type of its own takes that
+/// of its fixed value or of all its values; a field its object may leave out may also be null, which the engine takes
+/// as the field left out.
+fn shape(s: &Value) -> Value {
+    let Some(o) = s.as_object() else { return json!({}) };
+    let mut out = serde_json::Map::new();
+    if let Some(t) = type_of(o) {
+        out.insert("type".into(), t);
+    }
+    if let Some(ps) = o.get("properties").and_then(Value::as_object) {
+        let required: Vec<&str> = o
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|r| r.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let fields: serde_json::Map<String, Value> = ps
+            .iter()
+            .map(|(k, p)| {
+                let mut x = shape(p);
+                if !required.contains(&k.as_str()) {
+                    or_null(&mut x);
+                }
+                (k.clone(), x)
+            })
+            .collect();
+        out.insert("properties".into(), Value::Object(fields));
+    }
+    if let Some(it) = o.get("items") {
+        out.insert("items".into(), shape(it));
+    }
+    let alts = ["anyOf", "oneOf"]
+        .iter()
+        .filter_map(|k| o.get(*k)?.as_array())
+        .flatten()
+        .map(shape)
+        .reduce(|a, b| merged(&a, &b));
+    match alts {
+        Some(a) if out.is_empty() => a,
+        Some(a) => merged(&Value::Object(out), &a),
+        None => Value::Object(out),
+    }
+}
+
+/// A schema's own type, or that of its fixed value or of all its values when they share one.
+fn type_of(o: &serde_json::Map<String, Value>) -> Option<Value> {
+    if let Some(t) = o.get("type") {
+        return Some(t.clone());
+    }
+    let values = o
+        .get("const")
+        .into_iter()
+        .chain(o.get("enum").and_then(Value::as_array).into_iter().flatten());
+    let mut types: Vec<&str> = Vec::new();
+    for v in values {
+        let t = match v {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        };
+        if !types.contains(&t) {
+            types.push(t);
+        }
+    }
+    match types.as_slice() {
+        [one] => Some(json!(one)),
+        _ => None,
+    }
+}
+
+/// The types a shape's type names, in order.
+fn types(t: &Value) -> Vec<&str> {
+    match t {
+        Value::String(s) => vec![s.as_str()],
+        Value::Array(xs) => xs.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A shape that may also be null; one of no type is left as it is, as it may be anything.
+fn or_null(x: &mut Value) {
+    let Some(t) = x.get("type") else { return };
+    let mut ts: Vec<&str> = types(t);
+    if !ts.contains(&"null") {
+        ts.push("null");
+    }
+    let ts = json!(ts);
+    x["type"] = ts;
+}
+
+/// Two shapes taken together, as alternatives of one value: the types of both, the fields of both, a field both have
+/// taken together too, and the items of both lists taken together; of no type when either is, as it may be anything.
+fn merged(a: &Value, b: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    if let (Some(x), Some(y)) = (a.get("type"), b.get("type")) {
+        let mut ts: Vec<&str> = types(x);
+        for t in types(y) {
+            if !ts.contains(&t) {
+                ts.push(t);
+            }
+        }
+        out.insert(
+            "type".into(),
+            match ts.as_slice() {
+                [one] => json!(one),
+                _ => json!(ts),
+            },
+        );
+    }
+    let (pa, pb) = (a.get("properties"), b.get("properties"));
+    if pa.is_some() || pb.is_some() {
+        let mut fields = pa.and_then(Value::as_object).cloned().unwrap_or_default();
+        for (k, v) in pb.and_then(Value::as_object).into_iter().flatten() {
+            let x = match fields.get(k) {
+                Some(f) => merged(f, v),
+                None => v.clone(),
+            };
+            fields.insert(k.clone(), x);
+        }
+        out.insert("properties".into(), Value::Object(fields));
+    }
+    match (a.get("items"), b.get("items")) {
+        (Some(x), Some(y)) => {
+            out.insert("items".into(), merged(x, y));
+        }
+        (Some(x), None) | (None, Some(x)) => {
+            out.insert("items".into(), x.clone());
+        }
+        (None, None) => {}
+    }
+    Value::Object(out)
 }
 
 /// Reads what `claude -p --output-format stream-json` printed: the compactions on the way, and the result at the end.
@@ -978,7 +1146,8 @@ mod tests {
     }
 
     // The CLI is given one schema for a whole graph: the short fields every return holds first, the field its forms are
-    // under last and alone required, and a field beside it written inside it not refused, which the engine moves.
+    // under last and alone required, with the shape of every form of the graph, and a field beside it written inside
+    // it not refused, which the engine moves.
     #[test]
     fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
         let relations = db::relations(db::SCHEMA).unwrap();
@@ -1013,6 +1182,84 @@ mod tests {
         let off = envelope(&g.clone().as_asked(|_| false));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
         assert_eq!(off["required"], json!(["outcome"]));
+        // The field of the forms is never an object with no fields: it holds every form of every agent's cell, each
+        // value with its type, which a string holding the JSON of one does not have.
+        for g in &f.graphs {
+            let s = envelope(g);
+            let within = &s["properties"][&g.within];
+            assert!(
+                within["properties"].as_object().is_some_and(|p| !p.is_empty()),
+                "{within}"
+            );
+            for c in g.cells.iter().filter(|c| c.kind == "agent") {
+                let form = shape(&c.schema.as_ref().unwrap()["properties"][&g.within]);
+                assert_eq!(beyond(&form, within, ""), None, "cell {}", c.id);
+            }
+        }
+    }
+
+    /// The first place of a shape where another does not take every value it takes: a type it lacks, a field or the
+    /// items it has none of; none when it takes them all.
+    fn beyond(a: &Value, b: &Value, at: &str) -> Option<String> {
+        if let Some(t) = b.get("type") {
+            let all = types(t);
+            if a.get("type").is_none_or(|x| types(x).iter().any(|y| !all.contains(y))) {
+                return Some(format!("{at}: {} beyond {t}", a.get("type").unwrap_or(&Value::Null)));
+            }
+        }
+        for (k, v) in a.get("properties").and_then(Value::as_object).into_iter().flatten() {
+            let Some(w) = b.get("properties").and_then(|p| p.get(k)) else {
+                return Some(format!("{at}.{k}: no such field"));
+            };
+            if let Some(x) = beyond(v, w, &format!("{at}.{k}")) {
+                return Some(x);
+            }
+        }
+        match (a.get("items"), b.get("items")) {
+            (Some(x), Some(y)) => beyond(x, y, &format!("{at}[]")),
+            (Some(_), None) => Some(format!("{at}[]: no items")),
+            _ => None,
+        }
+    }
+
+    // A shape keeps only the types of the values, each object with its fields and each list with its items: no field
+    // is required, no value fixed, and a field its object may leave out may also be null. Alternatives come together
+    // as one, and a value of no type of its own takes that of its values.
+    #[test]
+    fn a_shape_keeps_only_the_types_of_the_values() {
+        let s = json!({
+            "description": "What this round comes to",
+            "anyOf": [
+                { "type": "object", "required": ["reading"], "additionalProperties": false, "properties": {
+                    "reading": { "type": "object", "required": ["direction"], "properties": {
+                        "direction": { "type": "string", "description": "The direction" },
+                        "asks": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                    } },
+                } },
+                { "type": "object", "required": ["verdict"], "properties": {
+                    "verdict": { "oneOf": [
+                        { "type": "object", "properties": { "verdict": { "const": "holds" } } },
+                        { "type": "object", "properties": {
+                            "verdict": { "const": "fails" },
+                            "kind": { "enum": ["a", "b"] },
+                        } },
+                    ] },
+                } },
+            ],
+        });
+        assert_eq!(
+            shape(&s),
+            json!({ "type": "object", "properties": {
+                "reading": { "type": "object", "properties": {
+                    "direction": { "type": "string" },
+                    "asks": { "type": ["array", "null"], "items": { "type": "string" } },
+                } },
+                "verdict": { "type": "object", "properties": {
+                    "verdict": { "type": ["string", "null"] },
+                    "kind": { "type": ["string", "null"] },
+                } },
+            } })
+        );
     }
 
     // The input of each attempt at a return is rebuilt whole from the pieces the stream's partial messages carry, and
@@ -1089,6 +1336,55 @@ mod tests {
         let why = u.why.clone().unwrap();
         assert!(why.ends_with("bytes)") && !why.contains("\u{4e0d}\u{884c}"), "{why}");
         assert_eq!(r.output.unwrap()["progress"], "p");
+    }
+
+    // An attempt the command line refused for holding a field as a string holding the JSON of an object is kept as one
+    // it could not parse; one it refused for another type is not.
+    #[test]
+    fn an_attempt_refused_for_a_form_written_as_its_json_text_is_kept() {
+        let event = |e: Value| json!({ "type": "stream_event", "event": e, "parent_tool_use_id": null }).to_string();
+        let attempt = |id: &str, input: &str| {
+            let block = json!({ "type": "tool_use", "id": id, "name": STRUCTURED_OUTPUT, "input": {} });
+            [
+                event(json!({ "type": "message_start", "message": {} })),
+                event(json!({ "type": "content_block_start", "index": 0, "content_block": block })),
+                event(json!({ "type": "content_block_delta", "index": 0,
+                              "delta": { "type": "input_json_delta", "partial_json": input } })),
+                event(json!({ "type": "content_block_stop", "index": 0 })),
+            ]
+        };
+        let refused = |id: &str, text: &str| {
+            json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [
+                { "type": "tool_result", "tool_use_id": id, "is_error": true, "content": text }] } })
+            .to_string()
+        };
+        let as_text = r#"{"progress": "p", "outcome": "{\"answer\": {\"why\": \"w\"}}"}"#;
+        let other = r#"{"progress": "p", "tell_owner": "t", "outcome": {"answer": {"why": "w"}}}"#;
+        let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s1" }).to_string()];
+        lines.extend(attempt("so-1", as_text));
+        lines.push(refused(
+            "so-1",
+            "Output does not match required schema: /outcome: must be object",
+        ));
+        lines.extend(attempt("so-2", other));
+        lines.push(refused(
+            "so-2",
+            "Output does not match required schema: /tell_owner: must be array",
+        ));
+        lines.push(
+            json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
+                    "session_id": "s1" })
+            .to_string(),
+        );
+        let mut stream = Stream::default();
+        for l in &lines {
+            stream.line(l);
+        }
+        let mut r = Reply::default();
+        stream.end(&mut r);
+        let kept: Vec<(&str, &str)> = r.unparsed.iter().map(|u| (u.id.as_str(), u.raw.as_str())).collect();
+        assert_eq!(kept, [("so-1", as_text)]);
+        assert!(r.output.is_none());
     }
 
     #[test]

@@ -503,6 +503,27 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return f.handle(e, ended, &reply);
     };
     e.returned();
+    // A form the agent wrote as a string holding its JSON is taken as the form, and the round records that it was, so
+    // that how often models still write it shows.
+    let output = match crate::unparsed::form_from_text(g, &output) {
+        Some(taken) => {
+            (e.say)(&format!(
+                "{round}: its {} was handed in as the JSON text of it, and is taken as the object",
+                g.within
+            ));
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE rounds SET input = json_set(input, '$.engine.taken_from_text', ?3)
+                     WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                    params![round.work, round.n, g.within],
+                )?;
+                Ok(())
+            })
+            .map_err(sql)?;
+            taken
+        }
+        None => output,
+    };
     // A field every return holds that the agent wrote inside the field its forms are under is moved up beside it,
     // which the command line no longer refuses; a field the flow lets the return leave out that the agent wrote as
     // null is left out.

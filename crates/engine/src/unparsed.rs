@@ -1,10 +1,12 @@
 //! A return whose JSON the command line could not parse, after all its attempts at it (`unparsed`, a kind of failed
 //! run whose handling is to repair): never a passing failure, so the round is never run again from its start. Within
-//! the round the engine first closes a text that only lacks the brackets that close it, then has the installation's
+//! the round the engine first takes a whole return whose form the agent wrote as the JSON text of it, which the
+//! command line refused, then closes a text that only lacks the brackets that close it, then has the installation's
 //! lowest level repair any other fault of its syntax, once, a repair taken only when it keeps every other character as
 //! it was, and then asks the agent to hand its return in again in its own session; what any of them gives is taken as
-//! any return. Every return, repaired or not, has the fields every return holds that it wrote inside the field its
-//! forms are under moved up beside it, since the command line no longer refuses them there.
+//! any return. Every return, repaired or not, has its form taken from the JSON text of it when the agent wrote it so,
+//! and the fields every return holds that it wrote inside the field its forms are under moved up beside it, since the
+//! command line no longer refuses them there.
 
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Value, json};
@@ -41,6 +43,21 @@ pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
     }
     o.extend(moved);
     out
+}
+
+/// A return whose field the forms are under holds a string holding the JSON of an object, as the model writes it at
+/// times in place of the object, with that field the object; none when the field holds no such string. The command
+/// line refuses the string, and the engine takes the object when it is handed it, from a run the command line gave up
+/// on or another way, recording that it did (`engine.taken_from_text` on the round), for as long as the record shows
+/// models still writing it.
+pub fn form_from_text(g: &CompiledGraph, out: &Value) -> Option<Value> {
+    let text = out.get(&g.within)?.as_str()?;
+    let form = serde_json::from_str::<Value>(text.trim())
+        .ok()
+        .filter(Value::is_object)?;
+    let mut out = out.clone();
+    out[g.within.as_str()] = form;
+    Some(out)
 }
 
 /// The text with the brackets that close it added at its end, when it lacks only those: a scan of its brackets
@@ -171,7 +188,8 @@ fn json_text(answer: &str) -> &str {
 
 /// What the engine's repair of a return the command line could not parse came to.
 pub struct Recovery {
-    /// The return to take: closed, repaired or handed in again; none when nothing gave one.
+    /// The return to take: the last attempt whose form is the JSON text of it, closed, repaired or handed in again;
+    /// none when nothing gave one.
     pub output: Option<Value>,
     /// The agent's run that handed its return in again, when it was asked to.
     pub again: Option<Reply>,
@@ -181,7 +199,8 @@ pub struct Recovery {
     pub repair_cost: f64,
 }
 
-/// Repairs, within its round, a return whose JSON the command line could not parse: closes the last attempt's text
+/// Repairs, within its round, a return whose JSON the command line could not parse: takes the last attempt as it is
+/// when its text is whole JSON whose form is the JSON text of it ([`form_from_text`]); closes the last attempt's text
 /// when it only lacks closing brackets; else has the lowest level repair its syntax, taking the repair only when it
 /// parses, keeps the content and `accepts` it (the cell's schema and checks, giving the return as it is taken); and
 /// when neither applies to a text that is whole, or the repair is refused, asks the agent to hand its return in again
@@ -203,7 +222,23 @@ pub fn recover(
     let mut record = json!({ "attempts": attempts });
     let mut repair_cost = 0.0;
     let last = reply.unparsed.last();
+    let whole = last.and_then(|u| serde_json::from_str::<Value>(&u.raw).ok());
     match last.filter(|u| !cut_off(&u.raw, u.length)) {
+        // A whole return the command line refused for its form held as the JSON text of it is taken as it is, its form
+        // taken from the text as any return's is; any other whole return has no syntax to repair, and is handed in
+        // again.
+        Some(_) if whole.is_some() => {
+            if let Some(v) = whole.filter(|v| form_from_text(g, v).is_some()) {
+                record["form_as_text"] = json!(true);
+                return Recovery {
+                    output: Some(v),
+                    again: None,
+                    record,
+                    repair_cost,
+                };
+            }
+            record["repair"] = json!({ "not_tried": "the last attempt's text is whole JSON" });
+        }
         Some(u) => {
             if let Some(fixed) = closes(&u.raw)
                 && let Ok(v) = serde_json::from_str::<Value>(&fixed)
