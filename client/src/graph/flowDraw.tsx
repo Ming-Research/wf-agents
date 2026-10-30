@@ -6,14 +6,26 @@
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
 // new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
 // purple hexagon. A circle to or from another graph names that graph and its cell, and is drawn as a circle to or from
-// another part. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
+// another part. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
+// cell picked, or the cell under the pointer while the pointer is on one, has its rows into it lit green and its rows
+// out of it red. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
 // its target.
 
 import { type ReactNode, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, EngineNames } from '../api';
 import { t, tn } from '../text';
-import { actionWords, type Chart, type ChartEdge, type ChartNode, type Overlay, related, type Wait } from './flowModel';
+import {
+  actionWords,
+  type Chart,
+  type ChartEdge,
+  type ChartNode,
+  type Overlay,
+  related,
+  type Wait,
+  ways,
+  type Ways,
+} from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
@@ -53,8 +65,8 @@ function stackOf(token: string, fallback: string): string {
 }
 
 /// The fonts the chart's text is drawn and measured in, as the UI spec gives the chart its type: a cell's title body
-/// large, its code monospace at that size, a stage's name title small, the notes, the arrows' labels and the nodes
-/// beside the cells body medium, the corner badges at the badges' own small size.
+/// large semibold, its code monospace at that size and weight, a stage's name title small, the notes, the arrows'
+/// labels and the nodes beside the cells body medium, the corner badges at the badges' own small size.
 export type ChartFonts = { title: string; code: string; stage: string; note: string; badge: string };
 
 let fonts: ChartFonts | null = null;
@@ -65,8 +77,8 @@ export function chartFonts(): ChartFonts {
     const mono = stackOf('--fontStack-monospace', 'monospace');
     const large = sizeOf('--text-body-size-large', 16);
     fonts = {
-      title: `${large}px ${sans}`,
-      code: `${large}px ${mono}`,
+      title: `600 ${large}px ${sans}`,
+      code: `600 ${large}px ${mono}`,
       stage: `600 ${sizeOf('--text-title-size-small', 16)}px ${sans}`,
       note: `${sizeOf('--text-body-size-medium', 14)}px ${sans}`,
       badge: `600 ${sizeOf('--chart-badge-text-size', 10)}px ${sans}`,
@@ -299,6 +311,9 @@ const LIT_HEAD = 16;
 const RING = 5;
 const RING_CUT = RING + 2;
 
+/// Whether arrows of a kind are drawn wide, with the wide head: the ways the round chosen came in by and left by.
+const wide = (k: LineKind) => k === 'lit-in' || k === 'lit-out';
+
 export type Marks = {
   /// The node whose panel is open.
   selected: string | null;
@@ -309,7 +324,7 @@ export type Marks = {
   added: Set<string>;
   changed: Set<string>;
   /// On a work's page, with a round chosen: the arrows it came in by and left by.
-  lit?: Set<string>;
+  lit?: Ways;
   /// On a work's page: the cell the halo goes round, where a round runs or has just run (`haloAt`).
   halo?: string | null;
 };
@@ -384,7 +399,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
         </rect>
       ) : null}
       <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={round ? box.height / 2 : 3} />
-      <text x={box.x + box.width / 2} y={titleAt} textAnchor="middle" dominantBaseline="central">
+      <text className="fc-title" x={box.x + box.width / 2} y={titleAt} textAnchor="middle" dominantBaseline="central">
         {lines.map((l, i) => (
           <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : LINE}>
             {i === 0 ? <tspan className="fc-id">{`${cell.id} `}</tspan> : null}
@@ -551,6 +566,39 @@ export function actionsTitle(actions: string[], engine: EngineNames | null): str
   return actions.map((a) => `${actionWords(a)}: ${engine?.actions[a] ?? a}`).join('\n');
 }
 
+/// The cell whose rows into it and out of it are lit: the cell under the pointer while the pointer is on one, else the
+/// cell picked, so that pointing at the cell picked changes nothing and pointing at another shows its rows alone until
+/// the pointer leaves it; none while neither is a cell.
+export function litCell(c: Chart, picked: string | null, pointed: string | null): string | null {
+  const cell = (id: string | null) => (id !== null && c.nodes.some((n) => n.id === id && n.kind === 'cell') ? id : null);
+  return cell(pointed) ?? cell(picked);
+}
+
+/// How an arrow is drawn, the first that holds: the row the pointer is on or that was clicked (`hot`); the way the
+/// round chosen came in by or left by (`lit-in`, `lit-out`); a row into or out of the cell lit (`in`, `out`, out first
+/// for a row from the cell back into it); a rule's, the interjection's or the line to what a cell does every time
+/// (`rule`); on a work's chart a row the work took (`taken`) or did not (`quiet`); a row on the main path (`main`); any
+/// other (`plain`).
+export type LineKind = 'hot' | 'lit-in' | 'lit-out' | 'in' | 'out' | 'rule' | 'taken' | 'quiet' | 'main' | 'plain';
+
+/// Every kind, each with an arrowhead of its own.
+const LINE_KINDS: readonly LineKind[] = ['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'in', 'out', 'lit-in', 'lit-out'];
+
+export function lineKind(
+  e: ChartEdge,
+  at: { hot: Set<string>; lit: Ways | undefined; lighted: Ways; taken: Map<string, number> | null },
+): LineKind {
+  if (at.hot.has(e.id)) return 'hot';
+  if (at.lit?.out.has(e.id)) return 'lit-out';
+  if (at.lit?.in.has(e.id)) return 'lit-in';
+  if (at.lighted.out.has(e.id)) return 'out';
+  if (at.lighted.in.has(e.id)) return 'in';
+  if (e.kind === 'rule' || e.kind === 'interjection' || e.kind === 'does') return 'rule';
+  if ((at.taken?.get(e.id) ?? 0) > 0) return 'taken';
+  if (at.taken) return 'quiet';
+  return e.main ? 'main' : 'plain';
+}
+
 export type DrawProps = {
   g: CompiledGraph;
   chart: Chart;
@@ -576,36 +624,37 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
   // far across the chart; nothing keeps it past the page.
   const [pinned, setPinned] = useState<string | null>(null);
   const pressed = useRef<{ x: number; y: number } | null>(null);
+  // The node under the pointer, kept to tell the page only when it changes and drawn for the cell it lights.
   const pointed = useRef<string | null>(null);
+  const [pointedNode, setPointedNode] = useState<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
   const title = (id: string, graph: string | null = null) => {
     const c = graph === null ? cells.get(id) : every.find((x) => x.name === graph)?.cells.find((x) => x.id === id);
     return c ? `${c.id} ${c.title}` : id;
   };
   const hot = new Set([...related(chart.edges, hover), ...related(chart.edges, pinned)]);
+  const lighted = ways(chart.edges, litCell(chart, marks.selected, pointedNode));
   const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
   const ring = ringed !== undefined ? `c:${ringed}` : null;
-  const kindOf = (e: ChartEdge) => {
-    const n = marks.taken?.get(e.id) ?? 0;
-    if (hot.has(e.id)) return 'hot';
-    if (marks.lit?.has(e.id)) return 'lit';
-    if (e.kind === 'rule' || e.kind === 'interjection' || e.kind === 'does') return 'rule';
-    if (n > 0) return 'taken';
-    if (marks.taken) return 'quiet';
-    return e.main ? 'main' : 'plain';
-  };
+  const kindOf = (e: ChartEdge) => lineKind(e, { hot, lit: marks.lit, lighted, taken: marks.taken });
+  const litIn = (id: string) => (marks.lit?.in.has(id) ?? false) || lighted.in.has(id);
+  const litOut = (id: string) => (marks.lit?.out.has(id) ?? false) || lighted.out.has(id);
   // On a work's chart, what the work never went by is muted as its cells are: a label of a row it never took, and a
   // node beside the chart (actions, a rule, a circle to another part) none of whose arrows it took, or, for what sits
-  // beside one cell, whose cell it never reached.
-  const going = (id: string) => (marks.taken?.get(id) ?? 0) > 0 || hot.has(id) || (marks.lit?.has(id) ?? false);
+  // beside one cell, whose cell it never reached; what is lit is not.
+  const going = (id: string) => (marks.taken?.get(id) ?? 0) > 0 || hot.has(id) || litIn(id) || litOut(id);
   const quietNode = (n: ChartNode) => {
     if (marks.taken === null || n.kind === 'cell') return false;
     if (chart.edges.some((e) => (e.source === n.id || e.target === n.id) && going(e.id))) return false;
     if (n.kind === 'does' || n.kind === 'rule' || n.kind === 'interjection') return !(marks.overlays?.has(n.cell) ?? true);
     return true;
   };
-  // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen.
-  const over = (e: ChartEdge) => (hot.has(e.id) ? 2 : marks.lit?.has(e.id) ? 1 : 0);
+  // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen, and those
+  // over the rows into and out of the cell lit.
+  const over = (e: ChartEdge) => {
+    const k = kindOf(e);
+    return k === 'hot' ? 3 : k === 'lit-in' || k === 'lit-out' ? 2 : k === 'in' || k === 'out' ? 1 : 0;
+  };
   const edges = [...chart.edges].sort((a, b) => over(a) - over(b));
   // Each node as it is drawn, before a work's chart mutes what the work never went by.
   const drawNode = (n: ChartNode) => {
@@ -745,6 +794,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
         const node = under.closest('[data-node]')?.getAttribute('data-node') ?? null;
         if (node !== pointed.current) {
           pointed.current = node;
+          setPointedNode(node);
           onNode?.(node);
         }
       }}
@@ -764,13 +814,14 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
         setHover(null);
         if (pointed.current !== null) {
           pointed.current = null;
+          setPointedNode(null);
           onNode?.(null);
         }
       }}
     >
       {defs ? (
         <defs>
-          {['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'lit'].map((k) => (
+          {LINE_KINDS.map((k) => (
             <marker
               key={k}
               id={`fc-arrow-${k}`}
@@ -779,8 +830,8 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
               refX="0"
               refY="5"
               markerUnits="userSpaceOnUse"
-              markerWidth={k === 'lit' ? LIT_HEAD : HEAD}
-              markerHeight={k === 'lit' ? LIT_HEAD : HEAD}
+              markerWidth={wide(k) ? LIT_HEAD : HEAD}
+              markerHeight={wide(k) ? LIT_HEAD : HEAD}
               orient="auto-start-reverse"
             >
               <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -805,7 +856,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
         // An arrow ends where its head starts, and at the ring around the cell the work is at, as it starts there.
         const d = pathOf(r, {
           start: e.source === ring ? RING_CUT : 0,
-          end: (e.kind === 'does' ? 0 : kind === 'lit' ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
+          end: (e.kind === 'does' ? 0 : wide(kind) ? LIT_HEAD : HEAD) + (e.target === ring ? RING_CUT : 0),
         });
         return (
           <g key={e.id} data-edge={e.id}>
@@ -830,7 +881,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
           e.main ? 'fc-label-main' : '',
           n > 0 ? 'fc-label-taken' : '',
           hot.has(e.id) ? 'fc-label-hot' : '',
-          marks.lit?.has(e.id) ? 'fc-label-lit' : '',
+          litOut(e.id) ? 'fc-label-out' : litIn(e.id) ? 'fc-label-in' : '',
           marks.taken !== null && !going(e.id) ? 'fc-label-quiet' : '',
         ].join(' ');
         return (

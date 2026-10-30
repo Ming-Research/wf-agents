@@ -8,7 +8,8 @@
 // cell's page names them. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
 // cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
 // top left corner shows the part in view and moves the view, while some of the chart is out of view. A circle to or
-// from another graph leads to the cell it names there.
+// from another graph leads to the cell it names there. A click on the chart's background, not a drag, lets go of what
+// is picked.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
@@ -53,7 +54,47 @@ export type Pick =
       to: string;
       cell: string;
       beside: { kind: 'action'; node: string } | { kind: 'cell'; cell: string };
-    };
+    }
+  /// Nothing: the chart's background, a stage's box or a graph's name, which lets go of what is picked.
+  | { kind: 'nothing' };
+
+/// What a click that did not drag the chart lands on, as the element under the pointer answers it.
+export type Under = { closest: (selector: string) => { getAttribute: (name: string) => string | null } | null };
+
+/// What a click on the chart picks, from the element under the pointer and each sheet's graph and chart: a store, a
+/// node of a graph, nothing for the chart's background (a stage's box, a graph's name, the room between them), and
+/// none for an arrow or its label, which the drawing keeps lit itself.
+export function pickAt(target: Under, graphs: string[], models: Chart[]): Pick | null {
+  const s = target.closest('[data-store]')?.getAttribute('data-store');
+  if (s) return { kind: 'store', store: s };
+  const id = target.closest('[data-node]')?.getAttribute('data-node');
+  if (!id) return target.closest('[data-edge]') === null ? { kind: 'nothing' } : null;
+  const i = Number(target.closest('[data-sheet]')?.getAttribute('data-sheet') ?? -1);
+  const n = models[i]?.nodes.find((x) => x.id === id);
+  const graph = graphs[i];
+  if (!n || graph === undefined) return null;
+  switch (n.kind) {
+    case 'cell':
+    case 'does':
+      return { kind: 'cell', graph, cell: n.cell };
+    case 'rule':
+      return { kind: 'rule', graph, rule: n.other ?? '', cell: n.cell };
+    case 'interjection':
+      return { kind: 'interjection', graph, cell: n.cell };
+    case 'action':
+      return { kind: 'action', graph, node: n.id };
+    case 'out':
+      return { kind: 'out', graph, cell: n.cell, to: n.other ?? '' };
+    case 'in':
+      return { kind: 'in', graph, cell: n.cell, from: n.other ?? '' };
+    case 'to': {
+      const node = models[i]?.edges.find((e) => e.target === n.id)?.source ?? '';
+      return { kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'action', node } };
+    }
+    case 'from':
+      return { kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'cell', cell: n.cell } };
+  }
+}
 
 export type FlowChartHandle = {
   /// Brings a cell into view, of the graph named or the first that has it: keeping the zoom when it is already in
@@ -126,8 +167,9 @@ export function moveWords(m: Move): string {
 }
 
 /// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the efforts agents' cells
-/// run at, low to high, the rules and the interjection, the circles, and the marks of a work, with the bar beside an
-/// agent round's cost in its rounds list, or of a comparison; then how the chart moves.
+/// run at, low to high, the rules and the interjection, the circles, the main path and the rows into and out of the
+/// cell lit, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or of a comparison;
+/// then how the chart moves.
 function Legend({ charts, stores, legend }: {
   charts: Array<{ g: CompiledGraph; chart: Chart }>;
   stores: boolean;
@@ -210,9 +252,15 @@ function Legend({ charts, stores, legend }: {
             </li>
             <li>
               <Swatch>
-                <path className="fc-edge fc-edge-lit" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit)" />
+                <path className="fc-edge fc-edge-lit-in" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit-in)" />
               </Swatch>
-              {t('legend_lit')}
+              {t('legend_lit_in')}
+            </li>
+            <li>
+              <Swatch>
+                <path className="fc-edge fc-edge-lit-out" d="M 2 9 L 17 9" markerEnd="url(#fc-arrow-lit-out)" />
+              </Swatch>
+              {t('legend_lit_out')}
             </li>
             <li>
               <Swatch>
@@ -439,6 +487,18 @@ function Legend({ charts, stores, legend }: {
             </li>
           </>
         ) : null}
+        <li>
+          <Swatch>
+            <path className="fc-edge fc-edge-in" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-in)" />
+          </Swatch>
+          {t('legend_way_in')}
+        </li>
+        <li>
+          <Swatch>
+            <path className="fc-edge fc-edge-out" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-out)" />
+          </Swatch>
+          {t('legend_way_out')}
+        </li>
         {legend === 'compare' ? (
           <>
             <li>
@@ -642,47 +702,9 @@ export function FlowChart(props: FlowChartProps) {
       }
     });
   }
-  const nodes = useMemo(() => models.map((m) => new Map(m.nodes.map((n) => [n.id, n]))), [models]);
   const pick = (target: Element) => {
-    const s = target.closest('[data-store]')?.getAttribute('data-store');
-    if (s) {
-      onPick({ kind: 'store', store: s });
-      return;
-    }
-    const i = Number(target.closest('[data-sheet]')?.getAttribute('data-sheet') ?? -1);
-    const id = target.closest('[data-node]')?.getAttribute('data-node');
-    const n = id ? nodes[i]?.get(id) : undefined;
-    const graph = graphs[i]?.g.name;
-    if (!n || graph === undefined) return;
-    switch (n.kind) {
-      case 'cell':
-      case 'does':
-        onPick({ kind: 'cell', graph, cell: n.cell });
-        break;
-      case 'rule':
-        onPick({ kind: 'rule', graph, rule: n.other ?? '', cell: n.cell });
-        break;
-      case 'interjection':
-        onPick({ kind: 'interjection', graph, cell: n.cell });
-        break;
-      case 'action':
-        onPick({ kind: 'action', graph, node: n.id });
-        break;
-      case 'out':
-        onPick({ kind: 'out', graph, cell: n.cell, to: n.other ?? '' });
-        break;
-      case 'in':
-        onPick({ kind: 'in', graph, cell: n.cell, from: n.other ?? '' });
-        break;
-      case 'to': {
-        const node = models[i]?.edges.find((e) => e.target === n.id)?.source ?? '';
-        onPick({ kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'action', node } });
-        break;
-      }
-      case 'from':
-        onPick({ kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'cell', cell: n.cell } });
-        break;
-    }
+    const p = pickAt(target, graphs.map((x) => x.g.name), models);
+    if (p !== null) onPick(p);
   };
   const several = graphs.length > 1;
   return (

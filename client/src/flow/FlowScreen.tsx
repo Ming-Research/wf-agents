@@ -47,6 +47,13 @@ export function withGraph(s: Subject, graphs: Graph[]): Subject {
   }
 }
 
+/// Whether what is open is picked on the chart, so that a click on the chart's background lets go of it: a cell, a
+/// rule, the interjection, the actions on a line, a store, or a round, whose cell is picked; not what a comparison
+/// changed, which nothing on the chart picks.
+export function pickedOnChart(now: Subject | null): boolean {
+  return now !== null && now.kind !== 'changes';
+}
+
 export type FlowScreenProps = {
   compiled: Compiled;
   /// The graphs drawn side by side, left to right; the same object while they are the same, as each new list is laid
@@ -268,6 +275,11 @@ export function FlowScreen(props: FlowScreenProps) {
   const into = (c: string, keep: boolean, graph: string) =>
     window.setTimeout(() => chartRef.current?.focus(c, keep, graph), 0);
   const onPick = (p: Pick) => {
+    // A click on nothing lets go of what is picked on the chart, as the panel's close does.
+    if (p.kind === 'nothing') {
+      if (pickedOnChart(now)) trail.close();
+      return;
+    }
     // A store is every graph's.
     if (p.kind === 'store') {
       setPicked({ store: p.store });

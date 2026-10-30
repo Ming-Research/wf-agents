@@ -1,3 +1,5 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type {
@@ -37,19 +39,26 @@ import { inputName } from './flow/CellGiven';
 import { fieldActions, shownNote, titleOf } from './flow/Returns';
 import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
+import { pickedOnChart } from './flow/FlowScreen';
 import {
+  chartFonts,
   cornerWidth,
   EFFORTS,
   effortOf,
   effortsOf,
   effortWidth,
+  FlowSvg,
   labelSize,
+  lineKind,
+  litCell,
+  type Marks,
   sessionWidth,
+  sizes,
   startsAnew,
   styleOf,
 } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
-import { moveWords } from './graph/FlowChart';
+import { moveWords, pickAt, type Under } from './graph/FlowChart';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
 import {
   ASKING,
@@ -67,6 +76,7 @@ import {
   related,
   roundArrows,
   taken,
+  ways,
 } from './graph/flowModel';
 import { layStores, linkPath, storeLinks, storeUses } from './graph/stores';
 import { attachments, layUnit } from './graph/units';
@@ -898,11 +908,139 @@ describe('the chart of a flow', () => {
     expect(w.get('c:a->a:b:lock+post')).toBe(1);
     expect(w.get('a:b:lock+post->c:b')).toBe(1);
     expect(w.get('c:b->c:z')).toBeUndefined();
-    // A round chosen lights the arrows it came in by and left by; one that has taken no row yet, only the way in;
-    // tools in the legend draw no arrow.
-    expect(roundArrows(c, graph, rounds, 2)).toEqual(new Set(['c:s->c:a']));
-    expect(roundArrows(c, graph, rounds, 6)).toEqual(new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']));
-    expect(roundArrows(c, graph, rounds, 7)).toEqual(new Set());
+    // A round chosen lights the arrows it came in by and those it left by; one that has taken no row yet, only the way
+    // in; tools in the legend draw no arrow.
+    const none = new Set<string>();
+    const done = new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']);
+    expect(roundArrows(c, graph, rounds, 2)).toEqual({ in: new Set(['c:s->c:a']), out: none });
+    expect(roundArrows(c, graph, rounds, 5)).toEqual({ in: none, out: done });
+    expect(roundArrows(c, graph, rounds, 6)).toEqual({ in: done, out: none });
+    expect(roundArrows(c, graph, rounds, 7)).toEqual({ in: none, out: none });
+  });
+
+  it('lights the rows into a cell and out of it, each whole through actions and circles, and no line that is no row', () => {
+    const b = ways(c.edges, 'c:b');
+    // Into b: straight from a, through the actions a and c lead into it by, and back from the asking part.
+    expect(b.in).toEqual(
+      new Set(['c:a->c:b', 'a:b:lock+post->c:b', 'c:a->a:b:lock+post', 'c:c->a:b:lock+post', 'i:q:b->c:b', 'c:q->o:b:q']),
+    );
+    // Out of b: to the end, back to a and to the asking part; the line to what it does every time is no row.
+    expect(b.out).toEqual(new Set(['c:b->c:z', 'c:b->c:a', 'c:b->o:q:b']));
+    // Out of a through the actions, on to b; into a, a rule's arrow is no row.
+    const a = ways(c.edges, 'c:a');
+    expect([...a.out].filter((id) => id.includes('lock'))).toEqual(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']);
+    expect(a.in.has('c:s->c:a') && a.in.has('c:z->c:a') && a.in.has('i:t:a->c:a')).toBe(true);
+    expect(a.in.has('r:tree:a->c:a')).toBe(false);
+    expect(ways(c.edges, null)).toEqual({ in: new Set(), out: new Set() });
+  });
+
+  it('lights the cell picked, or the cell under the pointer while it is on one, and only a cell', () => {
+    // Nothing pointed at, or the cell picked pointed at: the cell picked.
+    expect(litCell(c, 'c:b', null)).toBe('c:b');
+    expect(litCell(c, 'c:b', 'c:b')).toBe('c:b');
+    // Another cell pointed at: that one alone, until the pointer leaves it.
+    expect(litCell(c, 'c:b', 'c:a')).toBe('c:a');
+    expect(litCell(c, null, 'c:a')).toBe('c:a');
+    // The pointer on what is no cell keeps the cell picked; what is picked lights nothing when it is no cell.
+    expect(litCell(c, 'c:b', 'a:b:lock+post')).toBe('c:b');
+    expect(litCell(c, 'r:tree:a', null)).toBeNull();
+    expect(litCell(c, null, null)).toBeNull();
+  });
+
+  it('draws a row by the first that holds: pointed at, the round chosen, into or out of the cell lit, then the rest', () => {
+    const e = (id: string) => {
+      const x = edge(id);
+      if (x === undefined) throw new Error(`no arrow ${id}`);
+      return x;
+    };
+    const none = { in: new Set<string>(), out: new Set<string>() };
+    const at = (over: Partial<Parameters<typeof lineKind>[1]>) => ({
+      hot: new Set<string>(),
+      lit: undefined,
+      lighted: none,
+      taken: null,
+      ...over,
+    });
+    // The main path as thin as any arrow, in a colour of its own; the rest plain.
+    expect(lineKind(e('c:s->c:a'), at({}))).toBe('main');
+    expect(lineKind(e('c:a->c:b'), at({}))).toBe('plain');
+    // Into and out of the cell lit, over the main path and the rows a work took.
+    const b = ways(c.edges, 'c:b');
+    expect(lineKind(e('c:a->a:b:lock+post'), at({ lighted: b }))).toBe('in');
+    expect(lineKind(e('c:b->c:z'), at({ lighted: b }))).toBe('out');
+    expect(lineKind(e('c:b->c:z'), at({ lighted: b, taken: new Map([['c:b->c:z', 2]]) }))).toBe('out');
+    expect(lineKind(e('c:s->c:a'), at({ lighted: b }))).toBe('main');
+    // A rule's arrow is never lit as a row.
+    expect(lineKind(e('r:tree:a->c:a'), at({ lighted: ways(c.edges, 'c:a') }))).toBe('rule');
+    // The round chosen over the cell lit; the row pointed at over all.
+    const lit = { in: new Set(['c:a->c:b']), out: new Set(['c:b->c:z']) };
+    expect(lineKind(e('c:a->c:b'), at({ lighted: b, lit }))).toBe('lit-in');
+    expect(lineKind(e('c:b->c:z'), at({ lighted: b, lit }))).toBe('lit-out');
+    expect(lineKind(e('c:b->c:z'), at({ lighted: b, lit, hot: new Set(['c:b->c:z']) }))).toBe('hot');
+    // On a work's chart: the rows it took, and the rest quiet.
+    expect(lineKind(e('c:a->c:b'), at({ taken: new Map([['c:a->c:b', 1]]) }))).toBe('taken');
+    expect(lineKind(e('c:s->c:a'), at({ taken: new Map() }))).toBe('quiet');
+  });
+
+  it("draws the picked cell's rows in and out, and every cell's title semibold", () => {
+    const laid: Laid = {
+      nodes: new Map(c.nodes.map((n, i) => [n.id, { x: 0, y: i * 60, width: 120, height: 40 }])),
+      groups: new Map(),
+      edges: new Map(
+        c.edges.map((x, i) => [x.id, { points: [{ x: 200, y: i * 10 }, { x: 200, y: i * 10 + 50 }], label: null, hops: [] }]),
+      ),
+      parts: new Map(),
+      bounds: { x: 0, y: 0, width: 300, height: c.nodes.length * 60 },
+    };
+    const measured = sizes(graph, c);
+    const draw = (selected: string | null) => {
+      const marks: Marks = { selected, overlays: null, taken: null, added: new Set(), changed: new Set() };
+      const props = { g: graph, chart: c, laid, lines: measured.lines, notes: measured.notes, engine, marks };
+      return renderToStaticMarkup(createElement(FlowSvg, props));
+    };
+    // The classes of an arrow's line, as drawn.
+    const looks = (html: string, id: string) => {
+      const at = html.indexOf(`<g data-edge="${id.replaceAll('>', '&gt;')}">`);
+      expect(at, id).toBeGreaterThanOrEqual(0);
+      return /<path class="(fc-edge[^"]*)"/.exec(html.slice(at))?.[1].split(' ').filter((k) => k !== '') ?? [];
+    };
+    const picked = draw('c:b');
+    expect(looks(picked, 'c:a->a:b:lock+post')).toContain('fc-edge-in');
+    expect(looks(picked, 'c:q->o:b:q')).toContain('fc-edge-in');
+    expect(looks(picked, 'c:b->c:a')).toContain('fc-edge-out');
+    expect(looks(picked, 'c:s->c:a')).toContain('fc-edge-main');
+    // Let go of, nothing is lit.
+    const free = draw(null);
+    expect(free.includes('fc-edge-in') || free.includes('fc-edge-out')).toBe(false);
+    expect(looks(free, 'c:b->c:a')).toContain('fc-edge-plain');
+    // A rule picked lights no row.
+    expect(draw('r:tree:a').includes('fc-edge-in')).toBe(false);
+    // Every cell's title, its code with it, is drawn and measured semibold.
+    expect((free.match(/class="fc-title"/g) ?? []).length).toBe(graph.cells.length);
+    expect(chartFonts().title.startsWith('600 ')).toBe(true);
+    expect(chartFonts().code.startsWith('600 ')).toBe(true);
+  });
+
+  it('lets go of what is picked on a click on the background, not on an arrow, and of nothing a comparison opened', () => {
+    const under = (attrs: Record<string, string>): Under => ({
+      closest: (selector) => {
+        const name = /^\[(.+)\]$/.exec(selector)?.[1] ?? '';
+        return name in attrs ? { getAttribute: (n) => attrs[n] ?? null } : null;
+      },
+    });
+    const pick = (attrs: Record<string, string>) => pickAt(under(attrs), ['engineer'], [c]);
+    expect(pick({})).toEqual({ kind: 'nothing' });
+    expect(pick({ 'data-sheet': '0' })).toEqual({ kind: 'nothing' });
+    expect(pick({ 'data-edge': 'c:b->c:z', 'data-sheet': '0' })).toBeNull();
+    expect(pick({ 'data-node': 'c:b', 'data-sheet': '0' })).toEqual({ kind: 'cell', graph: 'engineer', cell: 'b' });
+    expect(pick({ 'data-store': 'cards' })).toEqual({ kind: 'store', store: 'cards' });
+    // What a click on nothing lets go of: what the chart picked, a round whose cell it marks among them, as the panel's
+    // close does; not what changed in a comparison, which nothing on the chart picked.
+    expect(pickedOnChart({ kind: 'cell', cell: 'b' })).toBe(true);
+    expect(pickedOnChart({ kind: 'round', round: 3 })).toBe(true);
+    expect(pickedOnChart({ kind: 'store', store: 'cards' })).toBe(true);
+    expect(pickedOnChart({ kind: 'changes' })).toBe(false);
+    expect(pickedOnChart(null)).toBe(false);
   });
 });
 

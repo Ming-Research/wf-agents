@@ -4,7 +4,9 @@
    its line's hue, a cell on no line lime; the engine's own step purple; a tool the engine runs yellow; the owner
    orange; every cell's edge solid; a rule blue; the interjection orange; a way to another part lavender, a way from
    another part orange; what the engine does on a line or every time a cell returns a purple hexagon; a store teal,
-   dashed when it is computed. The values Primer has no token for are in tokens.css. */
+   dashed when it is computed. A cell, where a work stands, is edged heavier than every shape beside it and titled
+   semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
+   green and those out of it red. The values Primer has no token for are in tokens.css. */
 
 :root {
   --fc-text: var(--fgColor-default);
@@ -46,12 +48,15 @@
   --fc-in: var(--data-orange-color-emphasis);
   --fc-in-fill: var(--data-orange-color-muted);
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
-     background; the main path darker still. */
+     background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
+     in the success colour and out of it in the danger colour, as the owner chose them, both of which read on the
+     inset background and on a stage's box in either theme; the round chosen came in and left by the same. */
   --fc-arrow: var(--borderColor-emphasis);
-  --fc-arrow-main: var(--fgColor-muted);
+  --fc-arrow-main: var(--fgColor-accent);
   --fc-taken: var(--data-blue-color-emphasis);
   --fc-hot: var(--data-orange-color-emphasis);
-  --fc-lit: var(--data-pink-color-emphasis);
+  --fc-way-in: var(--fgColor-success);
+  --fc-way-out: var(--fgColor-danger);
   --fc-label: var(--bgColor-muted);
   /* The effort badges, as the owner chose them: green, blue, orange, red and purple from low to max, each with white
      letters but high, a plain orange, lighter than the dark orange that was too close to xhigh's red and stronger than
@@ -149,8 +154,13 @@ svg.fc {
   cursor: pointer;
 }
 
+/* A cell, where a work stands, edged heavier than every shape beside it, and its title, its code with it, semibold. */
 .fc-cell > rect:not(.fc-ring) {
   stroke-width: var(--chart-line-cell);
+}
+
+.fc-title {
+  font-weight: var(--base-text-weight-semibold);
 }
 
 /* A cell's code before its title, as the page writes a code: monospace, in the title's colour, no weight of its own. */
@@ -196,7 +206,6 @@ svg.fc {
 .kind-engine > rect:not(.fc-ring) {
   fill: var(--fc-engine-fill);
   stroke: var(--fc-engine);
-  stroke-width: var(--chart-line-box);
 }
 
 .kind-tool > rect:not(.fc-ring) {
@@ -215,7 +224,7 @@ svg.fc {
 }
 
 .fc-circle ellipse {
-  stroke-width: var(--chart-line-box);
+  stroke-width: var(--chart-line-thin);
 }
 
 .fc-circle text,
@@ -234,7 +243,7 @@ svg.fc {
 .fc-act polygon {
   fill: var(--fc-engine-fill);
   stroke: var(--fc-engine);
-  stroke-width: var(--chart-line-box);
+  stroke-width: var(--chart-line-thin);
 }
 
 .fc-edge.fc-edge-does {
@@ -255,6 +264,7 @@ svg.fc {
 .fc-lack rect {
   fill: var(--fc-label);
   stroke: var(--fc-arrow);
+  stroke-width: var(--chart-line-thin);
   stroke-dasharray: var(--chart-dash-lack);
 }
 
@@ -266,7 +276,7 @@ svg.fc {
 .fc-store rect {
   fill: var(--fc-store-fill);
   stroke: var(--fc-store);
-  stroke-width: var(--chart-line-box);
+  stroke-width: var(--chart-line-thin);
 }
 
 .fc-store-computed rect {
@@ -315,13 +325,13 @@ svg.fc {
 .fc-rule polygon {
   fill: var(--fc-rule-fill);
   stroke: var(--fc-rule);
-  stroke-width: var(--chart-line-box);
+  stroke-width: var(--chart-line-thin);
 }
 
 .fc-flag polygon {
   fill: var(--fc-flag-fill);
   stroke: var(--fc-flag);
-  stroke-width: var(--chart-line-box);
+  stroke-width: var(--chart-line-thin);
 }
 
 .fc-selected > rect:not(.fc-ring),
@@ -494,7 +504,7 @@ svg.fc {
   fill: var(--fc-effort-ink);
 }
 
-/* The arrows: thin, the main path a little heavier and darker, not heavy black. */
+/* The arrows: thin, the main path as thin in blue, not heavy black. */
 .fc-edge {
   fill: none;
   stroke: var(--fc-arrow);
@@ -503,7 +513,6 @@ svg.fc {
 
 .fc-edge-main {
   stroke: var(--fc-arrow-main);
-  stroke-width: var(--chart-line-main);
 }
 
 .fc-edge-rule {
@@ -525,13 +534,32 @@ svg.fc {
   stroke-width: var(--chart-line-taken);
 }
 
-/* The arrows the round chosen in the rounds list came in by and left by: wide, their dashes flowing the way the work
-   went. */
-.fc-edge-lit {
-  stroke: var(--fc-lit);
+/* The rows into the cell picked, or the cell under the pointer, green, and out of it red, heavier. */
+.fc-edge-in {
+  stroke: var(--fc-way-in);
+  stroke-width: var(--chart-line-taken);
+}
+
+.fc-edge-out {
+  stroke: var(--fc-way-out);
+  stroke-width: var(--chart-line-taken);
+}
+
+/* The arrows the round chosen in the rounds list came in by, green, and left by, red, as a cell's rows in and out are:
+   wide, their dashes flowing the way the work went. */
+.fc-edge-lit-in,
+.fc-edge-lit-out {
   stroke-width: var(--chart-line-lit);
   stroke-dasharray: var(--chart-dash-flow);
   animation: fc-flow var(--chart-flow-time) linear infinite;
+}
+
+.fc-edge-lit-in {
+  stroke: var(--fc-way-in);
+}
+
+.fc-edge-lit-out {
+  stroke: var(--fc-way-out);
 }
 
 @keyframes fc-flow {
@@ -577,19 +605,26 @@ svg.fc {
   fill: var(--fc-hot);
 }
 
-.fc-head-lit path {
-  fill: var(--fc-lit);
+.fc-head-in path,
+.fc-head-lit-in path {
+  fill: var(--fc-way-in);
 }
 
-/* An arrow's label: on the muted background over the line; the main path's, a row the work took and the arrows of the
-   round chosen semibold, the latter two in their line's colour. */
+.fc-head-out path,
+.fc-head-lit-out path {
+  fill: var(--fc-way-out);
+}
+
+/* An arrow's label: on the muted background over the line; the main path's, a row the work took and a row lit into or
+   out of a cell semibold, the latter two in their line's colour. */
 .fc-label rect {
   fill: var(--fc-label);
 }
 
 .fc-label-main text,
 .fc .fc-label-taken text,
-.fc .fc-label-lit text {
+.fc .fc-label-in text,
+.fc .fc-label-out text {
   font-weight: var(--base-text-weight-semibold);
 }
 
@@ -601,8 +636,12 @@ svg.fc {
   fill: var(--fc-hot);
 }
 
-.fc .fc-label-lit text {
-  fill: var(--fc-lit);
+.fc .fc-label-in text {
+  fill: var(--fc-way-in);
+}
+
+.fc .fc-label-out text {
+  fill: var(--fc-way-out);
 }
 
 /* On a work's chart, the label of a row the work never took, muted as the arrow is. */
@@ -792,7 +831,7 @@ svg.fc {
 }
 
 .fc-map-cell {
-  fill: var(--fc-arrow-main);
+  fill: var(--fgColor-muted);
 }
 
 .fc-map-cell.fc-map-current {

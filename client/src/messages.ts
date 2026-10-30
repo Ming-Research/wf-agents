@@ -842,6 +842,8 @@ const messages = {
   legend_from:
     'named with another graph, above a cell: the cell of that graph that queued the matter coming to it, as the task ended',
   legend_main: 'a row on the main path',
+  legend_way_in: 'a row into the cell picked, or the cell under the pointer',
+  legend_way_out: 'a row out of the cell picked, or the cell under the pointer',
   legend_current: 'the cell the work is at',
   legend_running:
     'a round runs at the cell now, or has just run there: three arcs of colour run round it, a moment on each cell a short round ran at',
@@ -860,14 +862,15 @@ const messages = {
   legend_sent_back: 'how many of those returns were sent back',
   legend_failed: 'how many of those runs failed or were cut off',
   legend_taken: 'a row the work took; ×2 on its label: taken twice',
-  legend_lit: 'the rows the round chosen in the rounds list came in by and left by, flowing the way the work went',
+  legend_lit_in: 'the row the round chosen in the rounds list came in by, flowing the way the work went',
+  legend_lit_out: 'the row the round chosen left by, flowing the way the work went',
   legend_not_taken: 'a row the work has not taken',
   legend_unvisited: 'a cell the work has not reached',
   legend_spent: "beside an agent round's cost in the rounds list: where its cost went, then the round's steps",
   legend_added: 'a cell added',
   legend_changed: 'a cell changed',
   legend_keys:
-    'Hover a row: it lights up from its source to its target; click it to keep it lit, and click it again or the background to let it go. Space: the whole chart, and back. Two fingers or drag: move. Pinch, or Shift with two fingers: zoom.',
+    'Click or hover a cell: the rows into it and out of it light up; click the background to let it go. Hover a row: it lights up from its source to its target; click it to keep it lit, and click it again or the background to let it go. Space: the whole chart, and back. Two fingers or drag: move. Pinch, or Shift with two fingers: zoom.',
   legend_map:
     'The map at the top left is the whole chart drawn small, the part in view framed: click the map to go there, drag the frame to move the chart. It hides while the whole chart is in view.',
   legend_map_work:

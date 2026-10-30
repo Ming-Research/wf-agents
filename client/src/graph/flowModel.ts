@@ -558,6 +558,25 @@ export function related(edges: ChartEdge[], id: string | null): Set<string> {
   return lit;
 }
 
+/// The arrows into a node and out of it, each set by its arrows' ids.
+export type Ways = { in: Set<string>; out: Set<string> };
+
+/// The rows into a cell's node and out of it, each whole as `related` follows it from the arrow at the cell: through
+/// the actions on a line, into the cell through them from every cell whose rows go there, and through the circles to
+/// and from another part and another graph. The arrows of a rule, of the interjection and to what the cell does every
+/// time are no row, and in neither. None for none.
+export function ways(edges: ChartEdge[], node: string | null): Ways {
+  const into = new Set<string>();
+  const out = new Set<string>();
+  if (node === null) return { in: into, out };
+  for (const e of edges) {
+    if (e.kind !== 'row') continue;
+    if (e.source === node) for (const id of related(edges, e.id)) out.add(id);
+    if (e.target === node) for (const id of related(edges, e.id)) into.add(id);
+  }
+  return { in: into, out };
+}
+
 /// Why a work waits at the cell it is at while no round of it runs there: in a few words for the tag beside the cell,
 /// and in full on hovering.
 export type Wait = { tag: string; why: string };
@@ -691,11 +710,11 @@ export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<s
   return out;
 }
 
-/// The arrows a round came in by and left by: those of the row the round before it took, and of the row it took
-/// itself; only the way in for a round that has taken no row yet.
-export function roundArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[], n: number): Set<string> {
+/// The arrows a round came in by and left by: in, those of the row the round before it took; out, those of the row it
+/// took itself, none for a round that has taken no row yet.
+export function roundArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[], n: number): Ways {
   const at = rounds.findIndex((r) => r.n === n);
-  if (at < 0) return new Set();
+  if (at < 0) return { in: new Set(), out: new Set() };
   const arrows = rowArrows(c, g, rounds);
-  return new Set([...(at > 0 ? arrows(at - 1) : []), ...arrows(at)]);
+  return { in: new Set(at > 0 ? arrows(at - 1) : []), out: new Set(arrows(at)) };
 }
