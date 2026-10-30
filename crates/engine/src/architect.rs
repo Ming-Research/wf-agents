@@ -2749,6 +2749,14 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
                 if text(&o["what"]).trim().is_empty() {
                     problems.push(format!("observation change {n}: it says nothing of what it is"));
                 }
+                // Observations are summed up and looked for by their tags: once the project has tags, a new one carries
+                // one at least.
+                if !tags.is_empty() && texts(&o["tags"]).is_empty() {
+                    problems.push(format!(
+                        "observation change {n}: it carries no tag; give it at least one of the project's tags: {}",
+                        tags.iter().cloned().collect::<Vec<_>>().join(", ")
+                    ));
+                }
                 for t in texts(&o["tags"]) {
                     if !tags.contains(&t) {
                         problems.push(format!(

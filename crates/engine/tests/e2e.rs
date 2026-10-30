@@ -6664,6 +6664,71 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A new observation of a project that has tags carries one of them at least: one with no tag is sent back, saying
+// which tags there are, and the return handed in again with a tag records it.
+#[test]
+fn an_observation_with_no_tag_is_sent_back() {
+    let s = setup("observation-untagged");
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &project.replace(
+            "[ci]",
+            "observation_tags = [{ name = \"perf\", desc = \"How fast it runs\" }]\n[ci]",
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "observation tags"]);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 2 {
+                return (Vec::new(), Vec::new());
+            }
+            let tags = if n == 1 { json!([]) } else { json!(["perf"]) };
+            let new = json!({ "kind": "new", "what": "Parsing large files is slow.", "tags": tags,
+                              "source": "The owner's words.", "refs": [], "reason": "Worth keeping." });
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "observation_changes": [new] }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Parsing large files is slow; keep it in mind.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(
+        rejected[0].contains("observation change 1: it carries no tag") && rejected[0].contains("perf"),
+        "{rejected:?}"
+    );
+    let tags: Vec<Value> = engine::query_json(e.db.conn(), "SELECT tags FROM observations", &[], 10)
+        .unwrap()
+        .iter()
+        .map(|r| r["tags"].clone())
+        .collect();
+    assert_eq!(tags, [json!(["perf"])], "{tags:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
 /// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked
