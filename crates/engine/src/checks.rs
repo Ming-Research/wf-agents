@@ -1210,6 +1210,7 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
