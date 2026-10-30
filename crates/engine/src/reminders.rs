@@ -71,7 +71,7 @@ mod tests {
     const MINUTE: i64 = 60_000;
 
     /// A database with two works of the architect, each with an ask of the owner put at the start of its round, `at`
-    /// and `later`; gives it with the asks.
+    /// and `later`, which parks a matter of the architect's, as its every question does; gives it with the asks.
     fn asks(at: i64, later: i64) -> (db::Db, Vec<i64>) {
         let mut db = db::Db::in_memory().unwrap();
         let asks = db
@@ -92,7 +92,13 @@ mod tests {
                         "INSERT INTO owner_asks (work, round, body) VALUES (?1, 1, '{}')",
                         [work],
                     )?;
-                    asks.push(tx.last_insert_rowid());
+                    let ask = tx.last_insert_rowid();
+                    tx.execute(
+                        "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                         VALUES ('p', 'check_policy', 'Check the policy', '{}', ?1, ?2, 'P1')",
+                        params![t, ask],
+                    )?;
+                    asks.push(ask);
                 }
                 Ok(asks)
             })
