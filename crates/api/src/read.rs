@@ -3477,6 +3477,34 @@ mod tests {
         assert!(!said.contains(&"On it.".to_string()), "{said:?}");
     }
 
+    // An architect's question waits for the owner only while a matter it holds is open: once that matter is handled or
+    // withdrawn it no longer counts as waiting, where in the sixth trial such a question kept a count in the list of
+    // conversations that the page gave no way to clear.
+    #[test]
+    fn a_question_whose_matter_is_gone_waits_no_longer() {
+        let mut s = architect_setup("gone");
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            own: Some("p".into()),
+            sets: Vec::new(),
+            ..crate::Talks::default()
+        };
+        let waiting = |s: &Setup| {
+            let all = crate::conversations(s.db.conn(), &t).unwrap();
+            all.iter().find(|c| c.key == "architect:p").unwrap().waiting
+        };
+        assert_eq!(waiting(&s), 2);
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = 'the item was cancelled' WHERE id = 3",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(waiting(&s), 1);
+    }
+
     // An ask the owner answered is one entry of its conversation, the ask, which holds the answer: the answer is no
     // entry of its own beside it. The ask waits no longer, and, answered where it was asked, it is not unread.
     #[test]

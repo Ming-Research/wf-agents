@@ -1362,8 +1362,9 @@ CREATE VIEW conversation_entries AS
   -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. waiting: it waits for the
-  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter, not
-  -- answered; a design card not ruled while its work goes on; a fault not read). pending: the owner's words not taken
+  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter still
+  -- open, neither handled nor withdrawn, not answered; a design card not ruled while its work goes on; a fault not
+  -- read). pending: the owner's words not taken
   -- up yet. undelivered: the owner's words to an agent that its work ended without taking in. answerable: an
   -- engineer's question the architect holds now, which the owner may answer in the group instead.
   SELECT CASE WHEN w.graph = 'engineer' THEN 'work:' || w.id
@@ -1410,8 +1411,10 @@ CREATE VIEW conversation_entries AS
              (SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
     coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.work, a.round, a.id, NULL,
     NULL, NULL,
-    a.answer IS NULL AND (w.graph = 'architect' OR EXISTS (
-      SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, 0, NULL
+    a.answer IS NULL AND (
+      (w.graph = 'architect' AND EXISTS (
+        SELECT 1 FROM architect_matters m WHERE m.asked = a.id AND m.handled_round IS NULL AND m.withdrawn IS NULL))
+      OR EXISTS (SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, 0, NULL
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
   UNION ALL
