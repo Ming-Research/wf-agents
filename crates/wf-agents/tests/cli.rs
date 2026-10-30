@@ -480,8 +480,8 @@ fn section<'a>(text: &'a str, heading: &str) -> Vec<&'a str> {
 
 // The tables of `anomalies` are read each by a query of its own, not through the function the other commands print
 // through, and say what they leave out all the same, each at its own limit: ten thousand rows for the returns sent
-// back and the compactions, one thousand for the works paused. Two rounds more than the first limit, and one work
-// paused more than the second.
+// back, the compactions and the keep-warm pings, one thousand for the works paused. Two rounds and two pings more
+// than the first limit, and one work paused more than the second.
 #[test]
 fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
     let dir = data_directory("anomalies-row-limit");
@@ -493,7 +493,10 @@ fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
              INSERT INTO works (id, flow_version, graph, at, paused)
              SELECT i, 1, 'engineer', 'I1', CASE WHEN i <= 1001 THEN 'x' END FROM n;
          INSERT INTO rounds (work, n, cell, input, rejected, compactions, config_commit, started_at)
-             SELECT id, 1, 'I1', '{}', '{\"x\": 1}', 1, 'c', 0 FROM works;",
+             SELECT id, 1, 'I1', '{}', '{\"x\": 1}', 1, 'c', 0 FROM works;
+         INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO pings (session, waited, started_at) SELECT 1, '{}', i FROM n;",
     );
     let text = printed(&dir, "anomalies");
     let table = |heading: &str, limit: usize, left_out: &str| {
@@ -515,10 +518,12 @@ fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
     assert_eq!(paused[1_000], "1000\t\tI1\tx");
     // The tables with no row have none to leave out.
     assert_eq!(section(&text, "Counters past the project's limits:"), ["(none)"]);
-    assert_eq!(
-        section(&text, "Keep-warm pings, each a wait of over an hour:"),
-        ["(none)"]
+    let pings = table(
+        "Keep-warm pings, each a wait of over an hour:",
+        10_000,
+        "(2 rows left out after the first 10000)",
     );
+    assert!(pings[1].starts_with("1\tengineer\t"), "{}", pings[1]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -600,7 +605,7 @@ fn status_and_history_say_how_many_rows_they_leave_out() {
 // past its limit. The project's limit for `fixes` is 5 (`PROJECT`); work 1 took a row that counts it 6 times and every
 // other work once, and there are two works more than the limit.
 #[test]
-fn the_counters_past_their_limits_say_how_many_counters_were_not_read() {
+fn the_counters_past_their_limits_say_how_many_counters_were_not_checked() {
     let dir = data_directory("counters-row-limit");
     engine::database::create(&dir).unwrap();
     add_items(&dir, 1, 1);
@@ -622,7 +627,7 @@ fn the_counters_past_their_limits_say_how_many_counters_were_not_read() {
         [
             "work\tproject\tcounter\ttimes",
             "1\tp\tfixes\t6",
-            "(2 rows left out after the first 10000)"
+            "(2 counters after the first 10000 were not checked against the limits)"
         ]
     );
     let _ = std::fs::remove_dir_all(&dir);

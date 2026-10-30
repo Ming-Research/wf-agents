@@ -1,5 +1,8 @@
 // Kept apart from `cli.rs` so that it can be run on the code before the change on its own: the tests there that fail
-// before the change stop a run, and this one must be seen to pass.
+// before the change stop a run, and this one must be seen to pass. It serves the review of the change that put a line
+// for the rows left out under the tables of the owner's commands, and goes once that change is merged: its test is
+// then moved into `cli.rs`, whose helpers these are copies of (`INSTALL`, `PROJECT`, `temp`, `wf`, `stderr`, `git`,
+// `data_directory`, `fill`, `printed`, `section`), so that there is one copy.
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 

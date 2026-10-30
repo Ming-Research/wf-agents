@@ -309,6 +309,16 @@ fn left_out_line(left_out: usize, read: usize) -> String {
     }
 }
 
+/// The last line of the table of counters past their limits when more counters were there than were read: how many were
+/// never weighed against their limits, after the first `read`. Nothing when there are none.
+fn unchecked_line(unchecked: usize, read: usize) -> String {
+    match unchecked {
+        0 => String::new(),
+        1 => format!("(1 counter after the first {read} was not checked against the limits)\n"),
+        n => format!("({n} counters after the first {read} were not checked against the limits)\n"),
+    }
+}
+
 /// Prints rows as a table, one line per row, each value cut to `width`.
 fn table_body(rows: &[Value], width: usize) -> String {
     let Some(first) = rows.first().and_then(Value::as_object) else {
@@ -432,11 +442,12 @@ pub fn design_card(data: &Path, id: i64) -> Result<String, String> {
 pub fn history(data: &Path, work: i64, full: bool) -> Result<String, String> {
     if full {
         let db = open(data)?;
+        // The listing is JSON, which no line of text can be added to, so it is not cut: every round of the work.
         let rows = query_json(
             db.conn(),
             "SELECT 'R' || work || '-' || round AS name, * FROM work_history WHERE work = ?1 ORDER BY round",
             &[&work],
-            10_000,
+            usize::MAX,
         )?;
         // Each round as it was given: the texts its record keeps once put back.
         let rows: Vec<Value> = rows.iter().map(|r| db::put_back(db.conn(), r)).collect();
@@ -509,10 +520,11 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
             limit.is_some_and(|l| r["times"].as_u64().unwrap_or(0) > *l)
         })
         .collect();
-    // The rows are cut before they are weighed against the limits, so the counters left out were not looked at; the
-    // table holds the ones past their limits among those read, not the rows read.
+    // The rows are cut before they are weighed against the limits, so the counters left out were not looked at, and
+    // any of them may be past its limit; the table holds the ones past their limits among those read, not the rows
+    // read, and its last line says so in its own words.
     out.push_str(&table_body(&over, 40));
-    out.push_str(&left_out_line(counters.left_out, TABLE_ROWS));
+    out.push_str(&unchecked_line(counters.left_out, TABLE_ROWS));
     out.push_str("\nWorks paused:\n");
     out.push_str(&table(
         &query_json_counted(
@@ -615,5 +627,20 @@ mod tests {
             left_out: 0,
         };
         assert_eq!(table(&none, 40), "(none)\n");
+    }
+
+    // The counters table says what it did not look at, not rows of itself left out; no tab, one or many.
+    #[test]
+    fn the_line_for_counters_not_checked_says_so() {
+        assert_eq!(unchecked_line(0, 10), "");
+        assert_eq!(
+            unchecked_line(1, 10),
+            "(1 counter after the first 10 was not checked against the limits)\n"
+        );
+        assert_eq!(
+            unchecked_line(4, 10),
+            "(4 counters after the first 10 were not checked against the limits)\n"
+        );
+        assert!(!unchecked_line(4, 10).contains('\t'));
     }
 }
