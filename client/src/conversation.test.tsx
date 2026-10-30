@@ -19,6 +19,7 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   body,
   kinds: [],
   answer,
+  asked_at: 0,
 });
 
 const entry = (source: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({

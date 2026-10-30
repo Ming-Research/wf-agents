@@ -3043,7 +3043,7 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask or by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, and exactly one matter that can be picked is taken here, both without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
-      "stop_work": "A work cancelled, or taken over by a work on a newer flow version, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
+      "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
@@ -4199,7 +4199,7 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for the owner to confirm the design card\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While asking someone (the advisor, the architect or the owner), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
+          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow when it cannot move to that flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
         ],
         "list": [
           {

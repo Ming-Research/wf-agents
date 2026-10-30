@@ -39,6 +39,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   project: 'p',
   graph: 'architect',
   flow_version: 2,
+  moved_from: null,
   at: 'E2',
   at_title: 'This work is done',
   stage: 'record',

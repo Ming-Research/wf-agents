@@ -142,6 +142,7 @@ struct WorkRow {
     paused: Option<String>,
     ended: Option<String>,
     paused_by: Option<String>,
+    moved_from: Option<i64>,
 }
 
 /// What a work's summary needs of each of its rounds.
@@ -171,7 +172,7 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
     let mut st = conn.prepare(&format!(
         "SELECT w.id, w.item, i.title, coalesce(i.project, w.project), w.flow_version, w.graph, w.at, w.resume_at,
                 w.waiting, w.recorded, w.machine, w.worktree, w.branch, w.pr, w.pushed_head, w.paused, w.ended,
-                w.paused_by
+                w.paused_by, w.moved_from
          FROM works w LEFT JOIN items i ON i.id = w.item {filter} ORDER BY w.id"
     ))?;
     let works: Vec<WorkRow> = st
@@ -195,6 +196,7 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
                 paused: r.get(15)?,
                 ended: r.get(16)?,
                 paused_by: r.get(17)?,
+                moved_from: r.get(18)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -426,6 +428,7 @@ fn summary(
         project: w.project.clone(),
         graph: w.graph.clone(),
         flow_version: w.flow_version,
+        moved_from: w.moved_from,
         at: w.at.clone(),
         at_title: cell.map(|c| c.title.clone()),
         stage,
@@ -716,7 +719,11 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
     Ok(out)
 }
 
-const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer
+/// An ask of the owner, with when the owner was told of it, from which it waits: the engine's notice of it, or else the
+/// start of the round that put it, as the owner's conversations date it.
+const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
+       coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id),
+                (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0)
 FROM owner_asks a JOIN works w ON w.id = a.work";
 
 /// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
@@ -765,6 +772,7 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
             kinds: ask_kinds(&body),
             body,
             answer: json(r.get(5)?),
+            asked_at: r.get(6)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)

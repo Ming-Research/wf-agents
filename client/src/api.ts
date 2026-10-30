@@ -169,6 +169,11 @@ item: number | null, title: string | null, project: string | null,
  */
 graph: string, flow_version: number, 
 /**
+ * The flow version it last moved from to the one it runs on, when it went on after the flow moved to a new version
+ * at a cell unchanged there; none for a work that never moved.
+ */
+moved_from: number | null, 
+/**
  * The cell it is at, with the cell's title and the stage the work is at, in its flow version.
  */
 at: string, at_title: string | null, stage: string | null, state: WorkState, 
@@ -370,7 +375,12 @@ kinds: Array<AskKind>,
 /**
  * None while it waits.
  */
-answer: JsonValue | null, };
+answer: JsonValue | null, 
+/**
+ * When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
+ * that put it.
+ */
+asked_at: number, };
 
 /**
  * The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what

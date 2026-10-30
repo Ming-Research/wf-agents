@@ -28,11 +28,11 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 import { askChoice, askParts, useAnswersHere } from '../answer';
 import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
-import { time } from '../format';
+import { duration, time } from '../format';
 import { postJson } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
-import { reread } from '../live';
+import { reread, useNow } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { RoundAt, SendForm, SubHeading } from '../parts';
 import { href, Link, navigate } from '../route';
@@ -551,8 +551,21 @@ export function Written({ text }: { text: string }) {
   return <Markdown text={text} />;
 }
 
+/// How long an ask that waits for the owner's answer has waited since the owner was told of it, ticking; nothing once it
+/// is answered.
+export function AskWaited({ a }: { a: OwnerAsk }) {
+  const waits = a.answer === null;
+  const now = useNow(waits);
+  if (!waits) return null;
+  return (
+    <span className="muted" title={t('ask_waited_since', { at: time(a.asked_at) })}>
+      {t('ask_waited', { time: duration(now - a.asked_at) })}
+    </span>
+  );
+}
+
 /// An ask of the owner as the owner reads and answers it, in the card every card shares: its head (its number, whether
-/// it waits, the round that asked); a band saying who answered and when, or that it waits; for each point, its kind as
+/// it waits and for how long, the round that asked); a band saying who answered and when, or that it waits; for each point, its kind as
 /// a chip, what it says and what was tried, in boxes; the choice, when there is one, its question and its options in
 /// option boxes with the one recommended; then, but in a conversation, the answer, or where it waits to be answered.
 /// `round` is the link to the round that asked.
@@ -569,6 +582,7 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
     <>
       <span className="dc-name">{t('ask_head', { id: a.id })}</span>
       <StatusChip tone={waits ? 'wait' : 'ok'}>{waits ? t('dc_waits') : t('ask_answered')}</StatusChip>
+      <AskWaited a={a} />
       {round}
       {body.to === 'architect' ? <span className="dc-note">{t('ask_for_architect')}</span> : null}
     </>

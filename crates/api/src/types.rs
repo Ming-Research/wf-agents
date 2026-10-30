@@ -209,6 +209,9 @@ pub struct WorkSummary {
     /// The graph it runs, of the flow version it is pinned to.
     pub graph: String,
     pub flow_version: i64,
+    /// The flow version it last moved from to the one it runs on, when it went on after the flow moved to a new version
+    /// at a cell unchanged there; none for a work that never moved.
+    pub moved_from: Option<i64>,
     /// The cell it is at, with the cell's title and the stage the work is at, in its flow version.
     pub at: String,
     pub at_title: Option<String>,
@@ -379,6 +382,9 @@ pub struct OwnerAsk {
     pub kinds: Vec<AskKind>,
     /// None while it waits.
     pub answer: Option<Value>,
+    /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
+    /// that put it.
+    pub asked_at: i64,
 }
 
 /// The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what

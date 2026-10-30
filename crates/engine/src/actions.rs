@@ -85,6 +85,17 @@ pub fn notify_fault(tx: &Transaction<'_>, work: i64, fault: &str, text: &str) ->
     tell(tx, Some(work), None, Some(fault), text)
 }
 
+/// Reminds the owner of the asks waiting for the owner's answer, at `at`: a notice about no work as [`notify`] keeps
+/// one, marked a reminder, from which the next is timed, and written to the notifications log through the outbox.
+pub fn remind(tx: &Transaction<'_>, at: i64, text: &str) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO engine_notices (text, at, reminder) VALUES (?1, ?2, 1)",
+        params![text, at],
+    )
+    .map_err(sql)?;
+    outbox(tx, None, "notify", &json!({ "text": text }))
+}
+
 /// Keeps a notice for the owner and writes it to the notifications log; a fault of wf-agents goes on at once to the
 /// architect the owner's setting names, if it names one.
 fn tell(

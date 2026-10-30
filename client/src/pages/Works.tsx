@@ -11,7 +11,7 @@ import { CounterLabel, Heading, Label, Link as PrimerLink } from '@primer/react'
 import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
-import { type Course, course, heldName, StateChip, WorkBadge, Loaded } from '../components';
+import { type Course, course, heldName, StateChip, TagChip, WorkBadge, Loaded } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useNow, useResource, useStatus } from '../live';
@@ -399,6 +399,12 @@ function WorkLine({ w }: { w: WorkSummary }) {
             <Label variant="attention" title={takeoverWords(w, status)}>
               {t('course_outdated', { version: w.flow_version })}
             </Label>{' '}
+          </>
+        ) : w.moved_from !== null ? (
+          <>
+            <TagChip title={t('course_moved_hint', { from: w.moved_from, version: w.flow_version })}>
+              {t('course_moved', { version: w.flow_version })}
+            </TagChip>{' '}
           </>
         ) : null}
         {w.at_title}

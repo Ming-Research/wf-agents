@@ -193,11 +193,11 @@ CREATE TABLE owner_messages (
 
 CREATE TABLE engine_notices (
   -- What the engine tells the owner of its own accord, one row for each notice: a work stopped by a new flow version,
-  -- a design card posted, every work halted until a usage limit resets, a fault of wf-agents, and the like. It needs no
-  -- answer. The same text goes to the notifications log.
+  -- a design card posted, every work halted until a usage limit resets, a fault of wf-agents, the asks still waiting
+  -- for the owner's answer, and the like. It needs no answer. The same text goes to the notifications log.
   -- Hidden from agents.
   -- Read by: the owner's interface, which shows those unread with the messages agents wrote; the engine, for a fault
-  -- of wf-agents (fault).
+  -- of wf-agents (fault) and for when it last reminded the owner of the asks waiting (reminder).
   id INTEGER PRIMARY KEY,
   -- The work it is about; NULL for one about no work.
   work INTEGER REFERENCES works(id),
@@ -218,7 +218,11 @@ CREATE TABLE engine_notices (
   -- owner's interface, which sets such a notice apart and forwards it to the architects the owner picks, each as a
   -- matter of its queue; the engine, which forwards a new one to the architect the owner's setting names
   -- (owner_choices), and hands an architect the notice of a fault forwarded to it.
-  fault TEXT
+  fault TEXT,
+  -- Whether the notice reminds the owner of the asks waiting for the owner's answer, which the engine does once an
+  -- interval of the installation's setting while any waits: 1 for such a reminder, 0 for another notice.
+  -- Read by: the engine, which reminds again an interval after the last reminder.
+  reminder INTEGER NOT NULL DEFAULT 0 CHECK (reminder IN (0, 1))
 ) STRICT;
 
 CREATE TABLE contents (
@@ -231,9 +235,10 @@ CREATE TABLE contents (
 ) STRICT;
 
 CREATE TABLE flow_versions (
-  -- Every compiled flow a work has run on. A work runs on the version it started with; when the flow moves to a new
-  -- version, the works still running on an older one stop, and their items start again on the new one. Old rounds
-  -- stay readable after the flow changes.
+  -- Every compiled flow a work has run on. A work runs on the version it started with until the flow moves to a new
+  -- version; then, when a work on an older one next goes on, it moves to the new one at its cell when that cell and
+  -- the shape of every return it handed in are unchanged there, and otherwise it stops and its item starts again on
+  -- the new one. Old rounds stay readable after the flow changes.
   -- Read by: the engine; people and agents reading old rounds.
   id INTEGER PRIMARY KEY,
   -- Hash of compiled, so each version is stored once.
@@ -253,7 +258,13 @@ CREATE TABLE works (
   id INTEGER PRIMARY KEY,
   -- The item worked on; NULL for a work of an architect, which belongs to no item but to its project.
   item INTEGER REFERENCES items(id),
+  -- The flow version it runs on: the one it started with, or the one it last moved to.
   flow_version INTEGER NOT NULL REFERENCES flow_versions(id),
+  -- The flow version it last moved from to the one it runs on, when it went on after the flow moved to a new version
+  -- and its cell and the shape of every return it had handed in were unchanged there, so that it went on at its cell
+  -- in its sessions instead of a new work taking its item over; NULL for a work that never moved.
+  -- Read by: the owner's interface, which says the work moved to its version.
+  moved_from INTEGER REFERENCES flow_versions(id),
   -- Which graph of that version it runs. Read by: the engine.
   graph TEXT NOT NULL CHECK (graph IN ('engineer', 'architect', 'policy')),
   -- The cell the work is at. Read by: the engine; views of status and slots.

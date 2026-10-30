@@ -1314,6 +1314,134 @@ fn works_of(e: &Engine, item: i64) -> Vec<WorkRow> {
     .collect()
 }
 
+/// Puts works on a flow version before the one the engine runs: a copy of that one, its engineer's graph changed as
+/// `change` says. Gives the version.
+fn older(e: &mut Engine, works: &[i64], change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
+    let now = e.flow_now;
+    let mut f = e.flow(now).unwrap().clone();
+    change(f.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap());
+    let text = f.json();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            [&text],
+        )?;
+        let v = tx.last_insert_rowid();
+        for w in works {
+            tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![w, v])?;
+        }
+        Ok(v)
+    })
+    .unwrap()
+}
+
+/// A change of a flow version at a cell that keeps it from being the same cell: its first row renamed.
+fn renamed(g: &mut flow::CompiledGraph, cell: &str) {
+    let c = g.cells.iter_mut().find(|c| c.id == cell).unwrap();
+    c.rows[0].name = format!("{} before", c.rows[0].name);
+}
+
+/// The work an item had first, at its second cell `R2` on a flow version before the one the engine runs, changed as
+/// `change` says, with the engine started again over it; gives the engine, what it says, the item and the work.
+fn at_r2_on_an_older_version(
+    s: &Setup,
+    change: impl FnOnce(&mut flow::CompiledGraph),
+) -> (Engine, Rc<RefCell<Vec<String>>>, i64, i64) {
+    let (mut e, said, item) = start(s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R2", "{log}");
+    older(&mut e, &[work], change);
+    drop(e);
+    let (e, said) = engine(s, scripts());
+    (e, said, item, work)
+}
+
+/// The session a round of a work ran in.
+fn session_of(e: &Engine, work: i64, cell: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT session FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n DESC LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A work on an older flow version that goes on moves to the version the engine runs when the cell it stands at is
+// unchanged there and every return it handed in keeps its shape, whatever else changed: the same work goes on at its
+// cell in the same session, and says which version it moved from.
+#[test]
+fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
+    let s = setup("moves");
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| renamed(g, "D2"));
+    let v: i64 =
+        e.db.conn()
+            .query_row("SELECT flow_version FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.work, Some(work), "{log}");
+    assert_eq!(stepped.cell.as_deref(), Some("R2"), "{log}");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(works[0].5, None);
+    let (now, from): (i64, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT flow_version, moved_from FROM works WHERE id = ?1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((now, from), (e.flow_now, Some(v)), "{log}");
+    assert_eq!(session_of(&e, work, "R2"), session_of(&e, work, "R1"), "{log}");
+    assert!(
+        log.contains(&format!("work {work} moved from flow version {v} to {now}, at cell R2")),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work on an older flow version whose cell is unchanged, but one of whose earlier returns has another shape in the
+// version the engine runs, is taken over when it goes on: it ends, saying why, and a new work takes its item over.
+#[test]
+fn a_work_whose_earlier_return_changed_its_shape_is_taken_over() {
+    let s = setup("reshaped");
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| {
+        let r1 = g.cells.iter_mut().find(|c| c.id == "R1").unwrap();
+        if let Some(Value::Object(schema)) = &mut r1.schema {
+            schema.insert("properties".into(), json!({ "before": { "type": "string" } }));
+        }
+    });
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert_eq!(works[0].0, work);
+    let now = e.flow_now;
+    assert_eq!(
+        works[0].5.as_deref(),
+        Some(
+            format!(
+                "stopped: the flow moved to version {now}, where the return of cell R1 has another shape, and a new \
+                 work on it takes the item over"
+            )
+            .as_str()
+        ),
+        "{log}"
+    );
+    assert_eq!(
+        (stepped.work, stepped.started_item),
+        (Some(works[1].0), Some(item)),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // When the engine stopped in the middle of a round, the same work goes on in the same session: the round is cut off,
 // and the next one is only told so and where to look.
 #[test]
@@ -1377,19 +1505,10 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         }
     }
     let log = said.borrow().join("\n");
-    let (old, _, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
+    let (old, at, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
     assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
-    // The work ran on a flow version the engine no longer has built in.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
-            [],
-        )?;
-        let v = tx.last_insert_rowid();
-        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![old, v])?;
-        Ok(())
-    })
-    .unwrap();
+    // The work ran on a flow version the engine no longer has built in, where the cell it stands at was another.
+    older(&mut e, &[old], |g| renamed(g, &at));
     // It put two asks to the owner, and a question to the architect.
     let asks: Vec<i64> =
         e.db.write(Actor::Engine, |tx| {
@@ -1438,7 +1557,8 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         works[0]
             .5
             .as_deref()
-            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
+            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")
+                && w.contains(&format!("where cell {at} changed (its rows)"))),
         "{works:?}"
     );
     let new = works[1].0;
@@ -1670,14 +1790,11 @@ fn a_gate_the_project_cannot_meet_is_the_engines_answer() {
 fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let s = setup("takeover-slots");
     let (mut e, _, queued) = start(&s, scripts());
-    // Two items had works running on a flow version the engine no longer has built in; the machine has one slot.
+    // Two items had works running on a flow version the engine no longer has built in, where their cell was another;
+    // the machine has one slot.
+    let v = older(&mut e, &[], |g| renamed(g, "R1"));
     let items: Vec<i64> =
         e.db.write(Actor::Owner, |tx| {
-            tx.execute(
-                "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
-                [],
-            )?;
-            let v = tx.last_insert_rowid();
             let mut items = Vec::new();
             for title in ["First", "Second"] {
                 tx.execute(
@@ -2835,16 +2952,8 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     let old = first.work.unwrap();
     e.step(first.work).unwrap();
     api::pause(&mut e.db, old, None).unwrap();
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) SELECT 'older', compiled FROM flow_versions WHERE id = 1",
-            [],
-        )?;
-        let v = tx.last_insert_rowid();
-        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![old, v])?;
-        Ok(())
-    })
-    .unwrap();
+    let at = state(&e, item).unwrap().1;
+    older(&mut e, &[old], |g| renamed(g, &at));
     drop(e);
     let (mut e, _) = engine(&s, scripts());
     assert_eq!(e.step(None).unwrap().work, None);

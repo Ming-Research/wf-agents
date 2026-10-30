@@ -115,7 +115,8 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
 /// Sends a keep-warm ping to each session whose work waits and whose next round will go on in it, when the session
 /// manager finds it due at `now`; gives how many it sent. While the owner's global pause holds (`pause`), a work it
 /// holds waits on it; none is sent then if the owner switched keeping warm off, and none while a failed run's cause
-/// stops every work. A work whose next round starts the new session the owner asked for has nothing to keep warm.
+/// stops every work. A work whose next round starts the new session the owner asked for has nothing to keep warm, nor
+/// has a work on an older flow version that a new work will take over.
 pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
     if e.halted() || pause.is_some_and(|p| !p.warm) {
         return Ok(0);
@@ -133,7 +134,8 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
     let mut sent = 0;
     for id in ids {
         let w = e.work(id)?;
-        if w.flow_version != e.flow_now || e.done(&w)? {
+        // A work on an older flow version goes on in its sessions only when it can move to the version the engine runs.
+        if e.done(&w)? || (w.flow_version != e.flow_now && e.cannot_move(&w)?.is_some()) {
             continue;
         }
         let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);

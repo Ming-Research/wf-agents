@@ -20,7 +20,7 @@ import { Markdown, MarkdownInline } from '../markdown';
 import { Block, By, type OpenRound, RoundLink, Section, SubHeading } from '../parts';
 import { t, tn, type Key } from '../text';
 import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
-import { AnswerPart, AskView } from './Decide';
+import { AnswerPart, AskView, AskWaited } from './Decide';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 
@@ -227,6 +227,7 @@ export function ArchitectAskBlock({ a, onRound, revisions = null }: {
       <strong>{t('ask_head', { id: a.id })}</strong>
       <Label variant="secondary">{askKindWords(a)}</Label>
       <span className="muted">{a.answer === null ? t('ask_waits') : t('ask_answered')}</span>
+      <AskWaited a={a} />
     </>
   );
   return (

@@ -709,6 +709,10 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
             (e.say)(&format!("keeping waiting sessions warm: {x}"));
         }
+        // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
+        if let Err(x) = e.remind(db::now()) {
+            (e.say)(&format!("reminding the owner of the asks waiting: {x}"));
+        }
         let now = status(&mut e, last.as_ref(), started_at)?;
         bus.publish(api::Event::Status {
             status: Box::new(control.status(now)),

@@ -317,9 +317,9 @@ const messages = {
   confirm_start_all:
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items.',
   confirm_start_all_takeover:
-    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works on an older flow version are taken over: each ends, and a new work on version {version} takes its item over from the first cell.',
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works are on an older flow version: each whose cell and returns are unchanged in version {version} moves to it and goes on at its cell; each other ends, and a new work on version {version} takes its item over from the first cell.',
   confirm_start_all_takeover_one:
-    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work on an older flow version is taken over: it ends, and a new work on version {version} takes its item over from the first cell.',
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work is on an older flow version: if its cell and returns are unchanged in version {version}, it moves to it and goes on at its cell; else it ends, and a new work on version {version} takes its item over from the first cell.',
   slots: 'Slots {used}/{total}',
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   request_failed: 'The request failed: {error}',
@@ -403,7 +403,10 @@ const messages = {
     'Every work is paused: Start runs this one on whatever the global state, Step runs one round of it, and Start all in the bar lets every work go on.',
   course_outdated: 'flow {version}: older',
   course_outdated_hint:
-    'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
+    'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it moves to version {now} and goes on at its cell in its sessions if that cell and every return it handed in are unchanged there; else it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
+  course_moved: 'moved to version {version}',
+  course_moved_hint:
+    'It was on flow version {from} and moved to version {version} when it went on, since its cell and every return it had handed in were unchanged there: it went on at its cell in its sessions.',
   waits_answer: 'waiting for your answer to ask {id}',
   waits_ruling: 'waiting for your ruling on design card {id}',
   waits_architect: "waiting for the architect's reply to matter {id}",
@@ -432,9 +435,9 @@ const messages = {
   work_step_goes_on: 'It goes on: Step runs a round of it only while it is paused.',
   confirm_step: 'Run one round of work {id} at cell {cell} now? It is a real round on your account.',
   confirm_takeover:
-    'Work {id} is on flow version {version}; the engine runs version {now}. Going on, it ends, and a new work on version {now} takes item {item} over from the first cell. Go on?',
+    'Work {id} is on flow version {version}; the engine runs version {now}. Going on, it moves to version {now} at its cell if that cell and its returns are unchanged there; else it ends, and a new work on version {now} takes item {item} over from the first cell. Go on?',
   step_takeover_note:
-    'This work is on an older flow version: Step ends it, and runs the first round of the new work on version {now}, which stays in your hands.',
+    'This work is on an older flow version: Step moves it to version {now} and runs its next round if its cell and its returns are unchanged there; else Step ends it, and runs the first round of the new work on version {now}, which stays in your hands.',
   branch: 'Branch',
   resume_confirm: 'Let work {id} go on? Cell {cell} runs again.',
   next_running: 'The round is running',
@@ -444,6 +447,8 @@ const messages = {
   item_imported_from: 'From',
   asks: 'Asks of the owner',
   ask_answered: 'answered',
+  ask_waited: 'for {time}',
+  ask_waited_since: 'Waiting since {at}, when you were told of it.',
   work_tabs: "The work's tabs",
   work_no_design_cards: 'No design cards.',
   close: 'Close',

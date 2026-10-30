@@ -28,10 +28,12 @@ mod failed;
 mod faults;
 mod inputs;
 pub mod message;
+mod reminders;
 mod steps;
 mod tools;
 mod unparsed;
 mod values;
+mod versions;
 mod warm;
 mod work;
 
@@ -208,25 +210,90 @@ impl Engine {
         })
     }
 
-    /// Takes over works on an older flow version, which the engine does when each next goes on, instead of taking its
-    /// step: each stops, saying why, as every work ends ([`ending::end`]: the round it was in is cut off, its design
-    /// cards are replaced, its asks of the owner need no answer, its questions to the architect are withdrawn and its
-    /// sessions end), and its item gets a new work on this version, whose cell `S1` takes over the stopped work's
-    /// branch, worktree and pull request and whose cell `R1` is told what exists, the questions withdrawn
-    /// included. Until then the owner still rules on its design cards and answers its asks, and the new work is given
-    /// them. A new work is paused as the owner had paused the old one, so that a work the owner steps stays in the
-    /// owner's hands. Every work given is stopped before any new one starts, so that the slots they held are free; a
-    /// new work takes a slot only when one is free: in the order of the works stopped, those that find one start now,
-    /// and the items of the rest go to the head of the queue, ahead of the items queued before, in the same order, to
-    /// start as slots free. Gives the new works started.
-    fn take_over(&mut self, works: &[Work]) -> Result<Vec<i64>, String> {
+    /// Brings works on an older flow version to the version the engine runs, which the engine does when each next goes
+    /// on, before its step: a work that can move moves ([`Engine::move_up`]), and the rest are taken over
+    /// ([`Engine::take_over`]).
+    fn bring_up(&mut self, works: &[Work]) -> Result<Brought, String> {
+        let mut over = Vec::new();
+        for w in works {
+            match self.cannot_move(w)? {
+                None => self.move_up(w)?,
+                Some(why) => over.push((w.clone(), why)),
+            }
+        }
+        Ok(Brought {
+            over: over.iter().map(|(w, _)| w.id).collect(),
+            started: self.take_over(&over)?,
+        })
+    }
+
+    /// Why a work on an older flow version cannot move to the version the engine runs ([`versions::why_not`]): what
+    /// changed at the cell it stands at, or in the shape of a return it handed in; none when it can move.
+    fn cannot_move(&mut self, w: &Work) -> Result<Option<String>, String> {
+        let old = self.flow(w.flow_version)?.graph(&w.graph).cloned();
         let now = self.flow_now;
-        let why = format!("the flow moved to version {now}, and a new work on it takes the item over");
+        let new = self.flow(now)?.graph(&w.graph).cloned();
+        let (Some(old), Some(new)) = (old, new) else {
+            return Ok(Some(format!("there is no graph {}", w.graph)));
+        };
+        let returned: BTreeSet<String> = {
+            let mut st = self
+                .db
+                .conn()
+                .prepare(
+                    "SELECT DISTINCT cell FROM rounds
+                     WHERE work = ?1 AND cell IS NOT NULL AND output IS NOT NULL AND transition IS NOT NULL",
+                )
+                .map_err(|e| e.to_string())?;
+            st.query_map([w.id], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?
+        };
+        Ok(versions::why_not(&old, &new, &w.pos, &returned))
+    }
+
+    /// Moves a work on an older flow version to the version the engine runs: the same work, at the same cell, in the
+    /// same sessions, recording the version it moved from. Its sessions are given again what the version changed of
+    /// what they hold, as any changed input is given.
+    fn move_up(&mut self, w: &Work) -> Result<(), String> {
+        let (id, from, now) = (w.id, w.flow_version, self.flow_now);
+        self.db
+            .write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE works SET flow_version = ?2, moved_from = ?3 WHERE id = ?1",
+                    params![id, now, from],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        (self.say)(&format!(
+            "work {id} moved from flow version {from} to {now}, at cell {}",
+            w.pos.at
+        ));
+        Ok(())
+    }
+
+    /// Takes over works on an older flow version that cannot move, each with why, which the engine does when each next
+    /// goes on, instead of taking its step: each stops, saying why, as every work ends ([`ending::end`]: the round it
+    /// was in is cut off, its design cards are replaced, its asks of the owner need no answer, its questions to the
+    /// architect are withdrawn and its sessions end), and its item gets a new work on this version, whose cell `S1`
+    /// takes over the stopped work's branch, worktree and pull request and whose cell `R1` is told what exists, the
+    /// questions withdrawn included. Until then the owner still rules on its design cards and answers its asks, and the
+    /// new work is given them. A new work is paused as the owner had paused the old one, so that a work the owner steps
+    /// stays in the owner's hands. Every work given is stopped before any new one starts, so that the slots they held
+    /// are free; a new work takes a slot only when one is free: in the order of the works stopped, those that find one
+    /// start now, and the items of the rest go to the head of the queue, ahead of the items queued before, in the same
+    /// order, to start as slots free. Gives the new works started.
+    fn take_over(&mut self, works: &[(Work, String)]) -> Result<Vec<i64>, String> {
+        let now = self.flow_now;
         let mut takeovers = Vec::new();
         let projects = self.config.config.projects.clone();
-        let stopped = format!("stopped: {why}");
-        for w in works {
+        for (w, cannot) in works {
             let id = w.id;
+            let why =
+                format!("the flow moved to version {now}, where {cannot}, and a new work on it takes the item over");
+            let stopped = format!("stopped: {why}");
             self.db
                 .write(Actor::Engine, |tx| {
                     ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
@@ -303,8 +370,8 @@ impl Engine {
         Ok(started)
     }
 
-    /// The works that go on by themselves on an older flow version, in the order of their ids: each is taken over
-    /// before anything else is started.
+    /// The works that go on by themselves on an older flow version, in the order of their ids: each moves or is taken
+    /// over before anything else is started.
     fn outdated(&mut self) -> Result<Vec<Work>, String> {
         let mut out = Vec::new();
         for id in self.active()? {
@@ -368,6 +435,25 @@ impl Engine {
     /// While the owner's global pause holds, `pause` says whether it keeps them warm and which works run on despite it.
     pub fn keep_warm(&mut self, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
         warm::keep_warm(self, now, pause)
+    }
+
+    /// Reminds the owner of the asks waiting for the owner's answer when a reminder is due at `now`, the installation's
+    /// interval after the oldest was put and after the last reminder ([`reminders::due`]): one notice for all of them,
+    /// whatever the works do, then carries out the outbox, which writes it to the notifications log. Gives whether it
+    /// reminded.
+    pub fn remind(&mut self, now: i64) -> Result<bool, String> {
+        let every = self.config.config.install.owner.remind_interval;
+        let interval = i64::try_from(every.saturating_mul(1000)).unwrap_or(i64::MAX);
+        let Some(text) = reminders::due(self.db.conn(), now, interval)? else {
+            return Ok(false);
+        };
+        self.db
+            .write(Actor::Engine, |tx| {
+                actions::remind(tx, now, &text).map_err(db::Error::Abort)
+            })
+            .map_err(|e| e.to_string())?;
+        actions::run_outbox(self)?;
+        Ok(true)
     }
 
     /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.
@@ -518,20 +604,28 @@ impl Engine {
         Ok(out)
     }
 
-    /// Takes a work one step further; a work on an older flow version is taken over instead.
+    /// Takes a work one step further; a work on an older flow version moves first, or is taken over instead.
     pub fn advance(&mut self, id: i64) -> Result<Advance, String> {
         self.take_step(id, false)
     }
 
     /// Takes a work one step further: a paused work only when the owner asked for its round.
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
-        let w = self.work(id)?;
+        let mut w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
         if w.flow_version != self.flow_now {
-            self.take_over(std::slice::from_ref(&w))?;
-            return Ok(Advance::Stopped);
+            match self.cannot_move(&w)? {
+                Some(why) => {
+                    self.take_over(&[(w, why)])?;
+                    return Ok(Advance::Stopped);
+                }
+                None => {
+                    self.move_up(&w)?;
+                    w = self.work(id)?;
+                }
+            }
         }
         let g = self.graph_of(&w)?;
         let cell = g
@@ -829,9 +923,9 @@ impl Engine {
         })
     }
 
-    /// One pass over every work: reads the configuration again, carries out the outbox, takes over the works that go
-    /// on on an older flow version, starts a work of the architect when a matter is due, starts works on ready items
-    /// while slots are free, and takes each active work one step. Gives whether anything moved.
+    /// One pass over every work: reads the configuration again, carries out the outbox, moves or takes over the works
+    /// that go on on an older flow version, starts a work of the architect when a matter is due, starts works on ready
+    /// items while slots are free, and takes each active work one step. Gives whether anything moved.
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
@@ -840,7 +934,7 @@ impl Engine {
         }
         let old = self.outdated()?;
         if !old.is_empty() {
-            self.take_over(&old)?;
+            self.bring_up(&old)?;
             moved = true;
         }
         if self.architect_work_due()?.is_some() {
@@ -869,8 +963,9 @@ impl Engine {
     /// Takes exactly one step of the engine as a whole, the smallest pass, with which the engine's loop takes the
     /// works that go on by themselves round by round, reading between two steps what the owner asked: one round of
     /// one work, which is an agent's round, a step of the engine's own, a run of a tool cell, or starting a work. It
-    /// first carries out the outbox; then, when works that go on are on an older flow version, it takes them over and
-    /// takes the first step of the first new work, when one started; else, when no work of the architect runs and a
+    /// first carries out the outbox; then, when works that go on are on an older flow version, it moves those that can
+    /// move and takes the others over, and when it took one over, takes the first step of the first new work, when one
+    /// started; else, when no work of the architect runs and a
     /// matter is due for it, it starts one and takes its first step; else, when a slot is free and an item is
     /// ready, it starts a work on that item and takes the work's first step; otherwise it takes the next step of the
     /// first active work that has one, in the order of the works' ids, beginning after `after` and going round to the
@@ -883,8 +978,9 @@ impl Engine {
         }
         let mark = self.rounds_mark()?;
         let old = self.outdated()?;
-        if let Some(first) = old.first().map(|w| w.id) {
-            let new = self.take_over(&old)?.first().copied();
+        let brought = self.bring_up(&old)?;
+        if let Some(first) = brought.over.first().copied() {
+            let new = brought.started.first().copied();
             let mut started_item = None;
             if let Some(n) = new {
                 started_item = self.work(n)?.item;
@@ -947,9 +1043,9 @@ impl Engine {
 
     /// The next round of one work, which the owner asked for whatever the global state: the outbox first, then that
     /// work one step, then the outbox that step filled. After its step the work is paused by the owner, in the owner's
-    /// hands, until the owner starts it. A work on an older flow version is taken over instead, and the step is the
-    /// first of the new work, paused by the owner after it the same way; when no slot is free for it, its item waits
-    /// at the head of the queue and no round runs.
+    /// hands, until the owner starts it. A work on an older flow version moves first; one that cannot move is taken
+    /// over instead, and the step is the first of the new work, paused by the owner after it the same way; when no
+    /// slot is free for it, its item waits at the head of the queue and no round runs.
     pub fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
         self.reload_config();
         actions::run_outbox(self)?;
@@ -961,11 +1057,14 @@ impl Engine {
         let w = self.work(work)?;
         let mut stepped = work;
         let mut started_item = None;
-        if w.ended.is_none() && w.flow_version != self.flow_now && !self.done(&w)? {
-            if let Some(new) = self.take_over(std::slice::from_ref(&w))?.first().copied() {
+        let outdated = w.ended.is_none() && w.flow_version != self.flow_now && !self.done(&w)?;
+        let cannot = if outdated { self.cannot_move(&w)? } else { None };
+        if let Some(why) = cannot {
+            let item = w.item;
+            if let Some(new) = self.take_over(&[(w, why)])?.first().copied() {
                 self.take_step(new, true)?;
                 stepped = new;
-                started_item = w.item;
+                started_item = item;
             }
         } else {
             self.take_step(work, true)?;
@@ -1175,6 +1274,14 @@ pub struct Stepped {
     pub started_item: Option<i64>,
     pub rounds: Vec<RoundId>,
     pub cell: Option<String>,
+}
+
+/// What bringing works on an older flow version to the version the engine runs came to: the works taken over, and the
+/// new works started on their items.
+#[derive(Debug, Clone, Default)]
+struct Brought {
+    over: Vec<i64>,
+    started: Vec<i64>,
 }
 
 /// The flow built into this engine, compiled against the database it makes, when `config` fits it; otherwise every

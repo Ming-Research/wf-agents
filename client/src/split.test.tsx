@@ -96,6 +96,7 @@ const work = (id: number, g: CompiledGraph): WorkSummary => ({
   project: 'p',
   graph: g.name,
   flow_version: 1,
+  moved_from: null,
   at: g.cells[1].id,
   at_title: null,
   stage: null,

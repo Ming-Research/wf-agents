@@ -58,6 +58,14 @@ pub struct Install {
 pub struct Owner {
     /// The language everything the owner reads is written in.
     pub language: String,
+    /// How often, in seconds, the engine reminds the owner of the asks waiting for the owner's answer while any waits,
+    /// in one notice saying how many wait and how long the oldest has; 0 sends no reminder.
+    #[serde(default = "remind_interval")]
+    pub remind_interval: u64,
+}
+
+fn remind_interval() -> u64 {
+    3_600
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
