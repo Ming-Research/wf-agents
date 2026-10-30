@@ -84,6 +84,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0051.sql"),
     include_str!("../../../db/migrations/0052.sql"),
     include_str!("../../../db/migrations/0053.sql"),
+    include_str!("../../../db/migrations/0054.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.

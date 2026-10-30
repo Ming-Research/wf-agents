@@ -2184,25 +2184,6 @@
         }
       ]
     },
-    "arch_note": {
-      "type": "obj",
-      "desc": "A note: what to look at again",
-      "fields": [
-        {
-          "name": "item",
-          "title": "Item",
-          "type": "int",
-          "desc": "The item it is about; leave it out for a note about the project as a whole",
-          "optional": true
-        },
-        {
-          "name": "text",
-          "title": "What to look at again",
-          "type": "text",
-          "desc": "What to look at again, and why"
-        }
-      ]
-    },
     "arch_effects": {
       "name": "effects",
       "title": "Effects",
@@ -2249,17 +2230,6 @@
           "desc": "Messages to other projects' architects, queued at once",
           "item": {
             "$ref": "arch_message"
-          },
-          "optional": true,
-          "min": 1
-        },
-        {
-          "name": "notes",
-          "title": "Notes",
-          "type": "list",
-          "desc": "Notes, written at once: about the whole into your state of things, about an item on the item",
-          "item": {
-            "$ref": "arch_note"
           },
           "optional": true,
           "min": 1
@@ -2424,6 +2394,49 @@
       "by": "to",
       "desc": "A question for the owner, when what you handle needs the owner to decide or to tell you something you cannot find out: the matter in hand is parked at this cell, the question is pinned at the bottom of the owner's one-to-one, and the matter comes back to this cell with the owner's reply, in words, before any other matter. Ask only what you cannot settle yourself, and nothing a question still pending asks already",
       "branches": "askRoles"
+    },
+    "notebook": {
+      "name": "notebook",
+      "title": "Notebook",
+      "type": "list",
+      "optional": true,
+      "min": 1,
+      "desc": "The sections of your notebook you rewrite, each whole: your notebook is what a new session of yours starts from and what the owner reads of you, in the owner's language (the setting `owner.language`), with technical terms in their English original. A section is at most 4,000 characters and the four at most 12,000 in all; write what holds now, not its history. Leave it out when you rewrite none",
+      "item": {
+        "type": "obj",
+        "fields": [
+          {
+            "name": "section",
+            "title": "Section",
+            "type": "enum",
+            "desc": "Which section",
+            "values": [
+              [
+                "project_now",
+                "What the project is now: each line of work, where it stands, where it is stuck, what came of it lately and how that is known; the understanding of a new session writes it anew"
+              ],
+              [
+                "plan",
+                "The plan: what to do next and why, most first, each thing the owner asked for with its source; the plan writes it anew"
+              ],
+              [
+                "unclear",
+                "What is unclear: the questions not settled yet, each with why"
+              ],
+              [
+                "other",
+                "Anything else worth keeping across sessions"
+              ]
+            ]
+          },
+          {
+            "name": "text",
+            "title": "Text",
+            "type": "text",
+            "desc": "The section's whole new text, which takes the place of what it held"
+          }
+        ]
+      }
     }
   },
   "tools": [
@@ -2860,7 +2873,7 @@
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
       "apply_batch": "Makes every item change of the batch, as the architect, in one transaction, logs each with its reason, sends the replies that waited on them, and ends the review's session.",
-      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions, messages to other architects and notes are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
+      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
       "apply_reviewed": "Makes the item changes the review found sound, drops the others and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
       "close_matter": "Marks the matter picked as handled by this round.",
@@ -2898,7 +2911,6 @@
       "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again.",
       "settle_straight_hold": "Releases the hold to set the project straight once every matter that sets it straight is handled and the batch's item changes are made.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
-      "tell_owner_unclear": "Tells the owner, as one message of the round, what the understanding could not settle; nothing when it settled everything.",
       "update_design_card": "Replaces the work's design card with the one handed in, and keeps what the return says changed from it. Only the decisions that changed go through again; when a decision the owner confirmed changes, the engine tells the owner at once that it must be confirmed again.",
       "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer.",
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
@@ -2909,7 +2921,8 @@
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
-      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect, and a work picks it only when it came before that work started."
+      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect, and a work picks it only when it came before that work started.",
+      "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2954,7 +2967,10 @@
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
       "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds.",
-      "no_holds_after_reply": "Once the owner replied to the question whether to research a new policy, the check of the policy does not hand in that it holds: it writes the policy by the owner's stance, or asks again."
+      "no_holds_after_reply": "Once the owner replied to the question whether to research a new policy, the check of the policy does not hand in that it holds: it writes the policy by the owner's stance, or asks again.",
+      "notebook_fits": "The notebook's sections the round rewrote are each named once, each at most 4,000 characters, and with the sections it leaves as they are at most 12,000 characters in all.",
+      "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
+      "plan_written": "The plan rewrites the notebook's plan."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -2988,7 +3004,11 @@
       "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
-      "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked."
+      "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
+      "notebook_project_now": "The text of the section project now of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
+      "notebook_plan": "The text of the section plan of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
+      "notebook_unclear": "The text of the section unclear of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
+      "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3103,22 +3123,6 @@
           "policy_signals"
         ]
       },
-      "state_of_things": {
-        "title": "State of things",
-        "layer": "project",
-        "computed": true,
-        "desc": "What the project is now, as the architect last understood it, with its notes",
-        "relations": [
-          "architect_state",
-          "architect_notes",
-          "architect_log",
-          "architect_last_fit"
-        ],
-        "inputs": [
-          "before",
-          "since_last_work"
-        ]
-      },
       "locked_acceptance": {
         "title": "Locked acceptance",
         "layer": "item",
@@ -3190,7 +3194,11 @@
       "recorded": {
         "title": "Recorded values",
         "layer": "work",
-        "desc": "The values rows recorded for the work, which later rows read"
+        "desc": "The values rows recorded for the work, which later rows read",
+        "inputs": [
+          "before",
+          "since_last_work"
+        ]
       },
       "sessions": {
         "title": "Sessions",
@@ -3302,6 +3310,21 @@
           "blockers"
         ],
         "owner": "answers what the owner holds, or rules on the design card the work waits for"
+      },
+      "notebook": {
+        "title": "The architect's notebook",
+        "layer": "project",
+        "desc": "What the project's architect keeps across its sessions, in four sections, each as its cells last wrote it, with every version before",
+        "relations": [
+          "notebook_edits",
+          "notebook"
+        ],
+        "inputs": [
+          "notebook_project_now",
+          "notebook_plan",
+          "notebook_unclear",
+          "notebook_other"
+        ]
       }
     },
     "writes": {
@@ -3461,9 +3484,6 @@
       "tell_owner": [
         "owner_messages"
       ],
-      "tell_owner_unclear": [
-        "owner_messages"
-      ],
       "update_design_card": [
         "design_cards",
         "architect_queue",
@@ -3509,6 +3529,9 @@
       ],
       "queue_group_talk": [
         "architect_queue"
+      ],
+      "edit_notebook": [
+        "notebook"
       ]
     },
     "reads": {
@@ -3700,7 +3723,7 @@
         "Judging: you are this project's architect, and judge its matters by its constitution and by the policy in force for it. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner: for the policy where you judge whether it is right, for the constitution with the kind constitution_and_policy. While you set a new policy, the policy in force is still the one you judge by: the draft governs nothing until it takes effect.",
         "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
         "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from one of your works to the next, and what you read without need crowds out what later rounds need. What you remember from an earlier work of yours is how things stood then: before you act on it, check it against what has changed since.",
-        "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, notes, observations). The owner reads your log afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
+        "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
         "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
         "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
@@ -3708,11 +3731,11 @@
         "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
         "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
         "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
-        "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the work you are in, or keep a note of it: no work of yours starts for a note, so what you must come back to is in your notes, not in your memory.",
+        "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the work you are in, or write it in your notebook: no work of yours starts for what your notebook holds, so what you must come back to is in your notebook, not in your memory.",
         "Never: you push, merge and change no code, configuration, flow or rule, and the database changes only by your effects, as the engine carries them out. Do not reach an item change by another way before it is made: no interjection or reply has an engineer act as if it were made, and a pause holds a work only until the change is made; it does not stand in for a cancellation.",
         "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",
-        "Your state of things: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand. Write it to stand on its own and keep it current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it, or in your notes, what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
-        "The owner's lasting instructions: an instruction of the owner meant to last, if it decides what comes first, belongs to the policy: have the policy thought again, and keep no note of your own in its place. If it is about how you work, keep it in your notes about the whole, with the owner's words and since when, and follow it until the owner withdraws it.",
+        "Your notebook: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand and plan. Rewrite a section where you learn what changes it, to stand on its own and stay current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
+        "The owner's lasting instructions: an instruction of the owner meant to last, about what comes first or how you work, is part of your plan, with the owner's words, their date and why: have what to do next planned again, and the plan holds it until it is done or the owner withdraws it. One that touches the direction itself has the policy checked again.",
         "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner in an earlier work of yours and has not changed since, do not tell again.",
         "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in tell_owner where it is and what it cost, and if you cannot go on, ask the owner. Changing the flow, the rules or the engine is the owner's to decide; you may propose an item for it.",
         "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say so in what you learned, and tell the owner."
@@ -11491,7 +11514,7 @@
             "anew": {
               "row": "session_anew",
               "to": "S1",
-              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model or the login account changed): it holds no state of things, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue, to be taken again.",
+              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model or the login account changed): it remembers nothing but the notebook, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue, to be taken again.",
               "not": [
                 "U1"
               ]
@@ -11561,7 +11584,7 @@
           },
           {
             "name": "understand",
-            "desc": "What the project is now: each line of work, what changed, and what could not be settled; a new session only, which then queues the check of the policy and the plan at the head of the queue",
+            "desc": "What the project is now, and what is unclear, written anew in the notebook; a new session only, which then queues the check of the policy and the plan at the head of the queue",
             "nodes": [
               "U1"
             ]
@@ -11577,7 +11600,7 @@
           },
           {
             "name": "next",
-            "desc": "What to do next under the policy, a matter at the head of the queue: what is missing, what matters most, and whether what runs fits",
+            "desc": "The plan, a matter at the head of the queue: what to do next under the policy, written anew in the notebook, what is missing, and whether what runs fits",
             "nodes": [
               "N1"
             ]
@@ -11864,7 +11887,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return or of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notes, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return or of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notebook, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -12080,12 +12103,21 @@
               ]
             },
             {
-              "name": "Last state of things",
-              "what": "Your last state of things, with what you noted since; none at your first work on the project",
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet, which you settle now where you can; none when none",
               "from": [
                 {
-                  "db": "architect_state",
-                  "by": "project"
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
                 }
               ],
               "maybe": true
@@ -12103,79 +12135,12 @@
           ],
           "prompt": [
             "This round answers one thing only: what this project actually is now, in facts. You record; you do not judge: not whether its direction is right, which the check of the policy asks next, nor whether what runs fits or what to do next, which the plan after it thinks out. Take on no matter until you can say it.",
-            "Read the code, main's history, the board, the numbers and the observations, and read yourself where the inputs do not settle it. For each line of work, say where it stands, where it is stuck, what came of it lately and how you know; then what changed since your last state of things. What you could not settle is listed apart, not guessed, and goes to the owner as a message too."
+            "Read the code, main's history, the board, the numbers and the observations, and read yourself where the inputs do not settle it. Write your notebook's section on what the project is now anew: for each line of work, where it stands, where it is stuck, what came of it lately and how you know. Then its section on what is unclear: drop what you settled, keep what you could not, each with why, and add what you could not settle now, listed apart and not guessed."
           ],
           "out": [
             {
-              "name": "state",
-              "title": "How the project stands",
-              "type": "list",
-              "desc": "How the project stands: one row per line of work",
-              "item": {
-                "type": "obj",
-                "fields": [
-                  {
-                    "name": "line",
-                    "title": "Line of work",
-                    "type": "text",
-                    "desc": "Which line: which large piece of the project"
-                  },
-                  {
-                    "name": "where",
-                    "title": "How far it got",
-                    "type": "text",
-                    "desc": "How far it got"
-                  },
-                  {
-                    "name": "stuck",
-                    "title": "Where it is stuck",
-                    "type": "text",
-                    "desc": "Where it is stuck; if it is not, say so"
-                  },
-                  {
-                    "name": "recent",
-                    "title": "What came of it lately",
-                    "type": "text",
-                    "desc": "What came of it lately; if nothing, say so"
-                  },
-                  {
-                    "name": "grounds",
-                    "title": "How it is known",
-                    "type": "text",
-                    "desc": "How you know: the facts read, the numbers measured; an inference said to be one"
-                  }
-                ]
-              },
-              "min": 1
-            },
-            {
-              "name": "changed",
-              "title": "What changed",
-              "type": "text",
-              "desc": "What changed since your last state of things; for a new session, what you read to say it"
-            },
-            {
-              "name": "unclear",
-              "title": "What could not be settled",
-              "type": "list",
-              "desc": "What you could not settle, one per row; an empty list if nothing. The owner is told each as a message",
-              "item": {
-                "type": "obj",
-                "fields": [
-                  {
-                    "name": "what",
-                    "title": "What",
-                    "type": "text",
-                    "desc": "What"
-                  },
-                  {
-                    "name": "why",
-                    "title": "Why",
-                    "type": "text",
-                    "desc": "Why it could not be settled"
-                  }
-                ]
-              }
+              "$ref": "notebook",
+              "optional": false
             }
           ],
           "cases": [
@@ -12189,7 +12154,6 @@
               "to": "Q0",
               "main": true,
               "do": [
-                "tell_owner_unclear",
                 "queue_check_policy",
                 "queue_make_plan"
               ],
@@ -12204,10 +12168,10 @@
             "by": "entry",
             "cases": {
               "first": [
-                "This is your first work on the project, and you remember nothing: there is no state of things before yours. Read main's history and the guide, then the items and the code they touch, until you can say each line of work."
+                "This is your first work on the project, and you remember nothing: your notebook holds nothing of it yet. Read main's history and the guide, then the items and the code they touch, until you can say each line of work."
               ],
               "new": [
-                "This session is new (the owner asked for one, the last one was full, or the model or the login account changed): you remember nothing. Check your last state of things against the facts."
+                "This session is new (the owner asked for one, the last one was full, or the model or the login account changed): you remember nothing but your notebook, and you understand the project afresh, from the facts."
               ]
             }
           },
@@ -12215,7 +12179,7 @@
             "entry": [
               [
                 "first",
-                "The architect's first work on the project: a new session, with no state of things before"
+                "The architect's first work on the project: a new session, with nothing in its notebook"
               ],
               [
                 "new",
@@ -12223,10 +12187,21 @@
               ]
             ]
           },
-          "shown": [
-            "state",
-            "changed",
-            "unclear"
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
+          ],
+          "checks": [
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            },
+            {
+              "at": "notebook",
+              "check": "understanding_written"
+            }
           ]
         },
         {
@@ -12280,25 +12255,6 @@
               "maybe": true
             },
             {
-              "name": "What the project is now",
-              "what": "What the project is now, as you wrote it in this work: each line of work, what changed and what is unclear; none when this work did not understand the project: your session holds it",
-              "from": [
-                [
-                  "U1",
-                  "state"
-                ],
-                [
-                  "U1",
-                  "changed"
-                ],
-                [
-                  "U1",
-                  "unclear"
-                ]
-              ],
-              "maybe": true
-            },
-            {
               "name": "The owner's reply",
               "what": "The owner's reply to your question whether to research a new policy, with the question, when the check comes back with it; none otherwise",
               "from": [
@@ -12309,21 +12265,51 @@
               "maybe": true
             },
             {
-              "name": "Recent log",
-              "what": "Your recent log: the latest entries, each a judgment with its reasons",
-              "from": [
-                {
-                  "db": "architect_log",
-                  "by": "project"
-                }
-              ]
-            },
-            {
               "name": "Questions pending",
               "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
               "from": [
                 {
                   "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
                 }
               ],
               "maybe": true
@@ -12426,6 +12412,9 @@
                   ]
                 }
               ]
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -12473,6 +12462,10 @@
             {
               "at": "verdict",
               "check": "no_holds_after_reply"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -12481,12 +12474,18 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
           ]
         },
         {
           "id": "N1",
           "kind": "agent",
-          "title": "What to do next under the policy",
+          "title": "The plan",
           "effort": "high",
           "line": "architect",
           "tools": [
@@ -12560,25 +12559,6 @@
               ]
             },
             {
-              "name": "What the project is now",
-              "what": "What the project is now, as you wrote it in this work: each line of work, what changed and what is unclear; none when this work did not understand the project: your session holds it",
-              "from": [
-                [
-                  "U1",
-                  "state"
-                ],
-                [
-                  "U1",
-                  "changed"
-                ],
-                [
-                  "U1",
-                  "unclear"
-                ]
-              ],
-              "maybe": true
-            },
-            {
               "name": "Policy against the constitution",
               "what": "What you found of the policy against the constitution, article by article, when you checked it in this work; none when this work did not check it: your session holds it",
               "from": [
@@ -12590,25 +12570,44 @@
               "maybe": true
             },
             {
-              "name": "Last plan",
-              "what": "Your plan last time: what was missing, what mattered most, and whether what ran fit; none before",
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
               "from": [
                 {
-                  "db": "architect_last_fit",
-                  "by": "project"
+                  "engine": "notebook_project_now"
                 }
               ],
               "maybe": true
             },
             {
-              "name": "Recent log",
-              "what": "Your recent log: the latest entries, each a judgment with its reasons, with the times you proposed to set the policy again and the owner's answers",
+              "name": "The plan",
+              "what": "Your notebook's plan as you last wrote it, which you write anew now; none before the first",
               "from": [
                 {
-                  "db": "architect_log",
-                  "by": "project"
+                  "engine": "notebook_plan"
                 }
-              ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -12622,8 +12621,9 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet; what matters most now, and why; and where what runs or waits does not fit. This thinking is yours and stays here: it never goes into the policy, which holds only the direction and its principles.",
-            "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item, or that record it as an observation when it is worth doing some day but not now; and what matters most, most first, each with why by the policy's principles: the ranking of the items follows it.",
+            "This round answers one thing only: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet; what matters most now, and why; and where what runs or waits does not fit. This thinking is yours: it never goes into the policy, which holds only the direction and its principles.",
+            "Write your notebook's plan anew: what to do next, most first, each with why by the policy's principles; the ranking of the items follows it. What the owner asked for is part of the plan with its source (\"from the owner, <date>: ...\") and why, and leaves it only once it is done or the owner withdrew it.",
+            "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item, or that record it as an observation when it is worth doing some day but not now.",
             "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix.",
             "The engine queues each thing missing and each fix as a matter of yours, picked before others, but one your queue holds already, which you hand in again only naming that matter in its queued, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted."
           ],
@@ -12636,30 +12636,6 @@
               "item": {
                 "$ref": "straight_fix"
               }
-            },
-            {
-              "name": "first",
-              "title": "What matters most",
-              "type": "list",
-              "desc": "What matters most now, most first, one per row",
-              "item": {
-                "type": "obj",
-                "fields": [
-                  {
-                    "name": "what",
-                    "title": "What",
-                    "type": "text",
-                    "desc": "What"
-                  },
-                  {
-                    "name": "why",
-                    "title": "Why it matters",
-                    "type": "text",
-                    "desc": "Why it matters this much, by which principles of the policy"
-                  }
-                ]
-              },
-              "min": 1
             },
             {
               "name": "fit",
@@ -12719,6 +12695,10 @@
                   ]
                 }
               ]
+            },
+            {
+              "$ref": "notebook",
+              "optional": false
             }
           ],
           "cases": [
@@ -12801,7 +12781,6 @@
           ],
           "shown": [
             "missing",
-            "first",
             "fit"
           ],
           "rules": [
@@ -12815,6 +12794,20 @@
             {
               "at": "fit",
               "check": "fix_not_queued_again"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            },
+            {
+              "at": "notebook",
+              "check": "plan_written"
+            }
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ]
         },
@@ -12900,6 +12893,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -12911,7 +12944,7 @@
             }
           ],
           "prompt": [
-            "This round writes the new policy, which takes effect once the owner approves it. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and the state of things: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
+            "This round writes the new policy, which takes effect once the owner approves it. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and what the project is now: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
             "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. When the owner says none is needed, write the policy in force again, with why it needs no change in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again.",
             "Write the text in the owner's language (the setting `owner.language`), with technical terms in their English original. Every architect session started later gets only this text and the constitution: it does not see the discussion, and must judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion.",
             "The text has four parts: the direction, where to take the project in the near-to-middle term and how to tell it got there; why, written fully: the situation, the lessons, the directions ruled out and the articles of the constitution it rests on, so that a reader meeting a situation never seen can still work it out; the principles for judging what matters and what comes first, from which what to do next is thought out; and the signals that the direction may have to change. It names no item, no order of work, no hold or release, and no number the owner did not give: those are what to do next, which the architect thinks out under the policy.",
@@ -12944,6 +12977,9 @@
                   }
                 ]
               }
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -12976,6 +13012,16 @@
             {
               "at": "policy",
               "check": "policy_text_clean"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            }
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ]
         },
@@ -13301,6 +13347,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -13335,6 +13421,9 @@
                   "desc": "Why it, and why not the one ranked after it"
                 }
               ]
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -13357,6 +13446,10 @@
             {
               "at": "pick",
               "check": "picked_pickable"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -13364,6 +13457,12 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
           ]
         },
         {
@@ -13762,6 +13861,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -13812,6 +13951,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -13833,12 +13975,20 @@
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -13934,6 +14084,46 @@
               ]
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -13997,6 +14187,9 @@
                   "desc": "What this question really has to answer"
                 }
               ]
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14020,6 +14213,18 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
+          ],
+          "checks": [
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            }
           ]
         },
         {
@@ -14126,6 +14331,46 @@
               ]
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -14151,6 +14396,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14234,6 +14482,10 @@
             {
               "at": "reply",
               "do": "reply_to_engineer"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
@@ -14244,6 +14496,10 @@
             {
               "at": "reply",
               "check": "reply_fits_changes"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -14292,6 +14548,46 @@
               "from": [
                 {
                   "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
                 }
               ],
               "maybe": true
@@ -14350,6 +14646,9 @@
                   ]
                 }
               ]
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14413,6 +14712,18 @@
           },
           "shown": [
             "finding"
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
+          ],
+          "checks": [
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            }
           ]
         },
         {
@@ -14464,6 +14775,46 @@
               "from": [
                 {
                   "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
                 }
               ],
               "maybe": true
@@ -14544,6 +14895,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14612,12 +14966,20 @@
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -14702,6 +15064,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -14751,6 +15153,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14779,12 +15184,20 @@
             {
               "at": "card[unsound]",
               "do": "interject_card"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -14843,6 +15256,46 @@
               ]
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -14897,6 +15350,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -14926,6 +15382,10 @@
             {
               "at": "reply",
               "do": "reply_to_engineer"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
@@ -14936,6 +15396,10 @@
             {
               "at": "reply",
               "check": "reply_fits_changes"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -15011,6 +15475,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -15022,7 +15526,7 @@
             }
           ],
           "prompt": [
-            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects, or is about how you work and kept as a standing instruction in your notes about the whole, with the owner's words and since when; re_plan, when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself.",
+            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects; re_plan, when it changes what comes first or is about how you work, and what to do next is planned again under the policy in force, the plan holding the owner's words with their date and why; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself.",
             "Your reply goes where the owner said the words: in a work's group, there; else in your one-to-one. When the words leave open what the owner wants, ask the owner, and the reply comes back here. When the words are clearly meant as the answer to one of the questions pending, say in your reply that the owner ticks that question and replies there; never take them as its answer yourself."
           ],
           "out": [
@@ -15043,18 +15547,18 @@
               "branches": [
                 {
                   "value": "done",
-                  "desc": "Done now in effects, or kept as a standing instruction in your notes about the whole",
+                  "desc": "Done now in effects",
                   "fields": []
                 },
                 {
                   "value": "re_plan",
-                  "desc": "What to do next is planned again under the policy in force, as a matter at the head of the queue",
+                  "desc": "What to do next is planned again under the policy in force, as a matter at the head of the queue: the owner's words change what comes first or how you work, which the plan then holds with their source and why",
                   "fields": [
                     {
                       "name": "why",
                       "title": "Why to plan again",
                       "type": "text",
-                      "desc": "What the owner asks of what to do next, and what for"
+                      "desc": "What the owner asks of what to do next or of how you work, and what for, with when the owner said it: the plan holds it with its source"
                     }
                   ]
                 },
@@ -15074,6 +15578,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -15146,12 +15653,20 @@
             {
               "at": "answer.reply",
               "do": "reply_to_owner"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -15219,6 +15734,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -15256,6 +15811,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -15281,12 +15839,20 @@
             {
               "at": "answer.reply",
               "do": "answer_architect"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -15361,6 +15927,46 @@
               "maybe": true
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -15410,6 +16016,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -15431,12 +16040,20 @@
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -15485,6 +16102,46 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -15548,6 +16205,9 @@
             },
             {
               "$ref": "arch_effects"
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -15615,12 +16275,20 @@
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "effects",
               "check": "effects_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
@@ -15992,6 +16660,46 @@
               ]
             },
             {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -16027,6 +16735,9 @@
                   }
                 ]
               }
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -16049,12 +16760,20 @@
             {
               "at": "changes",
               "do": "revise_batch"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
             {
               "at": "changes",
               "check": "changes_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ]
         },
@@ -16073,6 +16792,46 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -16133,6 +16892,9 @@
                   ]
                 }
               ]
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -16201,6 +16963,18 @@
           ],
           "shown": [
             "rethink"
+          ],
+          "always": [
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
+            }
+          ],
+          "checks": [
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
+            }
           ]
         },
         {

@@ -194,6 +194,7 @@ describe('a round picked beside a chart', () => {
       draft: null,
       check: null,
       next: { plan: null, matters: [] },
+      notebook: [],
       observations: [],
       tags: [],
       own: true,

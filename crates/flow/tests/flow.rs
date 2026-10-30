@@ -66,6 +66,101 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert!(c.graph("policy").is_none());
 }
 
+// Every agent's cell of the architect's line but the review of a batch and the observer's search may rewrite sections
+// of the notebook in its own answer, beside its effects, the edit made at once and its size checked; the understanding
+// and the plan must, each its own sections. Each such cell is given the four sections, each an engine input of its own,
+// but the understanding, which writes what the project is now afresh and is not given it; no cell reads the state of
+// things, the notes, the log or the last plan, which the notebook took the place of.
+#[test]
+fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let nodes = v["flows"][1]["nodes"].as_array().unwrap();
+    let sections = ["project_now", "plan", "unclear", "other"];
+    let mut keep = Vec::new();
+    for cell in &g.cells {
+        if cell.kind != "agent" || cell.line.as_deref() != Some("architect") {
+            continue;
+        }
+        keep.push(cell.id.as_str());
+        assert!(
+            cell.always
+                .iter()
+                .any(|a| a.at == "notebook" && a.action.as_deref() == Some("edit_notebook")),
+            "{}",
+            cell.id
+        );
+        assert!(
+            cell.checks
+                .iter()
+                .any(|x| x.at.as_deref() == Some("notebook") && x.check == "notebook_fits"),
+            "{}",
+            cell.id
+        );
+        let given: Vec<&str> = sections
+            .iter()
+            .copied()
+            .filter(|s| {
+                let name = format!("notebook_{s}");
+                cell.inputs
+                    .iter()
+                    .any(|x| x.from == [flow::format::Src::Engine(name.clone())])
+            })
+            .collect();
+        let want: &[&str] = if cell.id == "U1" { &sections[1..] } else { &sections };
+        assert_eq!(given, want, "{}", cell.id);
+        let node = nodes.iter().find(|n| n["id"] == cell.id.as_str()).unwrap();
+        let field = node["out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["$ref"] == "notebook")
+            .unwrap();
+        let must = ["U1", "N1"].contains(&cell.id.as_str());
+        assert_eq!(field.get("optional") == Some(&Value::Bool(false)), must, "{}", cell.id);
+        for gone in [
+            "architect_state",
+            "architect_notes",
+            "architect_log",
+            "architect_last_fit",
+        ] {
+            assert!(
+                cell.inputs.iter().all(|x| x
+                    .from
+                    .iter()
+                    .all(|s| !matches!(s, flow::format::Src::Db { relation, .. } if relation == gone))),
+                "{} {gone}",
+                cell.id
+            );
+        }
+    }
+    assert_eq!(
+        keep,
+        [
+            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H12", "B3",
+            "B4"
+        ]
+    );
+    for (cell, check) in [("U1", "understanding_written"), ("N1", "plan_written")] {
+        assert!(
+            g.cell(cell)
+                .unwrap()
+                .checks
+                .iter()
+                .any(|x| x.at.as_deref() == Some("notebook") && x.check == check),
+            "{cell}"
+        );
+    }
+    for cell in ["B2", "X2"] {
+        assert!(
+            g.cell(cell).unwrap().always.iter().all(|a| a.at != "notebook"),
+            "{cell}"
+        );
+    }
+    assert_eq!(g.cell("N1").unwrap().title, "The plan");
+}
+
 // The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's
 // understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
 // matter back with the owner's reply and the wait for a question just put, and before the others, without a pick
@@ -94,7 +189,7 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     let to = |to: &str, then: &[&str]| (to.to_string(), then.iter().map(|x| x.to_string()).collect::<Vec<_>>());
     assert_eq!(
         way(&row("U1", "understood")),
-        to("Q0", &["tell_owner_unclear", "queue_check_policy", "queue_make_plan"])
+        to("Q0", &["queue_check_policy", "queue_make_plan"])
     );
     let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(q0[..4], ["owner_words", "answered", "waits", "head"]);

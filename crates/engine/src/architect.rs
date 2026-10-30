@@ -35,7 +35,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 24] = [
+pub const INPUTS: [&str; 28] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -60,11 +60,78 @@ pub const INPUTS: [&str; 24] = [
     "group_talk",
     "told_owner",
     "questions",
+    "notebook_project_now",
+    "notebook_plan",
+    "notebook_unclear",
+    "notebook_other",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
+
+/// The sections of a project's architect's notebook, each with the engine's input that gives it: an input of its own
+/// for each, so that a session given a section is referred to it while it stays the same.
+pub const NOTEBOOK: [(&str, &str); 4] = [
+    ("project_now", "notebook_project_now"),
+    ("plan", "notebook_plan"),
+    ("unclear", "notebook_unclear"),
+    ("other", "notebook_other"),
+];
+
+/// The most characters a section of the notebook holds, and the four in all.
+const SECTION_MOST: usize = 4_000;
+const NOTEBOOK_MOST: usize = 12_000;
+
+/// A section of a project's architect's notebook as it stands: its latest version's text; none before any round wrote
+/// it, and none when it is empty.
+fn notebook_section(conn: &Connection, project: &str, section: &str) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT text FROM notebook WHERE project = ?1 AND section = ?2",
+        params![project, section],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+    .map(|t| t.filter(|t| !t.trim().is_empty()))
+    .map_err(sql)
+}
+
+/// What is wrong with the sections of the notebook a round rewrote: a section named twice, one past its size, or the
+/// four past theirs in all, with the sections the round leaves as they are.
+fn notebook_problems(conn: &Connection, project: &str, edits: &[Value]) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+    let mut sizes: BTreeMap<String, usize> = BTreeMap::new();
+    for (section, _) in NOTEBOOK {
+        let now = notebook_section(conn, project, section)?;
+        sizes.insert(section.to_string(), now.map_or(0, |t| t.chars().count()));
+    }
+    let mut seen = BTreeSet::new();
+    for x in edits {
+        let section = text(&x["section"]).to_string();
+        if !seen.insert(section.clone()) {
+            problems.push(format!(
+                "the notebook's section {section} is rewritten twice: rewrite it once, whole"
+            ));
+            continue;
+        }
+        let n = text(&x["text"]).chars().count();
+        if n > SECTION_MOST {
+            problems.push(format!(
+                "the notebook's section {section} is {n} characters, and a section holds {SECTION_MOST} at most: \
+                 write what holds now, shorter"
+            ));
+        }
+        sizes.insert(section, n);
+    }
+    let all: usize = sizes.values().sum();
+    if all > NOTEBOOK_MOST {
+        problems.push(format!(
+            "the notebook would be {all} characters in all, and it holds {NOTEBOOK_MOST} at most: shorten the \
+             sections you rewrite, or rewrite another shorter"
+        ));
+    }
+    Ok(problems)
+}
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
@@ -984,7 +1051,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
 /// cell: the round would start a new session there (the owner asked for one, the last was past the limit, or the model
-/// or the login account changed), past the understanding, and a new session holds no state of things and no notes. The
+/// or the login account changed), past the understanding, and a new session remembers nothing but the notebook. The
 /// matter it had in hand goes back to the queue, and is taken again as any other.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
@@ -1601,7 +1668,7 @@ fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str
 }
 
 /// Carries out the effects of an answer on a matter's path: item changes are collected into the architect work's batch;
-/// changes to observations, actions and messages are made at once; notes are the round's own, which the views read.
+/// changes to observations, actions and messages are made at once.
 fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(), String> {
     let (w, project) = architect_work_of(ctx)?;
     let matter = matter_of(tx, w)?;
@@ -1888,25 +1955,21 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
 pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> Result<bool, String> {
     let w = ctx.work.id;
     match name {
-        "tell_owner_unclear" => {
-            // What the understanding could not settle goes to the owner as one message of the round, as an agent's
-            // message does; the notifications log says it too.
-            let rows: Vec<String> = items(Some(&ctx.unwrapped["unclear"]))
-                .iter()
-                .map(|u| format!("- {}: {}", text(&u["what"]), text(&u["why"])))
-                .collect();
-            if !rows.is_empty() {
-                let (_, project) = architect_work_of(ctx)?;
-                let said = format!(
-                    "What the architect of {project} could not settle about the project now:\n{}",
-                    rows.join("\n")
-                );
+        "edit_notebook" => {
+            // Each section the round rewrote is the notebook's latest version of it; the versions before stay.
+            let (_, project) = architect_work_of(ctx)?;
+            for x in items(at) {
                 tx.execute(
-                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
-                    params![ctx.round.work, ctx.round.n, said],
+                    "INSERT INTO notebook_edits (project, section, text, work, round) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        project,
+                        text(&x["section"]),
+                        text(&x["text"]),
+                        ctx.round.work,
+                        ctx.round.n
+                    ],
                 )
                 .map_err(sql)?;
-                actions::outbox(tx, Some(w), "notify", &json!({ "text": said }))?;
             }
         }
         "queue_fixes" => {
@@ -2260,7 +2323,7 @@ fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, S
 }
 
 /// What is wrong with the effects of an answer, every reason at once: its item changes, as the batch would have them
-/// after the ones it collected; its changes to observations; its actions; its messages; its notes.
+/// after the ones it collected; its changes to observations; its actions; its messages.
 fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
@@ -2393,13 +2456,6 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
         let to = text(&m["project"]);
         if to == project || !c.e.config.config.projects.contains_key(to) {
             problems.push(format!("message {}: {to} is no other project", i + 1));
-        }
-    }
-    for (i, note) in items(effects.get("notes")).iter().enumerate() {
-        if let Some(it) = note["item"].as_i64()
-            && count(conn, "SELECT count(*) FROM items WHERE id = ?1", &[&it])? == 0
-        {
-            problems.push(format!("note {}: there is no item {it}", i + 1));
         }
     }
     Ok(problems)
@@ -2628,6 +2684,37 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "notebook_fits" => {
+            let Some(edits) = v else { return Ok(()) };
+            let problems = notebook_problems(conn, project_of(c.w)?, &items(Some(edits)))?;
+            if problems.is_empty() {
+                Ok(())
+            } else {
+                Err(problems.join("\n"))
+            }
+        }
+        "understanding_written" | "plan_written" => {
+            let wants: &[&str] = if name == "plan_written" {
+                &["plan"]
+            } else {
+                &["project_now", "unclear"]
+            };
+            let given = items(v);
+            let missing: Vec<&str> = wants
+                .iter()
+                .copied()
+                .filter(|w| !given.iter().any(|x| text(&x["section"]) == *w))
+                .collect();
+            if missing.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "rewrite the notebook's section{} {} whole in notebook",
+                    if missing.len() > 1 { "s" } else { "" },
+                    missing.join(" and ")
+                ))
+            }
+        }
         "no_holds_after_reply" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());
@@ -2707,6 +2794,10 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "changes_touch" => changes_touch(e, w),
         "group_talk" => group_talk(e, w, project),
         "told_owner" => told_owner(e, project),
+        "notebook_project_now" | "notebook_plan" | "notebook_unclear" | "notebook_other" => {
+            let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
+            Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
+        }
         "questions" => questions(e, project),
         other => Err(format!("no such engine input: {other}")),
     }

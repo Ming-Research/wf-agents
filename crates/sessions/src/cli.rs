@@ -1329,11 +1329,14 @@ mod tests {
         let g = f.graph("architect").unwrap();
         let schema = g.cell("U1").unwrap().schema.clone().unwrap();
         let s = envelope(g);
-        let state = json!({ "line": "l", "where": "w", "stuck": "s", "recent": "r", "grounds": "g" });
+        let notebook = json!([
+            { "section": "project_now", "text": "The parser: half done." },
+            { "section": "unclear", "text": "Nothing." }
+        ]);
         let mut ret = json!({
             "progress": "Reading where each line stands",
             "flow_feedback": "",
-            "outcome": { "state": [state], "changed": "c", "unclear": [] },
+            "outcome": { "notebook": notebook },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(

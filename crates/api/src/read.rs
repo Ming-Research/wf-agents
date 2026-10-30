@@ -17,10 +17,10 @@ use crate::view;
 use crate::{
     Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
-    LinkedItem, Matter, MatterCard, NamedText, NextPlan, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping,
-    PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail, RoundInput,
-    RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun, Waits, WorkDetail,
-    WorkSession, WorkState, WorkSummary,
+    LinkedItem, Matter, MatterCard, NamedText, NextPlan, NotebookSection, NotebookVersion, Observation, OwnerAsk,
+    OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional,
+    RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun,
+    Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1766,6 +1766,7 @@ pub fn architect(
         draft: draft(conn, project)?,
         check: latest_of(conn, project, "P1")?,
         next: next(conn, project)?,
+        notebook: notebook(conn, project)?,
         observations: observations(conn, project)?,
         tags,
         own,
@@ -2150,6 +2151,52 @@ fn draft(conn: &Connection, project: &str) -> Result<Option<PolicyDraft>> {
             },
         )
         .optional()?)
+}
+
+/// A project's architect's notebook, by section in their order: each as it stands, the latest version the view
+/// `notebook` names, and every version, newest first, each with the round and the cell that wrote it.
+fn notebook(conn: &Connection, project: &str) -> Result<Vec<NotebookSection>> {
+    let mut st = conn.prepare(
+        "SELECT e.section, e.text, e.work, e.round, r.cell, r.ended_at FROM notebook_edits e
+         JOIN rounds r ON r.work = e.work AND r.n = e.round WHERE e.project = ?1 ORDER BY e.id DESC",
+    )?;
+    let versions: Vec<(String, NotebookVersion)> = st
+        .query_map([project], |r| {
+            Ok((
+                r.get(0)?,
+                NotebookVersion {
+                    text: r.get(1)?,
+                    work: r.get(2)?,
+                    round: r.get(3)?,
+                    cell: r.get(4)?,
+                    at: r.get(5)?,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut st = conn.prepare("SELECT section, work, round FROM notebook WHERE project = ?1")?;
+    let latest: Vec<(String, i64, i64)> = st
+        .query_map([project], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(["project_now", "plan", "unclear", "other"]
+        .into_iter()
+        .map(|section| {
+            let versions: Vec<NotebookVersion> = versions
+                .iter()
+                .filter(|x| x.0 == section)
+                .map(|x| x.1.clone())
+                .collect();
+            let now = latest
+                .iter()
+                .find(|l| l.0 == section)
+                .and_then(|l| versions.iter().find(|v| (v.work, v.round) == (l.1, l.2)).cloned());
+            NotebookSection {
+                section: section.to_string(),
+                now,
+                versions,
+            }
+        })
+        .collect())
 }
 
 /// The latest round of a project's architect at a cell that answered, by what it answered.
@@ -3726,5 +3773,50 @@ mod tests {
             read(&s).draft.map(|d| (d.work, d.round, d.policy)),
             Some((6, 2, second))
         );
+    }
+
+    // The owner reads the architect's notebook: each section as it stands, with the round and the cell that wrote it,
+    // and every version of it, newest first; a section no round wrote has none, and another project's notebook is its
+    // own.
+    #[test]
+    fn the_owner_reads_the_notebook_with_every_version() {
+        let mut s = architect_setup("notebook");
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO notebook_edits (project, section, text, work, round) VALUES ('p', 'project_now', 'Now.', 2, 2),
+                 ('p', 'plan', 'Plan one.', 2, 4), ('p', 'plan', 'Plan two.', 2, 10), ('q', 'other', 'Theirs.', 2, 8)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let a = architect(
+            s.db.conn(),
+            &Flows::default(),
+            "p",
+            vec!["p".into()],
+            Vec::new(),
+            false,
+            None,
+        )
+        .unwrap();
+        let version = |text: &str, round: i64, cell: &str| NotebookVersion {
+            text: text.into(),
+            work: 2,
+            round,
+            cell: cell.into(),
+            at: Some(200 + round),
+        };
+        let sections: Vec<&str> = a.notebook.iter().map(|x| x.section.as_str()).collect();
+        assert_eq!(sections, ["project_now", "plan", "unclear", "other"]);
+        assert_eq!(a.notebook[0].now, Some(version("Now.", 2, "U1")));
+        assert_eq!(a.notebook[1].now, Some(version("Plan two.", 10, "B4")));
+        assert_eq!(
+            a.notebook[1].versions,
+            [version("Plan two.", 10, "B4"), version("Plan one.", 4, "N1")]
+        );
+        for empty in &a.notebook[2..] {
+            assert_eq!((&empty.now, empty.versions.len()), (&None, 0), "{}", empty.section);
+        }
     }
 }

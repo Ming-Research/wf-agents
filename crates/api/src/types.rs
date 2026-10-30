@@ -1053,6 +1053,9 @@ pub struct Architect {
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
     pub next: NextPlan,
+    /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
+    /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+    pub notebook: Vec<NotebookSection>,
     /// The project's observations: the open ones first, then those closed, each newest first.
     pub observations: Vec<Observation>,
     /// The project's tags for observations, each with what it covers.
@@ -1512,6 +1515,26 @@ pub struct PolicyDraft {
     pub round: i64,
     pub at: Option<i64>,
     pub policy: Value,
+}
+
+/// A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+/// now, none before a round wrote it, and every version of it, newest first.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NotebookSection {
+    pub section: String,
+    pub now: Option<NotebookVersion>,
+    pub versions: Vec<NotebookVersion>,
+}
+
+/// A version of a section of an architect's notebook: its whole text, and the round of the architect's line that wrote
+/// it, by its work and its number in the work, with its cell and when it ended.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct NotebookVersion {
+    pub text: String,
+    pub work: i64,
+    pub round: i64,
+    pub cell: String,
+    pub at: Option<i64>,
 }
 
 /// What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered

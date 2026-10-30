@@ -825,6 +825,26 @@ CREATE TABLE dispatch_holds (
   PRIMARY KEY (project, reason)
 ) STRICT;
 
+CREATE TABLE notebook_edits (
+  -- Each version of a section of a project's architect's notebook, as a round of its architect's line wrote it whole:
+  -- what the project is now (project_now), the plan (plan), what is unclear (unclear), and anything else (other), in
+  -- the owner's language. A section is what its latest version says; the versions before are kept for the owner.
+  -- Read by: the engine, which gives each section to the architect's cells as an input of its own and checks a
+  -- round's sections against their sizes, through notebook; the owner's interface, which shows each section with its
+  -- versions.
+  id INTEGER PRIMARY KEY,
+  -- The project whose architect's notebook it is.
+  project TEXT NOT NULL,
+  -- Which section.
+  section TEXT NOT NULL CHECK (section IN ('project_now', 'plan', 'unclear', 'other')),
+  -- The section's whole text in this version.
+  text TEXT NOT NULL,
+  -- The round of the architect's line that wrote it: its work, and its number in the work.
+  work INTEGER NOT NULL,
+  round INTEGER NOT NULL,
+  FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+) STRICT;
+
 CREATE TABLE conversation_reads (
   -- How far the owner has read each of the owner's conversations: the time of the latest entry the page showed while
   -- the owner had the conversation open. What came after it, from anyone but the owner, is unread.
@@ -877,6 +897,8 @@ CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
 CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
 -- A project's observations.
 CREATE INDEX observations_by_project ON observations (project);
+-- A project's architect's notebook, by its sections.
+CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.
@@ -1178,71 +1200,6 @@ CREATE VIEW architect_queue AS
     AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))
   ORDER BY m.id;
 
-CREATE VIEW architect_notes AS
-  -- Every note each project's architect wrote, oldest first: about its project as a whole, or about one item, in the
-  -- effects of a round on a matter's path or at a wrap-up. Read by: architect_state; the owner's interface.
-  SELECT w.project, r.work, r.n AS round, r.cell, json_extract(n.value, '$.item') AS item,
-    json_extract(n.value, '$.text') AS text
-  FROM rounds r JOIN works w ON w.id = r.work,
-    json_each(coalesce(json_extract(r.output, '$.outcome.effects.notes'), json_extract(r.output, '$.outcome.notes'))) n
-  WHERE w.graph = 'architect' AND r.transition IS NOT NULL
-  ORDER BY r.work, r.n;
-
-CREATE VIEW architect_state AS
-  -- Each project's state of things as its architect last wrote it: what the project is now, as its latest
-  -- understanding wrote it (cell `U1`), with what its wrap-ups learned and every note written since; a round that asked
-  -- for tools, paused or answered the owner's words wrote none of them. Read by: cell `U1`; the owner's interface.
-  SELECT project, work, round, state, learned, notes FROM (
-    SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
-      (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
-       WHERE y.graph = 'architect' AND y.project = w.project AND x.cell IN ('E1', 'wrap_up')
-         AND x.transition IS NOT NULL
-         AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers')
-         AND (x.work > r.work OR (x.work = r.work AND x.n > r.n))) AS learned,
-      (SELECT json_group_array(json_object('item', n.item, 'text', n.text)) FROM architect_notes n
-       WHERE n.project = w.project AND (n.work > r.work OR (n.work = r.work AND n.round > r.n))) AS notes,
-      row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
-    FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell IN ('U1', 'state', 'understand.state') AND r.transition IS NOT NULL
-      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers'))
-  WHERE k = 1;
-
-CREATE VIEW architect_log AS
-  -- Each project's architect's log, newest first, its latest forty entries: each judgment it handed in (whether the
-  -- policy is right, whether what runs fits, each matter's answer, each rethink after a batch) and the owner's answer
-  -- to each study of a new policy, by the round that gave it, with the matter it handled and what it said, its
-  -- conclusion with its reasons; the round that put the study before the owner, and holds the setting until the answer
-  -- comes, is no entry. Read by: cells `U1`, `P1` and `N1`.
-  SELECT project, work, round, cell, at, matter, said FROM (
-    SELECT w.project, r.work, r.n AS round, r.cell, r.ended_at AS at,
-      (SELECT m.id FROM architect_matters m WHERE m.handled_work = r.work AND m.handled_round = r.n) AS matter,
-      coalesce(json_extract(r.output, '$.progress'),
-        json_extract(r.output, '$.ruling.choice') || ': ' || json_extract(r.output, '$.ruling.text')) AS said,
-      row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
-    FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph IN ('architect', 'policy') AND r.transition IS NOT NULL
-      AND r.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers', 'held')
-      AND r.cell IN ('P1', 'U2', 'policy_right', 'understand.policy', 'N1', 'U3', 'fit', 'understand.fit', 'H1', 'T1',
-        'set_straight', 'handle.set_straight', 'H3', 'ways', 'handle.ways', 'H5', 'I2', 'take_in', 'handle.take_in',
-        'H6', 'K1', 'card_sound', 'handle.card_sound', 'H7', 'F1', 'have_fixed', 'handle.have_fixed', 'H8', 'O1',
-        'owner_words', 'handle.owner_words', 'H9', 'M1', 'answer_architect', 'handle.answer_architect', 'H10',
-        'what_runs', 'handle.what_runs', 'B4', 'C1', 'rethink', 'batch.rethink', 'P3', 'owner_reads',
-        'policy.owner_reads'))
-  WHERE k <= 40;
-
-CREATE VIEW architect_last_fit AS
-  -- Each project's architect's latest plan of what to do next: what was missing, what mattered most, and whether what
-  -- ran fit; a plan of a flow version before what was missing and what mattered most were asked holds only the last.
-  -- Read by: cell `N1`.
-  SELECT project, work, round, missing, first, fit FROM (
-    SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.missing') AS missing,
-      json_extract(r.output, '$.outcome.first') AS first, json_extract(r.output, '$.outcome.fit') AS fit,
-      row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
-    FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell IN ('N1', 'U3', 'fit', 'understand.fit') AND r.transition IS NOT NULL
-      AND json_extract(r.output, '$.outcome.fit') IS NOT NULL)
-  WHERE k = 1;
-
 CREATE VIEW work_handled AS
   -- The matters each work of an architect handled, in the order it handled them: each matter, its kind, the cell and
   -- the round that closed it, and what that round said it did. Read by: the owner's interface.
@@ -1309,6 +1266,15 @@ CREATE VIEW policy_draft AS
     SELECT 1 FROM rounds a JOIN works x ON x.id = a.work
     WHERE x.graph = 'architect' AND x.project = d.project AND a.cell = 'P12' AND a.transition IS NOT NULL
       AND (a.work > d.work OR (a.work = d.work AND a.n > d.round)));
+
+CREATE VIEW notebook AS
+  -- Each project's architect's notebook as it stands: each section's latest version, with the round that wrote it.
+  -- Read by: the engine, for the architect's cells; the owner's interface.
+  SELECT project, section, text, work, round FROM (
+    SELECT project, section, text, work, round,
+      row_number() OVER (PARTITION BY project, section ORDER BY id DESC) AS k
+    FROM notebook_edits)
+  WHERE k = 1;
 
 CREATE VIEW observations_all AS
   -- Every observation of each project as the owner's page shows it: closed or not and why (one an item took in is
