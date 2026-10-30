@@ -3681,6 +3681,12 @@ fn a_policy_set_again_is_studied_in_the_architect_s_work_and_the_owner_says_it_s
             )
             .unwrap();
     assert!(work > arch, "{log}");
+    assert!(
+        steps_until(&mut e, 5, |e| path_of(e, work).len() > n as usize),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
     let after: Vec<String> = cells_of(&e, work)
         .into_iter()
         .skip(n as usize - 1)

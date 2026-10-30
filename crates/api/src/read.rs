@@ -3036,11 +3036,20 @@ mod tests {
             Some(out(json!({ "study": { "intent": "i" } }))),
             Some("studied"),
         )];
+        // Work 3 is a setting of the policy as a flow version before ran it, a work of its own of the graph policy,
+        // whose P3 asked the owner to read the study as the architect's P3 does now: the architect's graph stands in
+        // for that version's.
+        let mut older = s.compiled.clone();
+        let mut policy = older.graph("architect").unwrap().clone();
+        policy.name = "policy".into();
+        older.graphs.push(policy);
+        let older = older.json();
         s.db.write(Actor::Engine, |tx| {
             let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run("INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)", &[&older])?;
             run(
                 "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'E2', 'p'),
-                 (NULL, 1, 'policy', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
+                 (NULL, 2, 'policy', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
                 &[],
             )?;
             for (work, rounds) in [(2_i64, &architect_work[..]), (3, &setting[..])] {
