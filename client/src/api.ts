@@ -1949,8 +1949,8 @@ export type SystemWaste = {
  */
 read: number, written: number, input: number, 
 /**
- * The rounds that missed their session's prompt cache, the tokens they wrote to it again, and what that cost
- * beyond reading them, in US dollars.
+ * The rounds that missed their session's prompt cache as a fault of wf-agents, the tokens they wrote to it again,
+ * and what that cost beyond reading them, in US dollars; a miss the engine expects is no fault.
  */
 misses: number, missed: number, miss_usd: number, 
 /**

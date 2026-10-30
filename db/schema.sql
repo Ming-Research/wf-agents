@@ -374,11 +374,14 @@ CREATE TABLE cache_misses (
   -- of what the session held, the last prompt of its round before as recorded. A miss is a fault of wf-agents,
   -- whichever project it came up in: the engine tells the owner in a notice of the fault, and a further miss with the
   -- same cause on the same line of the same project, while that notice is unread or a matter forwarded from it waits
-  -- in an architect's queue, adds to it instead of making a new one. Written once, never changed.
+  -- in an architect's queue, adds to it instead of making a new one. A miss after what comes before the session's
+  -- messages in the prompt changed since its round before (the model, the tools the envelope's schema is given with,
+  -- the command line's own version), as when a work moved to a new flow version, is the command line writing the
+  -- session again by design: no fault, kept for what it cost, with no notice. Written once, never changed.
   -- Hidden from agents.
   -- Read by: the engine, which finds the notice a miss adds to, and hands the misses of a fault forwarded to an
   -- architect to it; the owner's interface, which shows with each notice how many misses it holds, the tokens they
-  -- wrote again and what they cost.
+  -- wrote again and what they cost, and counts the misses that are faults among what was spent for nothing.
   -- The round that missed: its work, and its number in the work.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
@@ -396,11 +399,12 @@ CREATE TABLE cache_misses (
   -- What writing them again cost beyond reading them, in US dollars, priced from what the round cost; NULL when its
   -- record does not tell.
   cost_usd REAL,
-  -- The notice that tells the owner of it.
-  notice INTEGER NOT NULL REFERENCES engine_notices(id),
+  -- The notice that tells the owner of it; NULL for a miss the engine expects, which is no fault.
+  notice INTEGER REFERENCES engine_notices(id),
   PRIMARY KEY (work, round),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
+
 
 CREATE TABLE owner_switches (
   -- The owner's switches on the page that hold across restarts of the engine, one row for each switch the owner set;

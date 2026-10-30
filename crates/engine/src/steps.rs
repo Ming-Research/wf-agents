@@ -403,7 +403,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return Ok(Advance::Stopped);
     }
     // A round that resumed its session within the cache's lifetime and whose first call still read less than half of it
-    // from the cache missed the cache: a fault of wf-agents, which the owner is told of.
+    // from the cache missed the cache: a fault of wf-agents, which the owner is told of, unless what comes before the
+    // session's messages changed since its round before, which the miss is kept for, as its cost, with no notice.
     if req.resume.is_some()
         && let Some(usage) = &ended.usage
         && let Some(miss) =

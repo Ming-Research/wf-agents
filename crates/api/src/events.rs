@@ -62,14 +62,18 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 message: id,
                 work: one(conn, "SELECT work FROM engine_notices WHERE id = ?1", id),
             }),
-            // A cache miss added to a notice changes what the notice holds.
+            // A cache miss added to a notice changes what the notice holds; one the engine expects is in no notice.
             "cache_misses" => conn
-                .query_row("SELECT notice, work FROM cache_misses WHERE rowid = ?1", [id], |r| {
-                    Ok(Event::OwnerMessage {
-                        message: r.get(0)?,
-                        work: r.get(1)?,
-                    })
-                })
+                .query_row(
+                    "SELECT notice, work FROM cache_misses WHERE rowid = ?1 AND notice IS NOT NULL",
+                    [id],
+                    |r| {
+                        Ok(Event::OwnerMessage {
+                            message: r.get(0)?,
+                            work: r.get(1)?,
+                        })
+                    },
+                )
                 .ok(),
             // The queue's key is the item.
             "items" | "dispatch_queue" => Some(Event::Item { item: Some(id) }),

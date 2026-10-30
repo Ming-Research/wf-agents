@@ -4,7 +4,11 @@
 //! is no measure of a miss: it is also what the session gained since, the last answer of the round before and the
 //! round's own message, which after a round of tools is large. A miss is a fault of wf-agents, whichever project it
 //! came up in, so the engine tells the owner of it, with the parts of the command line and of its environment that
-//! differ from the session's round before, where a cause most often shows, or that none does.
+//! differ from the session's round before, where a cause most often shows, or that none does; but a miss after what
+//! comes before the session's messages in the prompt changed since that round (the model, the tools the envelope is
+//! given with, the command line's own version) is what the command line does by design, and is no fault.
+
+use std::collections::BTreeSet;
 
 use db::rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
@@ -18,6 +22,16 @@ const SESSION_FLAGS: [&str; 2] = ["--resume", "--session-id"];
 
 /// The flag whose value is the round's hooks.
 const SETTINGS: &str = "--settings";
+
+/// The parts of a call that make what comes before the session's messages in its prompt: the model, whose cache is its
+/// own; the tools, among which the command line gives the envelope's schema (`--json-schema`) and which `--tools`
+/// names; and the command line's own version, whose system prompt and tools come first. When one of them differs from
+/// the session's round before, the command line writes the whole session to the cache again by design.
+const BEFORE_MESSAGES: [&str; 4] = ["--model", "--json-schema", "--tools", "the CLI's version"];
+
+/// The flag whose bare tool names take those tools from the model, beside its rules on how a tool may be used, which
+/// leave the tools as they are.
+const TAKEN_TOOLS: &str = "--disallowedTools";
 
 /// A part of the command line that differs from the session's round before: its name, and its value there and in this
 /// round, none where the round had no such part.
@@ -58,6 +72,36 @@ impl Miss {
                 .collect(),
         )
     }
+
+    /// The parts that differ from the session's round before and come before its messages in the prompt, which the
+    /// command line writes to the cache again whole when they change: a miss with any is one the engine expects, and
+    /// no fault; none when only other parts differ, or none does.
+    pub fn before_messages(&self) -> Vec<&Differs> {
+        self.differs
+            .iter()
+            .filter(|d| {
+                BEFORE_MESSAGES.contains(&d.part.as_str())
+                    || (d.part == TAKEN_TOOLS && tools_taken(&d.before) != tools_taken(&d.after))
+            })
+            .collect()
+    }
+
+    /// Whether the miss is one the engine expects: what comes before the session's messages changed since its round
+    /// before.
+    pub fn expected(&self) -> bool {
+        !self.before_messages().is_empty()
+    }
+}
+
+/// The tools a value of `--disallowedTools` takes from the model: its words that name a tool alone, with no rule on how
+/// it may be used.
+fn tools_taken(value: &Option<String>) -> BTreeSet<&str> {
+    value
+        .as_deref()
+        .unwrap_or_default()
+        .split(' ')
+        .filter(|w| !w.is_empty() && !w.contains(['(', ')']))
+        .collect()
 }
 
 /// Whether a round that resumed a CLI session missed its prompt cache: it started within the cache's lifetime since the
@@ -289,6 +333,51 @@ mod tests {
                 named("the environment's CLAUDE_CODE_X", None, Some("1")),
             ]
         );
+    }
+
+    // A miss after what comes before the session's messages changed is one the engine expects: the envelope's schema,
+    // the model, the command line's version or a tool taken from the model. A changed effort, a variable of the
+    // environment or a rule on how a tool may be used leaves that as it was, and a miss with only those is a fault.
+    #[test]
+    fn a_miss_after_what_comes_before_the_messages_changed_is_expected() {
+        let was = call("high", "2.1.3", "1", true);
+        let before_messages = |now: &Value| -> Vec<String> {
+            let miss = Miss {
+                before: RoundId::new(1, 1),
+                after_ms: 0,
+                read: 0,
+                written: 1,
+                held: 1,
+                cost_usd: None,
+                differs: differs(&was, now),
+            };
+            assert_eq!(miss.expected(), !miss.before_messages().is_empty());
+            miss.before_messages().iter().map(|d| d.part.clone()).collect()
+        };
+        let with = |at: usize, word: Value| {
+            let mut now = call("high", "2.1.3", "2", true);
+            now["command"][at] = word;
+            now
+        };
+        assert_eq!(
+            before_messages(&with(5, json!({ "content": "def" }))),
+            ["--json-schema"]
+        );
+        assert_eq!(before_messages(&with(3, json!("m2"))), ["--model"]);
+        assert_eq!(before_messages(&with(10, json!("WebSearch"))), ["--disallowedTools"]);
+        assert_eq!(
+            before_messages(&call("high", "2.1.4", "2", true)),
+            ["the CLI's version"]
+        );
+        let mut env = call("low", "2.1.3", "2", true);
+        env["env"]["CLAUDE_CONFIG_DIR"] = json!("/e");
+        for now in [
+            with(9, json!("Bash(git push:*)")),
+            env,
+            call("high", "2.1.3", "2", true),
+        ] {
+            assert!(before_messages(&now).is_empty(), "{now}");
+        }
     }
 
     /// What the CLI reports a round used: what its first call read from the cache and wrote to it, and the run's whole,

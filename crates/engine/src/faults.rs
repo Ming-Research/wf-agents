@@ -5,7 +5,9 @@
 //! forwards it to that architect, by hand or by the setting that forwards each new one as it comes. A further cache
 //! miss with the same cause on the same line of the same project, while its notice is unread or a matter forwarded
 //! from it waits in an architect's queue, adds to that notice instead of making a new one; an architect is handed a
-//! fault as it stands when its matter is handled.
+//! fault as it stands when its matter is handled. A miss after what comes before the session's messages changed since
+//! its round before (the model, the tools the envelope is given with, the command line's version) is the command line
+//! writing the session again by design, no fault: it is kept for what it cost, and the owner is not told.
 
 use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -116,8 +118,21 @@ pub fn forwarded(conn: &Connection, matter: i64) -> Result<Option<Value>, String
 }
 
 /// Tells the owner that a round missed its session's prompt cache, and keeps the miss: with a new notice, or with the
-/// notice still open of a miss with the same cause on the same line of the same project.
+/// notice still open of a miss with the same cause on the same line of the same project. A miss the engine expects,
+/// after what comes before the session's messages changed, is kept for what it cost with no notice.
 pub fn cache_miss(e: &mut Engine, w: &Work, round: RoundId, cell: &str, line: &str, m: &Miss) -> Result<(), String> {
+    if m.expected() {
+        e.db.write(Actor::Engine, |tx| record(tx, round, line, m, None))
+            .map_err(|x| x.to_string())?;
+        let parts: Vec<&str> = m.before_messages().iter().map(|d| d.part.as_str()).collect();
+        (e.say)(&format!(
+            "{round} wrote its session's prompt cache again, as expected after {} changed since {}: kept for its cost, \
+             no fault",
+            parts.join(", "),
+            m.before
+        ));
+        return Ok(());
+    }
     let item = e.subject(w)?;
     let (project, about) = match &item {
         Some(i) => (
@@ -181,22 +196,28 @@ fn keep(tx: &Transaction<'_>, k: &Kept<'_>) -> db::Result<bool> {
         Some(n) => n,
         None => actions::notify_fault(tx, k.round.work, CACHE_MISS, k.text).map_err(db::Error::Abort)?,
     };
-    let m = k.miss;
+    record(tx, k.round, k.line, k.miss, Some(notice))?;
+    Ok(open.is_some())
+}
+
+/// Records a round's cache miss with the notice that tells the owner of it, or with none for a miss the engine
+/// expects.
+fn record(tx: &Transaction<'_>, round: RoundId, line: &str, m: &Miss, notice: Option<i64>) -> db::Result<()> {
     tx.execute(
         "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, notice)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            k.round.work,
-            k.round.n,
-            k.line,
-            differs,
+            round.work,
+            round.n,
+            line,
+            m.differs_json().to_string(),
             m.written,
             m.held,
             m.cost_usd,
             notice
         ],
     )?;
-    Ok(open.is_some())
+    Ok(())
 }
 
 /// What the owner is told of a cache miss: where it came up, what it read of what the session held, what it wrote again
@@ -448,6 +469,39 @@ mod tests {
     fn rows<T: db::rusqlite::types::FromSql>(db: &db::Db, q: &str) -> Vec<T> {
         let mut st = db.conn().prepare(q).unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    }
+
+    // A miss the engine expects, after the envelope's schema changed, is kept for its cost with no notice; a miss that
+    // is a fault after it makes a notice of its own.
+    #[test]
+    fn a_miss_the_engine_expects_is_kept_with_no_notice() {
+        let mut db = with_rounds();
+        let mut m = Miss {
+            before: RoundId::new(1, 1),
+            after_ms: 60_000,
+            read: 10_000,
+            written: 400_000,
+            held: 410_000,
+            cost_usd: Some(1.5),
+            differs: vec![Differs {
+                part: "--json-schema".into(),
+                before: Some("content a".into()),
+                after: Some("content b".into()),
+            }],
+        };
+        assert!(m.expected());
+        db.write(Actor::Engine, |tx| {
+            record(tx, RoundId::new(1, 2), "architect", &m, None)
+        })
+        .unwrap();
+        m.differs.clear();
+        assert!(!m.expected());
+        assert!(!missed(&mut db, 3, &m));
+        assert_eq!(rows::<i64>(&db, "SELECT count(*) FROM engine_notices"), [1]);
+        assert_eq!(
+            rows::<Option<i64>>(&db, "SELECT notice FROM cache_misses ORDER BY round"),
+            [None, Some(1)]
+        );
     }
 
     // The owner forwards a fault to a project's architect: a matter of the kind report with the detail fault in its

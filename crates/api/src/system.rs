@@ -225,7 +225,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
 
     let (misses, missed, miss_usd): (i64, i64, f64) = conn.query_row(
         "SELECT count(*), coalesce(sum(m.written), 0), coalesce(sum(m.cost_usd), 0) FROM cache_misses m
-         JOIN rounds r ON r.work = m.work AND r.n = m.round WHERE r.started_at >= ?1",
+         JOIN rounds r ON r.work = m.work AND r.n = m.round WHERE r.started_at >= ?1 AND m.notice IS NOT NULL",
         [since],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
@@ -1057,6 +1057,12 @@ mod tests {
             run(
                 "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, notice)
                  VALUES (1, 1, 'engineer', '[]', 40, 100, 0.125, 1)",
+                &[],
+            )?;
+            // A miss the engine expected, after the envelope changed, is no fault and not counted.
+            run(
+                "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, notice)
+                 VALUES (1, 2, 'engineer', '[{\"part\":\"--json-schema\"}]', 90, 100, 0.5, NULL)",
                 &[],
             )?;
             run("INSERT INTO owner_asks (work, round, body) VALUES (1, 2, '{}')", &[])?;
