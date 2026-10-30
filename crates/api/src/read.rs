@@ -1856,19 +1856,21 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
 }
 
 /// What each work of a project's architect was given of the queue at its first round, by work: the matters it started
-/// for.
+/// for, a place to set straight with the place, read from its matter, as the queue gives it.
 fn started_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>>> {
     let mut st = conn.prepare(
         "SELECT r.work, r.input FROM rounds r JOIN works w ON w.id = r.work
          WHERE w.graph = 'architect' AND w.project = ?1 AND r.n = 1",
     )?;
+    let mut fix_of = conn
+        .prepare("SELECT json_extract(body, '$.fix') FROM architect_matters WHERE id = ?1 AND kind = 'set_straight'")?;
     let rows = st.query_map([project], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
     let mut out = HashMap::new();
     for row in rows {
         let (work, input) = row?;
         let Some(input) = json(Some(input)) else { continue };
         let input = db::put_back(conn, &input);
-        let queued = input["inputs"]
+        let mut queued: Vec<Queued> = input["inputs"]
             .as_array()
             .into_iter()
             .flatten()
@@ -1886,9 +1888,14 @@ fn started_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queu
                     detail: m["detail"].as_str().map(str::to_string),
                     what: m["what"].as_str().unwrap_or_default().to_string(),
                     item: m["item"].as_i64(),
+                    fix: None,
                 })
             })
             .collect();
+        for q in queued.iter_mut().filter(|q| q.kind == "set_straight") {
+            let fix: Option<Option<String>> = fix_of.query_row([q.matter], |r| r.get(0)).optional()?;
+            q.fix = json(fix.flatten());
+        }
         out.insert(work, queued);
     }
     Ok(out)
@@ -3385,6 +3392,42 @@ mod tests {
         );
     }
 
+    // What an architect's work started for says a place to set straight with the place, read from its matter, as the
+    // queue does; every other matter without one.
+    #[test]
+    fn what_a_work_started_for_says_the_place_to_set_straight() {
+        let mut s = architect_setup("started_for_fix");
+        let place = json!({ "where": "#1", "wrong": "It waits for #2.", "steps": ["Drop the link."] });
+        let body = json!({ "fix": place }).to_string();
+        let input = json!({ "inputs": [{ "from": [{ "db": "architect_queue", "by": "project" }], "value": [
+            { "project": "p", "matter": 9, "kind": "set_straight", "detail": "dependencies",
+              "what": "To set straight, #1: Drop the link" },
+            { "project": "p", "matter": 2, "kind": "owner_words", "detail": "said", "what": "The owner said" },
+        ] }], "given": {} })
+        .to_string();
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run(
+                "INSERT INTO architect_matters (id, project, kind, detail, what, body, at)
+                 VALUES (9, 'p', 'set_straight', 'dependencies', 'To set straight, #1: Drop the link', ?1, 240)",
+                &[&body],
+            )?;
+            run(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'Q0', 'p')",
+                &[],
+            )?;
+            run(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (5, 1, 'W0', ?1, 'c', 600)",
+                &[&input],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let started = started_for(s.db.conn(), "p").unwrap();
+        let fixes: Vec<(i64, Option<Value>)> = started[&5].iter().map(|q| (q.matter, q.fix.clone())).collect();
+        assert_eq!(fixes, [(9, Some(place)), (2, None)]);
+    }
+
     // The works list leaves the architect's works out; an architect's work reads as a work on no item.
     #[test]
     fn the_architect_works_are_its_tab_s_not_the_works_list_s() {
@@ -3433,6 +3476,7 @@ mod tests {
                 detail: Some("split".into()),
                 what: "Split #1?".into(),
                 item: Some(1),
+                fix: None,
             }]
         );
         assert!(now.started_for.is_empty());

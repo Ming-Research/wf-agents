@@ -1169,6 +1169,9 @@ pub struct Queued {
     pub detail: Option<String>,
     pub what: String,
     pub item: Option<i64>,
+    /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+    /// steps to set it straight); none for a matter of another kind.
+    pub fix: Option<Value>,
 }
 
 /// A matter for an architect that it has not handled.

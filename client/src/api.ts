@@ -1260,7 +1260,12 @@ handling: number | null, };
 /**
  * A matter as an architect's queue gave it to a work of the architect.
  */
-export type Queued = { matter: number, kind: string, detail: string | null, what: string, item: number | null, };
+export type Queued = { matter: number, kind: string, detail: string | null, what: string, item: number | null, 
+/**
+ * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+ * steps to set it straight); none for a matter of another kind.
+ */
+fix: JsonValue | null, };
 
 /**
  * A matter for an architect that it has not handled.

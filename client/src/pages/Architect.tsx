@@ -205,7 +205,7 @@ function WorkList({ a, shown, tab, project, onClose }: {
           <tbody>
             {a.works.map((x) => {
               const why = [...new Set(x.started_for.map((m) => matterKind(m.kind, null)))].join(', ');
-              const whyAll = x.started_for.map((m) => `${matterKind(m.kind, m.detail)}: ${m.what}`);
+              const whyAll = x.started_for.map((m) => `${matterKind(m.kind, m.detail)}: ${matterSentence(m)}`);
               return (
                 <tr
                   key={x.work.id}
