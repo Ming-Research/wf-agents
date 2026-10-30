@@ -1567,7 +1567,6 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         text: "Keep the old name.".into(),
         why: None,
         reply: None,
-        choice: None,
         to: None,
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
@@ -3095,14 +3094,16 @@ fn architect_works(e: &Engine) -> Vec<i64> {
     st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
 }
 
-/// The architects' matters but the one that keeps them quiet, in the order they came: each one's kind, whether it is
-/// in a queue now, and whether it is handled.
+/// The architects' matters but the one that keeps them quiet and those at the head of the queue, the check of the policy
+/// and the plan of what to do next, which a new session's understanding queues, in the order they came: each one's
+/// kind, whether it is in a queue now, and whether it is handled.
 fn matters(e: &Engine) -> Vec<(String, bool, bool)> {
     let mut st =
         e.db.conn()
             .prepare(
                 "SELECT m.kind, m.id IN (SELECT matter FROM architect_queue), m.handled_round IS NOT NULL
-                 FROM architect_matters m WHERE m.what <> 'not yet' ORDER BY m.id",
+                 FROM architect_matters m
+                 WHERE m.what <> 'not yet' AND m.kind NOT IN ('check_policy', 'make_plan') ORDER BY m.id",
             )
             .unwrap();
     st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
@@ -3210,13 +3211,14 @@ fn stands_at(e: &Engine, work: i64, cell: &str) -> bool {
 }
 
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
-// its new session has not understood the project, understands it, judges the policy and what runs, and takes the
-// owner's words first, a talk: it replies, in the owner's one-to-one, and waits for the owner, who ends the talk; its
-// last turn hands in an item change, which is collected; the batch is done, its review finds the change sound, and the
-// engine makes it as the architect; the rethink goes on, nothing is left, and the work wraps up and ends, referred to
-// the state of things its session wrote. A field the path cell may leave out and wrote as null is taken as left out.
+// its new session has not understood the project, understands it, which queues the check of the policy and the plan of
+// what to do next at the head of the queue, and takes the owner's words first, a talk: it replies, in the owner's
+// one-to-one, and waits for the owner, who ends the talk; its last turn hands in an item change, which is collected;
+// then it checks the policy and plans what to do next; the batch is done, its review finds the change sound, and the
+// engine makes it as the architect; the rethink goes on, nothing is left, and the work ends. A field the path cell may
+// leave out and wrote as null is taken as left out.
 #[test]
-fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap_up() {
+fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     let s = setup("architect-work");
     let mut agents = scripts();
     let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
@@ -3294,20 +3296,28 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     assert_eq!(
         path_of(&e, arch),
         [
-            "S1", "U1", "P1", "N1", "Q0", "Q2", "H8", "H11", "H11", "H8", "B1", "B2", "B4", "Q0", "E1", "E2"
+            "S1", "U1", "Q0", "Q2", "H8", "H11", "H11", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1",
+            "B2", "B4", "Q0", "E2"
         ],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
     assert_eq!(rows[0].as_deref(), Some("not_understood"));
-    assert_eq!(rows[4].as_deref(), Some("owner_words"));
+    assert_eq!(rows[2].as_deref(), Some("owner_words"));
     assert_eq!(
-        rows[6..9].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
-        [Some("replied"), Some("waits"), Some("ended")]
+        rows[4..8].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
+        [Some("replied"), Some("waits"), Some("ended"), Some("done")]
     );
-    assert_eq!(rows[9].as_deref(), Some("done"));
-    assert_eq!(rows[10].as_deref(), Some("review"));
-    assert_eq!(rows[11].as_deref(), Some("ok"));
+    assert_eq!(
+        rows[9..12].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
+        [Some("head"), Some("to_policy_check"), Some("holds")]
+    );
+    assert_eq!(
+        rows[13..16].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
+        [Some("head"), Some("to_plan"), Some("fits")]
+    );
+    assert_eq!(rows[16].as_deref(), Some("review"));
+    assert_eq!(rows[17].as_deref(), Some("ok"));
     // The change is made, as the architect's, and logged as made with the matter it came from.
     let title: String =
         e.db.conn()
@@ -3361,9 +3371,6 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     .collect();
     assert!(schemas.iter().any(|x| x.0 == "B4"), "{schemas:?}");
     assert!(schemas.iter().all(|x| x.1 == schemas[0].1), "{schemas:?}");
-    // The wrap-up is referred to the state of things its session wrote at the understanding, not given it again.
-    let wrap_up = &inputs_at(&e, arch, "E1")[0];
-    assert_eq!(given_ending(wrap_up, "·U1·state"), Some(false), "{wrap_up}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -3449,7 +3456,7 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     let log = said.borrow().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E1", "E2"],
+        ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E2"],
         "{log}"
     );
     let sessions: Vec<(String, String)> = {
@@ -3826,7 +3833,6 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         text: "Yes, hold it.".into(),
         why: None,
         reply: None,
-        choice: None,
         to: None,
     };
     api::answer(&mut e.db, ask, &yes).unwrap();
@@ -4028,6 +4034,375 @@ fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_
             "answer".to_string(),
             "Should the release wait for the parser?".to_string()
         )
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The matters of project p's architect at the head of its queue, the check of the policy and the plan of what to do
+/// next, in the order they came: each one's kind, whether it is handled, and each cell that asked for it with why.
+type AtHead = (String, bool, Vec<(String, String)>);
+
+fn at_head(e: &Engine) -> Vec<AtHead> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT kind, handled_round IS NOT NULL AS handled, body FROM architect_matters
+         WHERE project = 'p' AND kind IN ('check_policy', 'make_plan') ORDER BY id",
+        &[],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| {
+        let asked = r["body"]["asked_by"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|a| {
+                (
+                    a["cell"].as_str().unwrap_or_default().to_string(),
+                    a["why"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        (
+            r["kind"].as_str().unwrap_or_default().to_string(),
+            r["handled"] == json!(1),
+            asked,
+        )
+    })
+    .collect()
+}
+
+/// A question project p's architect put to the owner just now, in a work of it over before the test, which parks a
+/// message of q's architect at the cell that answers such a message (`H9`); gives the matter and the question.
+fn a_question(e: &mut Engine, question: &str) -> (i64, i64) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+            [v],
+        )?;
+        let work = tx.last_insert_rowid();
+        record_round(tx, work, 1, "A3", &json!({}), "held")?;
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "other_architect".into(),
+            detail: Some("message".into()),
+            what: "The architect of q says: Hold the release?".into(),
+            body: json!({ "text": "Hold the release?" }),
+            ..db::Matter::default()
+        };
+        let matter = db::queue_matter(tx, &m)?;
+        let body = json!({ "from": "architect", "project": "p", "work": work, "cell": "A3", "kind": "question",
+                           "question": question, "holds": [matter] });
+        tx.execute(
+            "INSERT INTO owner_asks (work, round, body) VALUES (?1, 1, ?2)",
+            params![work, body.to_string()],
+        )?;
+        let ask = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE architect_matters SET asked = ?2, resume_cell = 'H9' WHERE id = ?1",
+            params![matter, ask],
+        )?;
+        Ok((matter, ask))
+    })
+    .unwrap()
+}
+
+/// Whether a work of the architect's last round waits at the look at the queue for the owner's reply.
+fn waits_at_queue(e: &Engine, work: i64) -> bool {
+    cells_of(e, work)
+        .last()
+        .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
+}
+
+/// The question to the owner put last that waits for the reply: its number and its text.
+fn question_now(e: &Engine) -> (i64, String) {
+    e.db.conn()
+        .query_row(
+            "SELECT id, json_extract(body, '$.question') FROM owner_asks WHERE answer IS NULL ORDER BY id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+// A new session understands the project and queues at the head of its queue the check of the policy, then the plan of
+// what to do next, each asked for by the understanding with why; the look at the queue waits first for the owner's
+// reply to a question just put, takes the matter back with the reply, and then the two matters at the head of the queue
+// in their order, without a pick, before the other matters: the check finds the policy holds and is closed, and the
+// plan is made once.
+#[test]
+fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
+    let s = setup("head-after-wait");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    let (_, ask) = a_question(&mut e, "Should the release wait for the parser?");
+    from_q(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| waits_at_queue(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let understood = "A new session understood the project".to_string();
+    assert_eq!(
+        at_head(&e),
+        [
+            (
+                "check_policy".to_string(),
+                false,
+                vec![("U1".to_string(), understood.clone())]
+            ),
+            ("make_plan".to_string(), false, vec![("U1".to_string(), understood)])
+        ]
+    );
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let cells = cells_of(&e, arch);
+    let taken: Vec<(&str, Option<&str>)> = cells[..cells.len() - 1]
+        .iter()
+        .map(|c| (c.0.as_str(), c.1.as_deref()))
+        .collect();
+    assert_eq!(
+        taken,
+        [
+            ("S1", Some("not_understood")),
+            ("U1", Some("understood")),
+            ("Q0", Some("waits")),
+            ("Q0", Some("answered")),
+            ("Q2", Some("to_answer_architect")),
+            ("H9", Some("done")),
+            ("B1", Some("more")),
+            ("Q0", Some("head")),
+            ("Q2", Some("to_policy_check")),
+            ("P1", Some("holds")),
+            ("B1", Some("more")),
+            ("Q0", Some("head")),
+            ("Q2", Some("to_plan")),
+            ("N1", Some("fits")),
+            ("B1", Some("more")),
+            ("Q0", Some("one")),
+            ("Q2", Some("to_answer_architect")),
+            ("H9", Some("done")),
+            ("B1", Some("done")),
+            ("B4", Some("go_on")),
+            ("Q0", Some("none"))
+        ],
+        "{log}"
+    );
+    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("E2"), "{log}");
+    let handled: Vec<(String, bool)> = at_head(&e).into_iter().map(|m| (m.0, m.1)).collect();
+    assert_eq!(
+        handled,
+        [("check_policy".to_string(), true), ("make_plan".to_string(), true)],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check at
+// it while the architect waits for the reply; the reply brings it back, the check no longer hands in that the policy
+// holds, and it goes on to write the new policy by the owner's stance. The engine asks the owner to approve the draft,
+// which parks the check at the writing: a reply other than approved brings it back there, to be written again by it,
+// and approved, exactly, has it take effect: it is the policy in force, no draft waits any longer, the check is closed,
+// and the plan of what to do next, which the new session's understanding queued and the new policy asked for again, is
+// made once, under it.
+#[test]
+fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved() {
+    let s = setup("policy-approved");
+    let mut agents = scripts();
+    agents.insert(
+        "P1",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => asks_the_owner("Research a new policy? The parser no longer leads the work."),
+            2 => (vec![("outcome.verdict", "holds")], Vec::new()),
+            _ => (
+                vec![("outcome.verdict", "write_policy")],
+                vec![("outcome.verdict.stance", json!("Research one led by the parser."))],
+            ),
+        }),
+    );
+    agents.insert("P2", writes_a_policy());
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    from_q(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    let waited = |e: &Engine| rows_at(e, arch, "Q0").iter().filter(|r| *r == "waits").count();
+    assert!(
+        steps_until(&mut e, 30, |e| waits_at_queue(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (research, _) = question_now(&e);
+    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.").unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (approval, text) = question_now(&e);
+    assert_eq!(text, "Approve this policy? Reply exactly: approved");
+    let pinned: Value =
+        e.db.conn()
+            .query_row("SELECT body FROM owner_asks WHERE id = ?1", [approval], |r| {
+                r.get::<_, String>(0)
+            })
+            .map(|b| serde_json::from_str(&b).unwrap())
+            .unwrap();
+    assert_eq!((&pinned["kind"], &pinned["cell"]), (&json!("question"), &json!("P2")));
+    assert!(pinned.get("policy").is_none(), "{pinned}");
+    api::reply_to_question(&mut e.db, "p", approval, "Make the why shorter.").unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (again, _) = question_now(&e);
+    assert_ne!(again, approval);
+    api::reply_to_question(&mut e.db, "p", again, " approved ").unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, arch, "P1"), ["ask_owner", "write_policy"], "{log}");
+    let refused: String =
+        e.db.conn()
+            .query_row(
+                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'P1' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .expect(&log);
+    assert!(refused.contains("the owner replied to your question"), "{refused}");
+    assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
+    assert!(message_at(&e, arch, "P2", false).contains("Yes, research it."), "{log}");
+    assert!(
+        message_at(&e, arch, "P2", true).contains("Make the why shorter."),
+        "{log}"
+    );
+    let routes = rows_at(&e, arch, "Q2");
+    assert!(routes.contains(&"back_to_set_policy".to_string()), "{routes:?}");
+    assert_eq!(rows_at(&e, arch, "P12"), ["next"], "{log}");
+    let direction: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(policy, '$.direction') FROM policy_current WHERE project = 'p'",
+                [],
+                |r| r.get(0),
+            )
+            .expect(&log);
+    assert_eq!(direction, "Ship the parser.");
+    let drafts: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM policy_draft", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(drafts, 0);
+    let path = path_of(&e, arch);
+    let took_effect = path.iter().position(|c| c == "P12").expect(&log);
+    assert_eq!(rows_at(&e, arch, "N1").len(), 1, "{path:?}\n{log}");
+    assert!(
+        path.iter().position(|c| c == "N1").expect(&log) > took_effect,
+        "{path:?}"
+    );
+    assert_eq!(
+        at_head(&e),
+        [
+            (
+                "check_policy".to_string(),
+                true,
+                vec![("U1".to_string(), "A new session understood the project".to_string())]
+            ),
+            (
+                "make_plan".to_string(),
+                true,
+                vec![
+                    ("U1".to_string(), "A new session understood the project".to_string()),
+                    ("P12".to_string(), "A new policy took effect".to_string())
+                ]
+            )
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's words come before the matters at the head of the queue: a talk that ends with planning again queues the
+// plan, and one that ends with a new policy queues the check, each with what the talk came to; a new session's
+// understanding queued both already, so each is queued once and takes the talk's why beside the understanding's, and
+// each is taken once, after the owner's words.
+#[test]
+fn a_matter_at_the_head_asked_for_twice_is_queued_once_with_both_whys() {
+    let s = setup("head-twice");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|r: &Request, _: usize| {
+            let (way, why) = if r.prompt.contains("Plan again.") {
+                ("re_plan", "The owner wants the parser first.")
+            } else {
+                ("new_policy", "The owner doubts the direction.")
+            };
+            (
+                vec![("outcome.talk", way)],
+                vec![("outcome.talk.conclusion", json!(why))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Plan again.");
+    say(&mut e, "Check the policy.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        path_of(&e, arch),
+        [
+            "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1",
+            "B4", "Q0", "E2"
+        ],
+        "{log}"
+    );
+    assert_eq!(rows_at(&e, arch, "H8"), ["re_plan", "new_policy"], "{log}");
+    let understood = "A new session understood the project".to_string();
+    assert_eq!(
+        at_head(&e),
+        [
+            (
+                "check_policy".to_string(),
+                true,
+                vec![
+                    ("U1".to_string(), understood.clone()),
+                    ("H8".to_string(), "The owner doubts the direction.".to_string())
+                ]
+            ),
+            (
+                "make_plan".to_string(),
+                true,
+                vec![
+                    ("U1".to_string(), understood),
+                    ("H8".to_string(), "The owner wants the parser first.".to_string())
+                ]
+            )
+        ],
+        "{log}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -4276,242 +4651,6 @@ fn the_search_of_observations_hands_back_candidates() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the architect judges the policy may no longer govern, it sets a new one in its own work and session: new works
-// of the project are held, it studies the direction and puts the study before the owner as an ask that holds only the
-// setting's matter, and goes on with its queue meanwhile, here the owner's words. The owner says the policy stays: the
-// matter comes back with the answer to the cell that put the ask, which ends the setting, lets new works start again
-// and goes on to what to do next.
-#[test]
-fn a_policy_set_again_is_studied_in_the_architect_s_work_and_the_owner_says_it_stays() {
-    let s = setup("policy-stays");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert(
-        "P1",
-        Box::new(|_: &Request, n: usize| {
-            if n == 1 {
-                return (vec![("outcome.verdict", "set_again")], Vec::new());
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    say(&mut e, "Is the policy still right?");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| study_asked(e).is_some()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, arch)[..5], ["S1", "U1", "P1", "P2", "P3"], "{log}");
-    assert_eq!(holds(&e), [("p".to_string(), "policy".to_string())]);
-    // The ask holds the setting's matter, out of the queue until the answer comes, which goes back to the cell that put
-    // it; the work of the architect stops on no blocker.
-    let m = setting_matter(&e);
-    let ask = study_asked(&e);
-    let held: (Option<i64>, Option<String>) =
-        e.db.conn()
-            .query_row(
-                "SELECT asked, resume_cell FROM architect_matters WHERE id = ?1",
-                [m],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert_eq!((held.0, held.1.as_deref()), (ask, Some("P3")), "{log}");
-    assert_eq!(open_blocker(&e, arch), None, "{log}");
-    // The architect goes on with its queue meanwhile: the owner's words, and the work ends.
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    assert_eq!(rows_at(&e, arch, "H8"), ["done"], "{log}");
-    let stays = api::Answer {
-        text: "Keep it.".into(),
-        why: None,
-        reply: None,
-        choice: Some("policy_stays".into()),
-        to: None,
-    };
-    api::answer(&mut e.db, ask.unwrap(), &stays).unwrap();
-    let settled = move |e: &mut Engine| -> bool {
-        e.db.conn()
-            .query_row(
-                "SELECT handled_round IS NOT NULL FROM architect_matters WHERE id = ?1",
-                [m],
-                |r| r.get(0),
-            )
-            .unwrap()
-    };
-    assert!(steps_until(&mut e, 40, settled), "{}", said.borrow().join("\n"));
-    let log = said.borrow().join("\n");
-    assert_eq!(setting_rows(&e, "P3"), ["held", "policy_stays"], "{log}");
-    assert_eq!(holds(&e), Vec::<(String, String)>::new(), "{log}");
-    // A new work of the architect took the matter back to the study's ask, and thought what to do next after it.
-    let (work, n): (i64, i64) =
-        e.db.conn()
-            .query_row(
-                "SELECT handled_work, handled_round FROM architect_matters WHERE id = ?1",
-                [m],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert!(work > arch, "{log}");
-    assert!(
-        steps_until(&mut e, 5, |e| path_of(e, work).len() > n as usize),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    let after: Vec<String> = cells_of(&e, work)
-        .into_iter()
-        .skip(n as usize - 1)
-        .map(|c| c.0)
-        .take(2)
-        .collect();
-    assert_eq!(after, ["P3", "N1"], "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-/// What stops project p's new works from starting, by project and reason.
-fn holds(e: &Engine) -> Vec<(String, String)> {
-    let mut st =
-        e.db.conn()
-            .prepare("SELECT project, reason FROM dispatch_holds ORDER BY reason")
-            .unwrap();
-    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .unwrap()
-        .map(|x| x.unwrap())
-        .collect()
-}
-
-// A new policy set in the architect's works takes effect in the session it was studied and written in: the owner's view
-// of the study and approval of the text come back with the setting's matter to the cells that put them, new architects
-// read the text, each in a session of its own, the approved text becomes the policy in force, new works start again,
-// and what to do next under it follows in the same session, which a new policy ends no longer.
-#[test]
-fn a_new_policy_takes_effect_and_the_architect_goes_on_in_its_session() {
-    let s = setup("policy-next");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert(
-        "P1",
-        Box::new(|_: &Request, n: usize| {
-            if n == 1 {
-                return (vec![("outcome.verdict", "set_again")], Vec::new());
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    agents.insert("P4", writes_a_policy());
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    say(&mut e, "Is the policy still right?");
-    let first = e.step(None).unwrap().work.unwrap();
-    // The owner answers once the architect's work went on with its queue to its end, so that the setting's matter is
-    // the one matter that comes back.
-    assert!(
-        steps_until(&mut e, 40, |e| study_asked(e).is_some()
-            && architect_work_done(e, first)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let answer = |choice: &str| api::Answer {
-        text: "Fine.".into(),
-        why: None,
-        reply: None,
-        choice: Some(choice.into()),
-        to: None,
-    };
-    let ask = study_asked(&e).unwrap();
-    api::answer(&mut e.db, ask, &answer("satisfied")).unwrap();
-    assert!(
-        steps_until(&mut e, 120, |e| approval_asked(e).is_some()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let ask = approval_asked(&e).unwrap();
-    api::answer(&mut e.db, ask, &answer("approved")).unwrap();
-    let m = setting_matter(&e);
-    let settled = move |e: &mut Engine| -> bool {
-        let n: Option<i64> =
-            e.db.conn()
-                .query_row("SELECT handled_round FROM architect_matters WHERE id = ?1", [m], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-        n.is_some()
-    };
-    assert!(steps_until(&mut e, 40, settled), "{}", said.borrow().join("\n"));
-    // The work that ended the setting goes on to what to do next.
-    let (work, n): (i64, i64) =
-        e.db.conn()
-            .query_row(
-                "SELECT handled_work, handled_round FROM architect_matters WHERE id = ?1",
-                [m],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert!(
-        steps_until(&mut e, 5, |e| path_of(e, work).len() > n as usize),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    assert_eq!(setting_rows(&e, "P3"), ["held", "satisfied"], "{log}");
-    assert_eq!(setting_rows(&e, "P11"), ["held", "approved"], "{log}");
-    assert_eq!(setting_rows(&e, "P12"), ["next"], "{log}");
-    let policy: Value =
-        e.db.conn()
-            .query_row("SELECT policy FROM policy_current WHERE project = 'p'", [], |r| {
-                r.get::<_, String>(0)
-            })
-            .map(|p| serde_json::from_str(&p).unwrap())
-            .unwrap();
-    assert_eq!(policy["direction"], "Ship the parser.", "{log}");
-    assert_eq!(holds(&e), Vec::<(String, String)>::new(), "{log}");
-    // From the study to what to do next under the new policy, every round of the architect's line went on in one
-    // session, across the works the setting went on in; the project was understood once.
-    let sessions: Vec<(String, String)> = {
-        let mut st =
-            e.db.conn()
-                .prepare(
-                    "SELECT r.cell, s.cli_session FROM rounds r JOIN works w ON w.id = r.work
-                     JOIN sessions s ON s.id = r.session
-                     WHERE w.graph = 'architect' AND w.project = 'p' AND s.line = 'architect' AND r.work >= ?1
-                     ORDER BY r.work, r.n",
-                )
-                .unwrap();
-        st.query_map([first], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .map(|x| x.unwrap())
-            .collect()
-    };
-    let cells: Vec<&str> = sessions.iter().map(|x| x.0.as_str()).collect();
-    assert_eq!(cells.iter().filter(|c| **c == "U1").count(), 1, "{cells:?}");
-    let p12 = cells.iter().rposition(|c| *c == "N1").expect(&log);
-    assert!(
-        cells[..p12].contains(&"P2") && cells[..p12].contains(&"P10"),
-        "{cells:?}"
-    );
-    assert!(sessions.iter().all(|x| x.1 == sessions[0].1), "{sessions:?}");
-    // The new architects that read it were each in a session of their own.
-    let readers: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(DISTINCT s.cli_session) FROM rounds r JOIN sessions s ON s.id = r.session
-                 WHERE r.cell = 'P6'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(readers, 2, "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 /// What an agent's round of an architect saw as it ran: its request, and in its working directory the text of
 /// `src/lib.txt`, the commit it stood at and whether a file left there earlier was still there.
 struct Saw {
@@ -4541,7 +4680,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
                     },
                     left: wt.join("left.txt").exists(),
                 });
-                if r.cell == "P2" && n == 1 {
+                if r.cell == "P1" && n == 1 {
                     let tools = json!([{ "tool": "gh", "command": "pr view 1" }]);
                     return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
                 }
@@ -4553,18 +4692,14 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
 }
 
 // Every line of a project's architect reads the project in the one worktree of its own, detached at main and brought to
-// the latest main before each round, whatever was changed there dropped: the setting of a new policy too, which edits
+// the latest main before each round, whatever was changed there dropped: the check of the policy too, which edits
 // nothing and changes no repository; gh for a work on no item runs in that worktree, where gh knows the repository.
 #[test]
 fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     let s = setup("architect-worktrees");
     no_reply_wait(&s);
     let mut agents = scripts();
-    agents.insert(
-        "P1",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.verdict", "set_again")], Vec::new())),
-    );
-    let seen = keep_what_they_saw(&mut agents, &["U1", "P2"]);
+    let seen = keep_what_they_saw(&mut agents, &["U1", "P1"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     let arch = architect_work_at(&mut e, "U1");
@@ -4582,28 +4717,28 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         let seen = seen.borrow();
         let log = said.borrow().join("\n");
         assert_eq!(seen.len(), 2, "{log}");
-        let (u1, p2) = (&seen[0], &seen[1]);
-        assert_eq!((u1.r.cell.as_str(), p2.r.cell.as_str()), ("U1", "P2"), "{log}");
-        for saw in [u1, p2] {
+        let (u1, p1) = (&seen[0], &seen[1]);
+        assert_eq!((u1.r.cell.as_str(), p1.r.cell.as_str()), ("U1", "P1"), "{log}");
+        for saw in [u1, p1] {
             assert_eq!(saw.r.worktree, architect);
             assert_eq!((saw.lib.as_str(), saw.head.as_str()), ("one\n", main.as_str()));
             // The project's checkout is no longer a directory added beside where it runs.
             assert_eq!(saw.r.readable.len(), 2, "{:?}", saw.r.readable);
         }
         for t in config::EDIT_TOOLS {
-            assert!(p2.r.refused.iter().any(|x| x == t), "{t}: {:?}", p2.r.refused);
+            assert!(p1.r.refused.iter().any(|x| x == t), "{t}: {:?}", p1.r.refused);
         }
         for g in config::GIT_CHANGES {
-            assert!(p2.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
+            assert!(p1.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
         }
-        // The session is told where it works at its first round, and the study, in the same session, is pointed to
-        // it.
+        // The session is told where it works at its first round, and the check of the policy, in the same session, is
+        // pointed to it.
         assert!(
             u1.r.prompt.contains(&u1.r.worktree.display().to_string()),
             "{}",
             u1.r.prompt
         );
-        assert!(p2.r.prompt.contains("Worktree: work:architect"), "{}", p2.r.prompt);
+        assert!(p1.r.prompt.contains("Worktree: work:architect"), "{}", p1.r.prompt);
     }
     assert!(!worktrees.join("policy").exists());
     e.advance(arch).unwrap();
@@ -4640,35 +4775,6 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         ("two\n", git(&s.origin, &["rev-parse", "main"]).as_str(), false),
         "{log}"
     );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The new architect that reads a policy knows only what it is given: it runs in an empty directory, is told of no
-// worktree, and edits nothing, as the architect's line.
-#[test]
-fn the_new_architect_that_reads_a_policy_runs_in_an_empty_directory() {
-    let s = setup("reader-directory");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert("P4", writes_a_policy());
-    let seen = keep_what_they_saw(&mut agents, &["P6"]);
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let setting = setting_at(&mut e, "P4");
-    for _ in 0..30 {
-        if !seen.borrow().is_empty() {
-            break;
-        }
-        e.step_work(setting).unwrap();
-    }
-    let seen = seen.borrow();
-    let log = said.borrow().join("\n");
-    let p6 = seen.first().expect(&log);
-    let dir = s.data.join("worktrees").join("P6").join("p");
-    assert_eq!(p6.r.worktree, dir, "{log}");
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
-    assert!(!p6.r.prompt.contains("Worktree:"), "{}", p6.r.prompt);
-    assert!(p6.r.refused.iter().any(|x| x == "Edit"), "{:?}", p6.r.refused);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -5114,9 +5220,9 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect runs at the level the installation names for it, and so do the review of its item changes and the new
-// architect that reads a policy, on no line: their rounds run with the named level's model, not the top level's, at
-// the effort their cell declares whatever the model, and record the level in their call.
+// The architect runs at the level the installation names for it, and so does the review of its item changes: their
+// rounds run with the named level's model, not the top level's, at the effort their cell declares whatever the model,
+// and record the level in their call.
 #[test]
 fn the_architect_runs_at_the_level_the_installation_names() {
     let s = setup("architect-level");
@@ -5180,11 +5286,6 @@ fn the_architect_runs_at_the_level_the_installation_names() {
         "{}",
         said.borrow().join("\n")
     );
-    let reading = setting_at(&mut e, "P6");
-    e.step_work(reading).unwrap();
-    let log = said.borrow().join("\n");
-    let (model, call) = ran(&e, reading, "P6").expect(&log);
-    assert_eq!(at_level(&model, &call), want, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -5316,7 +5417,7 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     let log = said.borrow().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(arch), Some("P1"), 1),
+        (Some(arch), Some("Q0"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
@@ -6032,43 +6133,6 @@ fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Before the owner approves a new policy, `P10` asks of the draft the question `P1` asks of
-// the policy in force: one that holds goes on to the owner's approval, and one that would need setting again at once
-// goes back to correct the text.
-#[test]
-fn the_draft_policy_is_asked_whether_it_would_need_setting_again_at_once() {
-    let verdicts = [("holds", "P11"), ("needs_setting_again", "P8")];
-    let s = setup("p11");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    // The first draft holds; the second, in a setting of its own, would need setting again.
-    agents.insert(
-        "P10",
-        Box::new(move |_: &Request, n: usize| (vec![("outcome.report", verdicts[n - 1].0)], Vec::new())),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    for (verdict, then) in verdicts {
-        let work = setting_at(&mut e, "P10");
-        let judged = |e: &Engine| {
-            rows_at(e, work, "P10")
-                .into_iter()
-                .filter(|t| t != "session_anew")
-                .collect::<Vec<_>>()
-        };
-        for _ in 0..20 {
-            if !judged(&e).is_empty() {
-                break;
-            }
-            e.step_work(work).unwrap();
-        }
-        let log = said.borrow().join("\n");
-        let at = e.work(work).unwrap().pos.at;
-        assert_eq!((at.as_str(), judged(&e)), (then, vec![verdict.to_string()]), "{log}");
-    }
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 /// What a message gave whole under the address that ends with `end`, read back; none when it gave nothing there.
 fn given_value(message: &str, end: &str) -> Option<Value> {
     message.split("\n### ").skip(1).find_map(|part| {
@@ -6090,20 +6154,6 @@ fn work_from(message: &str) -> Vec<String> {
         .take_while(|l| !l.trim().is_empty())
         .map(str::to_string)
         .collect()
-}
-
-/// The inputs of a work's rounds at a cell, as they were recorded, oldest first.
-fn inputs_at(e: &Engine, work: i64, cell: &str) -> Vec<Value> {
-    engine::query_json(
-        e.db.conn(),
-        "SELECT input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n",
-        &[&work, &cell],
-        100,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| db::put_back(e.db.conn(), &r["input"]))
-    .collect()
 }
 
 // At a project's first architect work its architect is told what happened in the week before it, as at a later work
@@ -6205,7 +6255,7 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     say(&mut e, "Look at the numbers.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
         "{}",
         said.borrow().join("\n")
     );
@@ -6292,121 +6342,16 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_state_no
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The policy being set is given to the cells that judge and correct it as the architect's own return that wrote it,
-// which its session holds and is only referred to. A correction hands in only the passages it changes, and the text
-// the engine puts together from it is given whole once. A probe the judgment of a reading lists as answered wrongly is
-// not used again, every such probe named at once; one the judgment only mentions stays.
-#[test]
-fn the_draft_policy_is_referred_to_and_only_probes_answered_wrongly_go() {
-    let s = setup("draft");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert(
-        "P4",
-        Box::new(|_: &Request, _: usize| {
-            let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
-                                 "principles": [{ "no": 1, "text": "Parse before checking." }],
-                                 "signals": [{ "what": "Speed", "how": "merged" }] });
-            let probes =
-                json!([{ "id": "x", "ask": "What comes first?", "principles": [1], "expect": "Principle 1." }]);
-            (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
-        }),
-    );
-    agents.insert(
-        "P7",
-        Box::new(|_: &Request, n: usize| {
-            if n > 1 {
-                return (Vec::new(), Vec::new());
-            }
-            let gaps =
-                json!([{ "what": "The probes x and y", "seen": "It hesitated on x.", "missing": "Principle 1." }]);
-            (
-                vec![("outcome.verdict", "gaps")],
-                vec![
-                    ("outcome.verdict.gaps", gaps),
-                    ("outcome.verdict.wrong_probes", json!(["y", "z"])),
-                ],
-            )
-        }),
-    );
-    agents.insert(
-        "P8",
-        Box::new(|_: &Request, n: usize| {
-            let probe =
-                |id: &str| json!({ "id": id, "ask": "What first?", "principles": [1], "expect": "Principle 1." });
-            let probes = if n == 1 {
-                json!([probe("x"), probe("y"), probe("z")])
-            } else {
-                json!([probe("x")])
-            };
-            let edits = json!([{ "kind": "change", "old": "Ship the parser.", "new": "Ship the parser first." }]);
-            (
-                Vec::new(),
-                vec![("outcome.revision.probes", probes), ("outcome.revision.edits", edits)],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let work = setting_at(&mut e, "P4");
-    let judged = |e: &Engine| {
-        cells_of(e, work)
-            .iter()
-            .filter(|c| c.0 == "P7" && c.1.is_some())
-            .count()
-    };
-    for _ in 0..40 {
-        if judged(&e) == 2 {
-            break;
-        }
-        e.step_work(work).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    assert_eq!(judged(&e), 2, "{log}\n{:?}", cells_of(&e, work));
-    let (judged, corrected) = (inputs_at(&e, work, "P7"), inputs_at(&e, work, "P8"));
-    for input in [&judged[0], &corrected[0]] {
-        assert_eq!(given_ending(input, "·P4·policy"), Some(false), "{input}");
-        assert_eq!(given_ending(input, "·P4·probes"), Some(false), "{input}");
-    }
-    // The correction changed a passage: the text the engine put together from it is given whole, the new probes are
-    // the session's own return.
-    assert_eq!(
-        given_ending(&judged[1], "·P8·revision.probes"),
-        Some(false),
-        "{}",
-        judged[1]
-    );
-    assert_eq!(
-        given_ending(&judged[1], "·P5·draft.policy"),
-        Some(true),
-        "{}",
-        judged[1]
-    );
-    let text = draft_direction(&e);
-    assert_eq!(text, [json!("Ship the parser first.")]);
-    let rejected: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'P8' AND rejected IS NOT NULL",
-        &[&work],
-        10,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["rejected"].to_string())
-    .collect();
-    assert_eq!(rejected.len(), 1, "{rejected:?}");
-    assert!(rejected[0].contains("not used again: y, z"), "{rejected:?}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-/// The scripted writing of a policy whose one principle has one probe, `x`, which a scripted reader answers.
+/// What the cell that writes a new policy hands in: the policy, and no new measure.
 fn writes_a_policy() -> Script {
     Box::new(|_: &Request, _: usize| {
         let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
                              "principles": [{ "no": 1, "text": "Parse before checking." }],
                              "signals": [{ "what": "Speed", "how": "merged" }] });
-        let probes = json!([{ "id": "x", "ask": "What comes first?", "principles": [1], "expect": "Principle 1." }]);
-        (Vec::new(), vec![("outcome.policy", policy), ("outcome.probes", probes)])
+        (
+            Vec::new(),
+            vec![("outcome.policy", policy), ("outcome.new_measures", json!([]))],
+        )
     })
 }
 
@@ -6417,188 +6362,6 @@ fn rows_at(e: &Engine, work: i64, cell: &str) -> Vec<String> {
         .filter(|c| c.0 == cell)
         .filter_map(|c| c.1)
         .collect()
-}
-
-/// The ask of the owner to approve a policy the architect put, not answered yet.
-fn approval_asked(e: &Engine) -> Option<i64> {
-    e.db.conn()
-        .query_row(
-            "SELECT id FROM owner_asks WHERE answer IS NULL AND json_extract(body, '$.kind') = 'policy_approval'",
-            [],
-            |r| r.get(0),
-        )
-        .ok()
-}
-
-/// The direction of the text of the policy being set, as the setting's latest version has it.
-fn draft_direction(e: &Engine) -> Vec<Value> {
-    engine::query_json(
-        e.db.conn(),
-        "SELECT policy FROM policy_text WHERE matter = ?1",
-        &[&setting_matter(e)],
-        1,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["policy"]["direction"].clone())
-    .collect()
-}
-
-// A reading that answers every probe rightly passes, though wording should change that the reader read rightly anyway:
-// the engine puts the minor fix into the text without a new reading, and the reading counts towards the two passes.
-#[test]
-fn a_minor_fix_a_reading_finds_is_put_in_without_a_new_reading() {
-    let s = setup("minor-fix");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert("P4", writes_a_policy());
-    agents.insert(
-        "P7",
-        Box::new(|_: &Request, n: usize| {
-            if n > 1 {
-                return (Vec::new(), Vec::new());
-            }
-            let edits = json!([{ "old": "Ship the parser.", "new": "Ship the parser first." }]);
-            (
-                vec![("outcome.verdict", "minor_fix")],
-                vec![("outcome.verdict.edits", edits), ("outcome.verdict.gaps", json!([]))],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let work = setting_at(&mut e, "P4");
-    for _ in 0..40 {
-        if e.work(work).unwrap().pos.at == "P11" {
-            break;
-        }
-        e.step_work(work).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    assert_eq!(e.work(work).unwrap().pos.at, "P11", "{log}\n{:?}", cells_of(&e, work));
-    assert_eq!(rows_at(&e, work, "P7"), ["minor_fix", "understood"], "{log}");
-    assert_eq!(
-        rows_at(&e, work, "P5"),
-        ["new_session", "fixed", "new_session"],
-        "{log}"
-    );
-    assert_eq!(rows_at(&e, work, "P9"), ["one_more", "two_passed"], "{log}");
-    assert_eq!(rows_at(&e, work, "P6").len(), 2, "{log}");
-    assert_eq!(draft_direction(&e), [json!("Ship the parser first.")]);
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// Once the text was corrected three times since it was written, a reading that leaves gaps goes on with them to the
-// check of the draft and to the owner, who may send the text back for one more correction without a new study: the
-// setting's matter comes back to the approval with the answer, the correction is given the owner's words, and the next
-// reading that leaves gaps goes to the owner again.
-#[test]
-fn a_text_corrected_three_times_goes_with_its_gaps_to_the_owner() {
-    let s = setup("text-limit");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert("P4", writes_a_policy());
-    agents.insert(
-        "P7",
-        Box::new(|_: &Request, _: usize| {
-            let gaps = json!([{ "what": "Principle 1", "seen": "Two readers asked what it weighs.",
-                               "missing": "What it weighs." }]);
-            (
-                vec![("outcome.verdict", "gaps")],
-                vec![
-                    ("outcome.verdict.gaps", gaps),
-                    ("outcome.verdict.wrong_probes", json!(["y"])),
-                ],
-            )
-        }),
-    );
-    agents.insert(
-        "P8",
-        Box::new(|_: &Request, n: usize| {
-            let old = if n == 1 {
-                "Parse before checking.".to_string()
-            } else {
-                format!("Parse before checking, {}.", n - 1)
-            };
-            let edits = json!([{ "kind": "change", "old": old, "new": format!("Parse before checking, {n}.") }]);
-            (
-                Vec::new(),
-                vec![
-                    ("outcome.revision.edits", edits),
-                    ("outcome.revision.kept", json!(["x"])),
-                    ("outcome.revision.probes", json!([])),
-                ],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let work = setting_at(&mut e, "P4");
-    for _ in 0..60 {
-        if approval_asked(&e).is_some() {
-            break;
-        }
-        e.step_work(work).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    let ask = approval_asked(&e).unwrap_or_else(|| panic!("{log}\n{:?}", cells_of(&e, work)));
-    assert_eq!(rows_at(&e, work, "P7"), ["gaps", "gaps", "gaps", "gaps_left"], "{log}");
-    assert_eq!(
-        rows_at(&e, work, "P8"),
-        ["corrected", "corrected", "corrected"],
-        "{log}"
-    );
-    assert_eq!(rows_at(&e, work, "P10"), ["holds"], "{log}");
-    // The probe kept by name stays the version's.
-    let probes: Vec<Value> = engine::query_json(
-        e.db.conn(),
-        "SELECT probes FROM policy_draft WHERE matter = ?1",
-        &[&setting_matter(&e)],
-        1,
-    )
-    .unwrap()
-    .iter()
-    .flat_map(|r| r["probes"].as_array().cloned().unwrap_or_default())
-    .map(|p| p["id"].clone())
-    .collect();
-    assert_eq!(probes, [json!("x")]);
-    // The owner decides by the button alone: what to fix is what the owner said in their talks, none here, and the
-    // architect judges by itself.
-    let fix = api::Answer {
-        text: String::new(),
-        why: None,
-        reply: None,
-        choice: Some("fix_text".into()),
-        to: None,
-    };
-    api::answer(&mut e.db, ask, &fix).unwrap();
-    for _ in 0..30 {
-        if approval_asked(&e).is_some() {
-            break;
-        }
-        e.step_work(work).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    assert!(approval_asked(&e).is_some(), "{log}\n{:?}", cells_of(&e, work));
-    assert_eq!(rows_at(&e, work, "P11"), ["held", "fix_text", "held"], "{log}");
-    assert_eq!(rows_at(&e, work, "P8").len(), 4, "{log}");
-    assert_eq!(
-        rows_at(&e, work, "P7").last().map(String::as_str),
-        Some("gaps_left"),
-        "{log}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-/// The open blocker of a work, by its number; none when it has none.
-fn open_blocker(e: &Engine, work: i64) -> Option<i64> {
-    e.db.conn()
-        .query_row(
-            "SELECT id FROM blockers WHERE work = ?1 AND ended IS NULL",
-            [work],
-            |r| r.get(0),
-        )
-        .ok()
 }
 
 /// The architect's messages to the owner in its one-to-one, oldest first, each with who sent it: its line.
@@ -6617,132 +6380,18 @@ fn one_to_one_messages(e: &Engine) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The ask of the owner to read the study of a new policy the architect put, not answered yet.
-fn study_asked(e: &Engine) -> Option<i64> {
-    e.db.conn()
-        .query_row(
-            "SELECT id FROM owner_asks WHERE answer IS NULL AND json_extract(body, '$.kind') = 'study'",
-            [],
-            |r| r.get(0),
-        )
-        .ok()
-}
-
-// What the owner says to the architect while the study of a new policy waits for the owner's reading is the
-// architect's to answer, as any words of the owner: with no work of the architect running, the words come to its queue
-// and start a work, which answers them, and the ask of the study stays open; the owner's view of the study after them
-// takes the setting on.
-#[test]
-fn the_owner_s_words_while_the_study_waits_are_answered_and_the_ask_stays_open() {
-    let s = setup("words-study");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("tell_owner", json!(["It weighs the parser first."]))])),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let setting = setting_at(&mut e, "P2");
-    assert!(
-        steps_until(&mut e, 60, |e| study_asked(e).is_some()
-            && architect_work_done(e, setting)),
-        "{}\n{:?}",
-        said.borrow().join("\n"),
-        cells_of(&e, setting)
-    );
-    let ask = study_asked(&e);
-    let m = setting_matter(&e);
-    say(&mut e, "Why the parser first?");
-    let answered = |e: &mut Engine| {
-        let handled: i64 =
-            e.db.conn()
-                .query_row(
-                    "SELECT count(*) FROM architect_matters WHERE kind = 'owner_words' AND handled_round IS NOT NULL",
-                    [],
-                    |r| r.get(0),
-                )
-                .unwrap();
-        handled > 0
-    };
-    assert!(steps_until(&mut e, 40, answered), "{}", said.borrow().join("\n"));
-    let log = said.borrow().join("\n");
-    assert!(
-        one_to_one_messages(&e).contains(&("architect".to_string(), "It weighs the parser first.".to_string())),
-        "{log}"
-    );
-    // The study still waits for the owner's view, which still holds the setting's matter.
-    assert_eq!(study_asked(&e), ask, "{log}");
-    let held: Option<i64> =
-        e.db.conn()
-            .query_row("SELECT asked FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
-            .unwrap();
-    assert_eq!(held, ask, "{log}");
-    let satisfied = api::Answer {
-        text: "Go on.".into(),
-        why: None,
-        reply: None,
-        choice: Some("satisfied".into()),
-        to: None,
-    };
-    api::answer(&mut e.db, ask.unwrap(), &satisfied).unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| !setting_rows(e, "P4").is_empty()),
-        "{}",
-        said.borrow().join("\n")
-    );
-    assert_eq!(setting_rows(&e, "P3"), ["held", "satisfied"]);
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A return sent back at a cell on no line, whose every round is a new session, is given the whole message again, and
-// why the return before it was sent back.
-#[test]
-fn a_new_session_after_a_return_sent_back_is_told_why() {
-    let s = setup("sent-back-anew");
-    no_reply_wait(&s);
-    let mut agents = scripts();
-    agents.insert("P4", writes_a_policy());
-    agents.insert(
-        "P6",
-        Box::new(|_: &Request, n: usize| {
-            if n == 1 {
-                return (Vec::new(), vec![("outcome.reading.answers", json!([]))]);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let work = setting_at(&mut e, "P4");
-    for _ in 0..30 {
-        if rows_at(&e, work, "P6").len() == 1 {
-            break;
-        }
-        e.step_work(work).unwrap();
-    }
-    let log = said.borrow().join("\n");
-    assert_eq!(rows_at(&e, work, "P6").len(), 1, "{log}\n{:?}", cells_of(&e, work));
-    let again = message_at(&e, work, "P6", true);
-    assert!(
-        again.contains("was sent back: ") && again.contains("## Work from"),
-        "{again}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The study of a new policy is given the project's design goal, the owner's own words on where it goes, beside the
+// The writing of a new policy is given the project's design goal, the owner's own words on where it goes, beside the
 // constitution, as a work of the architect is given its project's settings.
 #[test]
-fn the_study_of_a_new_policy_is_given_the_design_goal() {
+fn the_writing_of_a_new_policy_is_given_the_design_goal() {
     let s = setup("study-goal");
     no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let setting = setting_at(&mut e, "P2");
-    let m = engine::next_message(&mut e, setting).unwrap().text;
-    let goal = work_from(&m).into_iter().nth(2).unwrap_or_default();
-    assert!(goal.starts_with("3. ") && !goal.ends_with("none"), "{goal}\n{m}");
+    let (writing, _) = check_at(&mut e, "P2");
+    let m = engine::next_message(&mut e, writing).unwrap().text;
+    let goal = work_from(&m).into_iter().nth(1).unwrap_or_default();
+    assert!(goal.starts_with("2. ") && !goal.ends_with("none"), "{goal}\n{m}");
     assert!(m.contains("simple"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -6764,6 +6413,37 @@ fn record_round(
     Ok(())
 }
 
+/// A work of project p's architect at a cell of the check of its policy, with no round there yet: the work took the
+/// check, a matter at the head of the queue, at its look at the queue. Gives the work and the matter.
+fn check_at(e: &mut Engine, cell: &str) -> (i64, i64) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', ?2, 'p')",
+            params![v, cell],
+        )?;
+        let work = tx.last_insert_rowid();
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "check_policy".into(),
+            what: "Check whether the policy of p still holds: a test asks for it".into(),
+            body: json!({ "asked_by": [] }),
+            ..db::Matter::default()
+        };
+        let matter = db::queue_matter(tx, &m)?;
+        record_round(
+            tx,
+            work,
+            1,
+            "Q0",
+            &json!({ "queue": { "verdict": "head", "matter": matter } }),
+            "head",
+        )?;
+        Ok((work, matter))
+    })
+    .unwrap()
+}
+
 /// A work of project p's architect at a cell, with no round yet.
 fn architect_work_at(e: &mut Engine, cell: &str) -> i64 {
     let v = e.flow_now;
@@ -6777,74 +6457,6 @@ fn architect_work_at(e: &mut Engine, cell: &str) -> i64 {
     .unwrap()
 }
 
-/// A setting of project p's policy at a cell, with no round there yet: a work of p's architect whose check of the
-/// policy in force set it again and raised the setting's matter, which the work has in hand, new works of p held. A
-/// setting under way before it is withdrawn, since one runs at a time.
-fn setting_at(e: &mut Engine, cell: &str) -> i64 {
-    let v = e.flow_now;
-    let again = json!({ "outcome": { "against": [], "verdict": { "verdict": "set_again",
-                        "reasons": [{ "kind": "no_policy", "seen": "s", "why": "No policy yet." }] } },
-                        "progress": "Set again.", "tell_owner": [] });
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE architect_matters SET withdrawn = 'over before the next setting'
-             WHERE kind = 'set_policy' AND handled_round IS NULL AND withdrawn IS NULL",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, 'architect', ?2, 'p')",
-            params![v, cell],
-        )?;
-        let work = tx.last_insert_rowid();
-        record_round(tx, work, 1, "P1", &again, "set_again")?;
-        db::queue_matter(
-            tx,
-            &db::Matter {
-                project: "p".into(),
-                kind: "set_policy".into(),
-                detail: None,
-                what: "Set a new policy.".into(),
-                body: json!({}),
-                item: None,
-                raised: Some((work, 1)),
-            },
-        )?;
-        tx.execute(
-            "INSERT OR IGNORE INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)",
-            [],
-        )?;
-        Ok(work)
-    })
-    .unwrap()
-}
-
-/// The matter of project p's setting of its policy raised last.
-fn setting_matter(e: &Engine) -> i64 {
-    e.db.conn()
-        .query_row(
-            "SELECT max(id) FROM architect_matters WHERE project = 'p' AND kind = 'set_policy'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap()
-}
-
-/// The rows the rounds of project p's architect works at a cell took, oldest first, in whichever work.
-fn setting_rows(e: &Engine, cell: &str) -> Vec<String> {
-    engine::query_json(
-        e.db.conn(),
-        "SELECT r.transition FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = 'p' AND r.cell = ?1 AND r.transition IS NOT NULL
-         ORDER BY r.work, r.n",
-        &[&cell],
-        100,
-    )
-    .unwrap()
-    .iter()
-    .filter_map(|r| r["transition"].as_str().map(str::to_string))
-    .collect()
-}
-
 /// The line of the next message of a work that lists its input by number.
 fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
     let m = engine::next_message(e, work).unwrap().text;
@@ -6852,37 +6464,6 @@ fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
         .into_iter()
         .find(|l| l.starts_with(&format!("{number}. ")))
         .unwrap_or_else(|| panic!("{m}"))
-}
-
-// `N1` is given the study of a new policy and the owner's answer to it only when the owner's latest view of a study, in
-// the setting of the policy that ended last, said the policy in force stays, not when the owner was satisfied.
-#[test]
-fn the_study_reaches_the_fit_question_only_when_the_owner_said_the_policy_stays() {
-    let s = setup("stays");
-    no_reply_wait(&s);
-    let (mut e, _) = engine(&s, scripts());
-    quiet(&mut e);
-    let arch = architect_work_at(&mut e, "N1");
-    let setting = setting_at(&mut e, "P4");
-    let study =
-        json!({ "outcome": { "study": { "intent": "Faster parsing." } }, "progress": "Studied.", "tell_owner": [] });
-    let ruling = |choice: &str| json!({ "ruling": { "choice": choice, "text": "Seen." } });
-    e.db.write(Actor::Engine, |tx| {
-        record_round(tx, setting, 2, "P2", &study, "studied")?;
-        record_round(tx, setting, 3, "P3", &json!({}), "held")?;
-        record_round(tx, setting, 4, "P3", &ruling("satisfied"), "satisfied")
-    })
-    .unwrap();
-    assert_eq!(next_listed(&mut e, arch, 9), "9. none");
-    e.db.write(Actor::Engine, |tx| {
-        record_round(tx, setting, 5, "P3", &ruling("policy_stays"), "policy_stays")
-    })
-    .unwrap();
-    let stays = next_listed(&mut e, arch, 9);
-    assert!(stays.contains("policy_stays") && !stays.ends_with("none"), "{stays}");
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    assert!(m.contains("Faster parsing."), "{m}");
-    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // `P1` is given only the signals of the policy in force that the engine measures, each with its numbers:
@@ -6898,7 +6479,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
                              "signals": signals });
         let written =
-            json!({ "outcome": { "policy": policy, "probes": [] }, "progress": "Written.", "tell_owner": [] });
+            json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
@@ -6906,7 +6487,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
                 [v],
             )?;
             let set = tx.last_insert_rowid();
-            record_round(tx, set, 1, "P4", &written, "written")?;
+            record_round(tx, set, 1, "P2", &written, "written")?;
             record_round(tx, set, 2, "P12", &json!({}), "next")
         })
         .unwrap();
@@ -6929,7 +6510,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         &mut e,
         json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
     );
-    assert_eq!(next_listed(&mut e, arch, 3), "3. none");
+    assert_eq!(next_listed(&mut e, arch, 4), "4. none");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7106,7 +6687,7 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
         .filter_map(|r| r["what"].as_str().map(str::to_string))
         .collect()
     };
-    for _ in 0..6 {
+    for _ in 0..12 {
         if !straight(&e).is_empty() {
             break;
         }
@@ -7360,7 +6941,7 @@ fn a_new_session_in_the_middle_of_an_architect_work_understands_the_project_firs
     let path = path_of(&e, arch);
     // The work was at `H8`, the matter picked, when the new session was asked for: it took the row for that there.
     let back = path.iter().rposition(|c| c == "S1").expect(&log);
-    assert_eq!(&path[back - 1..back + 3], ["H8", "S1", "U1", "P1"], "{path:?}\n{log}");
+    assert_eq!(&path[back - 1..back + 3], ["H8", "S1", "U1", "Q0"], "{path:?}\n{log}");
     assert!(path[back..].contains(&"H8".to_string()), "{path:?}");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
@@ -7825,17 +7406,18 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
     turn(&mut e, &c, None);
-    for _ in 0..3 {
+    for _ in 0..5 {
         c.ask_step_architect("p", false).unwrap();
         turn(&mut e, &c, None);
     }
     let log = said.borrow().join("\n");
-    assert_eq!(path_of(&e, arch), ["S1", "U1", "P1", "S1", "U1", "P1"], "{log}");
+    let path = path_of(&e, arch);
+    assert_eq!(path[..7], ["S1", "U1", "Q0", "Q2", "H8", "S1", "U1"], "{log}");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
     assert!(lines[0].1, "{lines:?}");
     assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
-    assert_eq!(lines[1].2, "U1,P1", "{lines:?}\n{log}");
+    assert!(lines[1].2.starts_with("U1"), "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -8164,7 +7746,6 @@ fn random_events(seed: u64, events: usize) {
                         text: "Go on.".into(),
                         why: None,
                         reply: None,
-                        choice: None,
                         to: back.then(|| "architect".to_string()),
                     };
                     match api::answer(&mut e.db, *ask, &answer) {

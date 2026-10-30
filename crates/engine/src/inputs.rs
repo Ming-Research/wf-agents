@@ -119,8 +119,7 @@ pub fn at_path(x: &Value, path: &str) -> Option<Value> {
 /// The returns of a cell in the work that hold a place, newest first, each with its round: for an agent's own answer,
 /// the returns of its own form; for the fields every return has, the returns that have them; for any other cell,
 /// every return that took a row. Each is given as the rows read it, an agent's form taken out of the field it sits
-/// in. A cell of the setting of a new policy that a work of the architect has in hand has the setting's returns, in
-/// whichever of the project's architect works the setting went on in.
+/// in.
 pub fn returns_holding(
     e: &Engine,
     w: &Work,
@@ -132,10 +131,7 @@ pub fn returns_holding(
         return Ok(Vec::new());
     };
     let top = path.split(['.', '[']).next().unwrap_or_default();
-    let rounds = match crate::architect::setting_rounds_at(e, w, g, cell)? {
-        Some(rs) => rs,
-        None => work::rounds_at(e.db.conn(), w.id, cell)?,
-    };
+    let rounds = work::rounds_at(e.db.conn(), w.id, cell)?;
     let mut out = Vec::new();
     for r in rounds {
         let Some(ret) = r.output.filter(|_| r.transition.is_some()) else {
@@ -204,37 +200,6 @@ pub fn gather(
     for x in &cell.inputs {
         let mut parts: Vec<Part> = Vec::new();
         for s in &x.from {
-            // The state of things: the work's own understanding as its return, with what came since; or the view.
-            if matches!(s, Src::Engine(n) if n == crate::architect::STATE) {
-                let view = Src::Db {
-                    relation: "architect_state".into(),
-                    by: Some("project".into()),
-                };
-                let whole = source(e, w, g, cell, item, &view)?;
-                if answered(e, w, g, "U1")?.is_empty() {
-                    parts.extend(whole);
-                    continue;
-                }
-                parts.extend(source(e, w, g, cell, item, &Src::Place("U1".into(), "state".into()))?);
-                if let Some(p) = whole {
-                    let has = |v: &Value| v.as_array().is_some_and(|xs| xs.iter().any(|x| !x.is_null()));
-                    let since: Vec<Value> = p
-                        .value
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|r| has(&r["learned"]) || has(&r["notes"]))
-                        .map(|r| json!({ "learned": r["learned"], "notes": r["notes"] }))
-                        .collect();
-                    if !since.is_empty() {
-                        parts.push(Part {
-                            origin: p.origin,
-                            value: Value::Array(since),
-                        });
-                    }
-                }
-                continue;
-            }
             parts.extend(source(e, w, g, cell, item, s)?);
         }
         let value = match parts.as_slice() {
@@ -257,8 +222,7 @@ pub fn gather(
 /// agent's cell shares that answer the cell that went to them (the tools, the search, the owner asked, the wait for the
 /// owner's Start) and its returns hold nothing at the path, when it is the cell before them, as the work's rounds have
 /// it, which the row that brought the work to its cell came from: a round after the tools still reads what that cell
-/// handed in, and the tools' results are still read from the tools. A cell of the setting of a new policy that the
-/// matter's router took back to it came from the cell of the setting before it, in whichever work.
+/// handed in, and the tools' results are still read from the tools.
 fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Option<String>, String> {
     let shared = |id: &str| g.cells.iter().any(|c| c.rows.iter().any(|r| r.common && r.to == id)) && g.is_called(id);
     let Some(from) = w.pos.from.as_deref() else {
@@ -268,22 +232,13 @@ fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Opti
         .iter()
         .any(|(_, ret)| at_path(ret, path).is_some());
     let at = w.pos.at.as_str();
-    let setting = if crate::architect::in_setting(g, at) {
-        crate::architect::setting_cells(e, w, g)?
-    } else {
-        None
-    };
-    let routed = setting.is_some() && crate::architect::routed(from);
-    if (!shared(from) && !routed) || holds {
+    if !shared(from) || holds {
         return Ok(Some(from.to_string()));
     }
-    let cells: Vec<String> = match setting {
-        Some(cells) => cells,
-        None => work::rounds(e.db.conn(), w.id)?
-            .into_iter()
-            .filter_map(|r| r.cell)
-            .collect(),
-    };
+    let cells: Vec<String> = work::rounds(e.db.conn(), w.id)?
+        .into_iter()
+        .filter_map(|r| r.cell)
+        .collect();
     Ok(cells.into_iter().rev().find(|c| c != at && !shared(c)))
 }
 
@@ -384,22 +339,6 @@ fn source(
         }
         // What the cell before this one on a matter's path answered is a place of that round's return.
         Src::Engine(n) if n == crate::architect::BEFORE => crate::architect::before(e, w, g)?,
-        // The policy being set is the newest of the places of the returns that write it, addressed as the oldest of
-        // them that holds it as it is: the text the engine put together unchanged from the text written is the
-        // written one.
-        Src::Engine(n) if crate::architect::draft_places(n).is_some() => {
-            let round = |p: &Part| match p.origin {
-                Origin::Place { round, .. } => Some(round),
-                _ => None,
-            };
-            let mut parts: Vec<Part> = Vec::new();
-            for (c, path) in crate::architect::draft_places(n).into_iter().flatten() {
-                let place = Src::Place((*c).to_string(), (*path).to_string());
-                parts.extend(source(e, w, g, cell, item, &place)?);
-            }
-            let newest = parts.iter().max_by_key(|p| round(p)).map(|p| p.value.clone());
-            newest.and_then(|v| parts.iter().filter(|p| p.value == v).min_by_key(|p| round(p)).cloned())
-        }
         Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,

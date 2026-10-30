@@ -9,7 +9,6 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use db::rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Value, json};
 
 use crate::read::{self, Error, Flows};
 use crate::{
@@ -262,7 +261,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 misses: None,
                 forwards: Vec::new(),
                 ask_detail: None,
-                revisions: None,
                 stage: None,
                 matter_card: None,
                 words_state: None,
@@ -286,8 +284,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
     words_states(conn, t, &mut entries)?;
-    // Each ask in full, with its documents: the study of a new policy, the policy to approve with the corrections of
-    // its text since the owner last read it.
+    // Each ask in full.
     let ids: Vec<String> = entries
         .iter()
         .filter(|e| e.source == "ask")
@@ -300,11 +297,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     };
     for e in entries.iter_mut().filter(|e| e.source == "ask") {
         e.ask_detail = asks.iter().find(|a| a.id == e.id).cloned();
-        if let Some(a) = &e.ask_detail
-            && a.body["kind"] == "policy_approval"
-        {
-            e.revisions = Some(revisions(conn, a.id, &a.body, a.work, a.round)?);
-        }
     }
     let waiting: Vec<_> = asks
         .iter()
@@ -688,7 +680,6 @@ fn blank() -> ConversationEntry {
         misses: None,
         forwards: Vec::new(),
         ask_detail: None,
-        revisions: None,
         stage: None,
         matter_card: None,
         words_state: None,
@@ -741,65 +732,6 @@ fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> 
         e.forwards = rows.collect::<db::rusqlite::Result<_>>()?;
     }
     Ok(())
-}
-
-/// The corrections of the text of a policy being set that came before an ask to approve it, since the setting's ask
-/// before it (or since the text was written): each correcting round with why and its edits, oldest first. A setting
-/// that is a stage of the architect's works, whose ask holds its matter, has them in whichever of those works; one a
-/// flow version before ran in a work of its own, in that work.
-fn revisions(conn: &Connection, ask: i64, body: &Value, work: i64, round: i64) -> Result<Value> {
-    let held = body["holds"].as_array().and_then(|h| h.first()).and_then(Value::as_i64);
-    if let Some(m) = held {
-        let since: (i64, i64) = conn
-            .query_row(
-                "SELECT work, round FROM owner_asks a, json_each(a.body, '$.holds') h
-                 WHERE h.value = ?1 AND a.id < ?2 AND json_extract(a.body, '$.kind') = 'policy_approval'
-                 ORDER BY a.id DESC LIMIT 1",
-                params![m, ask],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?
-            .unwrap_or((0, 0));
-        let mut st = conn.prepare(
-            "SELECT work, n, json_extract(output, '$.outcome.revision') FROM policy_setting_rounds
-             WHERE matter = ?1 AND cell = 'P8' AND transition IS NOT NULL
-               AND (work > ?2 OR (work = ?2 AND n > ?3)) AND (work < ?4 OR (work = ?4 AND n < ?5))
-             ORDER BY work, n",
-        )?;
-        let rows = st.query_map(params![m, since.0, since.1, work, round], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?))
-        })?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (w, n, revision) = row?;
-            if let Some(v) = read::json(revision) {
-                out.push(json!({ "work": w, "round": n, "why": v["why"], "edits": v["edits"] }));
-            }
-        }
-        return Ok(Value::Array(out));
-    }
-    let since: i64 = conn.query_row(
-        "SELECT coalesce(max(round), 0) FROM owner_asks
-         WHERE work = ?1 AND round < ?2 AND json_extract(body, '$.kind') = 'policy_approval'",
-        params![work, round],
-        |r| r.get(0),
-    )?;
-    let mut st = conn.prepare(&format!(
-        "SELECT n, json_extract(output, '$.outcome.revision') FROM rounds
-         WHERE work = ?1 AND n > ?2 AND n < ?3 AND transition IS NOT NULL AND cell IN {} ORDER BY n",
-        db::cells_sql("architect", &["P8"])
-    ))?;
-    let rows = st.query_map(params![work, since, round], |r| {
-        Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        let (n, revision) = row?;
-        if let Some(v) = read::json(revision) {
-            out.push(json!({ "round": n, "why": v["why"], "edits": v["edits"] }));
-        }
-    }
-    Ok(Value::Array(out))
 }
 
 /// A round of a work, as the stage cards read it.

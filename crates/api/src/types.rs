@@ -380,10 +380,6 @@ pub struct OwnerAsk {
     pub body: Value,
     /// The kind of each point it asks about, in order, with the kind's group.
     pub kinds: Vec<AskKind>,
-    /// The buttons the owner rules on it by (the study of a new policy, the policy to approve), one for each value it
-    /// offers, each saying what it does and what happens next as the flow built into this program says it for the cell
-    /// that put the ask; none for an ask answered otherwise.
-    pub choices: Vec<flow::format::Choice>,
     /// None while it waits.
     pub answer: Option<Value>,
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
@@ -499,11 +495,6 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub reply: Option<Value>,
-    /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
-    /// the ask lists.
-    #[serde(default)]
-    #[ts(optional)]
-    pub choice: Option<String>,
     /// For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
     /// the answer as a decision for it to carry out, instead of resolving it.
     #[serde(default)]
@@ -1056,8 +1047,9 @@ pub struct Architect {
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// The new policy it is setting now; none while it sets none.
-    pub setting: Option<PolicySetting>,
+    /// The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+    /// policy takes effect; none otherwise.
+    pub draft: Option<PolicyDraft>,
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
     pub next: NextPlan,
@@ -1145,10 +1137,8 @@ pub struct ConversationEntry {
     /// For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
     /// another entry.
     pub forwards: Vec<Forwarded>,
-    /// For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
-    /// since the owner last read it (`revisions`).
+    /// For an ask: the ask in full.
     pub ask_detail: Option<OwnerAsk>,
-    pub revisions: Option<Value>,
     /// For a stage card: the stage the work went through.
     pub stage: Option<StageCard>,
     /// For a matter card: where the matter stands with the architect.
@@ -1399,8 +1389,8 @@ pub struct MatterCard {
 }
 
 /// What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
-/// architect sets it straight; `policy`, while a new policy is set; since when; and for the architect's own hold, why,
-/// as it said it.
+/// architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
+/// architect's own hold, why, as it said it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DispatchHold {
     pub reason: String,
@@ -1526,38 +1516,14 @@ pub struct PolicyInForce {
     pub policy: Value,
 }
 
-/// A new policy as the architect sets it, a stage of its works: the latest study of it, and the latest text with its
-/// probes and every reading of it by a new architect since, with the architect's verdict on each, in whichever of its
-/// works they were.
+/// The draft of a new policy that waits for the owner's approval: its text, and the round of the architect's work that
+/// wrote it (cell `P2`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct PolicySetting {
-    /// The setting's matter, which the architect's works have in hand.
-    pub matter: i64,
-    pub study: Option<Said>,
-    pub draft: Option<Draft>,
-}
-
-/// A version of the policy being set, by the round that wrote it.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Draft {
+pub struct PolicyDraft {
     pub work: i64,
     pub round: i64,
-    /// The cell of that round.
-    pub cell: String,
+    pub at: Option<i64>,
     pub policy: Value,
-    pub probes: Value,
-    pub readings: Vec<Reading>,
-}
-
-/// A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Reading {
-    pub work: i64,
-    pub round: i64,
-    /// The cell of that round.
-    pub cell: String,
-    pub reading: Value,
-    pub verdict: Value,
 }
 
 /// What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered

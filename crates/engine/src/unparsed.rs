@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(&closed[MISSING_BRACE.trim_end().len()..], "}");
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let cell = g.cell("P8").unwrap();
+        let cell = g.cell("P2").unwrap();
         for text in [closed.as_str(), INSIDE_A, INSIDE_B] {
             let v: Value = serde_json::from_str(text).unwrap();
             assert!(v["outcome"].get("tell_owner").is_some());

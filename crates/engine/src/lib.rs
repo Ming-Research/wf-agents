@@ -302,15 +302,15 @@ impl Engine {
                 })
                 .map_err(|e| e.to_string())?;
             (self.say)(&format!("work {id} stopped: {why}"));
-            // An architect work stopped leaves no hold of its own behind: setting its project straight and a policy
-            // being set are the work's, or the setting's, a work of its own in a flow version before; the architect's
+            // An architect work stopped leaves no hold of its own behind: setting its project straight is the work's,
+            // as a policy being set was the setting's, a work of its own in a flow version before; the architect's
             // next work asks its questions afresh.
             if w.graph == ARCHITECT || w.graph == POLICY {
                 let project = w.project.clone();
                 self.db
                     .write(Actor::Engine, |tx| {
                         tx.execute(
-                            "DELETE FROM dispatch_holds WHERE project = ?1 AND reason IN ('set_straight', 'policy')",
+                            "DELETE FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
                             [&project],
                         )?;
                         Ok(())

@@ -1178,8 +1178,6 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
-        Some("count_trials") => architect::count_trials(e, w)?,
-        Some("put_draft_together") => architect::put_draft_together(e, w)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };

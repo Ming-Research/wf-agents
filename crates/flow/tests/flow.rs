@@ -30,17 +30,32 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 }
 
 // The architect's graph compiles with no finding, as the design the owner approved: where it waits for a work to start
-// and the start of its work (`S0`, `S1`, `U1`, `P1`, `N1`), the setting of a new policy (`P2` to `P12`), the queue
-// (`Q0`) and each matter's path, the review of a batch of item changes (`B1`, `B2`, `B3`, `B4`), the wrap-up (`E1`,
-// `E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer (`X2`) and the wait for the
-// owner's Start after a pause (`X3`): as many cells, rows and states. The owner's words reach the architect only
-// through its queue: no cell of it takes an interjection, and none answers one.
+// and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
+// and each matter's path, the check of the policy, the writing of a new one and its taking effect (`P1`, `P2`, `P12`),
+// the plan of what to do next (`N1`), the review of a batch of item changes and whether to plan or check again (`B1`,
+// `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer
+// (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, and none
+// of the setting of a policy as a stage of its own (its study, its readings by new architects, the owner's buttons).
+// The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
+// one.
 #[test]
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (40, 156, 212));
+    assert_eq!((s.cells, s.rows, s.states), (30, 116, 157));
     let g = c.graph("architect").unwrap();
+    for gone in ["E1", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11"] {
+        assert!(g.cell(gone).is_none(), "{gone}");
+    }
+    // Only a new session understands the project: no row but the start's goes to the understanding.
+    let into = |cell: &str| -> Vec<&str> {
+        g.cells
+            .iter()
+            .filter(|x| x.rows.iter().any(|r| r.to == cell && !r.common))
+            .map(|x| x.id.as_str())
+            .collect()
+    };
+    assert_eq!(into("U1"), ["S1"]);
     assert!(g.cell("X4").is_none());
     assert!(
         g.cells
@@ -50,14 +65,18 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert!(c.graph("policy").is_none());
 }
 
-// The setting of a new policy is a stage of the architect's graph, in its session: the check of the policy in force
-// that sets it again goes on to the study (`P2`), holding new starts; the owner's reading of the study (`P3`) and
-// approval of the text (`P11`) are asks that hold only the setting's matter while the architect goes on with its
-// queue (`B1`), and the matter, routed back to the cell with the owner's answer (`Q2`), goes on by the owner's choice;
-// the setting ends at what to do next (`N1`), new starts let go, its matter handled. An owner's cell of the architect's
-// graph with no row that goes on without the answer is refused, since the architect never stops for the owner.
+// The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's
+// understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
+// matter back with the owner's reply and the wait for a question just put, and before the others, without a pick
+// (`head`), and the router sends each to its cell. The check closes it when the policy holds, asks the owner in doubt,
+// and goes on to write a new policy by the owner's reply (`write_policy`); the writing asks the owner to approve it,
+// which parks the check there, and the router sends it back to the writing with any other reply, and with approved to
+// where it takes effect, which queues the plan and closes the check. The plan closes its matter. Whoever wants a check
+// or a plan queues it: no row of a batch's rethink, a talk or the taking effect goes to the check or the plan. An
+// owner's cell of the architect's graph with no row that goes on without the answer is refused, since the architect
+// never stops for the owner.
 #[test]
-fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
+fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
     let row = |cell: &str, name: &str| {
@@ -70,58 +89,60 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
             .clone()
     };
     let does = |r: &flow::CompiledRow| r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>();
-    let set_again = row("P1", "set_again");
+    let way = |r: &flow::CompiledRow| (r.to.clone(), does(r));
+    let to = |to: &str, then: &[&str]| (to.to_string(), then.iter().map(|x| x.to_string()).collect::<Vec<_>>());
     assert_eq!(
-        (set_again.to.as_str(), does(&set_again)),
-        ("P2", vec!["hold_for_policy".to_string(), "start_setting".to_string()])
+        way(&row("U1", "understood")),
+        to("Q0", &["tell_owner_unclear", "queue_check_policy", "queue_make_plan"])
     );
-    let given = |k: &str, v: &str| Map::from_iter([(k.to_string(), Value::String(v.into()))]);
-    let none = Map::new();
-    let ruling = |choice: &str| serde_json::json!({ "ruling": { "choice": choice } });
-    for (at, ways) in [
-        ("P3", [("satisfied", "P4"), ("study_on", "P2"), ("policy_stays", "N1")]),
-        (
-            "P11",
-            [("approved", "P12"), ("fix_text", "P8"), ("not_good_enough", "P2")],
-        ),
-    ] {
-        let held = g.take(at, &serde_json::json!({}), &none).unwrap();
-        assert_eq!((held.name.as_str(), held.to.as_str(), held.drops), ("held", "B1", true));
-        for (choice, to) in ways {
-            let r = g.take(at, &ruling(choice), &none).unwrap();
-            assert_eq!((r.name.as_str(), r.to.as_str()), (choice, to));
-        }
-        let back = g.take("Q2", &serde_json::json!({}), &given("route", at)).unwrap();
-        assert_eq!(back.to, at);
+    let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(q0[..4], ["owner_words", "answered", "waits", "head"]);
+    assert_eq!(row("Q0", "head").to, "Q2");
+    let given = |v: &str| Map::from_iter([("route".to_string(), Value::String(v.into()))]);
+    for at in ["P1", "P2", "P12", "N1"] {
+        let r = g.take("Q2", &serde_json::json!({}), &given(at)).unwrap();
+        assert_eq!(r.to, at);
     }
-    for end in [row("P3", "policy_stays"), row("P12", "next")] {
+    assert_eq!(way(&row("P1", "holds")), to("B1", &["close_matter"]));
+    assert_eq!(way(&row("P1", "write_policy")), to("P2", &[]));
+    assert_eq!(row("P1", "ask_owner").to, "A3");
+    assert_eq!(
+        way(&row("P2", "written")),
+        to("B1", &["queue_measures", "ask_approval"])
+    );
+    assert_eq!(way(&row("P12", "next")), to("B1", &["queue_make_plan", "close_matter"]));
+    for name in ["fits", "some_to_change", "set_straight"] {
+        let r = row("N1", name);
         assert_eq!(
-            (end.to.as_str(), does(&end)),
-            (
-                "N1",
-                vec!["release_policy_hold".to_string(), "close_matter".to_string()]
-            )
+            (r.to.as_str(), does(&r).last().map(String::as_str)),
+            ("B1", Some("close_matter"))
         );
     }
-    // A new session at a cell of the setting goes back to understanding the project, and the setting, taken again, to
-    // the cell it stood at.
-    for at in ["P2", "P4", "P7", "P8", "P10"] {
-        assert_eq!(row(at, "session_anew").to, "S1", "{at}");
-        let back = g.take("Q2", &serde_json::json!({}), &given("route", at)).unwrap();
-        assert_eq!(back.to, at);
-    }
-    assert!(g.cell("P6").unwrap().line.is_none());
+    assert_eq!(way(&row("B4", "go_on")), to("Q0", &[]));
+    assert_eq!(way(&row("B4", "re_plan")), to("Q0", &["queue_make_plan"]));
+    assert_eq!(way(&row("B4", "check_policy")), to("Q0", &["queue_check_policy"]));
+    let into = |cell: &str| -> Vec<&str> {
+        g.cells
+            .iter()
+            .filter(|x| x.rows.iter().any(|r| r.to == cell && !r.common))
+            .map(|x| x.id.as_str())
+            .collect()
+    };
+    assert_eq!(into("P1"), ["Q2"]);
+    assert_eq!(into("N1"), ["Q2"]);
+    assert_eq!(into("P2"), ["P1", "Q2"]);
+    assert_eq!(into("P12"), ["Q2"]);
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    let p3 = v["flows"][1]["nodes"]
+    let ask = v["flows"][1]["nodes"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|n| n["id"] == "P3")
+        .find(|n| n["id"] == "A3")
         .unwrap();
-    p3["cases"][0].as_object_mut().unwrap().remove("drops");
+    ask["cases"][0].as_object_mut().unwrap().remove("drops");
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
-        e.contains("the architect's own graph stops: P3 goes on only with the owner's answer"),
+        e.contains("the architect's own graph stops: A3 goes on only with the owner's answer"),
         "{e}"
     );
 }
@@ -129,10 +150,10 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
 // The owner's words are a talk with the architect, as the owner approved: the look at the queue takes them first,
 // without a pick (`Q0`); the cell of the owner's words (`H8`) replies and waits for the owner (`H11`), whose next words
 // or Done take the talk on in the same session, and whose silence past the installation's wait holds the talk back in
-// the queue while the architect goes on (`B1`); only the owner ends it, and its last turn takes one way on: done (`B1`),
-// what to do next again (`N1`), a new policy (`P2`, one setting at a time) or understanding the project again (`U1`).
-// The owner decides on a study or a text by its buttons alone, its ruling holding no words. A row that waits in the
-// architect's graph with no setting bounding the wait is refused, since the architect stops for no one.
+// the queue while the architect goes on (`B1`); only the owner ends it, and its last turn takes one way on, back to the
+// batch (`B1`): done; the plan of what to do next made again, or the policy checked, each a matter it queues at the head
+// of the queue. A row that waits in the architect's graph with no setting bounding the wait is refused, since the
+// architect stops for no one.
 #[test]
 fn the_owner_s_words_are_a_talk_the_owner_ends() {
     let c = compiled();
@@ -171,14 +192,12 @@ fn the_owner_s_words_are_a_talk_the_owner_ends() {
     for (name, to, then) in [
         ("replied", "H11", vec!["take_words", "reply_to_owner"]),
         ("done", "B1", vec!["take_words", "close_matter"]),
-        ("re_plan", "N1", vec!["take_words", "close_matter"]),
+        ("re_plan", "B1", vec!["take_words", "queue_make_plan", "close_matter"]),
         (
             "new_policy",
-            "P2",
-            vec!["take_words", "close_matter", "hold_for_policy", "start_setting"],
+            "B1",
+            vec!["take_words", "queue_check_policy", "close_matter"],
         ),
-        ("to_setting", "B1", vec!["take_words", "close_matter"]),
-        ("re_understand", "U1", vec!["take_words", "close_matter"]),
     ] {
         let r = row("H8", name);
         assert_eq!(
@@ -193,10 +212,6 @@ fn the_owner_s_words_are_a_talk_the_owner_ends() {
         assert_eq!((r.name.as_str(), r.to.as_str(), r.waits), (value, to, value == "waits"));
     }
     assert_eq!(does(&row("H11", "no_reply")), ["hold_talk"]);
-    for at in ["P3", "P11"] {
-        let schema = g.cell(at).unwrap().schema.clone().unwrap();
-        assert!(schema.pointer("/properties/ruling/properties/text").is_none(), "{at}");
-    }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let wait = v["flows"][1]["nodes"]
         .as_array_mut()

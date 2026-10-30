@@ -817,13 +817,13 @@ CREATE TABLE observations (
 
 CREATE TABLE dispatch_holds (
   -- What stops new works of a project from starting, one row for each: its architect's own hold, its architect setting
-  -- it straight, its architect setting a new policy. While a project has a row here, the engine starts no new work on
-  -- its items; works already running go on, and the other projects' works start as usual.
+  -- it straight. While a project has a row here, the engine starts no new work on its items; works already running go
+  -- on, and the other projects' works start as usual.
   -- Read by: the engine at cell `S0`; the architect, through its board; the owner's interface.
   project TEXT NOT NULL,
-  -- architect: held by the architect's own action. set_straight: its understanding found the whole must be set
-  -- straight. policy: a new policy is being set.
-  reason TEXT NOT NULL CHECK (reason IN ('architect', 'set_straight', 'policy')),
+  -- architect: held by the architect's own action. set_straight: its plan of what to do next found the whole must be
+  -- set straight.
+  reason TEXT NOT NULL CHECK (reason IN ('architect', 'set_straight')),
   -- When it began.
   since INTEGER NOT NULL,
   -- Why, in the owner's language, as the architect said it for its own hold; NULL for the others, whose reason says
@@ -874,8 +874,6 @@ CREATE INDEX changes_by_row ON changes (table_name, row_key);
 CREATE INDEX outbox_by_run_after ON outbox (run_after);
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
--- The settings of each project's policy, by which the views of a setting tell its rounds.
-CREATE INDEX architect_matters_settings ON architect_matters (project, id) WHERE kind = 'set_policy';
 -- Where each fault of wf-agents was forwarded: to each project's architect once.
 CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 -- The entries of each talk with the owner.
@@ -1203,8 +1201,7 @@ CREATE VIEW architect_notes AS
 CREATE VIEW architect_state AS
   -- Each project's state of things as its architect last wrote it: what the project is now, as its latest
   -- understanding wrote it (cell `U1`), with what its wrap-ups learned and every note written since; a round that asked
-  -- for tools, paused or answered the owner's words wrote none of them. Read by: cells `U1` and `E1`; the owner's
-  -- interface.
+  -- for tools, paused or answered the owner's words wrote none of them. Read by: cell `U1`; the owner's interface.
   SELECT project, work, round, state, learned, notes FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.state') AS state,
       (SELECT json_group_array(json_extract(x.output, '$.outcome.learned')) FROM rounds x JOIN works y ON y.id = x.work
@@ -1258,38 +1255,28 @@ CREATE VIEW architect_last_fit AS
 
 CREATE VIEW work_handled AS
   -- The matters each work of an architect handled, in the order it handled them: each matter, its kind, the cell and
-  -- the round that closed it, and what that round said it did. Read by: cell `E1`; the owner's interface.
+  -- the round that closed it, and what that round said it did. Read by: the owner's interface.
   SELECT m.handled_work AS work, m.handled_round AS round, m.id AS matter, m.kind, m.detail, m.what, r.cell,
     json_extract(r.output, '$.progress') AS said
   FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
   ORDER BY m.handled_work, m.handled_round;
 
-CREATE VIEW policy_setting_rounds AS
-  -- Each round of a setting of a project's policy at a cell of its stage, with the setting's matter, of the kind
-  -- set_policy. A setting is a stage of the project's architect's works, which go on one after another: the check of
-  -- the policy in force that sets it again raises its matter, and its rounds are those at the cells of the stage after
-  -- that, in any of the works it goes on in, until the next setting's matter. A setting a flow version before held in
-  -- a work of its own, or in one work of the architect, is not here. Read by: policy_draft and policy_trials.
-  SELECT project, work, n, cell, transition, output, matter FROM (
-    SELECT w.project, r.work, r.n, r.cell, r.transition, r.output,
-      (SELECT max(m.id) FROM architect_matters m
-       WHERE m.project = w.project AND m.kind = 'set_policy'
-         AND (m.work < r.work OR (m.work = r.work AND m.round < r.n))) AS matter
-    FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.graph = 'architect' AND r.cell IN ('P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12'))
-  WHERE matter IS NOT NULL;
-
 CREATE VIEW policy_current AS
-  -- Each project's policy in force: the text written, or put together from a correction, last before the owner's latest
-  -- approval in a setting of the project's policy, in whichever of its architect's works the setting went on in since
-  -- its matter was raised, with the round of that approval; none before the first policy takes effect. A setting a flow
-  -- version before held in a work of its own, or in one work of the architect, has the text in the work of the
-  -- approval. A correction hands in only what it changes, and the engine puts the text together (`P5`); a correction
-  -- of a flow version before that held the whole text. Older versions stay readable in the rounds and are given to no
-  -- agent. Read by: the engine, for the architect's cells; the owner's interface.
+  -- Each project's policy in force: the draft the architect wrote last (cell `P2`) before the round in which the
+  -- owner's approval took effect (cell `P12`), in whichever of its works, with the round of that approval; none before
+  -- the first policy takes effect. A flow version before set a policy in a setting of its own, whose text was written,
+  -- or put together from a correction, last before the owner's latest approval in it, in whichever of the architect's
+  -- works the setting went on in since its matter was raised; a setting a flow version before that held in a work of
+  -- its own, or in one work of the architect, has the text in the work of the approval. Older versions stay readable in
+  -- the rounds and are given to no agent. Read by: the engine, for the architect's cells; the owner's interface.
   SELECT project, work, round, policy FROM (
     SELECT w.project, a.work, a.n AS round,
       coalesce(
+        (SELECT json_extract(t.output, '$.outcome.policy') FROM rounds t JOIN works y ON y.id = t.work
+         WHERE y.graph = 'architect' AND y.project = w.project AND t.cell = 'P2' AND t.transition IS NOT NULL
+           AND (t.work < a.work OR (t.work = a.work AND t.n < a.n))
+           AND json_extract(t.output, '$.outcome.policy') IS NOT NULL
+         ORDER BY t.work DESC, t.n DESC LIMIT 1),
         (SELECT coalesce(json_extract(t.output, '$.draft.policy'), json_extract(t.output, '$.outcome.policy'),
            json_extract(t.output, '$.outcome.revision.policy'))
          FROM architect_matters m JOIN rounds t ON t.work BETWEEN m.work AND a.work JOIN works y ON y.id = t.work
@@ -1318,76 +1305,20 @@ CREATE VIEW policy_current AS
   WHERE k = 1;
 
 CREATE VIEW policy_draft AS
-  -- Each setting's version of the policy being set, by the setting's matter: the round of the latest writing or
-  -- correcting in it, its work and number, the text as it stands, and the probes with the answers the architect holds
-  -- right. A correction hands in only what it changes, its edits and the probes it adds or changes beside those it
-  -- keeps, and the text and the probes are then as the engine last put them together (`P5`), as the text is after a
-  -- minor fix a reading found, which leaves the version as it was. A round of those cells that asked for tools, asked
-  -- the owner, paused, answered the owner's words or gave way to a new session wrote no version. Read by: policy_text,
-  -- policy_probes_asked and policy_trials; the cells on the architect's line take it from the returns that wrote it or
-  -- put it together.
-  SELECT t.matter, t.work, t.n AS round,
-    (SELECT coalesce(json_extract(x.output, '$.draft.policy'), json_extract(x.output, '$.outcome.policy'),
-       json_extract(x.output, '$.outcome.revision.policy'))
-     FROM policy_setting_rounds x
-     WHERE x.matter = t.matter AND x.cell IN ('P4', 'P5', 'P8') AND x.transition IS NOT NULL
-       AND coalesce(json_extract(x.output, '$.draft.policy'), json_extract(x.output, '$.outcome.policy'),
-         json_extract(x.output, '$.outcome.revision.policy')) IS NOT NULL
-     ORDER BY x.work DESC, x.n DESC LIMIT 1) AS policy,
-    coalesce(
-      (SELECT json_extract(x.output, '$.draft.probes') FROM policy_setting_rounds x
-       WHERE x.matter = t.matter AND x.cell = 'P5' AND x.transition IS NOT NULL
-         AND (x.work > t.work OR (x.work = t.work AND x.n > t.n))
-         AND json_extract(x.output, '$.draft.probes') IS NOT NULL
-       ORDER BY x.work DESC, x.n DESC LIMIT 1),
-      json_extract(t.output, '$.outcome.probes'), json_extract(t.output, '$.outcome.revision.probes')) AS probes
-  FROM policy_setting_rounds t
-  WHERE t.cell IN ('P4', 'P8') AND t.transition IS NOT NULL
-    AND t.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers', 'session_anew')
-    AND NOT EXISTS (SELECT 1 FROM policy_setting_rounds x
-                    WHERE x.matter = t.matter AND x.cell IN ('P4', 'P8') AND x.transition IS NOT NULL
-                      AND x.transition NOT IN ('tools', 'search', 'pause', 'ask_owner', 'answers', 'session_anew')
-                      AND (x.work > t.work OR (x.work = t.work AND x.n > t.n)));
-
-CREATE VIEW policy_text AS
-  -- The text of each setting's version of the policy being set, by the setting's matter, without its probes. Read by:
-  -- cell `P5`; the engine, to check a reading of it.
-  SELECT matter, work, round, policy FROM policy_draft;
-
-CREATE VIEW policy_probes_asked AS
-  -- The probes of each setting's version of the policy being set, by the setting's matter, the questions only, without
-  -- the answers the architect holds right. Read by: cell `P6`, the new architect that reads the policy, which is given
-  -- nothing besides them.
-  SELECT d.matter,
-    json_group_array(json_object('id', json_extract(p.value, '$.id'), 'ask', json_extract(p.value, '$.ask'))) AS probes
-  FROM policy_draft d, json_each(d.probes) p
-  GROUP BY d.matter;
-
-CREATE VIEW policy_trials AS
-  -- Each setting's version of the policy being set, by the setting's matter, with every reading of it by a new
-  -- architect since it was written, each by its work and round, and the architect's judgment of each, oldest first.
-  -- Read by: cells `P9`, `P11` and `P12`; policy_readings; the owner's interface.
-  SELECT d.matter, d.work, d.round, d.policy, d.probes,
-    (SELECT json_group_array(json_object('work', r.work, 'round', r.n,
-       'reading', json(json_extract(r.output, '$.outcome.reading')),
-       'verdict', json((SELECT json_extract(v.output, '$.outcome.verdict') FROM policy_setting_rounds v
-                        WHERE v.matter = r.matter AND v.cell = 'P7' AND v.transition IS NOT NULL
-                          AND json_extract(v.output, '$.outcome.verdict') IS NOT NULL
-                          AND (v.work > r.work OR (v.work = r.work AND v.n > r.n))
-                        ORDER BY v.work, v.n LIMIT 1))))
-     FROM policy_setting_rounds r
-     WHERE r.matter = d.matter AND r.cell = 'P6' AND r.transition IS NOT NULL
-       AND json_extract(r.output, '$.outcome.reading') IS NOT NULL
-       AND (r.work > d.work OR (r.work = d.work AND r.n > d.round)))
-       AS readings
-  FROM policy_draft d;
-
-CREATE VIEW policy_readings AS
-  -- The readings of each setting's version of the policy being set by new architects since it was written, by the
-  -- setting's matter, each with the architect's judgment of it, oldest first, without the text and the probes they
-  -- read. Read by: cell `P7`, which weighs a reading beside every reading of the version, and cell `P8`, which fixes
-  -- what they left.
-  SELECT matter, readings FROM policy_trials;
+  -- Each project's draft of a new policy that waits for the owner's approval: the latest the architect wrote (cell
+  -- `P2`), in whichever of its works, when no new policy took effect after it (cell `P12`); none otherwise. Read by:
+  -- cell `P2`, which writes it again by the owner's reply, and cell `P12`, which makes it the policy in force; the
+  -- owner's interface.
+  SELECT project, work, round, policy FROM (
+    SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.policy') AS policy,
+      row_number() OVER (PARTITION BY w.project ORDER BY r.work DESC, r.n DESC) AS k
+    FROM rounds r JOIN works w ON w.id = r.work
+    WHERE w.graph = 'architect' AND r.cell = 'P2' AND r.transition IS NOT NULL
+      AND json_extract(r.output, '$.outcome.policy') IS NOT NULL) d
+  WHERE k = 1 AND NOT EXISTS (
+    SELECT 1 FROM rounds a JOIN works x ON x.id = a.work
+    WHERE x.graph = 'architect' AND x.project = d.project AND a.cell = 'P12' AND a.transition IS NOT NULL
+      AND (a.work > d.work OR (a.work = d.work AND a.n > d.round)));
 
 CREATE VIEW observations_all AS
   -- Every observation of each project as the owner's page shows it: closed or not and why (one an item took in is

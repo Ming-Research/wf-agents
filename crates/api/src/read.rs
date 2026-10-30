@@ -9,16 +9,16 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use db::rusqlite::types::ValueRef;
 use db::rusqlite::{self, Connection, OptionalExtension, Row, params, params_from_iter};
-use flow::format::{Choice, Src};
+use flow::format::Src;
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, Draft, FlowVersion, FlowView, Handled, HandledAction,
+    Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NextPlan, Observation, OwnerAsk, OwnerMessage, PausedBy, Ping,
-    PolicyInForce, PolicySetting, ProjectNow, Queued, Reading, Replacement, RoundConditional, RoundDetail, RoundInput,
+    PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail, RoundInput,
     RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun, Waits, WorkDetail,
     WorkSession, WorkState, WorkSummary,
 };
@@ -727,51 +727,6 @@ const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
                 (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
 FROM owner_asks a JOIN works w ON w.id = a.work";
 
-/// The buttons of each owner's cell that rules by them, by its graph and its id, as the flow built into this program
-/// says them: an ask keeps the values it offers, and the page says them as the flow does.
-static CHOICES: LazyLock<HashMap<(String, String), Vec<Choice>>> = LazyLock::new(|| {
-    let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
-        return HashMap::new();
-    };
-    source
-        .flows
-        .iter()
-        .flat_map(|f| {
-            f.nodes
-                .iter()
-                .filter_map(move |n| Some(((f.name.clone(), n.id.clone()), n.choices.clone()?)))
-        })
-        .collect()
-});
-
-/// The buttons the owner rules on an ask by: one for each value the ask offers, as the flow says it for the cell that
-/// put the ask, or, for a value the flow no longer has, the value in words with what the ask says it means.
-fn ask_choices(graph: &str, body: &Value) -> Vec<Choice> {
-    let cell = body["cell"].as_str().unwrap_or_default();
-    let said = CHOICES.get(&(graph.to_string(), cell.to_string()));
-    body["choices"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|c| {
-            let value = c[0].as_str()?;
-            let worded = said.and_then(|xs| xs.iter().find(|x| x.value == value)).cloned();
-            Some(worded.unwrap_or_else(|| {
-                let words = value.replace('_', " ");
-                let mut chars = words.chars();
-                Choice {
-                    value: value.to_string(),
-                    title: chars
-                        .next()
-                        .map(|first| first.to_uppercase().chain(chars).collect())
-                        .unwrap_or_default(),
-                    desc: c[1].as_str().unwrap_or_default().to_string(),
-                }
-            }))
-        })
-        .collect()
-}
-
 /// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
 /// compiled flow version keeps the kinds, not their groups.
 static ASK_GROUPS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
@@ -810,14 +765,12 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
     let rows = st.query_map(params_from_iter(args), |r| {
         let body = json(r.get(4)?).unwrap_or(Value::Null);
-        let graph: String = r.get(7)?;
         Ok(OwnerAsk {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
             kinds: ask_kinds(&body),
-            choices: ask_choices(&graph, &body),
             body,
             answer: json(r.get(5)?),
             asked_at: r.get(6)?,
@@ -1788,20 +1741,6 @@ pub fn architect(
         "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
     )?;
     let mut started = started_for(conn, project)?;
-    // A new policy is being set while the matter of its setting is open.
-    let open: Option<i64> = conn
-        .query_row(
-            "SELECT max(id) FROM architect_matters
-             WHERE project = ?1 AND kind = 'set_policy' AND handled_round IS NULL AND withdrawn IS NULL",
-            [project],
-            |r| r.get(0),
-        )
-        .optional()?
-        .flatten();
-    let setting = match open {
-        Some(m) => Some(setting(conn, m)?),
-        None => None,
-    };
     let mut out_works = Vec::new();
     for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
@@ -1824,7 +1763,7 @@ pub fn architect(
         handled: matters_handled(conn, project)?,
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
-        setting,
+        draft: draft(conn, project)?,
         check: latest_of(conn, project, "P1")?,
         next: next(conn, project)?,
         observations: observations(conn, project)?,
@@ -2193,75 +2132,24 @@ pub(crate) fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyIn
         .optional()?)
 }
 
-/// The new policy a project's architect is setting, by the setting's matter: its latest study, and its latest text with
-/// the readings of it, unless a newer study has sent the text back to be written again, in whichever of the
-/// architect's works they were.
-fn setting(conn: &Connection, matter: i64) -> Result<PolicySetting> {
-    let study = conn
+/// The draft of a new policy a project's architect wrote that waits for the owner's approval, with the round that
+/// wrote it; none while none waits.
+fn draft(conn: &Connection, project: &str) -> Result<Option<PolicyDraft>> {
+    Ok(conn
         .query_row(
-            "SELECT work, n, cell, (SELECT ended_at FROM rounds x WHERE x.work = s.work AND x.n = s.n), output
-             FROM policy_setting_rounds s
-             WHERE matter = ?1 AND cell = 'P2' AND transition IS NOT NULL
-               AND json_extract(output, '$.outcome.study') IS NOT NULL
-             ORDER BY work DESC, n DESC LIMIT 1",
-            [matter],
+            "SELECT d.work, d.round, r.ended_at, d.policy FROM policy_draft d
+             JOIN rounds r ON r.work = d.work AND r.n = d.round WHERE d.project = ?1",
+            [project],
             |r| {
-                Ok(Said {
+                Ok(PolicyDraft {
                     work: r.get(0)?,
                     round: r.get(1)?,
-                    cell: r.get(2)?,
-                    at: r.get(3)?,
-                    value: returned(r.get(4)?, Some("study")),
+                    at: r.get(2)?,
+                    policy: json(r.get(3)?).unwrap_or(Value::Null),
                 })
             },
         )
-        .optional()?;
-    // The cell of a round of the setting, which each part of the policy being set names.
-    let cell = |work: i64, n: i64| -> String {
-        conn.query_row(
-            "SELECT coalesce(cell, '') FROM rounds WHERE work = ?1 AND n = ?2",
-            [work, n],
-            |r| r.get(0),
-        )
-        .unwrap_or_default()
-    };
-    let draft = conn
-        .query_row(
-            "SELECT work, round, policy, probes, readings FROM policy_trials WHERE matter = ?1",
-            [matter],
-            |r| {
-                let readings = json(r.get(4)?)
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|x| {
-                        let (work, round) = (
-                            x["work"].as_i64().unwrap_or_default(),
-                            x["round"].as_i64().unwrap_or_default(),
-                        );
-                        Reading {
-                            work,
-                            round,
-                            cell: cell(work, round),
-                            reading: x["reading"].clone(),
-                            verdict: x["verdict"].clone(),
-                        }
-                    })
-                    .collect();
-                let (work, round): (i64, i64) = (r.get(0)?, r.get(1)?);
-                Ok(Draft {
-                    work,
-                    round,
-                    cell: cell(work, round),
-                    policy: json(r.get(2)?).unwrap_or(Value::Null),
-                    probes: json(r.get(3)?).unwrap_or(Value::Null),
-                    readings,
-                })
-            },
-        )
-        .optional()?
-        .filter(|d| study.as_ref().is_none_or(|s| (d.work, d.round) > (s.work, s.round)));
-    Ok(PolicySetting { matter, study, draft })
+        .optional()?)
 }
 
 /// The latest round of a project's architect at a cell that answered, by what it answered.
@@ -3095,11 +2983,14 @@ mod tests {
             Some("studied"),
         )];
         // Work 3 is a setting of the policy as a flow version before ran it, a work of its own of the graph policy,
-        // whose P3 asked the owner to read the study as the architect's P3 does now: the architect's graph stands in
-        // for that version's.
+        // whose P3 asked the owner to read the study: the architect's graph stands in for that version's, with its
+        // owner's cell standing in for P3.
         let mut older = s.compiled.clone();
         let mut policy = older.graph("architect").unwrap().clone();
         policy.name = "policy".into();
+        let mut reads = policy.cell("A3").unwrap().clone();
+        reads.id = "P3".into();
+        policy.cells.push(reads);
         older.graphs.push(policy);
         let older = older.json();
         s.db.write(Actor::Engine, |tx| {
@@ -3158,7 +3049,7 @@ mod tests {
                 "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('q', 'owner_words', 'Q', '{}', 230)",
                 &[],
             )?;
-            run("INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 300)", &[])?;
+            run("INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'set_straight', 300)", &[])?;
             run("INSERT INTO dispatch_holds (project, reason, since) VALUES ('q', 'architect', 300)", &[])?;
             run(
                 "INSERT INTO architect_item_changes (work, round, matter, change, state, outcome)
@@ -3592,19 +3483,6 @@ mod tests {
         assert_eq!(counts(&s), (1, 0));
     }
 
-    // The owner rules on an ask by its buttons as the flow says them for the cell that put it, one for each value the
-    // ask offers; a value the flow no longer has reads as its words, with what the ask says it means. An ask answered
-    // otherwise has none.
-    #[test]
-    fn an_ask_s_buttons_say_what_the_flow_says() {
-        let body = json!({ "cell": "P3", "choices": [["satisfied", "s"], ["no_change", "n"]] });
-        let got = ask_choices("architect", &body);
-        assert_eq!(got.len(), 2);
-        assert_eq!(got[0], CHOICES[&("architect".to_string(), "P3".to_string())][0]);
-        assert_eq!((got[1].title.as_str(), got[1].desc.as_str()), ("No change", "n"));
-        assert!(ask_choices("architect", &json!({ "cell": "A3", "asked": [] })).is_empty());
-    }
-
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card
     // to look at with how the card stands; every other matter with neither.
     #[test]
@@ -3762,7 +3640,7 @@ mod tests {
         assert_eq!(
             a.holds,
             [DispatchHold {
-                reason: "policy".into(),
+                reason: "set_straight".into(),
                 since: 300,
                 why: None,
             }]
@@ -3780,8 +3658,8 @@ mod tests {
         assert_eq!(a.changes[0].change["kind"], "hold");
 
         assert_eq!(a.policy, None);
-        // A setting a flow version before ran as a work of its own is no setting under way.
-        assert_eq!(a.setting, None);
+        // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
+        assert_eq!(a.draft, None);
 
         // The check of the policy in force, in the policy's part.
         assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
@@ -3801,78 +3679,82 @@ mod tests {
         assert_eq!(a.observations[0].tags, ["perf"]);
     }
 
-    // The new policy the architect sets is its setting's matter, open, with the latest study and the latest text with
-    // the readings of it, in whichever of the architect's works they were; a study after the text sends it back.
+    // The draft of a new policy that waits for the owner's approval is the latest the architect wrote, in whichever of its
+    // works, until a new policy takes effect after it, which makes it the policy in force; a study a flow version
+    // before wrote at the same cell is no draft.
     #[test]
-    fn the_policy_being_set_is_read_across_the_architect_s_works() {
-        let mut s = architect_setup("setting");
+    fn the_draft_that_waits_for_approval_is_the_latest_written_until_a_policy_takes_effect() {
+        let mut s = architect_setup("draft");
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
-        let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
-        let probes = json!([{ "id": "x", "ask": "a", "principles": [1], "expect": "e" }]);
-        s.db.write(Actor::Engine, |tx| {
-            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
-            // The check of the policy in force in work 2 (its round 3) set it again and raised the setting's matter;
-            // the setting went on in work 5 and then in work 6.
-            run(
-                "INSERT INTO architect_matters (project, kind, what, body, work, round, at)
-                 VALUES ('p', 'set_policy', 'Set a new policy', '{}', 2, 3, 500)",
-                &[],
-            )?;
-            run(
-                "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, 1, 'architect', 'E2', 'over', 'p'), (NULL, 1, 'architect', 'P7', NULL, 'p')",
-                &[],
-            )?;
-            for (work, n, cell, output, transition) in [
-                (
-                    5_i64,
-                    1_i64,
-                    "P2",
-                    out(json!({ "study": { "intent": "i" } })),
-                    "studied",
-                ),
-                (
-                    6,
-                    1,
-                    "P4",
-                    out(json!({ "policy": policy, "probes": probes })),
-                    "written",
-                ),
-                (6, 2, "P6", out(json!({ "reading": { "direction": "d" } })), "answered"),
-            ] {
-                run(
+        let first = json!({ "direction": "d1", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
+        let second = json!({ "direction": "d2", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
+        let read = |s: &Setup| {
+            architect(
+                s.db.conn(),
+                &Flows::default(),
+                "p",
+                vec!["p".into()],
+                Vec::new(),
+                false,
+                None,
+            )
+            .unwrap()
+        };
+        let round = |s: &mut Setup, work: i64, n: i64, cell: &str, output: String, transition: &str| {
+            s.db.write(Actor::Engine, |tx| {
+                tx.execute(
                     "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
                      VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 600, 600)",
-                    &[&work, &n, &cell, &output, &transition],
+                    db::rusqlite::params![work, n, cell, output, transition],
                 )?;
-            }
+                Ok(())
+            })
+            .unwrap();
+        };
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended, project)
+                 VALUES (NULL, 1, 'architect', 'E2', 'over', 'p'), (NULL, 1, 'architect', 'B1', NULL, 'p')",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();
-        let a = architect(
-            s.db.conn(),
-            &Flows::default(),
-            "p",
-            vec!["p".into()],
-            Vec::new(),
-            false,
-            None,
-        )
-        .unwrap();
-        let setting = a.setting.unwrap();
-        assert_eq!(setting.matter, 5);
-        assert_eq!(
-            setting.study.map(|x| (x.work, x.round, x.value)),
-            Some((5, 1, json!({ "intent": "i" })))
+        assert_eq!(read(&s).draft, None);
+        round(
+            &mut s,
+            5,
+            1,
+            "P2",
+            out(json!({ "study": { "intent": "i" } })),
+            "studied",
         );
-        let draft = setting.draft.unwrap();
-        assert_eq!((draft.work, draft.round, draft.cell.as_str()), (6, 1, "P4"));
-        assert_eq!(draft.policy, policy);
-        let readings: Vec<(i64, i64, &str)> = draft
-            .readings
-            .iter()
-            .map(|r| (r.work, r.round, r.cell.as_str()))
-            .collect();
-        assert_eq!(readings, [(6, 2, "P6")]);
+        assert_eq!(read(&s).draft, None);
+        round(
+            &mut s,
+            5,
+            2,
+            "P2",
+            out(json!({ "policy": first, "new_measures": [] })),
+            "written",
+        );
+        let d = read(&s).draft.unwrap();
+        assert_eq!((d.work, d.round, d.policy), (5, 2, first.clone()));
+        round(&mut s, 6, 1, "P12", "{}".into(), "next");
+        let a = read(&s);
+        assert_eq!(a.draft, None);
+        assert_eq!(a.policy.map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
+        round(
+            &mut s,
+            6,
+            2,
+            "P2",
+            out(json!({ "policy": second, "new_measures": [] })),
+            "written",
+        );
+        assert_eq!(
+            read(&s).draft.map(|d| (d.work, d.round, d.policy)),
+            Some((6, 2, second))
+        );
     }
 }

@@ -624,31 +624,35 @@ case!(
 );
 case!(
     a_cell_given_the_draft_without_what_a_policy_governs,
-    "cell `P6` is given P5·draft.policy without the rule policy_scope that goes with it",
+    "cell `P2` is given policy_draft without the rule policy_scope that goes with it",
     |v| {
-        let read = v["flows"][1]["nodes"]
+        let write = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
-            .find(|n| n["id"] == "P6")
+            .find(|n| n["id"] == "P2")
             .unwrap();
-        obj(read).remove("rules");
+        obj(write).remove("rules");
+        let inputs = write["inputs"].as_array_mut().unwrap();
+        inputs.retain(|x| x["from"] != json!([{ "engine": "policy" }]));
     }
 );
 
 // An owner's cell that rules by buttons has one for each value of its ruling, in order, each saying what it does and
-// what happens next, so that the owner's page shows every value the cell takes, as the flow says it.
+// what happens next, so that the owner's page shows every value the cell takes, as the flow says it; one whose answer
+// is no ruling has none.
 case!(
     an_owner_s_cell_with_a_button_for_no_value_of_its_ruling,
-    "an owner's cell's buttons are not the values of its ruling.choice, in order: P3",
+    "an owner's cell's buttons are not the values of its ruling.choice, in order: A3",
     |v| {
-        let read = v["flows"][1]["nodes"]
+        let ask = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
-            .find(|n| n["id"] == "P3")
+            .find(|n| n["id"] == "A3")
             .unwrap();
-        read["choices"][1]["value"] = json!("study_more");
+        ask["choices"] =
+            json!([{ "value": "study_more", "title": "Study more", "desc": "The architect studies more." }]);
     }
 );
 
@@ -663,15 +667,15 @@ case!(
 );
 case!(
     a_text_that_names_a_cell_of_the_other_graph,
-    "architect: flows.architect.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
+    "architect: flows.architect.nodes.P2.prompt[0] names cell `A4`, which its graph has not",
     |v| {
-        let correct = v["flows"][1]["nodes"]
+        let write = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
-            .find(|n| n["id"] == "P8")
+            .find(|n| n["id"] == "P2")
             .unwrap();
-        correct["prompt"][0] = json!("Coming from cell `A4`, correct the text.");
+        write["prompt"][0] = json!("Coming from cell `A4`, write the policy.");
     }
 );
 case!(

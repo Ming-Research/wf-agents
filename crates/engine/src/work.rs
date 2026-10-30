@@ -207,20 +207,6 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
         .map_err(sql)
 }
 
-/// The rounds named, in the order named; a round there is not is left out.
-pub fn rounds_of(conn: &Connection, ids: &[RoundId]) -> Result<Vec<Round>, String> {
-    let mut st = conn
-        .prepare(&format!("{} WHERE r.work = ?1 AND r.n = ?2", rounds_query()))
-        .map_err(sql)?;
-    let mut out = Vec::new();
-    for id in ids {
-        if let Some(r) = st.query_row(params![id.work, id.n], round).optional().map_err(sql)? {
-            out.push(r);
-        }
-    }
-    Ok(out)
-}
-
 /// All the work's rounds, oldest first.
 pub fn rounds(conn: &Connection, work: i64) -> Result<Vec<Round>, String> {
     let mut st = conn

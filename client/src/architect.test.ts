@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ArchitectWork,
-  Choice,
   CompiledGraph,
   FlowDiff,
   GraphView,
@@ -22,7 +21,6 @@ import {
   matterSentence,
   matterSteps,
   queueParts,
-  rulingAnswer,
   shownWork,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
@@ -112,7 +110,8 @@ describe('a matter in words', () => {
     expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
     expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
     expect(matterKind('design_card', null)).toBe('Look at a design card');
-    expect(matterKind('set_policy', null)).toBe('Set a new policy');
+    expect(matterKind('check_policy', null)).toBe('Check whether the policy still holds');
+    expect(matterKind('make_plan', null)).toBe('Plan what to do next');
     expect(matterKind('report', 'followup')).toBe('Go through side reports');
     expect(matterKind('report', 'fault')).toBe('Look into a fault of wf-agents');
     expect(matterKind('owner_words', 'said')).toBe('Your words');
@@ -197,19 +196,6 @@ describe("the architect's page", () => {
     expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
     expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
     expect(ids(observationsShown(all, 'ui', 'CELL h3', false))).toEqual([3, 2]);
-  });
-
-  it('sends a ruling by the choice alone', () => {
-    const choices: Choice[] = [
-      { value: 'satisfied', title: 'Satisfied: write the policy', desc: 'yes' },
-      { value: 'study_on', title: 'Study again', desc: 'more' },
-      { value: 'no_change', title: 'Keep the policy in force', desc: 'no' },
-    ];
-    expect(rulingAnswer(choices, 'satisfied')).toEqual({ choice: 'satisfied', text: '' });
-    expect(rulingAnswer(choices, 'study_on')).toEqual({ choice: 'study_on', text: '' });
-    expect(rulingAnswer(choices, null)).toBeNull();
-    expect(rulingAnswer(choices, 'other')).toBeNull();
-    expect(rulingAnswer([], 'satisfied')).toBeNull();
   });
 
   it('puts the articles broken first, then those at risk, then those kept', () => {

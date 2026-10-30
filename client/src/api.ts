@@ -373,12 +373,6 @@ round: number, work: number, item: number | null, body: JsonValue,
  */
 kinds: Array<AskKind>, 
 /**
- * The buttons the owner rules on it by (the study of a new policy, the policy to approve), one for each value it
- * offers, each saying what it does and what happens next as the flow built into this program says it for the cell
- * that put the ask; none for an ask answered otherwise.
- */
-choices: Array<Choice>, 
-/**
  * None while it waits.
  */
 answer: JsonValue | null, 
@@ -563,10 +557,9 @@ misses: Misses | null,
  */
 forwards: Array<Forwarded>, 
 /**
- * For an ask: the ask in full, with its documents; for the approval of a policy, the corrections of the text
- * since the owner last read it (`revisions`).
+ * For an ask: the ask in full.
  */
-ask_detail: OwnerAsk | null, revisions: JsonValue | null, 
+ask_detail: OwnerAsk | null, 
 /**
  * For a stage card: the stage the work went through.
  */
@@ -801,11 +794,6 @@ why?: string,
  * For what the architect is asked: the rest of the architect's reply (children, rest, waits).
  */
 reply?: JsonValue, 
-/**
- * For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of those
- * the ask lists.
- */
-choice?: string, 
 /**
  * For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
  * the answer as a decision for it to carry out, instead of resolving it.
@@ -1433,9 +1421,10 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null, 
 /**
- * The new policy it is setting now; none while it sets none.
+ * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+ * policy takes effect; none otherwise.
  */
-setting: PolicySetting | null, 
+draft: PolicyDraft | null, 
 /**
  * Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
  */
@@ -1557,8 +1546,8 @@ export type MatterCard = { id: number, status: string, rulings: JsonValue, repla
 
 /**
  * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
- * architect sets it straight; `policy`, while a new policy is set; since when; and for the architect's own hold, why,
- * as it said it.
+ * architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
+ * architect's own hold, why, as it said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
@@ -1694,33 +1683,10 @@ export type PolicyInForce = { work: number, round: number,
 cell: string, at: number | null, policy: JsonValue, };
 
 /**
- * A new policy as the architect sets it, a stage of its works: the latest study of it, and the latest text with its
- * probes and every reading of it by a new architect since, with the architect's verdict on each, in whichever of its
- * works they were.
+ * The draft of a new policy that waits for the owner's approval: its text, and the round of the architect's work that
+ * wrote it (cell `P2`).
  */
-export type PolicySetting = { 
-/**
- * The setting's matter, which the architect's works have in hand.
- */
-matter: number, study: Said | null, draft: Draft | null, };
-
-/**
- * A version of the policy being set, by the round that wrote it.
- */
-export type Draft = { work: number, round: number, 
-/**
- * The cell of that round.
- */
-cell: string, policy: JsonValue, probes: JsonValue, readings: Array<Reading>, };
-
-/**
- * A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
- */
-export type Reading = { work: number, round: number, 
-/**
- * The cell of that round.
- */
-cell: string, reading: JsonValue, verdict: JsonValue, };
+export type PolicyDraft = { work: number, round: number, at: number | null, policy: JsonValue, };
 
 /**
  * What to do next under the policy, as the architect last planned it (cell `N1`): what was missing, what mattered

@@ -1,6 +1,6 @@
 // What an architect hands back, each drawn by its shape in the flow's formats and in the page's shared parts (blocks
-// under who wrote them, sections that fold): the policy, the study of a new one, its probes and the readings of it by
-// a new architect, and the check of the policy in force; an item change its batch made; and the plan of what to do next.
+// under who wrote them, sections that fold): the policy, and the check of the policy in force; an item change its batch
+// made; and the plan of what to do next.
 // A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
 import { Label, type LabelColorOptions } from '@primer/react';
@@ -8,7 +8,6 @@ import { type ReactNode } from 'react';
 
 import type { JsonValue, NextPlan, Said } from '../api';
 import { againstInOrder } from '../architect';
-import { StateChip } from '../components';
 import { DocList } from '../document';
 import { Field } from '../item/Shapes';
 import { empty, isObj, label, Labelled, str, words, type Obj } from '../labelled';
@@ -18,18 +17,6 @@ import { t } from '../text';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 const texts = (v: JsonValue | undefined): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x) => x !== '') : []);
-
-/// A list of texts, when there are any, as every list of a document is: numbered items.
-function Texts({ label, value }: { label: string; value: JsonValue | undefined }) {
-  const list = texts(value);
-  if (list.length === 0) return null;
-  return (
-    <div className="field">
-      <SubHeading>{label}</SubHeading>
-      <DocList items={list.map((x) => ({ lead: x, parts: [] }))} />
-    </div>
-  );
-}
 
 /// Who wrote a value the architect handed back: its cell, when, and its round.
 function wroteBy(s: Said, onRound: OpenRound): ReactNode {
@@ -65,137 +52,6 @@ export function PolicyText({ value }: { value: JsonValue }) {
         </div>
       ) : null}
     </div>
-  );
-}
-
-/// The study of a new policy, as one document: the direction the owner wants, how things stand, what it touches, the
-/// directions compared and the one recommended, what its conclusions rest on, and what it asks the owner; every list of
-/// it drawn alike, numbered items with their leads in bold and their parts as labelled paragraphs.
-export function StudyView({ value }: { value: JsonValue }) {
-  if (!isObj(value) || typeof value.intent !== 'string') return <Labelled value={value} />;
-  const impact = objs(value.impact);
-  const options = objs(value.options);
-  const basis = objs(value.basis);
-  return (
-    <div className="document">
-      <Field label={t('study_intent')} value={value.intent} />
-      <Field label={t('study_now')} value={value.now} />
-      {impact.length > 0 ? (
-        <div className="field">
-          <SubHeading>{t('study_impact')}</SubHeading>
-          <DocList items={impact.map((x) => ({ lead: str(x.what), parts: [[t('study_how'), x.how]] }))} />
-        </div>
-      ) : null}
-      {options.length > 0 ? (
-        <div className="field">
-          <SubHeading>{t('study_options')}</SubHeading>
-          <DocList items={options.map((o) => ({ lead: str(o.does), parts: [[t('study_then'), o.then]] }))} />
-        </div>
-      ) : null}
-      <Field label={t('study_recommend')} value={value.recommend} />
-      {basis.length > 0 ? (
-        <div className="field">
-          <SubHeading>{t('study_basis')}</SubHeading>
-          <DocList
-            items={basis.map((b) => ({
-              lead: str(b.claim),
-              mark: <Label variant={str(b.kind) === 'checked' ? 'success' : 'attention'}>{words(str(b.kind))}</Label>,
-              parts: [[t('study_where'), b.where]],
-            }))}
-          />
-        </div>
-      ) : null}
-      <Texts label={t('study_questions')} value={value.questions} />
-    </div>
-  );
-}
-
-/// The probes of a policy being set: each situation, the principles it probes and the answer the architect holds
-/// right.
-export function ProbesView({ value }: { value: JsonValue }) {
-  const probes = objs(value);
-  if (probes.length === 0) return null;
-  return (
-    <ul className="arch-list">
-      {probes.map((p, i) => (
-        <li key={i}>
-          <strong>{str(p.id)}</strong>
-          {Array.isArray(p.principles) && p.principles.length > 0 ? (
-            <span className="muted">
-              {' '}
-              · {t('probe_principles', { principles: p.principles.map((x) => str(x)).join(', ') })}
-            </span>
-          ) : null}
-          <Markdown text={str(p.ask)} />
-          <Field label={t('probe_expect')} value={p.expect} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/// The architect's verdict on a new architect's reading: passed, as understood or with a minor fix, or the gaps it
-/// found.
-function ReadingVerdict({ value }: { value: JsonValue }) {
-  if (!isObj(value)) return <StateChip tone="neutral">{t('reading_not_judged')}</StateChip>;
-  const gaps = objs(value.gaps);
-  const passed = value.verdict === 'understood' || value.verdict === 'minor_fix';
-  return (
-    <>
-      <Label variant={passed ? 'success' : 'danger'}>{words(str(value.verdict))}</Label>
-      <Field label={t('reading_why')} value={value.why} />
-      {gaps.length > 0 ? (
-        <ul className="arch-list">
-          {gaps.map((g, i) => (
-            <li key={i}>
-              <strong>
-                <MarkdownInline text={str(g.what)} />
-              </strong>
-              <Field label={t('reading_seen')} value={g.seen} />
-              <Field label={t('reading_missing')} value={g.missing} />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </>
-  );
-}
-
-/// A new architect's reading of the policy, as a block under who read it (`by`), folded under the verdict on it: its
-/// restatement of the direction and of each principle, what it asked, and its answers to the probes.
-export function ReadingView({ by, reading, verdict }: { by: ReactNode; reading: JsonValue; verdict: JsonValue }) {
-  const r = isObj(reading) ? reading : {};
-  const restate = objs(r.restate);
-  const answers = objs(r.answers);
-  return (
-    <Block head={<strong>{t('reading_head')}</strong>} by={by}>
-      <ReadingVerdict value={verdict} />
-      <Section title={t('reading_text')}>
-        <Field label={t('policy_direction')} value={r.direction} />
-        {restate.length > 0 ? (
-          <ol className="arch-list arch-numbered">
-            {restate.map((p, i) => (
-              <li key={i} value={typeof p.no === 'number' ? p.no : i + 1}>
-                <Markdown text={str(p.text)} />
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        <Texts label={t('reading_asks')} value={r.asks} />
-        {answers.length > 0 ? (
-          <div className="field">
-            <SubHeading>{t('reading_answers')}</SubHeading>
-            <ul className="arch-list">
-              {answers.map((a, i) => (
-                <li key={i}>
-                  <strong>{str(a.id)}</strong>: <MarkdownInline text={str(a.answer)} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </Section>
-    </Block>
   );
 }
 

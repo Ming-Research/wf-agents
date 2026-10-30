@@ -1,11 +1,10 @@
 // What an architect's page and its one-to-one work out from what the interface reads, apart from drawing it: the stretch
 // of its work the chart shows, how the architect stands, its queue in parts, each matter in words the owner reads at a
 // glance, what became of each matter handled, the observations the owner looks for, the articles of the constitution
-// in the order the owner reads them, and what an answer to an ask of the architect's sends.
+// in the order the owner reads them.
 
 import type {
   ArchitectWork,
-  Choice,
   Handled,
   JsonValue,
   Matter,
@@ -44,6 +43,8 @@ const MATTER_KINDS: Record<string, Key> = {
   owner_words: 'matter_kind_owner_words',
   other_architect: 'matter_kind_other_architect',
   slots_free: 'matter_kind_slots_free',
+  check_policy: 'matter_kind_check_policy',
+  make_plan: 'matter_kind_make_plan',
   set_policy: 'matter_kind_set_policy',
 };
 
@@ -211,13 +212,6 @@ export function observationsShown(all: Observation[], tag: string, search: strin
   );
 }
 
-/// What a decision on a choice the architect put sends (the study of a new policy, the policy to approve): the value
-/// chosen alone, the owner's words going to the architect in their talk; none for a value the choice does not offer.
-export function rulingAnswer(choices: Choice[], choice: string | null): { choice: string; text: string } | null {
-  if (choice === null || !choices.some((c) => c.value === choice)) return null;
-  return { choice, text: '' };
-}
-
 /// The articles of the constitution as the architect last checked them: those broken first, then those at risk, then
 /// those kept, each in the order checked.
 export function againstInOrder(rows: JsonValue): Obj[] {
@@ -229,11 +223,10 @@ export function againstInOrder(rows: JsonValue): Obj[] {
     .map((x) => x.r);
 }
 
-/// What stops a project's new works from starting, in words: the architect's own hold, setting the project straight, or a
-/// new policy being set; any other reason as it is written.
+/// What stops a project's new works from starting, in words: the architect's own hold, or setting the project straight;
+/// any other reason as it is written.
 export function holdWords(reason: string): string {
   if (reason === 'architect') return t('hold_architect');
   if (reason === 'set_straight') return t('hold_set_straight');
-  if (reason === 'policy') return t('hold_policy');
   return t('hold_other', { reason: words(reason) });
 }

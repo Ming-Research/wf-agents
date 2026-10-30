@@ -1,14 +1,8 @@
 // An ask an architect put to the owner, as the owner reads and answers it, by its kind: a question, laid out as an
-// engineer's ask is, with the matters it holds; an open choice, which holds no work of the architect; the study of a
-// new policy to read; and the policy to approve, with its probes and every reading of it by a new architect. Every kind
-// but the question, which the card every ask shares heads, is a block under its number, kind and the cell and round
-// that put it. In the conversation it is in, it is the architect's bubble, answered in that bubble: a question or an
-// open choice by a button of its options and the owner's words in a small box; the study and the policy by one of the
-// three choices its cell offers alone (satisfied, study on or the policy stays; approved, fix the text or not good
-// enough), a click sending it, the owner's words on them going to the architect in their talk; elsewhere it says where
-// it is answered. Each answer goes to the interface's answer of an ask, and the engine goes on. The documents an ask is
-// about (the study, the policy to approve and what changed in it since the owner last read it) are folded, each as one
-// document.
+// engineer's ask is, with the matters it holds; and an open choice, which holds no work of the architect, a block under
+// its number, kind and the cell and round that put it. In the conversation it is in, it is the architect's bubble,
+// answered in that bubble by a button of its options and the owner's words in a small box; elsewhere it says where it
+// is answered. Each answer goes to the interface's answer of an ask, and the engine goes on.
 
 import { Label } from '@primer/react';
 
@@ -17,9 +11,8 @@ import { time } from '../format';
 import { Field, OptionBoxes } from '../item/Shapes';
 import { isObj, label, str, words, type Obj } from '../labelled';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Block, By, type OpenRound, RoundLink, Section, SubHeading } from '../parts';
-import { t, tn, type Key } from '../text';
-import { PolicyText, ProbesView, ReadingView, StudyView } from './ArchitectViews';
+import { Block, By, type OpenRound, RoundLink, SubHeading } from '../parts';
+import { t, type Key } from '../text';
 import { AnswerPart, AskView, AskWaited } from './Decide';
 
 const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
@@ -28,8 +21,6 @@ const KINDS: Record<string, Key> = {
   ask: 'ask_kind_ask',
   question: 'ask_kind_ask',
   open: 'ask_kind_open',
-  study: 'ask_kind_study',
-  policy_approval: 'ask_kind_policy_approval',
 };
 
 /// What an ask of the architect's is, in words, for its head.
@@ -98,91 +89,9 @@ function OpenAsk({ a, body }: { a: OwnerAsk; body: Obj }) {
   );
 }
 
-/// One correction of the text of a policy being set, as the round that made it handed it in: why, and each edit.
-function Revision({ r }: { r: Obj }) {
-  const edits = objs(r.edits);
-  const edit = (e: Obj): string => {
-    switch (str(e.kind)) {
-      case 'change':
-        return t('revision_change', { old: str(e.old), new: str(e.new) });
-      case 'add_principle':
-        return t('revision_add_principle', { text: str(e.text) });
-      case 'add_signal':
-        return t('revision_add_signal', { what: str(e.what), how: str(e.how) });
-      case 'remove':
-        return t('revision_remove', { part: words(str(e.part)), no: str(e.no) });
-      default:
-        return JSON.stringify(e);
-    }
-  };
-  return (
-    <div className="agent-box">
-      {str(r.why) !== '' ? <Markdown text={str(r.why)} /> : null}
-      <ol className="document-list">
-        {edits.map((e, i) => (
-          <li key={i}>
-            <MarkdownInline text={edit(e)} />
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-/// The policy to approve: its text, folded open while it waits, as one document; the corrections of the text since
-/// the owner last read it; its probes folded; and each reading of it by a new architect with the verdict.
-function PolicyAsk({ a, body, onRound, revisions }: {
-  a: OwnerAsk;
-  body: Obj;
-  onRound?: OpenRound;
-  revisions: Obj[];
-}) {
-  const readings = objs(body.readings);
-  const probes = Array.isArray(body.probes) ? body.probes.length : 0;
-  return (
-    <div className="card-view">
-      <details className="talk-fold" open={a.answer === null}>
-        <summary>{t('ask_policy_fold')}</summary>
-        <div className="talk-fold-body">
-          <PolicyText value={body.policy ?? null} />
-        </div>
-      </details>
-      {revisions.length > 0 ? (
-        <details className="talk-fold">
-          <summary>{tn('ask_policy_changed', revisions.length)}</summary>
-          <div className="talk-fold-body">
-            {revisions.map((r, i) => (
-              <Revision key={i} r={r} />
-            ))}
-          </div>
-        </details>
-      ) : null}
-      <Section title={t('policy_probes')} n={probes}>
-        <ProbesView value={body.probes ?? null} />
-      </Section>
-      <Section title={t('policy_readings')} n={readings.length} open>
-        {readings.map((r, i) => (
-          <ReadingView
-            key={i}
-            by={
-              typeof r.round === 'number' ? (
-                <By work={typeof r.work === 'number' ? r.work : a.work} round={r.round} onRound={onRound} />
-              ) : null
-            }
-            reading={r.reading ?? null}
-            verdict={r.verdict ?? null}
-          />
-        ))}
-      </Section>
-      <AnswerPart a={a} given={<Answered a={a} />} />
-    </div>
-  );
-}
-
 /// An ask of the architect's, by its kind; its rounds open by `onRound` where the page shows them, else on the page of
-/// the architect's work; for the policy to approve, the corrections of its text since the owner last read it
-/// (`revisions`).
-export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; onRound?: OpenRound; revisions?: JsonValue }) {
+/// the architect's work.
+export function ArchitectAsk({ a, onRound }: { a: OwnerAsk; onRound?: OpenRound }) {
   const body = isObj(a.body) ? a.body : {};
   switch (str(body.kind)) {
     case 'question':
@@ -194,20 +103,6 @@ export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; on
       );
     case 'open':
       return <OpenAsk a={a} body={body} />;
-    case 'study':
-      return (
-        <div className="card-view">
-          <details className="talk-fold" open={a.answer === null}>
-            <summary>{t('ask_study_fold')}</summary>
-            <div className="talk-fold-body">
-              <StudyView value={body.study ?? null} />
-            </div>
-          </details>
-          <AnswerPart a={a} given={<Answered a={a} />} />
-        </div>
-      );
-    case 'policy_approval':
-      return <PolicyAsk a={a} body={body} onRound={onRound} revisions={objs(revisions ?? undefined)} />;
     default:
       return (
         <>
@@ -220,16 +115,11 @@ export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; on
   }
 }
 
-/// An ask of the architect's wherever the page shows it: a question as the card every ask shares; every other kind as
-/// a block under its number, its kind, whether it waits, and the cell and round that put it.
-export function ArchitectAskBlock({ a, onRound, revisions = null }: {
-  a: OwnerAsk;
-  onRound?: OpenRound;
-  revisions?: JsonValue;
-}) {
+/// An ask of the architect's wherever the page shows it: a question as the card every ask shares; an open choice as a
+/// block under its number, its kind, whether it waits, and the cell and round that put it.
+export function ArchitectAskBlock({ a, onRound }: { a: OwnerAsk; onRound?: OpenRound }) {
   const body = isObj(a.body) ? a.body : {};
-  const kind = str(body.kind);
-  if (kind !== 'open' && kind !== 'study' && kind !== 'policy_approval') return <ArchitectAsk a={a} onRound={onRound} />;
+  if (str(body.kind) !== 'open') return <ArchitectAsk a={a} onRound={onRound} />;
   const head = (
     <>
       <strong>{t('ask_head', { id: a.id })}</strong>
@@ -240,7 +130,7 @@ export function ArchitectAskBlock({ a, onRound, revisions = null }: {
   );
   return (
     <Block id={`ask-${a.id}`} head={head} by={<By cell={str(body.cell)} work={a.work} round={a.round} onRound={onRound} />}>
-      <ArchitectAsk a={a} onRound={onRound} revisions={revisions} />
+      <ArchitectAsk a={a} onRound={onRound} />
     </Block>
   );
 }

@@ -14,7 +14,7 @@ pub struct Matter {
     /// The project whose architect it is for.
     pub project: String,
     /// Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
-    /// other_architect, slots_free or set_policy.
+    /// other_architect, slots_free, or check_policy and make_plan, which come at the head of the queue.
     pub kind: String,
     /// What more its kind says, such as an engineer's question's own kind; none when nothing more.
     pub detail: Option<String>,

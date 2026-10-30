@@ -4,10 +4,10 @@
 //! in the actions: an engineer's question or failure, a side report, a report's what to do next, a design card, the
 //! owner's words and answers, an engineer's answer to the architect, another project's architect's message, slots free
 //! with fewer items of the project ready, and a place the understanding found to set straight. Here too are the steps,
-//! inputs, values, checks and actions of the architect's graph, its asks of the owner, and the batch of item changes a
-//! review looks at before they are made, and the setting of a new policy, a stage of the architect's works whose matter
-//! may go on over several of them. A project's architect's line goes on in one CLI session across the architect's
-//! works, the setting of a new policy included.
+//! inputs, values, checks and actions of the architect's graph, its asks of the owner, the batch of item changes a
+//! review looks at before they are made, and the matters that come at the head of its queue: the check of the policy in
+//! force, which may set a new one, and the plan of what to do next. A project's architect's line goes on in one CLI
+//! session across the architect's works, the setting of a new policy included.
 //!
 //! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
 //! the queue (`Q0`) and the pick (`Q1`), which say the matter picked; the understanding
@@ -25,7 +25,7 @@ use serde_json::{Map, Value, json};
 
 use crate::actions::{self, Ctx};
 use crate::checks;
-use crate::inputs::{self, Gathered, Origin, Part, at_path};
+use crate::inputs::{self, Gathered, Origin, Part};
 use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
 use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
@@ -33,9 +33,8 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 /// An hour, in milliseconds.
 pub const HOUR: i64 = 3_600_000;
 
-/// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
-/// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 30] = [
+/// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
+pub const INPUTS: [&str; 25] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -54,16 +53,11 @@ pub const INPUTS: [&str; 30] = [
     "item_log",
     "similar_items",
     "owner_answer",
-    "policy_stays",
-    "set_again",
     "cross_project",
     "batch_changes",
     "changes_touch",
     "group_talk",
     "talk",
-    "setting_waits",
-    "setting_talk",
-    "open_gaps",
     "told_owner",
     "questions",
 ];
@@ -72,129 +66,9 @@ pub const INPUTS: [&str; 30] = [
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
 
-/// The input that gives the state of things as the architect last wrote it: when this work's understanding
-/// (`U1`) wrote it, as the places of that round's return, which this work's session holds, with what was
-/// learned and noted since read from `architect_state`; otherwise that view whole.
-pub const STATE: &str = "state_of_things";
-
-/// The study of a new policy and what the owner said of it, when the setting of the project's policy that ended last
-/// ended with the owner saying the policy in force stays (`P3` `policy_stays`); none otherwise. The owner's view of a
-/// study is the latest round of `P3` that took it, in a work of the architect, or of a setting of a flow version that
-/// ran it as a work of its own; the study, the latest before it.
-fn policy_stays(e: &Engine, project: &str) -> Result<Option<Value>, String> {
-    let rows = query_json(
-        e.db.conn(),
-        "SELECT json_extract(r.output, '$.ruling') AS ruling,
-                (SELECT json_extract(x.output, '$.outcome.study') FROM rounds x JOIN works y ON y.id = x.work
-                 WHERE y.graph IN ('architect', 'policy') AND y.project = w.project AND x.cell = 'P2'
-                   AND x.transition IS NOT NULL AND json_extract(x.output, '$.outcome.study') IS NOT NULL
-                   AND (x.work < r.work OR (x.work = r.work AND x.n < r.n))
-                 ORDER BY x.work DESC, x.n DESC LIMIT 1) AS study
-         FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph IN ('architect', 'policy') AND w.project = ?1 AND r.cell = 'P3' AND r.transition IS NOT NULL
-           AND json_extract(r.output, '$.ruling.choice') IS NOT NULL
-         ORDER BY r.work DESC, r.n DESC LIMIT 1",
-        &[&project],
-        1,
-    )?;
-    Ok(rows
-        .into_iter()
-        .next()
-        .filter(|r| r["ruling"]["choice"] == "policy_stays")
-        .map(|r| json!({ "study": r["study"], "owner": r["ruling"] })))
-}
-
-/// Why the policy is set again, for the setting of it: what the check of the policy in force that started it (`P1`)
-/// found of the policy in force against the constitution, article by article, and each reason it may no longer govern,
-/// as the round that raised the setting's matter handed them in, or what the talk with the owner that started it
-/// (`H8`) came to, with the talk; for a work with no setting in hand, the latest such round of the project's.
-fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let raised: Option<(i64, i64)> = match setting_of(conn, w.id)? {
-        Some(m) => conn
-            .query_row(
-                "SELECT work, round FROM architect_matters WHERE id = ?1 AND work IS NOT NULL",
-                [m],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(sql)?,
-        None => None,
-    };
-    // A talk with the owner that started the setting: what it came to, with the owner's words.
-    if let Some((work, n)) = raised {
-        let by: Option<(Option<String>, Option<String>)> = conn
-            .query_row(
-                "SELECT cell, output FROM rounds WHERE work = ?1 AND n = ?2",
-                [work, n],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(sql)?;
-        if let Some((Some(cell), output)) = by
-            && db::is_cell(ARCHITECT, TALK, &cell)
-        {
-            let turn = json_col(output)
-                .map(|o| o["outcome"]["talk"].clone())
-                .unwrap_or(Value::Null);
-            let talk = match picked_before(conn, work, Some(n))? {
-                Some(t) => talk_of(conn, project, t)?,
-                None => Value::Null,
-            };
-            return Ok(Some(json!({ "the_talk_came_to": turn["conclusion"], "talk": talk })));
-        }
-    }
-    let rows = query_json(
-        conn,
-        &format!(
-            "SELECT json_extract(r.output, '$.outcome.against') AS against,
-                    json_extract(r.output, '$.outcome.verdict') AS verdict
-             FROM rounds r JOIN works x ON x.id = r.work
-             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition = 'set_again'
-               AND (?2 IS NULL OR (r.work = ?2 AND r.n = ?3))
-             ORDER BY r.work DESC, r.n DESC LIMIT 1",
-            db::cells_sql(ARCHITECT, &[POLICY_CHECK])
-        ),
-        &[&project, &raised.map(|x| x.0), &raised.map(|x| x.1)],
-        1,
-    )?;
-    Ok(rows.into_iter().next())
-}
-
-/// The inputs that give the policy being set, each with the places of the returns it is at: its text, as the work's
-/// round that wrote it (`P4`) handed it in, or as the engine put it together (`P5`) from a
-/// correction (`P8`) or a minor fix a reading found (`P7`), which hand in only their edits; and its probes, as the
-/// round that wrote them handed them in, or as the engine put them together from a correction, which hands in only those
-/// it adds or changes beside those it keeps. Each is addressed as the oldest of those places that holds it as it is
-/// now, so that the session that wrote it, or was given it once, is only referred to it.
-const DRAFT: [(&str, &[(&str, &str)]); 2] = [
-    ("draft_text", &[("P4", "policy"), ("P5", "draft.policy")]),
-    (
-        "draft_probes",
-        &[("P4", "probes"), ("P8", "revision.probes"), ("P5", "draft.probes")],
-    ),
-];
-
-/// The places of the returns an input of the policy being set is taken from, the newest of them; none for another
-/// input.
-pub fn draft_places(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    DRAFT.iter().find(|d| d.0 == name).map(|d| d.1)
-}
-
-/// The cells of the policy's reading loop the engine knows by their names: the writing of the text, its putting
-/// together, the judgment of a reading and the correction.
-const WRITE: &str = "P4";
-const PUT_TOGETHER: &str = "P5";
-const JUDGE: &str = "P7";
-const CORRECT: &str = "P8";
-
-/// How many times the text of a policy being set may be corrected since it was written before a reading that leaves
-/// gaps goes on with them to the owner, as the flow's values `corrections` says it.
-const CORRECTIONS: i64 = 3;
-
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
-pub const KINDS: [(&str, &str, &str); 9] = [
+pub const KINDS: [(&str, &str, &str); 10] = [
     ("set_straight", "H1", "H1"),
     ("engineer_question", "H2", "H3"),
     ("report", "H4", "H5"),
@@ -203,13 +77,26 @@ pub const KINDS: [(&str, &str, &str); 9] = [
     ("owner_words", "H8", "H8"),
     ("other_architect", "H9", "H9"),
     ("slots_free", "H10", "H10"),
-    (SETTING, "P2", "P2"),
+    (CHECK, "P1", "P1"),
+    (PLAN, "N1", "N1"),
 ];
 
-/// The kind of matter the setting of a new policy is: the check of the policy in force that sets it again raises it and
-/// takes it in hand at once (`start_setting`), and it may go on over several works of the architect, leaving the work
-/// while an ask of the owner holds it and when a new session would start in the middle of it.
-pub const SETTING: &str = "set_policy";
+/// The kinds of matter that come at the head of the queue, taken in this order before any other but the owner's words,
+/// a matter back with the owner's reply and the wait for a question just put: the check of whether the policy in force
+/// still holds, and the plan of what to do next. One of each kind is open at a time: one asked for again takes the
+/// newer asker's why.
+const CHECK: &str = "check_policy";
+const PLAN: &str = "make_plan";
+const HEAD: [&str; 2] = [CHECK, PLAN];
+
+/// The cell that writes a new policy, whose draft waits for the owner's approval, and the cell where it takes effect once
+/// the owner replied to the question of its approval with exactly this word.
+const SET_POLICY: &str = "P2";
+const TAKES_EFFECT: &str = "P12";
+const APPROVED: &str = "approved";
+
+/// The engine's short question to the owner whether the draft of a new policy is approved.
+const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
 /// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is an
 /// other_question.
@@ -226,15 +113,12 @@ const QUESTION_KINDS: [&str; 6] = [
 /// batch, and the review of the batch.
 const LOOK: &str = "Q0";
 const PICK: &str = "Q1";
-const ROUTER: &str = "Q2";
 const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "B4";
 const REVIEW: &str = "B2";
 
-/// The cell of the owner's words, whose rounds are the architect's turns in a talk with the owner, and the rows of its
-/// last turn, each a way on.
+/// The cell of the owner's words, whose rounds are the architect's turns in a talk with the owner.
 const TALK: &str = "H8";
-const TALK_ENDS: &str = "('done', 're_plan', 'new_policy', 'to_setting', 're_understand')";
 
 /// The owner's words to a project's architect said in their one-to-one as matters of their own, as a condition on
 /// `architect_matters`: an engine before made them so while a talk was open too, and the talk's turn took them.
@@ -248,8 +132,8 @@ const UNDERSTOOD_YET: &str = "S1";
 /// The value the rows of the cell a project's architect waits at to start (`S0`) switch on: whether a matter is due.
 const DUE: &str = "due";
 
-/// The stage of the cells that set a new policy, and the check of the policy in force that opens it and starts a
-/// setting when it sets the policy again.
+/// The stage of the cells that set a new policy, and the check of the policy in force that opens it, which a flow
+/// version with no row for a new session in the middle of a work names the cells of such a session by.
 const SETTING_POLICY: &str = "policy";
 const POLICY_CHECK: &str = "P1";
 
@@ -265,10 +149,6 @@ const BATCH: i64 = 20;
 /// The rows a round of the architect's cells takes when it hands in no answer of its own, as the views say it: it
 /// asked for tools or a search, paused, asked the owner, or answered what the owner said.
 const NO_ANSWER: &str = "('tools', 'search', 'pause', 'ask_owner', 'answers')";
-
-/// The row an owner's cell of the setting of a policy takes when it puts its ask, which holds the setting's matter
-/// until the owner answers.
-const HELD: &str = "held";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -612,88 +492,27 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 
 // The queue and the batch.
 
-/// The matter the latest pick in a work of the architect chose before round `before`, or before none: the lone matter
-/// the queue held (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the queue
-/// found none, or many with no pick after it. The check of the policy in force that sets it again (`P1`) takes the
-/// setting of a new policy in hand as a pick does: the setting's matter it raised, or the one under way; and so does a
-/// talk with the owner that ends in a new policy (`H8`), once it raised the setting's matter.
+/// The matter the latest pick in a work of the architect chose before round `before`, or before none: the matter the
+/// look at the queue took (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the
+/// queue found none, or many with no pick after it.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
-    let row: Option<(i64, String, Option<String>)> = conn
+    let row: Option<(String, Option<String>)> = conn
         .query_row(
-            "SELECT n, cell, output FROM rounds r WHERE work = ?1 AND n < ?2 AND transition IS NOT NULL
-               AND (cell = ?3 OR (cell = ?4 AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL)
-                 OR (cell = ?5 AND transition = 'set_again')
-                 OR (cell = ?6 AND transition = 'new_policy' AND EXISTS (
-                   SELECT 1 FROM architect_matters m WHERE m.work = r.work AND m.round = r.n AND m.kind = ?7)))
+            "SELECT cell, output FROM rounds r WHERE work = ?1 AND n < ?2 AND transition IS NOT NULL
+               AND (cell = ?3 OR (cell = ?4 AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))
              ORDER BY n DESC LIMIT 1",
-            params![
-                work,
-                before.unwrap_or(i64::MAX),
-                LOOK,
-                PICK,
-                POLICY_CHECK,
-                TALK,
-                SETTING
-            ],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            params![work, before.unwrap_or(i64::MAX), LOOK, PICK],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(sql)?;
-    let Some((n, cell, output)) = row else { return Ok(None) };
-    if cell == POLICY_CHECK {
-        return setting_raised(conn, RoundId::new(work, n));
-    }
-    if cell == TALK {
-        return raised_by(conn, RoundId::new(work, n));
-    }
+    let Some((cell, output)) = row else { return Ok(None) };
     let o = json_col(output).unwrap_or(Value::Null);
     Ok(if cell == LOOK {
         o["queue"]["matter"].as_i64()
     } else {
         o["outcome"]["pick"]["matter"].as_i64()
     })
-}
-
-/// The setting of a new policy a round of the check of the policy in force that set it again took in hand: the latest
-/// matter of a setting of its project raised up to that round.
-fn setting_raised(conn: &Connection, round: RoundId) -> Result<Option<i64>, String> {
-    conn.query_row(
-        "SELECT max(m.id) FROM architect_matters m JOIN works w ON w.id = ?1
-         WHERE m.project = w.project AND m.kind = ?3 AND (m.work < ?1 OR (m.work = ?1 AND m.round <= ?2))",
-        params![round.work, round.n, SETTING],
-        |r| r.get(0),
-    )
-    .map_err(sql)
-}
-
-/// The setting of a new policy a round raised itself, as a talk with the owner that ends in a new policy does; none
-/// when it raised none.
-fn raised_by(conn: &Connection, round: RoundId) -> Result<Option<i64>, String> {
-    conn.query_row(
-        "SELECT max(id) FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = ?3",
-        params![round.work, round.n, SETTING],
-        |r| r.get(0),
-    )
-    .map_err(sql)
-}
-
-/// The matter of the setting of a new policy a work of the architect has in hand; none when it has another in hand,
-/// or none.
-pub fn setting_of(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
-    let Some(m) = picked(conn, work)? else { return Ok(None) };
-    let kind: Option<String> = conn
-        .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
-        .optional()
-        .map_err(sql)?;
-    Ok((kind.as_deref() == Some(SETTING)).then_some(m))
-}
-
-/// Whether a cell of the architect's graph is one of the setting of a new policy: of the stage the check of the policy
-/// in force opens, past that check.
-pub fn in_setting(g: &CompiledGraph, cell: &str) -> bool {
-    g.name == ARCHITECT
-        && cell != POLICY_CHECK
-        && g.cell(cell).is_some_and(|c| c.stage.as_deref() == Some(SETTING_POLICY))
 }
 
 /// A round a matter was in hand at: the round, its cell and the row it took.
@@ -756,142 +575,10 @@ pub fn matter_rounds(conn: &Connection, project: &str, m: i64) -> Result<Vec<Mat
         match cell.as_deref() {
             Some(LOOK) => in_hand = queued,
             Some(PICK) if chosen.is_some() => in_hand = chosen,
-            Some(POLICY_CHECK) if transition.as_deref() == Some("set_again") => {
-                in_hand = setting_raised(conn, RoundId::new(work, n))?;
-            }
-            Some(TALK) if transition.as_deref() == Some("new_policy") => {
-                if let Some(m) = raised_by(conn, RoundId::new(work, n))? {
-                    in_hand = Some(m);
-                }
-            }
             _ => {}
         }
     }
     Ok(out)
-}
-
-/// The rounds at a cell of the setting of a new policy that the work's setting had there, newest first, in whichever of
-/// its project's architect works; none for a cell of no setting, or a work with no setting in hand, whose own rounds
-/// are what it has.
-pub fn setting_rounds_at(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Option<Vec<Round>>, String> {
-    if w.graph != ARCHITECT || !in_setting(g, cell) {
-        return Ok(None);
-    }
-    let conn = e.db.conn();
-    let Some(m) = setting_of(conn, w.id)? else {
-        return Ok(None);
-    };
-    let ids: Vec<RoundId> = matter_rounds(conn, project_of(w)?, m)?
-        .into_iter()
-        .rev()
-        .filter(|r| r.cell.as_deref() == Some(cell))
-        .map(|r| r.id)
-        .collect();
-    work::rounds_of(conn, &ids).map(Some)
-}
-
-/// The cells of the setting a work's setting went through, oldest first, in whichever of its project's architect
-/// works; none for a work with no setting in hand.
-pub fn setting_cells(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Vec<String>>, String> {
-    if w.graph != ARCHITECT {
-        return Ok(None);
-    }
-    let conn = e.db.conn();
-    let Some(m) = setting_of(conn, w.id)? else {
-        return Ok(None);
-    };
-    Ok(Some(
-        matter_rounds(conn, project_of(w)?, m)?
-            .into_iter()
-            .filter_map(|r| r.cell)
-            .filter(|c| in_setting(g, c))
-            .collect(),
-    ))
-}
-
-/// Whether the work came to its cell from the cell that routes a matter, which takes a matter in hand back to the
-/// cell it stood at.
-pub fn routed(from: &str) -> bool {
-    from == ROUTER
-}
-
-/// Whether a round of a cell of the setting handed in an answer of its own: it took a row, and not one that asked for
-/// tools or a search, paused, asked the owner, answered the owner's words, held the setting for the owner's answer,
-/// or gave way to a new session.
-fn answered_own(g: &CompiledGraph, r: &MatterRound) -> bool {
-    let (Some(cell), Some(t)) = (r.cell.as_deref(), r.transition.as_deref()) else {
-        return false;
-    };
-    let quiet = ["tools", "search", "pause", "ask_owner", "answers", HELD];
-    !quiet.contains(&t)
-        && !g
-            .cell(cell)
-            .is_some_and(|c| c.rows.iter().any(|x| x.name == t && crate::steps::anew(x)))
-}
-
-/// The owner's answer to the ask that holds the setting of a new policy whose matter is `m`, while it is still to be
-/// taken: the ask is answered, and no round of the setting handed in an answer of its own since the round that put
-/// it. Gives the ask, the cell that put it, which takes the answer, and the answer.
-fn answer_back(
-    conn: &Connection,
-    g: &CompiledGraph,
-    project: &str,
-    m: i64,
-) -> Result<Option<(i64, String, Value)>, String> {
-    let held: Option<(Option<i64>, Option<String>)> = conn
-        .query_row(
-            "SELECT asked, resume_cell FROM architect_matters WHERE id = ?1",
-            [m],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    let Some((Some(ask), Some(cell))) = held else {
-        return Ok(None);
-    };
-    let put: Option<(i64, i64, Option<String>)> = conn
-        .query_row("SELECT work, round, answer FROM owner_asks WHERE id = ?1", [ask], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .optional()
-        .map_err(sql)?;
-    let Some((work, n, Some(answer))) = put else {
-        return Ok(None);
-    };
-    let put = RoundId::new(work, n);
-    let taken = matter_rounds(conn, project, m)?
-        .iter()
-        .any(|r| r.id > put && r.cell.as_deref().is_some_and(|c| in_setting(g, c)) && answered_own(g, r));
-    Ok((!taken).then(|| (ask, cell, json_col(Some(answer)).unwrap_or(Value::Null))))
-}
-
-/// Where the setting of a new policy whose matter is `m` goes on when it is taken again: the cell that put the ask
-/// that held it, with the owner's answer still to be taken; else the cell a new session would have started at, or the
-/// cell the last row of the setting led to; else its study. Only a cell the router takes a matter back to.
-fn stands_at(conn: &Connection, g: &CompiledGraph, project: &str, m: i64) -> Result<String, String> {
-    let routes: Vec<String> = g
-        .cell(ROUTER)
-        .and_then(|c| c.inenums.get("route"))
-        .map(|vs| vs.iter().map(|v| v.0.clone()).collect())
-        .unwrap_or_default();
-    let first = KINDS.iter().find(|k| k.0 == SETTING).map_or("P2", |k| k.1).to_string();
-    let back = match answer_back(conn, g, project, m)? {
-        Some((_, cell, _)) => Some(cell),
-        None => matter_rounds(conn, project, m)?
-            .into_iter()
-            .rev()
-            .find(|r| r.transition.is_some() && r.cell.as_deref().is_some_and(|c| in_setting(g, c)))
-            .and_then(|r| {
-                let cell = r.cell?;
-                let row = g
-                    .cell(&cell)?
-                    .rows
-                    .iter()
-                    .find(|x| Some(&x.name) == r.transition.as_ref())?;
-                Some(if crate::steps::anew(row) { cell } else { row.to.clone() })
-            }),
-    };
-    Ok(back.filter(|c| routes.contains(c)).unwrap_or(first))
 }
 
 /// The matter an architect work's latest pick chose.
@@ -1130,6 +817,15 @@ fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>,
     (said, back)
 }
 
+/// The matter at the head of the queue the look at the queue takes next, where the cell has the row for it: the check
+/// of the policy before the plan of what to do next, the oldest of its kind.
+fn at_head<'a>(cell: &CompiledCell, can: &'a [Value]) -> Option<&'a Value> {
+    if !has_row(cell, "head") {
+        return None;
+    }
+    HEAD.iter().find_map(|kind| can.iter().find(|r| r["kind"] == *kind))
+}
+
 /// Whether the look at the queue would wait for the owner's reply to a question now, as [`look_at_queue`] works it
 /// out, without closing anything: so that a wait taken again records no new round.
 pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, String> {
@@ -1143,9 +839,10 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, Str
 }
 
 /// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, then a matter back
-/// with the owner's reply, the oldest first, and a lone matter are picked here, without a round; while the newest
-/// question pending was put just now and the owner said nothing since, the architect waits for the reply
-/// ([`waits_on`]), which a flow version before did not. A design card matter whose card needs no look any longer is closed first (the cell's
+/// with the owner's reply, the oldest first, then the matters at the head of the queue ([`at_head`]), and a lone matter
+/// are picked here, without a round; while the newest question pending was put just now and the owner said nothing
+/// since, the architect waits for the reply ([`waits_on`]) before the matters at the head of the queue, which a flow
+/// version before did not. A design card matter whose card needs no look any longer is closed first (the cell's
 /// `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's progress
 /// says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
@@ -1165,16 +862,18 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
     } else {
         None
     };
-    let queue = match (said, back, waits, can.as_slice()) {
-        (Some(said), _, _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
-        (None, Some(back), _, _) => json!({ "verdict": "answered", "matter": back["matter"] }),
-        (None, None, Some(q), _) => json!({ "verdict": "waits", "question": q }),
-        (None, None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
+    let head = at_head(cell, &can);
+    let queue = match (said, back, waits, head, can.as_slice()) {
+        (Some(said), _, _, _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
+        (None, Some(back), _, _, _) => json!({ "verdict": "answered", "matter": back["matter"] }),
+        (None, None, Some(q), _, _) => json!({ "verdict": "waits", "question": q }),
+        (None, None, None, Some(h), _) => json!({ "verdict": "head", "matter": h["matter"] }),
+        (None, None, None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
             json!({ "verdict": "none_after_batch" })
         }
-        (None, None, None, []) => json!({ "verdict": "none" }),
-        (None, None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
-        (None, None, None, many) => json!({ "verdict": "many", "count": many.len() }),
+        (None, None, None, None, []) => json!({ "verdict": "none" }),
+        (None, None, None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
+        (None, None, None, None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
     let mut out = json!({ "queue": queue });
     if !closed.is_empty() {
@@ -1183,24 +882,21 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
     Ok(out)
 }
 
-/// Whether the ask of the owner that held a matter has its answer.
-fn answered(conn: &Connection, ask: i64) -> Result<bool, String> {
-    Ok(count(
-        conn,
-        "SELECT count(*) FROM owner_asks WHERE id = ?1 AND answer IS NOT NULL",
-        &[&ask],
-    )? > 0)
+/// The owner's answer to the ask of the owner that held a matter; none while it has none.
+fn answer_of(conn: &Connection, ask: i64) -> Result<Option<Value>, String> {
+    let answer: Option<Option<String>> = conn
+        .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    Ok(json_col(answer.flatten()))
 }
 
-/// Where the matter picked goes: back to the cell that asked about it, when it comes back with the owner's answer;
-/// otherwise the first cell of its kind's path. The setting of a new policy goes on from where it stood
-/// ([`stands_at`]).
+/// Where the matter picked goes: back to the cell that asked about it, when it comes back with the owner's answer, or to
+/// the cell where a new policy takes effect when that cell is the one that writes it and the answer is exactly approved;
+/// otherwise the first cell of its kind's path.
 fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let conn = e.db.conn();
     let m = picked(conn, w.id)?.ok_or_else(|| format!("work {}: no matter is picked", w.id))?;
-    if setting_of(conn, w.id)?.is_some() {
-        return stands_at(conn, g, project_of(w)?, m);
-    }
     let (kind, asked, resume): (String, Option<i64>, Option<String>) = conn
         .query_row(
             "SELECT kind, asked, resume_cell FROM architect_matters WHERE id = ?1",
@@ -1209,8 +905,12 @@ fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
         )
         .map_err(|x| format!("matter {m}: {x}"))?;
     if let (Some(a), Some(cell)) = (asked, resume)
-        && answered(conn, a)?
+        && let Some(answer) = answer_of(conn, a)?
     {
+        let approved = text(&answer["text"]).trim() == APPROVED;
+        if cell == SET_POLICY && approved && g.cell(TAKES_EFFECT).is_some() {
+            return Ok(TAKES_EFFECT.into());
+        }
         return Ok(if g.cell(&cell).is_some() { cell } else { TALK.into() });
     }
     KINDS
@@ -1232,45 +932,6 @@ fn next_in_batch(e: &Engine, w: &Work) -> Result<&'static str, String> {
     } else {
         "done"
     })
-}
-
-/// How many times the setting a work has in hand corrected the text of the policy it sets since the text was last
-/// written, in whichever works.
-fn corrections(conn: &Connection, work: i64) -> Result<i64, String> {
-    let Some(m) = setting_of(conn, work)? else { return Ok(0) };
-    count(
-        conn,
-        "SELECT count(*) FROM policy_setting_rounds c
-         WHERE c.matter = ?1 AND c.cell = ?2 AND c.transition = 'corrected'
-           AND NOT EXISTS (SELECT 1 FROM policy_setting_rounds x
-                           WHERE x.matter = ?1 AND x.cell = ?3 AND x.transition IS NOT NULL
-                             AND (x.work > c.work OR (x.work = c.work AND x.n > c.n)))",
-        &[&m, &CORRECT, &WRITE],
-    )
-}
-
-/// Whether a project has the setting of a new policy under way: the matter of one is open.
-fn setting_under_way(conn: &Connection, project: &str) -> Result<bool, String> {
-    Ok(count(
-        conn,
-        "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = ?2 AND handled_round IS NULL
-           AND withdrawn IS NULL",
-        &[&project, &SETTING],
-    )? > 0)
-}
-
-/// Whether a work's last round that ended is the judgment of a reading that found a minor fix, which the text is put
-/// together for without a new reading.
-fn minor_fix_last(conn: &Connection, work: i64) -> Result<bool, String> {
-    let last: Option<(Option<String>, Option<String>)> = conn
-        .query_row(
-            "SELECT cell, transition FROM rounds WHERE work = ?1 AND ended_at IS NOT NULL ORDER BY n DESC LIMIT 1",
-            [work],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    Ok(last.is_some_and(|(c, t)| c.as_deref() == Some(JUDGE) && t.as_deref() == Some("minor_fix")))
 }
 
 /// How many reviews of an architect work's batch found something to fix.
@@ -1301,55 +962,20 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sess
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)
 }
 
-/// Whether the session the architect's work goes on in answered the understanding question since it started or was
-/// last compacted: a new one, or one the next round would leave for a new one, did not. A round that asked for tools or
-/// paused answered nothing, as the state of things the views read has it.
+/// Whether the session the architect's work goes on in is the one its previous work left: a new one, or one the next
+/// round would leave for a new one, is not, and understands the project first; a session that goes on never does again,
+/// compacted or not.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    let sessions::Plan::Going { held, .. } = plan_at_understanding(e, w, g)? else {
-        return Ok(false);
-    };
-    for r in &held.rounds {
-        let n = count(
-            e.db.conn(),
-            &format!(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2 AND cell IN {} AND transition IS NOT NULL
-                   AND transition NOT IN {NO_ANSWER}",
-                db::cells_sql(ARCHITECT, &[UNDERSTAND])
-            ),
-            &[&r.work, &r.n],
-        )?;
-        if n > 0 {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(matches!(plan_at_understanding(e, w, g)?, sessions::Plan::Going { .. }))
 }
 
-/// How the work came to the understanding question: from a rethink after a batch; in a session compacted since it
-/// last understood the project; or in a new one, at the project's first architect work (before any answer of the
-/// question, a round that asked for tools or paused being none), or for another reason.
-fn entry(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
-    let conn = e.db.conn();
-    let last: Option<String> = conn
-        .query_row(
-            "SELECT cell FROM rounds WHERE work = ?1 AND cell IN (?2, ?3) AND transition IS NOT NULL
-             ORDER BY n DESC LIMIT 1",
-            params![w.id, RETHINK, UNDERSTOOD_YET],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(sql)?;
-    if last.as_deref() == Some(RETHINK) {
-        return Ok("rethink".into());
-    }
-    if let sessions::Plan::Going { held, .. } = plan_at_understanding(e, w, g)?
-        && held.compacted.is_some()
-    {
-        return Ok("compacted".into());
-    }
+/// How the work came to the understanding question, which only a new session comes to: at the project's first
+/// architect work (before any answer of the question, a round that asked for tools or paused being none), or for
+/// another reason.
+fn entry(e: &Engine, w: &Work) -> Result<String, String> {
     let project = project_of(w)?;
     let before = count(
-        conn,
+        e.db.conn(),
         &format!(
             "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
              WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
@@ -1379,7 +1005,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             "not_understood"
         }
         .into(),
-        "entry" => entry(e, w, g)?,
+        "entry" => entry(e, w)?,
         "route" => route(e, w, g)?,
         "talk_turn" => match talk_in_hand(conn, w.id)? {
             Some(t) if talk_over(conn, t, None)? => "ended",
@@ -1387,26 +1013,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         }
         .into(),
         "reply" => reply_now(e, w)?.into(),
-        "setting" => if setting_under_way(conn, project_of(w)?)? {
-            "under_way"
-        } else {
-            "none"
-        }
-        .into(),
         "next_in_batch" => next_in_batch(e, w)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
-        "corrections" => if corrections(conn, w.id)? >= CORRECTIONS {
-            "three"
-        } else {
-            "fewer"
-        }
-        .into(),
-        "next_reading" => if minor_fix_last(conn, w.id)? {
-            "no_new_reading"
-        } else {
-            "new_reader"
-        }
-        .into(),
         "question" => {
             let d = picked_detail(conn, w.id)?.unwrap_or_default();
             if QUESTION_KINDS.contains(&d.as_str()) {
@@ -1429,8 +1037,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
 /// cell: the round would start a new session there (the owner asked for one, the last was past the limit, or the model
-/// changed), past the understanding, and a new session holds no state of things and no notes. A setting of a new
-/// policy it was in goes back to the queue with its matter, and goes on from that cell when it is taken again.
+/// or the login account changed), past the understanding, and a new session holds no state of things and no notes. The
+/// matter it had in hand goes back to the queue, and is taken again as any other.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
 /// names them here. Gives why the session would start afresh, in words; none when the work goes on.
@@ -1511,8 +1119,7 @@ pub fn talk_in_hand(conn: &Connection, work: i64) -> Result<Option<i64>, String>
 }
 
 /// Whether the talk about the owner's words `t` is over for a turn that started at `before` (now, when none): the owner
-/// ended it before then, by Done or by deciding on the setting of a policy that waited meanwhile; or the words are none
-/// the owner said to the architect (its release of a work the architect had stopped, its answer to an ask that held no
+/// ended it before then, by Done; or the words are none the owner said to the architect (its release of a work the architect had stopped, its answer to an ask that held no
 /// matter), which take one turn and no talk.
 fn talk_over(conn: &Connection, t: i64, before: Option<i64>) -> Result<bool, String> {
     let (detail, ended): (Option<String>, Option<i64>) = conn
@@ -1696,126 +1303,11 @@ fn talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     }
 }
 
-/// The open matter of the setting of a project's policy, while an ask of the owner holds it: the ask's body, which
-/// holds what the owner reads (the study) or approves (the text, the probes and the readings).
-fn setting_ask(conn: &Connection, project: &str) -> Result<Option<Value>, String> {
-    Ok(query_json(
-        conn,
-        "SELECT a.body FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
-         WHERE m.project = ?1 AND m.kind = ?2 AND m.handled_round IS NULL AND m.withdrawn IS NULL
-           AND a.answer IS NULL
-         ORDER BY m.id DESC LIMIT 1",
-        &[&project, &SETTING],
-        1,
-    )?
-    .into_iter()
-    .next()
-    .map(|r| r["body"].clone()))
-}
-
-/// What the setting of a new policy waits for the owner on, for a talk with the owner meanwhile: the study the owner
-/// reads (`P3`), or the text the owner approves (`P11`) with the probes, every reading and the gaps they left open;
-/// none while the setting waits for no one.
-fn setting_waits(e: &Engine, project: &str) -> Result<Option<Value>, String> {
-    let Some(body) = setting_ask(e.db.conn(), project)? else {
-        return Ok(None);
-    };
-    Ok(match body["kind"].as_str() {
-        Some("study") => Some(json!({ "waits_for": "the owner reads the study", "study": body["study"] })),
-        Some("policy_approval") => Some(json!({
-            "waits_for": "the owner approves the text",
-            "policy": body["policy"],
-            "probes": body["probes"],
-            "readings": body["readings"],
-            "gaps_left_open": gaps_of(&items(body.get("readings"))),
-        })),
-        _ => None,
-    })
-}
-
-/// The gaps of a version's text its readings left open, each reading's, those that passed included, as the judgment of
-/// it found them: by the reading, its round and its verdict.
-fn gaps_of(readings: &[Value]) -> Vec<Value> {
-    readings
-        .iter()
-        .enumerate()
-        .filter_map(|(i, r)| {
-            let gaps = items(r["verdict"].get("gaps"));
-            (!gaps.is_empty()).then(|| {
-                json!({
-                    "reading": i + 1,
-                    "round": format!("R{}-{}", r["work"], r["round"]),
-                    "verdict": r["verdict"]["verdict"],
-                    "gaps": gaps,
-                })
-            })
-        })
-        .collect()
-}
-
-/// The gaps of the text of the policy being set, the setting's matter `m`, that every reading of its version left open,
-/// those that passed included; none when they left none.
-fn open_gaps(conn: &Connection, m: i64) -> Result<Option<Value>, String> {
-    let rows = query_json(conn, "SELECT readings FROM policy_trials WHERE matter = ?1", &[&m], 1)?;
-    let readings = rows.first().map(|r| items(r.get("readings"))).unwrap_or_default();
-    let gaps = gaps_of(&readings);
-    Ok((!gaps.is_empty()).then_some(Value::Array(gaps)))
-}
-
-/// The talks with the owner held while the setting of a new policy the work has in hand waited for the owner: since
-/// the latest of its asks of the owner, at its study (`P3`) or its approval (`P11`), or since it started when it put
-/// none; each as [`talk_of`] gives it, with the way it ended. None when there were none.
-fn setting_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let Some(m) = setting_of(conn, w.id)? else {
-        return Ok(None);
-    };
-    let asked = matter_rounds(conn, project, m)?
-        .into_iter()
-        .rev()
-        .find(|r| r.transition.as_deref() == Some(HELD))
-        .map(|r| r.id);
-    let raised: Option<(i64, i64)> = conn
-        .query_row(
-            "SELECT work, round FROM architect_matters WHERE id = ?1 AND work IS NOT NULL",
-            [m],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    let since = asked
-        .or(raised.map(|(w, n)| RoundId::new(w, n)))
-        .unwrap_or(RoundId::new(0, 0));
-    let ends = query_json(
-        conn,
-        &format!(
-            "SELECT r.work, r.n FROM rounds r JOIN works x ON x.id = r.work
-             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IN {TALK_ENDS}
-               AND (r.work > ?2 OR (r.work = ?2 AND r.n > ?3))
-             ORDER BY r.work, r.n",
-            db::cells_sql(ARCHITECT, &[TALK])
-        ),
-        &[&project, &since.work, &since.n],
-        ROWS,
-    )?;
-    let mut talks = Vec::new();
-    for r in ends {
-        let (work, n) = (
-            r["work"].as_i64().unwrap_or_default(),
-            r["n"].as_i64().unwrap_or_default(),
-        );
-        if let Some(t) = picked_before(conn, work, Some(n))? {
-            talks.push(talk_of(conn, project, t)?);
-        }
-    }
-    Ok((!talks.is_empty()).then_some(Value::Array(talks)))
-}
-
 // Asks of the owner.
 
 /// The ask of the owner a round waits for or took, and its answer once the owner gave it: the one the round put, or the
-/// one an earlier round of its cell put that the round's input names, as the round that takes the owner's view of a
-/// study or approval of a policy names the ask that held the setting.
+/// one an earlier round of its cell put that the round's input names, as the round that took the owner's view of a
+/// study or approval of a policy in a flow version before named the ask that held the setting.
 pub fn owner_ask_of(e: &Engine, round: RoundId) -> Result<Option<(i64, Option<Value>)>, String> {
     e.db.conn()
         .query_row(
@@ -1850,58 +1342,15 @@ fn asked_of(gathered: &[Gathered]) -> Vec<Value> {
         .collect()
 }
 
-/// The options an owner's cell offers, each with what it means, as its return's schema lists them for `ruling.choice`.
-fn choices(cell: &CompiledCell) -> Vec<Value> {
-    let Some(f) = cell
-        .schema
-        .as_ref()
-        .and_then(|s| s.pointer("/properties/ruling/properties/choice"))
-    else {
-        return Vec::new();
-    };
-    let values: Vec<String> = f["enum"]
-        .as_array()
-        .map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
-    let desc = f["description"].as_str().unwrap_or_default();
-    let listed = desc.rsplit_once("Values: ").map(|x| x.1).unwrap_or(desc);
-    values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            let start = listed.find(&format!("{v}: ")).map(|p| p + v.len() + 2);
-            let end = values
-                .get(i + 1)
-                .and_then(|n| listed.find(&format!("; {n}: ")))
-                .unwrap_or(listed.len());
-            let means = start.filter(|s| *s <= end).map(|s| &listed[s..end]).unwrap_or_default();
-            json!([v, means])
-        })
-        .collect()
+/// What an answer of the owner's comes back to an owner's cell of the architect's graph as: a reply with the words.
+fn answered_as(answer: &Value) -> Value {
+    json!({ "reply": { "text": text(&answer["text"]) } })
 }
 
-/// What an answer of the owner's comes back to an owner's cell of the architect's graph as: a ruling with the option
-/// chosen, and the words where the ruling has a place for them (a flow version before the owner ruled by buttons
-/// alone), for a cell that rules; a reply with the words otherwise.
-fn answered_as(cell: &CompiledCell, answer: &Value) -> Value {
-    let text = answer["text"].as_str().unwrap_or_default();
-    let ruling = cell.schema.as_ref().and_then(|s| s.pointer("/properties/ruling"));
-    match ruling {
-        Some(r) if r.pointer("/properties/text").is_some() => {
-            json!({ "ruling": { "choice": answer["choice"], "text": text } })
-        }
-        Some(_) => json!({ "ruling": { "choice": answer["choice"] } }),
-        None => json!({ "reply": { "text": text } }),
-    }
-}
-
-/// The owner's cells of the architect's graph (asking, reading a study, approving a policy): what the architect asks,
-/// or puts before the owner to read or approve, becomes an ask of the owner that holds only the matter of the path that
-/// asked. The ask records the cell that takes the answer, the cell that asked or, for the owner's reading of a study or
-/// approval of a policy, the owner's cell itself; the round ends at once (`held`), and the architect's work goes on
-/// without it; the matter is back in the queue once the owner answers. The setting of a policy taken back to the cell
-/// that put its ask goes on by the owner's choice, which the cell takes as its answer. An ask that holds no matter, as
-/// an earlier architect put, waits for the answer.
+/// The owner's cell of the architect's graph: what the architect asks becomes an ask of the owner that holds only the
+/// matter of the path that asked, and records the cell that asked, which takes the answer; the round ends at once
+/// (`held`), and the architect's work goes on without it; the matter is back in the queue once the owner answers. An ask
+/// that holds no matter, as an earlier architect put, waits for the answer.
 pub fn ask_owner(
     e: &mut Engine,
     w: &Work,
@@ -1918,7 +1367,7 @@ pub fn ask_owner(
         };
         let gathered = inputs::gather(e, w, g, cell, None)?;
         let given = values::given(e, w, g, cell, None, &gathered)?;
-        let output = answered_as(cell, &answer);
+        let output = answered_as(&answer);
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
@@ -1926,68 +1375,28 @@ pub fn ask_owner(
     let given = values::given(e, w, g, cell, None, &gathered)?;
     let project = project_of(w)?.to_string();
     let commit = e.config.commit.clone();
-    // The setting of a policy taken back to the cell that put its ask, with the owner's answer: its rows go on by it.
-    let back = match setting_of(e.db.conn(), w.id)? {
-        Some(m) => answer_back(e.db.conn(), g, &project, m)?.filter(|x| x.1 == cell.id),
-        None => None,
-    };
-    if let Some((ask, _, answer)) = back {
-        let output = answered_as(cell, &answer);
-        let input = json!({ "inputs": recorded(&gathered), "ask": ask });
-        let round =
-            e.db.write(Actor::Engine, |tx| {
-                work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
-            })
-            .map_err(sql)?;
-        let row = g.take(&cell.id, &output, &given)?.clone();
-        return finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given);
-    }
     // A work of the architect never waits for the owner: its ask holds only the matter of the path that asked.
     let holds = picked(e.db.conn(), w.id)?;
-    let rules = !choices(cell).is_empty();
     let mut body = json!({ "from": "architect", "project": project, "work": w.id, "cell": cell.id });
-    let trials = gathered
+    let asked = asked_of(&gathered);
+    let question = asked
         .iter()
-        .flat_map(|x| &x.parts)
-        .find(|p| p.origin == Origin::Db("policy_trials".into()))
-        .and_then(|p| items(Some(&p.value)).into_iter().next());
-    let notice = if let Some(t) = trials {
-        body["kind"] = json!("policy_approval");
-        body["policy"] = t["policy"].clone();
-        body["probes"] = t["probes"].clone();
-        body["readings"] = t["readings"].clone();
-        body["choices"] = Value::Array(choices(cell));
-        format!("The new policy the architect of {project} wrote, read by new architects, waits for your approval")
-    } else if rules {
-        body["kind"] = json!("study");
-        body["study"] = gathered.iter().find_map(|x| x.value.clone()).unwrap_or(Value::Null);
-        body["choices"] = Value::Array(choices(cell));
-        format!("The study of a new policy by the architect of {project} is ready for you to read")
-    } else {
-        let asked = asked_of(&gathered);
-        let question = asked
-            .iter()
-            .find_map(|a| a["value"]["question"].as_str().map(str::to_string));
-        let about = match &question {
-            Some(q) => format!(": {}", db::one_sentence(q)),
-            None => what_is_asked(&asked),
-        };
-        body["kind"] = json!(if question.is_some() { "question" } else { "ask" });
-        if let Some(q) = question {
-            body["question"] = json!(q);
-        }
-        body["asked"] = Value::Array(asked);
-        format!("The architect of {project} asks you{about}")
+        .find_map(|a| a["value"]["question"].as_str().map(str::to_string));
+    let about = match &question {
+        Some(q) => format!(": {}", db::one_sentence(q)),
+        None => what_is_asked(&asked),
     };
+    body["kind"] = json!(if question.is_some() { "question" } else { "ask" });
+    if let Some(q) = question {
+        body["question"] = json!(q);
+    }
+    body["asked"] = Value::Array(asked);
+    let notice = format!("The architect of {project} asks you{about}");
     if let Some(m) = holds {
         body["holds"] = json!([m]);
     }
-    // The cell the answer goes back to: the one that asked, or the owner's cell itself, which rules by it.
-    let resume = if rules {
-        Some(cell.id.clone())
-    } else {
-        w.pos.callers.last().or(w.pos.stopped.as_ref()).cloned()
-    };
+    // The cell the answer goes back to: the one that asked.
+    let resume = w.pos.callers.last().or(w.pos.stopped.as_ref()).cloned();
     let input = json!({ "inputs": recorded(&gathered) });
     let (round, id) =
         e.db.write(Actor::Engine, |tx| {
@@ -2011,15 +1420,11 @@ pub fn ask_owner(
     let (Some(m), Some(c)) = (holds, resume) else {
         return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
     };
-    let output = if rules {
-        json!({})
-    } else {
-        let text = format!(
-            "The ask is with the owner as ask {id}. Matter {m} waits for the answer out of the queue, and comes back to \
-             cell {c} with it; the work goes on with the other matters."
-        );
-        json!({ "reply": { "text": text } })
-    };
+    let text = format!(
+        "The ask is with the owner as ask {id}. Matter {m} waits for the answer out of the queue, and comes back to \
+         cell {c} with it; the work goes on with the other matters."
+    );
+    let output = json!({ "reply": { "text": text } });
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
 }
@@ -2214,26 +1619,6 @@ pub fn ask_architect(
     Ok(Advance::Waits(format!(
         "matter {matter} waits for the architect's reply"
     )))
-}
-
-/// Cell `P9`: how many new sessions in a row read this version of the policy's text and were judged to
-/// understand it; two pass it, one asks for another.
-pub fn count_trials(e: &mut Engine, w: &Work) -> Result<Value, String> {
-    let m = setting_of(e.db.conn(), w.id)?.ok_or_else(|| format!("work {}: no setting of a policy in hand", w.id))?;
-    let rows = query_json(
-        e.db.conn(),
-        "SELECT readings FROM policy_trials WHERE matter = ?1",
-        &[&m],
-        1,
-    )?;
-    let readings = rows.first().map(|r| items(r.get("readings"))).unwrap_or_default();
-    let passed = readings
-        .iter()
-        .rev()
-        .take_while(|r| matches!(r["verdict"]["verdict"].as_str(), Some("understood" | "minor_fix")))
-        .count();
-    let verdict = if passed >= 2 { "two_passed" } else { "one_more" };
-    Ok(json!({ "count": { "verdict": verdict } }))
 }
 
 // The architect's actions.
@@ -2652,6 +2037,75 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     batch_over(tx, w, &project)
 }
 
+/// Why a matter at the head of the queue is asked for, when the cell that asks gives no why of its own: a new session
+/// understood the project, or a new policy took effect.
+fn head_why(cell: &str) -> String {
+    match cell {
+        UNDERSTAND => "A new session understood the project".into(),
+        TAKES_EFFECT => "A new policy took effect".into(),
+        other => format!("Cell {other} asked for it"),
+    }
+}
+
+/// Queues a matter at the head of the project's queue, of the kind `kind`, the check of the policy or the plan of what
+/// to do next, with why the round's cell asks for it: the text at `why`, or the cell's own reason. One of that kind
+/// open already, in the queue or parked for the owner's reply, stands instead, and the newer asker's why is added to
+/// it.
+fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) -> Result<(), String> {
+    let (_, project) = architect_work_of(ctx)?;
+    let why = match why.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        Some(w) => w.to_string(),
+        None => head_why(&ctx.cell.id),
+    };
+    let asker = json!({ "cell": ctx.cell.id, "round": format!("R{}-{}", ctx.round.work, ctx.round.n), "why": why });
+    let open: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT id, body FROM architect_matters WHERE project = ?1 AND kind = ?2 AND handled_round IS NULL
+               AND withdrawn IS NULL ORDER BY id LIMIT 1",
+            params![project, kind],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    if let Some((id, body)) = open {
+        let mut body: Value = serde_json::from_str(&body)
+            .ok()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        if !body["asked_by"].is_array() {
+            body["asked_by"] = json!([]);
+        }
+        if let Some(xs) = body["asked_by"].as_array_mut() {
+            xs.push(asker);
+        }
+        tx.execute(
+            "UPDATE architect_matters SET body = ?2 WHERE id = ?1",
+            params![id, body.to_string()],
+        )
+        .map_err(sql)?;
+        return Ok(());
+    }
+    let what = if kind == CHECK {
+        format!(
+            "Check whether the policy of {project} still holds: {}",
+            db::one_sentence(&why)
+        )
+    } else {
+        format!("Plan what to do next for {project}: {}", db::one_sentence(&why))
+    };
+    let m = Matter {
+        project,
+        kind: kind.into(),
+        detail: None,
+        what,
+        body: json!({ "asked_by": [asker] }),
+        item: None,
+        raised: Some((ctx.round.work, ctx.round.n)),
+    };
+    queue_matter(tx, &m).map_err(sql)?;
+    Ok(())
+}
+
 /// Carries out an action of the architect's graph; false for an action of another.
 pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> Result<bool, String> {
     let w = ctx.work.id;
@@ -2743,8 +2197,36 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, "set_straight", None)?,
         "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, "set_straight")?,
         "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
-        "hold_for_policy" => hold(tx, &architect_work_of(ctx)?.1, "policy", None)?,
-        "release_policy_hold" => release(tx, &architect_work_of(ctx)?.1, "policy")?,
+        "queue_check_policy" => queue_head(ctx, tx, CHECK, at)?,
+        "queue_make_plan" => queue_head(ctx, tx, PLAN, at)?,
+        "ask_approval" => {
+            // The engine's short question whether the draft the round wrote is approved, pinned in the owner's
+            // one-to-one as the architect's question, which parks the matter in hand at the cell; without the draft,
+            // which is the round's return.
+            let (_, project) = architect_work_of(ctx)?;
+            let m = matter_of(tx, w)?;
+            let body = json!({
+                "from": "architect", "project": project, "work": w, "cell": ctx.cell.id, "kind": "question",
+                "question": APPROVAL, "holds": [m],
+            });
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
+                params![ctx.round.work, ctx.round.n, body.to_string()],
+            )
+            .map_err(sql)?;
+            let ask = tx.last_insert_rowid();
+            tx.execute(
+                "UPDATE architect_matters SET asked = ?2, resume_cell = ?3 WHERE id = ?1",
+                params![m, ask, ctx.cell.id],
+            )
+            .map_err(sql)?;
+            actions::notify_ask(
+                tx,
+                w,
+                ask,
+                &format!("The architect of {project} asks you: {APPROVAL} (ask {ask})"),
+            )?;
+        }
         "take_words" => {
             // The entries the owner added to the talk before this round started, which it was given as the next words
             // of its talk; the talk's own matter stays open until its last turn.
@@ -2904,47 +2386,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             batch_over(tx, w, &project)?;
         }
         "apply_reviewed" => give_up(ctx, tx)?,
-        "start_setting" => {
-            let (_, project) = architect_work_of(ctx)?;
-            let open = count(
-                tx,
-                "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = ?2 AND handled_round IS NULL
-                   AND withdrawn IS NULL",
-                &[&project, &SETTING],
-            )?;
-            // One setting at a time: one under way is taken up instead, as the latest raised.
-            if open == 0 {
-                // Why it is set again: the reasons the check of the policy in force found, or what the talk with the
-                // owner came to.
-                let came_to = text(&ctx.unwrapped["talk"]["conclusion"]).trim().to_string();
-                let (what, body) = if came_to.is_empty() {
-                    let reasons = items(ctx.unwrapped["verdict"].get("reasons"));
-                    let why: Vec<String> = reasons.iter().map(|r| text(&r["why"]).trim().to_string()).collect();
-                    (
-                        format!("Set a new policy for {project}: {}", db::one_sentence(&why.join("; "))),
-                        json!({ "reasons": reasons }),
-                    )
-                } else {
-                    (
-                        format!(
-                            "Set a new policy for {project}, as the owner asked: {}",
-                            db::one_sentence(&came_to)
-                        ),
-                        json!({ "talk": matter_of(tx, w)?, "conclusion": came_to }),
-                    )
-                };
-                let m = Matter {
-                    project: project.clone(),
-                    kind: SETTING.into(),
-                    detail: None,
-                    what,
-                    body,
-                    item: None,
-                    raised: Some((ctx.round.work, ctx.round.n)),
-                };
-                queue_matter(tx, &m).map_err(sql)?;
-            }
-        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -3060,257 +2501,6 @@ fn names_cell(e: &Engine, text: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// The numbers of a policy's principles.
-fn principle_numbers(policy: &Value) -> Vec<i64> {
-    items(policy.get("principles"))
-        .iter()
-        .filter_map(|p| p["no"].as_i64())
-        .collect()
-}
-
-/// The place beside another in a return: `policy` beside `probes`, at the same depth.
-fn beside(at: Option<&str>, from: &str, to: &str) -> String {
-    match at.and_then(|a| a.rsplit_once('.')) {
-        Some((head, _)) => format!("{head}.{to}"),
-        None => at.unwrap_or(from).replace(from, to),
-    }
-}
-
-/// The text of the policy a return writes, for the checks of it: whole, as the policy beside the place checked; or,
-/// from a correction that hands in only its edits, beside the place checked, the text being set with them applied.
-/// None when the return holds neither, or its edits do not apply, which edits_apply says.
-fn revised(c: &checks::Ctx<'_>, at: Option<&str>) -> Result<Option<Value>, String> {
-    let place = |to: &str| match at.and_then(|a| a.rsplit_once('.')) {
-        Some((head, _)) => format!("{head}.{to}"),
-        None => to.to_string(),
-    };
-    if let Some(p) = at_path(&c.unwrapped, &place("policy")) {
-        return Ok(Some(p));
-    }
-    let Some(edits) = at_path(&c.unwrapped, &place("edits")) else {
-        return Ok(None);
-    };
-    let Some((_, draft)) = draft_now(c.e.db.conn(), c.w.id)? else {
-        return Ok(None);
-    };
-    Ok(applied(&draft, &items(Some(&edits))).ok())
-}
-
-/// The text of the policy the setting a work has in hand is setting as it stands, whole, with the round that holds it,
-/// in whichever work: the latest the architect wrote (`P4`) or the engine put together (`P5`); none before one is
-/// written.
-fn draft_now(conn: &Connection, work: i64) -> Result<Option<(RoundId, Value)>, String> {
-    let Some(m) = setting_of(conn, work)? else {
-        return Ok(None);
-    };
-    let rows = query_json(
-        conn,
-        "SELECT work, n, coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy'))
-           AS policy
-         FROM policy_setting_rounds WHERE matter = ?1 AND cell IN ('P4', 'P5') AND transition IS NOT NULL
-           AND coalesce(json_extract(output, '$.draft.policy'), json_extract(output, '$.outcome.policy')) IS NOT NULL
-         ORDER BY work DESC, n DESC LIMIT 1",
-        &[&m],
-        1,
-    )?;
-    Ok(rows.into_iter().next().map(|r| {
-        (
-            RoundId::new(
-                r["work"].as_i64().unwrap_or_default(),
-                r["n"].as_i64().unwrap_or_default(),
-            ),
-            r["policy"].clone(),
-        )
-    }))
-}
-
-/// Cell `P5`: this version of the policy's text and probes, put together for a new architect to read: as the
-/// architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and
-/// the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with its edits
-/// applied.
-pub fn put_draft_together(e: &Engine, w: &Work) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let (round, text) =
-        draft_now(conn, w.id)?.ok_or_else(|| format!("work {}: no text of a policy is written", w.id))?;
-    let m = setting_of(conn, w.id)?.unwrap_or_default();
-    let change = query_json(
-        conn,
-        "SELECT cell, coalesce(json_extract(output, '$.outcome.revision'), json_extract(output, '$.outcome.verdict'))
-           AS change
-         FROM policy_setting_rounds
-         WHERE matter = ?1 AND (work > ?2 OR (work = ?2 AND n > ?3)) AND transition IS NOT NULL
-           AND ((cell = ?4 AND json_extract(output, '$.outcome.revision.edits') IS NOT NULL)
-             OR (cell = ?5 AND transition = 'minor_fix'))
-         ORDER BY work DESC, n DESC LIMIT 1",
-        &[&m, &round.work, &round.n, &CORRECT, &JUDGE],
-        1,
-    )?;
-    let change = change.first().map(|r| r["change"].clone());
-    let text = match &change {
-        Some(c) => applied(&text, &items(c.get("edits")))?,
-        None => text,
-    };
-    let probes = match change.filter(|c| c.get("kept").is_some() || c.get("probes").is_some()) {
-        Some(c) => assembled_probes(&probes_now(conn, w.id)?, &c)?,
-        None => probes_now(conn, w.id)?,
-    };
-    Ok(json!({ "draft": { "policy": text, "probes": probes } }))
-}
-
-/// The probes of the policy the setting a work has in hand is setting as they stand, in whichever work: as the engine
-/// last put them together (`P5`), or as the round that wrote them handed them in (`P4`), whichever came last; none
-/// before any is written.
-fn probes_now(conn: &Connection, work: i64) -> Result<Vec<Value>, String> {
-    let Some(m) = setting_of(conn, work)? else {
-        return Ok(Vec::new());
-    };
-    let rows = query_json(
-        conn,
-        "SELECT coalesce(json_extract(output, '$.draft.probes'), json_extract(output, '$.outcome.probes')) AS probes
-         FROM policy_setting_rounds WHERE matter = ?1 AND cell IN (?2, ?3) AND transition IS NOT NULL
-           AND coalesce(json_extract(output, '$.draft.probes'), json_extract(output, '$.outcome.probes')) IS NOT NULL
-         ORDER BY work DESC, n DESC LIMIT 1",
-        &[&m, &WRITE, &PUT_TOGETHER],
-        1,
-    )?;
-    Ok(rows.first().map(|r| items(r.get("probes"))).unwrap_or_default())
-}
-
-/// The probes a correction leaves: those of `current` it keeps, by id and in their order, then those it writes out,
-/// a changed one under its id. A correction that keeps none by name, as one of a flow version before held them all,
-/// leaves those it writes out. Refused when it keeps a probe there is not, or keeps one it writes out again.
-fn assembled_probes(current: &[Value], revision: &Value) -> Result<Vec<Value>, String> {
-    let written = items(revision.get("probes"));
-    let Some(kept) = revision.get("kept") else {
-        return Ok(written);
-    };
-    let kept = texts(kept);
-    let id = |p: &Value| p["id"].as_str().map(str::trim).unwrap_or_default().to_string();
-    let mut problems = Vec::new();
-    for k in &kept {
-        if !current.iter().any(|p| id(p) == *k) {
-            problems.push(format!("{k} is no probe of this version"));
-        }
-        if written.iter().any(|p| id(p) == *k) {
-            problems.push(format!(
-                "{k} is kept and written out again: keep it or write it, not both"
-            ));
-        }
-    }
-    if !problems.is_empty() {
-        return Err(problems.join("; "));
-    }
-    let mut out: Vec<Value> = current.iter().filter(|&p| kept.contains(&id(p))).cloned().collect();
-    out.extend(written);
-    Ok(out)
-}
-
-/// The probes a correction's return leaves, for the checks of them: the probes of this version it keeps with those it
-/// writes out, from the place checked and the list of those it keeps beside it; the place's probes alone when nothing is
-/// kept beside them.
-fn probes_left(c: &checks::Ctx<'_>, at: Option<&str>, v: Option<&Value>) -> Result<Vec<Value>, String> {
-    let kept = at
-        .and_then(|a| a.rsplit_once('.'))
-        .and_then(|(head, _)| at_path(&c.unwrapped, &format!("{head}.kept")));
-    let Some(kept) = kept else {
-        return Ok(items(v));
-    };
-    let revision = json!({ "kept": kept, "probes": v.cloned().unwrap_or_else(|| json!([])) });
-    assembled_probes(&probes_now(c.e.db.conn(), c.w.id)?, &revision)
-}
-
-/// A policy with a correction's edits applied in order: each passage changed is in its texts, as the edits before
-/// leave them, exactly once, and is replaced there; a principle or signal added goes last, a principle numbered after
-/// the highest; one removed is taken out, the other principles keeping their numbers. When an edit does not apply,
-/// none is, and why each does not is said, each by its number.
-pub fn applied(policy: &Value, edits: &[Value]) -> Result<Value, String> {
-    let mut p = policy.clone();
-    let mut problems: Vec<String> = Vec::new();
-    for (i, x) in edits.iter().enumerate() {
-        let n = i + 1;
-        match text(&x["kind"]) {
-            // A minor fix a reading found changes passages only, and names no kind.
-            "change" | "" => {
-                let old = text(&x["old"]);
-                let times = if old.is_empty() { 0 } else { occurrences(&p, old) };
-                if times == 1 {
-                    replace_once(&mut p, old, text(&x["new"]));
-                } else {
-                    problems.push(format!(
-                        "edit {n} (change): its old passage is in the text {times} times, not once; quote it word \
-                         for word, and enough of it to be there once"
-                    ));
-                }
-            }
-            "add_principle" => {
-                let no = principle_numbers(&p).into_iter().max().unwrap_or(0) + 1;
-                push_row(&mut p, "principles", json!({ "no": no, "text": x["text"] }));
-            }
-            "add_signal" => push_row(&mut p, "signals", json!({ "what": x["what"], "how": x["how"] })),
-            "remove" => {
-                // A principle by its number; a signal by its place in its list, from 1.
-                let no = x["no"].as_i64().unwrap_or_default();
-                let part = text(&x["part"]);
-                let list = format!("{part}s");
-                let rows = items(p.get(&list));
-                let at = if part == "principle" {
-                    rows.iter().position(|q| q["no"].as_i64() == Some(no))
-                } else {
-                    usize::try_from(no - 1).ok().filter(|i| *i < rows.len())
-                };
-                match (at, p.get_mut(&list).and_then(Value::as_array_mut)) {
-                    (Some(i), Some(xs)) => {
-                        xs.remove(i);
-                    }
-                    _ => problems.push(format!("edit {n} (remove): the text has no {part} {no}")),
-                }
-            }
-            other => problems.push(format!("edit {n}: there is no kind of edit {other}")),
-        }
-    }
-    if problems.is_empty() {
-        Ok(p)
-    } else {
-        Err(problems.join("\n"))
-    }
-}
-
-/// How many times a passage is in the texts a value holds.
-fn occurrences(v: &Value, passage: &str) -> usize {
-    match v {
-        Value::String(s) => s.matches(passage).count(),
-        Value::Array(xs) => xs.iter().map(|x| occurrences(x, passage)).sum(),
-        Value::Object(o) => o.values().map(|x| occurrences(x, passage)).sum(),
-        _ => 0,
-    }
-}
-
-/// Replaces the first place a passage is in the texts a value holds; whether it was there.
-fn replace_once(v: &mut Value, old: &str, new: &str) -> bool {
-    match v {
-        Value::String(s) => match s.find(old) {
-            Some(at) => {
-                s.replace_range(at..at + old.len(), new);
-                true
-            }
-            None => false,
-        },
-        Value::Array(xs) => xs.iter_mut().any(|x| replace_once(x, old, new)),
-        Value::Object(o) => o.values_mut().any(|x| replace_once(x, old, new)),
-        _ => false,
-    }
-}
-
-/// Adds a row at the end of a list of a policy.
-fn push_row(p: &mut Value, list: &str, row: Value) {
-    if !p[list].is_array() {
-        p[list] = json!([]);
-    }
-    if let Some(xs) = p[list].as_array_mut() {
-        xs.push(row);
-    }
 }
 
 /// Whether a project's observation is open.
@@ -3718,19 +2908,30 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
-        "edits_apply" => {
-            let (_, draft) = draft_now(conn, c.w.id)?.ok_or("no text of the policy is written yet")?;
-            applied(&draft, &items(v)).map(|_| ())
+        "no_holds_after_reply" => {
+            if v.is_none_or(|x| x["verdict"] != "holds") {
+                return Ok(());
+            }
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let replied = count(
+                conn,
+                "SELECT count(*) FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
+                 WHERE m.id = ?1 AND a.answer IS NOT NULL",
+                &[&m],
+            )? > 0;
+            if replied {
+                return Err(
+                    "the owner replied to your question whether to research a new policy: once the owner replied, \
+                     the policy is not handed in as holding; hand in write_policy with the owner's stance, or ask \
+                     again when the reply does not answer the question"
+                        .into(),
+                );
+            }
+            Ok(())
         }
         "policy_text_clean" => {
-            let Some(policy) = revised(c, at)? else { return Ok(()) };
+            let Some(policy) = v else { return Ok(()) };
             let text = policy.to_string();
-            for p in items(at_path(&c.unwrapped, &beside(at, "policy", "probes")).as_ref()) {
-                let ask = p["ask"].as_str().unwrap_or_default();
-                if ask.len() >= 20 && text.contains(ask) {
-                    return Err(format!("the policy holds the probe {}", p["id"]));
-                }
-            }
             for said in owner_words(conn, c.w.id)? {
                 if let Some(s) = sentences(&said)
                     .into_iter()
@@ -3745,103 +2946,11 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if names_date(&text) {
                 return Err("the policy names a date".into());
             }
-            if let Some(item) = names_item(&policy) {
+            if let Some(item) = names_item(policy) {
                 return Err(format!(
                     "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
                      into it"
                 ));
-            }
-            Ok(())
-        }
-        "probes_kept" => {
-            let revision = json!({ "kept": v.cloned().unwrap_or_else(|| json!([])), "probes": [] });
-            assembled_probes(&probes_now(conn, c.w.id)?, &revision).map(|_| ())
-        }
-        "probes_cover_principles" => {
-            let probes = probes_left(c, at, v)?;
-            let Some(policy) = revised(c, at)? else { return Ok(()) };
-            let numbers = principle_numbers(&policy);
-            for p in &probes {
-                for n in items(p.get("principles")).iter().filter_map(Value::as_i64) {
-                    if !numbers.contains(&n) {
-                        return Err(format!(
-                            "the probe {} names principle {n}, which the text does not have",
-                            p["id"]
-                        ));
-                    }
-                }
-            }
-            for n in numbers {
-                let probed = probes
-                    .iter()
-                    .any(|p| items(p.get("principles")).iter().any(|x| x.as_i64() == Some(n)));
-                if !probed {
-                    return Err(format!("principle {n} has no probe"));
-                }
-            }
-            Ok(())
-        }
-        "failed_probes_gone" => {
-            let m = setting_of(conn, c.w.id)?.unwrap_or_default();
-            let gaps = query_json(
-                conn,
-                "SELECT output FROM policy_setting_rounds
-                 WHERE matter = ?1 AND cell = 'P7' AND transition IN ('gaps', 'gaps_left')",
-                &[&m],
-                ROWS,
-            )?;
-            let wrong: BTreeSet<String> = gaps
-                .iter()
-                .flat_map(|r| texts(&at_path(&c.g.unwrap(&r["output"]), "verdict.wrong_probes").unwrap_or_default()))
-                .collect();
-            let still: Vec<String> = probes_left(c, at, v)?
-                .iter()
-                .filter_map(|p| p["id"].as_str().map(str::trim))
-                .filter(|id| wrong.contains(*id))
-                .map(str::to_string)
-                .collect();
-            if still.is_empty() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "these probes were answered wrongly, and are not used again: {}",
-                    still.join(", ")
-                ))
-            }
-        }
-        "reading_complete" => {
-            let reading = v.cloned().unwrap_or(Value::Null);
-            let m = setting_of(conn, c.w.id)?.unwrap_or_default();
-            let policy = query_json(conn, "SELECT policy FROM policy_text WHERE matter = ?1", &[&m], 1)?
-                .first()
-                .map(|r| r["policy"].clone())
-                .unwrap_or(Value::Null);
-            let probes = query_json(
-                conn,
-                "SELECT probes FROM policy_probes_asked WHERE matter = ?1",
-                &[&m],
-                1,
-            )?
-            .first()
-            .map(|r| items(r.get("probes")))
-            .unwrap_or_default();
-            let restated: Vec<i64> = items(reading.get("restate"))
-                .iter()
-                .filter_map(|r| r["no"].as_i64())
-                .collect();
-            if let Some(n) = principle_numbers(&policy).into_iter().find(|n| !restated.contains(n)) {
-                return Err(format!("principle {n} is not restated"));
-            }
-            let answered: Vec<String> = items(reading.get("answers"))
-                .iter()
-                .filter_map(|a| a["id"].as_str().map(str::to_string))
-                .collect();
-            if let Some(p) = probes
-                .iter()
-                .filter_map(|p| p["id"].as_str())
-                .find(|id| !answered.iter().any(|a| a == id))
-            {
-                return Err(format!("the probe {p} is not answered"));
             }
             Ok(())
         }
@@ -3872,22 +2981,14 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "matter_items" => matter_items(e, w),
         "item_log" => item_log(e, w),
         "similar_items" => similar_items(e, w, g).map(Some),
-        "owner_answer" => owner_answer(e, w, g),
-        "policy_stays" => policy_stays(e, project),
-        "set_again" => set_again(e, w, project),
+        "owner_answer" => owner_answer(e, w),
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
         "group_talk" => group_talk(e, w, project),
         "talk" => talk(e, w, project),
-        "setting_waits" => setting_waits(e, project),
-        "setting_talk" => setting_talk(e, w, project),
         "told_owner" => told_owner(e, project),
         "questions" => questions(e, project),
-        "open_gaps" => match setting_of(e.db.conn(), w.id)? {
-            Some(m) => open_gaps(e.db.conn(), m),
-            None => Ok(None),
-        },
         other => Err(format!("no such engine input: {other}")),
     }
 }
@@ -4132,13 +3233,12 @@ fn work_start(conn: &Connection, work: i64) -> Result<i64, String> {
     Ok(at.unwrap_or_else(db::now))
 }
 
-/// What was said in the groups of a project's works since its architect last read it, at its last pick or wrap-up
-/// (`Q1`, `E1`), other than to the architect, oldest first: the owner's words to the engineers, what the engineers told
-/// the owner, and the owner's answers, to the engineers' asks and, in a group, to a question the architect held; each
-/// with its work and item. The architect gets it as information, which starts no work of it and needs no answer:
-/// everything said in a group reaches all three. A work of the architect with one matter picks it with no pick of the
-/// architect's, and every such work ends at its wrap-up, so the wrap-up takes what no pick took. The first time, the
-/// week before the work; none when nothing was said.
+/// What was said in the groups of a project's works since its architect last read it, at its last pick (`Q1`) or at the
+/// wrap-up a flow version before had (`E1`), other than to the architect, oldest first: the owner's words to the
+/// engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks and, in a group, to a
+/// question the architect held; each with its work and item. The architect gets it as information, which starts no
+/// work of it and needs no answer: everything said in a group reaches all three. The first time, the week before the
+/// work; none when nothing was said.
 fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let last: Option<i64> = conn
@@ -5079,16 +4179,12 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     Ok(json!({ "close_items": close, "same_paths": same_paths }))
 }
 
-/// The owner's answer to the ask that held the matter picked, when it comes back with one; for the setting of a
-/// policy, only at the cell that asked, until that cell answered after it.
-fn owner_answer(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>, String> {
+/// The owner's answer to the ask that held the matter picked, when it comes back with one.
+fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(m) = picked(conn, w.id)? else {
         return Ok(None);
     };
-    if setting_of(conn, w.id)?.is_some() && !answer_back(conn, g, project_of(w)?, m)?.is_some_and(|x| x.1 == w.pos.at) {
-        return Ok(None);
-    }
     let row = query_json(
         conn,
         "SELECT a.id AS ask, a.body, a.answer FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
@@ -5279,49 +4375,6 @@ mod tests {
         assert!(names_article("independent of any project; developed by itself", a));
         assert!(!names_article("Article 10", a));
         assert!(!names_article("Article 2", a));
-    }
-
-    // A correction's edits apply in order: a passage changed where it is once, as the edits before leave the text, a
-    // principle added after the highest, rows removed; when one does not apply, none does, and each that does not is
-    // named.
-    #[test]
-    fn a_correction_s_edits_apply_in_order_or_not_at_all() {
-        let policy = json!({ "direction": "The parser first: a parser others build on.", "why": "Users wait.",
-                             "principles": [{ "no": 1, "text": "Parse first." }, { "no": 2, "text": "Check second." }],
-                             "signals": [{ "what": "Speed", "how": "merged" }, { "what": "Bugs", "how": "reports" }] });
-        let edits = [
-            json!({ "kind": "change", "old": "Users wait.", "new": "Users wait for it." }),
-            json!({ "kind": "change", "old": "for it", "new": "for the parser" }),
-            json!({ "kind": "add_principle", "text": "Measure third." }),
-            json!({ "kind": "remove", "part": "principle", "no": 1 }),
-            json!({ "kind": "remove", "part": "signal", "no": 2 }),
-            json!({ "kind": "add_signal", "what": "Size", "how": "design_bytes" }),
-        ];
-        let p = applied(&policy, &edits).unwrap();
-        assert_eq!(p["why"], "Users wait for the parser.");
-        assert_eq!(
-            p["principles"],
-            json!([{ "no": 2, "text": "Check second." }, { "no": 3, "text": "Measure third." }])
-        );
-        assert_eq!(p["signals"][1]["what"], "Size");
-        assert_eq!(p["signals"].as_array().map(Vec::len), Some(2));
-        let wrong = [
-            json!({ "kind": "change", "old": "parser", "new": "lexer" }),
-            json!({ "kind": "change", "old": "Users wait.", "new": "Users wait long." }),
-            json!({ "kind": "change", "old": "Nowhere.", "new": "Somewhere." }),
-            json!({ "kind": "remove", "part": "signal", "no": 5 }),
-        ];
-        let why = applied(&policy, &wrong).unwrap_err();
-        assert!(
-            why.contains("edit 1 (change): its old passage is in the text 2 times"),
-            "{why}"
-        );
-        assert!(
-            why.contains("edit 3 (change): its old passage is in the text 0 times"),
-            "{why}"
-        );
-        assert!(why.contains("edit 4 (remove): the text has no signal 5"), "{why}");
-        assert!(!why.contains("edit 2"), "{why}");
     }
 
     #[test]

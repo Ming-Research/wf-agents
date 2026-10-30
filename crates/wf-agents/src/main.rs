@@ -79,10 +79,6 @@ enum Command {
         /// For what the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
         #[arg(long)]
         reply: Option<String>,
-        /// For an ask of the architect's that offers options, the option chosen: for its study or its policy, one of
-        /// those the ask lists.
-        #[arg(long)]
-        choice: Option<String>,
     },
     /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
     DesignCards {
@@ -478,27 +474,12 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         }
         Command::Asks { all } => print(owner::asks(d, all)),
         Command::Ask { id } => print(owner::ask(d, id)),
-        Command::Answer {
-            ask,
-            text,
-            why,
-            reply,
-            choice,
-        } => {
+        Command::Answer { ask, text, why, reply } => {
             let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            print(owner::answer(
-                d,
-                owner::Answer {
-                    ask,
-                    text,
-                    why,
-                    reply,
-                    choice,
-                },
-            ))
+            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
         }
         Command::Architect(ArchitectCommand::Say { text, project, item }) => {
             print(owner::say_to_architect(d, project.as_deref(), item, &text))

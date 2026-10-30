@@ -176,8 +176,6 @@ pub struct Answer {
     pub why: Option<String>,
     /// For what the architect is asked: the rest of the architect's reply, as JSON (children, rest, waits).
     pub reply: Option<Value>,
-    /// For an ask of the architect's that offers options, the option chosen.
-    pub choice: Option<String>,
 }
 
 /// Answers an ask of the owner, as the page does.
@@ -187,7 +185,6 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         text: a.text,
         why: a.why,
         reply: a.reply,
-        choice: a.choice,
         to: None,
     };
     api::answer(&mut db, a.ask, &given)

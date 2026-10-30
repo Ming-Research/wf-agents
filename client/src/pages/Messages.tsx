@@ -47,13 +47,11 @@ import {
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
-  Choice,
   Conversation,
   ConversationDetail,
   ConversationEntry,
   Forwarded,
   Forwarding,
-  JsonValue,
   Misses,
   OwnerAsk,
   TalkWait,
@@ -176,7 +174,7 @@ function MissesLine({ m }: { m: Misses }) {
 /// ask in full folded under them.
 function Words({ e }: { e: ConversationEntry }) {
   if (e.source === 'ruling') return <p>{t('conv_ruling', { id: e.design_card ?? e.id })}</p>;
-  if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} revisions={e.revisions} />;
+  if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} />;
   return (
     <>
       {e.text !== '' ? <Markdown text={e.text} /> : null}
@@ -184,7 +182,7 @@ function Words({ e }: { e: ConversationEntry }) {
         <details className="talk-fold">
           <summary>{t('conv_ask_full', { id: e.ask_detail.id })}</summary>
           <div className="talk-fold-body">
-            <AskIn a={e.ask_detail} revisions={e.revisions} />
+            <AskIn a={e.ask_detail} />
           </div>
         </details>
       ) : null}
@@ -192,12 +190,11 @@ function Words({ e }: { e: ConversationEntry }) {
   );
 }
 
-/// An ask, in the look its kind has: an architect's (a question, a choice, a study, a policy to approve) or an
-/// engineer's.
-function AskIn({ a, revisions = null }: { a: OwnerAsk; revisions?: JsonValue }) {
+/// An ask, in the look its kind has: an architect's (a question, a choice) or an engineer's.
+function AskIn({ a }: { a: OwnerAsk }) {
   const architect = isObj(a.body) && a.body.from === 'architect';
   return architect ? (
-    <ArchitectAskBlock a={a} revisions={revisions} />
+    <ArchitectAskBlock a={a} />
   ) : (
     <AskView a={a} round={<Link to={workHref(a.work, { round: a.round })}>{`R${a.work}-${a.round}`}</Link>} />
   );
@@ -274,76 +271,32 @@ function useAnswer(): {
   return { text, setText, busy, error, post };
 }
 
-/// How the owner decides on the study or the text of a new policy, in its bubble: a button for each choice its cell
-/// offers, saying what it does, over a line that says what happens next, both as the flow says them; a click sends that
-/// decision. No box: the owner's words on it go to the architect in their talk.
-function RulingAnswer({ a, choices }: { a: OwnerAsk; choices: Choice[] }) {
-  const { busy, error, post } = useAnswer();
-  return (
-    <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
-      <div className="talk-choices">
-        {choices.map((c) => (
-          <div key={c.value} className="talk-choice">
-            <Button
-              size="small"
-              disabled={busy}
-              onClick={() => {
-                const answer = askAnswer(a, c.value, '', false);
-                if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
-              }}
-            >
-              {c.title}
-            </Button>
-            <p className="talk-said-note">{c.desc}</p>
-          </div>
-        ))}
-      </div>
-      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
-    </div>
-  );
-}
-
 /// How an ask that waits is answered, in its bubble: the buttons of what it offers (the options of its choice), a click
 /// picking one and a second clearing it, the one picked marked; then the small box of the owner's words and Answer. The
 /// words are needed for an ask in words alone and for an option ask with none picked, else they are free; an
-/// engineer's ask the owner holds can be handed back to the architect with them. The study and the text of a new policy
-/// are decided by their buttons alone.
+/// engineer's ask the owner holds can be handed back to the architect with them.
 function AskAnswer({ a }: { a: OwnerAsk }) {
-  const way = answerWay(a);
-  if (way.by === 'ruling') return <RulingAnswer a={a} choices={way.choices} />;
-  return <AskWords a={a} />;
-}
-
-/// An ask answered by an option and the owner's words, or by the words alone.
-function AskWords({ a }: { a: OwnerAsk }) {
   const way = answerWay(a);
   const [pick, setPick] = useState('');
   const [back, setBack] = useState(false);
   const { text, setText, busy, error, post } = useAnswer();
-  const answer = askAnswer(a, pick, text, handsBack(a) && back);
-  const meaning = way.by === 'ruling' ? (way.choices.find((c) => c.value === pick)?.desc ?? '') : '';
-  const button = (value: string, name: string, title?: string) => (
+  const answer = askAnswer(pick, text, handsBack(a) && back);
+  const button = (value: string) => (
     <Button
       key={value}
       size="small"
       leadingVisual={pick === value ? CheckIcon : undefined}
       aria-pressed={pick === value}
-      title={title}
       onClick={() => setPick(pickAfter(pick, value))}
     >
-      {name}
+      {value}
     </Button>
   );
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
-      {way.by !== 'words' ? (
-        <div className="talk-answer-buttons">
-          {way.by === 'ruling' ? way.choices.map((c) => button(c.value, c.title, c.desc)) : way.options.map((o) => button(o, o))}
-        </div>
-      ) : null}
-      {meaning !== '' ? <p className="talk-said-note">{meaning}</p> : null}
+      {way.by === 'option' ? <div className="talk-answer-buttons">{way.options.map((o) => button(o))}</div> : null}
       <AnswerBox
-        placeholder={t(needsWords(way, pick) ? 'conv_answer_words' : 'conv_answer_more')}
+        placeholder={t(needsWords(pick) ? 'conv_answer_words' : 'conv_answer_more')}
         ready={answer !== null}
         busy={busy}
         text={text}
