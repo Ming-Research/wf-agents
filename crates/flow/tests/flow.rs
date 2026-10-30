@@ -380,11 +380,11 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     };
     assert!(reads("H12"));
     assert!(!reads("Q1"));
-    // Each row out of the rethink every batch ends at queues it too, for the work that runs.
-    for r in &g.cell("B4").unwrap().rows {
-        if !r.common {
-            assert!(r.actions.iter().any(|d| d.name() == "queue_group_talk"), "{}", r.name);
-        }
+    // Each row from the rethink every batch ends at back to the queue's look queues it too, for the work that runs.
+    for name in ["go_on", "re_plan", "check_policy"] {
+        let r = g.cell("B4").unwrap().rows.iter().find(|r| r.name == name).unwrap();
+        assert_eq!(r.to, "Q0", "{name}");
+        assert!(r.actions.iter().any(|d| d.name() == "queue_group_talk"), "{name}");
     }
 }
 
